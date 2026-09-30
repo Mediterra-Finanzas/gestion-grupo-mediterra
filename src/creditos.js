@@ -540,7 +540,8 @@ export function flujoCreditosEmpresa(empresa, creditos, opts = {}) {
   const n = opts.nMeses || 63;
   const ubicar = opts.ubicar;
   const Z = () => Array(n).fill(0);
-  const bloque = () => ({ total: Z(), capital: Z(), interes: Z(), cargos: Z(), sinDesglose: Z(), sem: {}, porAcreedor: {} });
+  const bloque = () => ({ total: Z(), capital: Z(), interes: Z(), cargos: Z(), sinDesglose: Z(), sem: {}, porAcreedor: {},
+    semComp: { capital: {}, interes: {}, cargos: {}, sinDesglose: {} } });
   const out = { prestamos: bloque(), renovaciones: bloque(), ingresos: { total: Z(), porAcreedor: {} },
     arrastrados: [], sinTC: [], antesHorizonte: [] };
   const hoyPos = ubicar ? ubicar(hoy) : { idx: -1, semIdx: 0 };
@@ -559,8 +560,13 @@ export function flujoCreditosEmpresa(empresa, creditos, opts = {}) {
       const tot = v.pendienteTotal * f;
       add(b.total, tot); add(b.capital, v.pendiente.capital * f); add(b.interes, v.pendiente.interes * f);
       add(b.cargos, v.pendiente.cargos * f); add(b.sinDesglose, v.pendiente.sinDesglose * f);
+      const si = Math.min(3, Math.max(0, pos.semIdx || 0));
       const s = b.sem[pos.idx] || (b.sem[pos.idx] = [0, 0, 0, 0]);
-      s[Math.min(3, Math.max(0, pos.semIdx || 0))] += tot;
+      s[si] += tot;
+      ['capital', 'interes', 'cargos', 'sinDesglose'].forEach(k => {
+        const sc = b.semComp[k][pos.idx] || (b.semComp[k][pos.idx] = [0, 0, 0, 0]);
+        sc[si] += v.pendiente[k] * f;
+      });
       const acr = v.origen === 'renovacion' ? `${c.acreedor} (Ren.)` : (c.acreedor || '—');
       const a = b.porAcreedor[acr] || (b.porAcreedor[acr] = { mes: Z(), sem: {} });
       a.mes[pos.idx] += tot;

@@ -7,6 +7,13 @@ import { theme } from './theme';
 import { exportarFlujoConsolidado, exportarFlujoEmpresa } from './flujoExportExcel.js';
 import { buildAllpaPeruLineas, ALLPA_PERU_KG_2026, ALLPA_PERU_PRECIO_2026, ALLPA_PERU_RATES_2026 } from './allpaPeruPpto.js';
 import { calcularAmortizacionSocio, generarInteresPeriodico } from './creditoSocio.js';
+import {
+  hoyISO, partesISO, flujoCreditosEmpresa, getRenovaciones, calcCuotasRenovacion, calcMontoRealCuota,
+  asegurarUids, uidCredito, estadoCredito, vencimientosCredito, aplicarPagos, registrarPago, anularPago,
+  puedeAnularCredito, analisisCartera, servicioDeudaPorMes, saldoCapitalAl, simularPrepago, aplicarPrepago,
+  calendarioContrato, datosFaltantesContrato, tasaCredito, factorUSD, totalPago, pagosVigentes,
+  TIPOS_ACREEDOR, TIPOS_CREDITO, MONEDAS as MONEDAS_CREDITO, MODALIDADES, BASES,
+} from './creditos.js';
 import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
 import { uploadDocNomina, urlFirmadaNomina } from './friskuHelpers';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
@@ -607,220 +614,75 @@ const CREDITOS_DEFAULT = [
   {n:40,empresa:"Mediterra",acreedor:"Privado Particular",tipo_inst:"Privado",monto:17325,f_venc:"2027-12-01",tipo_cr:"Inversión",tasa:"12.6%",cuota:17325,pagado:false},
   {n:41,empresa:"Mediterra",acreedor:"Privado Particular",tipo_inst:"Privado",monto:550000,f_venc:"2028-01-01",tipo_cr:"Inversión",tasa:"12.6%",cuota:550000,pagado:false},
 ];
-const CREDITOS_TRIM = {
-  quarters:["Q1 2026","Q2 2026","Q3 2026","Q4 2026","Q1 2027","Q2 2027","Q3 2027","Q4 2027","Q1 2028","Q2 2028","Q3 2028","Q4 2028"],
-  pagos:   [21815,1064994,983763,1517473,922750,1348929,677657,972750,1016426,800196,0,0],
-  saldos:  [8355763,7761667,7667292,6513894,5946569,5287401,5270076,4652751,4102751,3881315,3881315,3881315],
-};
 
-// Calcula array proy[64] de pagos de préstamos desde CREDITOS para una empresa
-// Coloca cada cuota en el índice del mes de vencimiento (semana más aproximada)
-function calcPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
-  const arr = Z65();
-  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
-    // Crédito de socio: cada cuota_total (interés + amortización) en su mes.
-    if(c.tipo_credito === "socio") {
-      const { filas } = calcularAmortizacionSocio(c.monto, c.tasa_efectiva_anual, c.fecha_desembolso, c.cuotas_socio);
-      filas.forEach(f => {
-        const mes = mesDeDate(f.fecha);
-        if(!mes || mes.includes("NaN")) return;
-        const i = mIdx(mes);
-        if(i >= 0 && f.cuota_total > 0) arr[i] += f.cuota_total;
-      });
-      return;
-    }
-    if(!c.f_venc || !c.cuota) return;
-    const cuota = Number(c.cuota)||0;
-    if(cuota === 0) return;
-
-    if(c.tipo_cr === "Cuotas Mensuales" && c.f_inicio) {
-      // Distribuir cuotas mensuales desde f_inicio hasta f_venc
-      const inicio = new Date(c.f_inicio);
-      const fin = new Date(c.f_venc);
-      if(isNaN(inicio) || isNaN(fin)) return;
-      let fecha = new Date(inicio);
-      // Primera cuota en el mes siguiente al desembolso
-      fecha.setMonth(fecha.getMonth() + 1);
-      while(fecha <= fin) {
-        const mes = `${MN[fecha.getMonth()]}-${String(fecha.getFullYear()).slice(2)}`;
-        const i = mIdx(mes);
-        if(i >= 0) arr[i] += cuota;
-        fecha.setMonth(fecha.getMonth() + 1);
-      }
-    } else {
-      // Bullet y otros: una cuota al vencimiento
-      const mes = mesDeDate(c.f_venc);
-      if(!mes || mes.includes("NaN")) return;
-      const i = mIdx(mes);
-      if(i >= 0) arr[i] += cuota;
-    }
-  });
-  return arr;
-}
-
-// Calcula ingreso del préstamo (desembolso) en Ingresos No Operacionales
-function calcIngresosPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
-  const arr = Z65();
-  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
-    // Socio: el desembolso (capital) entra como ingreso en su fecha.
-    const fechaIng = c.tipo_credito === "socio" ? c.fecha_desembolso : c.f_inicio;
-    if(!fechaIng) return;
-    const monto = Number(c.monto)||0;
-    if(monto === 0) return;
-    const mes = mesDeDate(fechaIng);
-    if(!mes || mes.includes("NaN")) return;
-    const i = mIdx(mes);
-    if(i >= 0) arr[i] += monto;
-  });
-  return arr;
-}
-
-// Retorna { mes: { semana: monto } } para posicionar en semana exacta de vencimiento
-// Si la semana calculada no está en SEMANAS_MES del mes, usa la última semana del mes
-function semanaVencimientoEnMes(f_venc) {
-  const mes = mesDeDate(f_venc);
-  const sem = semanaDeDate(f_venc);
-  const semsDelMes = SEMANAS_MES[mes] || [];
-  // Si la semana está en el mes → usarla; si no → usar la última semana del mes
-  return { mes, sem: semsDelMes.includes(sem) ? sem : (semsDelMes[semsDelMes.length-1] || sem) };
-}
-
-// ── Genera cuotas de renovación para créditos renovables ya pagados ──────────
-// Usa cuotas_renovacion:[{mes,anio,monto}] para fechas exactas
+// ── Créditos → Flujo de Caja ─────────────────────────────────────────
+// Una sola fuente de verdad: src/creditos.js calcula, por empresa, lo
+// PENDIENTE de cada vencimiento (ya descontados los pagos registrados), con
+// capital / intereses / otros cargos separados, en su mes y semana. Un
+// vencimiento impago con fecha pasada se arrastra al mes y semana en curso
+// (no desaparece de la proyección). Pantalla, consolidado y Excel leen de aquí.
 const MES_ABR_TO_EN = {
   "Ene":"Jan","Feb":"Feb","Mar":"Mar","Abr":"Apr","May":"May","Jun":"Jun",
   "Jul":"Jul","Ago":"Aug","Sep":"Sep","Oct":"Oct","Nov":"Nov","Dic":"Dec"
 };
-
-// Calcula monto real de cada cuota:
-// "Solo Interés"    → interés sobre saldo (capital NO disminuye)
-// "Capital+Interés" → amortización equitativa + interés sobre saldo (capital disminuye)
-// El interés SIEMPRE se agrega automáticamente según tasa anual
-// Mapa abreviatura mes español → número
 const MES_ABR_NUM = {Ene:1,Feb:2,Mar:3,Abr:4,May:5,Jun:6,Jul:7,Ago:8,Sep:9,Oct:10,Nov:11,Dic:12};
 
-function calcMontoRealCuota(cuotas, capital, tasaAnual, mesIngresoAnio) {
-  const cuotasArr = cuotas||[];
-  const n = cuotasArr.length;
-  if(n===0) return [];
-  const tasaMensual = (Number(tasaAnual)||0)/100/12;
-  const nCapital = cuotasArr.filter(cq=>(cq.tipo||"Solo Interés")==="Capital+Interés").length;
-  const amortPorCuota = nCapital>0 ? (Number(capital)||0)/nCapital : 0;
-  let saldo = Number(capital)||0;
-
-  // Fecha base: mes de ingreso del préstamo (para calcular meses exactos)
-  // mesIngresoAnio: "May-26" o similar, o usar primer mes de cuotas
-  let fechaBase = null;
-  if(mesIngresoAnio) {
-    const parts = String(mesIngresoAnio).split("-");
-    if(parts.length===2) {
-      const mesAbr = parts[0]; const anioS = parts[1];
-      const mesN = MES_ABR_NUM[mesAbr]||1;
-      const anioN = anioS.length===2 ? 2000+parseInt(anioS) : parseInt(anioS);
-      fechaBase = {y:anioN, m:mesN};
-    }
-  }
-
-  return cuotasArr.map((cq,i) => {
-    const tipo = cq.tipo||"Solo Interés";
-    // Calcular meses desde fecha base hasta esta cuota
-    let interes = 0;
-    if(tasaMensual > 0 && cq.mes && cq.anio) {
-      const mesN = MES_ABR_NUM[cq.mes]||1;
-      const anioN = parseInt(cq.anio)||2026;
-      let mesesTransc = 0;
-      if(fechaBase) {
-        // Meses desde el ingreso (o última cuota) hasta esta cuota
-        const prevCuota = i===0 ? fechaBase : (() => {
-          const pc = cuotasArr[i-1];
-          return pc?.mes && pc?.anio
-            ? {y:parseInt(pc.anio)||2026, m:MES_ABR_NUM[pc.mes]||1}
-            : fechaBase;
-        })();
-        mesesTransc = (anioN - prevCuota.y)*12 + (mesN - prevCuota.m);
-      } else {
-        // Sin fecha base, asumir período mensual
-        mesesTransc = 1;
-      }
-      mesesTransc = Math.max(1, mesesTransc);
-      interes = Math.round(saldo * tasaMensual * mesesTransc);
-    }
-    let montoReal, amort=0;
-    if(tipo==="Capital+Interés") {
-      amort = Math.round(amortPorCuota);
-      montoReal = amort + interes;
-      saldo = Math.max(0, saldo - amort);
-    } else {
-      montoReal = interes;
-    }
-    return {...cq, montoReal, interes, amort};
-  });
+// Semana (misma numeración que semanaDeDate) de una fecha ISO leída como
+// texto, sin zona horaria.
+function semanaDeISO(p) {
+  const t = Date.UTC(p.y, p.m-1, p.d), j1 = Date.UTC(p.y, 0, 1);
+  const week = Math.ceil(((t-j1)/86400000 + new Date(j1).getUTCDay() + 1)/7);
+  return `S${String(week).padStart(2,"0")}`;
 }
-
-// Normaliza las renovaciones de un crédito a un array. Soporta el formato
-// nuevo (c.renovaciones:[{monto,mes_ingreso,anio_ingreso,tasa_anual,cuotas}])
-// y el legacy (campos monto_renovacion/…/cuotas_renovacion como 1 renovación).
-function getRenovaciones(c) {
-  if (Array.isArray(c.renovaciones) && c.renovaciones.length) {
-    return c.renovaciones.map(r => ({
-      monto: r.monto,
-      mes_ingreso: r.mes_ingreso,
-      anio_ingreso: r.anio_ingreso,
-      tasa_anual: (r.tasa_anual != null && r.tasa_anual !== "") ? r.tasa_anual : c.tasa_anual,
-      cuotas: r.cuotas || [],
-    }));
-  }
-  if (c.monto_renovacion || (c.cuotas_renovacion||[]).length) {
-    return [{
-      monto: c.monto_renovacion,
-      mes_ingreso: c.mes_ingreso_renovacion,
-      anio_ingreso: c.anio_ingreso_renovacion,
-      tasa_anual: c.tasa_anual,
-      cuotas: c.cuotas_renovacion || [],
-    }];
-  }
-  return [];
+// Posición "hoy" en el flujo: misma regla que FlujoEmpresa (mes actual y
+// semana en curso), para que un vencido arrastrado caiga en la semana desde
+// la que arranca el saldo semanal.
+function posicionHoyFlujo() {
+  const hoy = new Date();
+  const mes = `${MN[hoy.getMonth()]}-${String(hoy.getFullYear()).slice(2)}`;
+  const jan1 = new Date(hoy.getFullYear(),0,4);
+  const week = 1+Math.round(((hoy-jan1)/86400000-3+((jan1.getDay()+6)%7))/7);
+  const sems = SEMANAS_MES[mes] || [];
+  const si = sems.indexOf(`S${String(week).padStart(2,"0")}`);
+  return { idx: mIdx(mes), semIdx: si >= 0 ? si : 0 };
 }
-// Cuotas calculadas (con interés/amort) de una renovación normalizada.
-function calcCuotasRenovacion(ren) {
-  return calcMontoRealCuota(ren.cuotas, ren.monto, ren.tasa_anual,
-    ren.mes_ingreso && ren.anio_ingreso ? `${ren.mes_ingreso}-${String(ren.anio_ingreso).slice(-2)}` : '');
+// {idx, semIdx} de una fecha ISO en el horizonte del flujo (idx −1 = fuera).
+// Si la semana no está en SEMANAS_MES del mes, usa la última (regla histórica).
+function ubicarFechaFlujo(iso) {
+  if (iso === hoyISO()) return posicionHoyFlujo();
+  const p = partesISO(iso);
+  if (!p) return { idx:-1, semIdx:0 };
+  const mes = `${MN[p.m-1]}-${String(p.y).slice(2)}`;
+  const sems = SEMANAS_MES[mes] || [];
+  let semIdx = 0;
+  if (sems.length) { const i = sems.indexOf(semanaDeISO(p)); semIdx = i >= 0 ? i : sems.length-1; }
+  return { idx: mIdx(mes), semIdx };
 }
-
+// Cache por (lista de créditos, empresa, día): la misma lista se consulta
+// muchas veces por render (fila, sub-filas, semanas).
+const _cacheFlujoCred = new WeakMap();
+export function flujoCredEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
+  const lista = Array.isArray(creditos) ? creditos : [];
+  const hoy = hoyISO();
+  let m = _cacheFlujoCred.get(lista);
+  if (!m) { m = new Map(); _cacheFlujoCred.set(lista, m); }
+  const k = `${empresa}|${hoy}`;
+  if (!m.has(k)) m.set(k, flujoCreditosEmpresa(empresa, lista, { hoy, ubicar: ubicarFechaFlujo, nMeses: MESES_65.length }));
+  return m.get(k);
+}
+function calcPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
+  return [...flujoCredEmpresa(empresa, creditos).prestamos.total];
+}
+function calcIngresosPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
+  return [...flujoCredEmpresa(empresa, creditos).ingresos.total];
+}
 function calcRenovacionesEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
-  const arr = Z65();
-  creditos.filter(c => c.empresa === empresa && c.renovable).forEach(c => {
-    getRenovaciones(c).forEach(ren => {
-      calcCuotasRenovacion(ren).forEach(cq => {
-        if(!cq.mes || !cq.anio) return;
-        const monto = cq.montoReal || Number(cq.monto) || 0;
-        const mesEn = MES_ABR_TO_EN[cq.mes] || cq.mes;
-        const label = `${mesEn}-${String(cq.anio).slice(2)}`;
-        const i = mIdx(label);
-        if(i >= 0) arr[i] += monto;
-      });
-    });
-  });
-  return arr;
+  return [...flujoCredEmpresa(empresa, creditos).renovaciones.total];
 }
-
 function calcRenovacionesDesglose(empresa, creditos=CREDITOS_DEFAULT) {
-  const byAcreedor = {};
-  creditos.filter(c => c.empresa === empresa && c.renovable).forEach(c => {
-    const key = c.acreedor + " (Ren.)";
-    if(!byAcreedor[key]) byAcreedor[key] = Z65();
-    getRenovaciones(c).forEach(ren => {
-      calcCuotasRenovacion(ren).forEach(cq => {
-        if(!cq.mes || !cq.anio) return;
-        const monto = cq.montoReal || Number(cq.monto) || 0;
-        const mesEn = MES_ABR_TO_EN[cq.mes] || cq.mes;
-        const label = `${mesEn}-${String(cq.anio).slice(2)}`;
-        const i = mIdx(label);
-        if(i >= 0) byAcreedor[key][i] += monto;
-      });
-    });
-  });
-  return byAcreedor;
+  const out = {};
+  Object.entries(flujoCredEmpresa(empresa, creditos).renovaciones.porAcreedor).forEach(([a,x])=>{ out[a] = x.mes; });
+  return out;
 }
 
 // Genera array de ingresos por renovación (nuevo préstamo recibido)
@@ -855,46 +717,6 @@ function calcIngresoRenovacionDesglose(empresa, creditos=CREDITOS_DEFAULT) {
   });
   return byAcreedor;
 }
-function calcPrestamosSemanasEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
-  const bySemana = {}; // { "Nov-26": { "S47": 120000 } }
-  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
-    if(!c.f_venc || !c.cuota) return;
-    const { mes, sem } = semanaVencimientoEnMes(c.f_venc);
-    const monto = Number(c.cuota)||0;
-    if(!bySemana[mes]) bySemana[mes] = {};
-    bySemana[mes][sem] = (bySemana[mes][sem]||0) + monto;
-  });
-  return bySemana;
-}
-
-// Retorna { acreedor: proy[64] } desglosado por institución
-function calcPrestamosDesglose(empresa, creditos=CREDITOS_DEFAULT) {
-  const byAcreedor = {};
-  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
-    if(!c.f_venc || !c.cuota) return;
-    const mes = mesDeDate(c.f_venc);
-    const i   = mIdx(mes);
-    if(i < 0) return;
-    if(!byAcreedor[c.acreedor]) byAcreedor[c.acreedor] = Z65();
-    byAcreedor[c.acreedor][i] += Number(c.cuota)||0;
-  });
-  return byAcreedor;
-}
-
-// Retorna { acreedor: { mes: { semana: monto } } } para vista semanal exacta
-function calcPrestamosDesgloseSemanasEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
-  const bySemana = {}; // { "Zelun": { "Nov-26": { "S47": 120000 } } }
-  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
-    if(!c.f_venc || !c.cuota) return;
-    const { mes, sem } = semanaVencimientoEnMes(c.f_venc);
-    const monto = Number(c.cuota)||0;
-    if(!bySemana[c.acreedor]) bySemana[c.acreedor] = {};
-    if(!bySemana[c.acreedor][mes]) bySemana[c.acreedor][mes] = {};
-    bySemana[c.acreedor][mes][sem] = (bySemana[c.acreedor][mes][sem]||0) + monto;
-  });
-  return bySemana;
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // EMPRESAS ESTÁTICAS
 // ═══════════════════════════════════════════════════════════════════
@@ -1614,6 +1436,55 @@ export function buildAllegria(params, allegraComisionArandanos) {
     ],
   };
 }
+// Inyecta en `base` (salida de buildEmpresas) las líneas que alimenta
+// Créditos. Muta y devuelve `base`. Lo usan FinanzasModule y los tests.
+export function aplicarCreditosAEmpresas(base, creditosData) {
+  Object.keys(base).forEach(empNombre=>{
+    const emp = base[empNombre];
+    base[empNombre] = {
+      ...emp,
+      sections: emp.sections.map(sec=>{
+        // egr_nop: Pago Préstamos + Renovaciones (egresos)
+        if(sec.cat==="egr_nop") {
+          return {
+            ...sec,
+            lines: sec.lines.map(l=>{
+              // Líneas alimentadas por Créditos: única fuente de verdad. El
+              // valor manual no aplica (_lockOverrideFromIdx:0) y la vista
+              // semanal usa la semana exacta de cada vencimiento (_semProy),
+              // igual en la celda, el subtotal, el flujo neto y el saldo.
+              if(l.label==="Pago Préstamos - Total"){
+                const fc = flujoCredEmpresa(empNombre, creditosData).prestamos;
+                return {...l, proy: [...fc.total], _semProy: fc.sem, _fuenteCreditos:true, _lockOverrideFromIdx:0};
+              }
+              if(l.label==="Renovaciones"){
+                const fc = flujoCredEmpresa(empNombre, creditosData).renovaciones;
+                return {...l, proy: [...fc.total], _semProy: fc.sem, _fuenteCreditos:true, _lockOverrideFromIdx:0};
+              }
+              return l;
+            })
+          };
+        }
+        // ing_nop: Ingreso Renovación + Ingresos Financiamiento (ingresos)
+        if(sec.cat==="ing_nop") {
+          return {
+            ...sec,
+            lines: sec.lines.map(l=>{
+              if(l.label==="Ingreso Renovación")
+                return {...l, proy: calcIngresoRenovacionEmpresa(empNombre, creditosData)};
+              if(l.label==="Ingresos Financiamiento")
+                return {...l, proy: calcIngresosPrestamosEmpresa(empNombre, creditosData)};
+              return l;
+            })
+          };
+        }
+        return sec;
+      })
+    };
+  });
+  return base;
+}
+
 export function buildEmpresas(params, allegraComisionArandanos) {
   return { ...EMPRESAS_STATIC, "Allegria Foods": buildAllegria(params, allegraComisionArandanos) };
 }
@@ -6049,13 +5920,16 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     const ov = overridesDeLinea(proyOverrides, emp, cat, lineLabel, resoluciones)?.[idx];
     let base = 0;
     let lockFrom = null;
+    let semProy = null;
     {
       const sec = emp.sections.find(x=>x.cat===cat);
       const l = sec && sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; }
+      if(l){ base = l.proy[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; if(l._semProy) semProy=l._semProy; }
     }
     // Celda controlada por parámetros: ignora override, muestra base en la 1ª semana.
     if(ov === undefined || (lockFrom !== null && idx >= lockFrom)) {
+      // Línea con reparto semanal propio (Créditos: semana del vencimiento)
+      if(semProy) return (semProy[idx]?.[semIdx]) || 0;
       // Sin override: mostrar el valor base COMPLETO en la primera semana
       return semIdx === 0 ? base : 0;
     }
@@ -6166,6 +6040,23 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   // cat::etiqueta debe ser único; si el usuario agregó líneas con el mismo
   // nombre en la misma categoría, hay que avisarlo antes de seguir.
   const dupClaves = useMemo(() => clavesDuplicadas(emp), [emp]);
+  // Créditos en el flujo: vencidos impagos arrastrados al mes en curso,
+  // créditos que no entran por falta de TC y valores manuales antiguos en
+  // Pago Préstamos / Renovaciones que ya no aplican (Créditos manda).
+  const avisoCreditos = useMemo(()=>{
+    const fc = flujoCredEmpresa(empNombre, creditosData);
+    const ovIgnorados = [];
+    emp.sections.forEach(sec=>sec.lines.forEach(l=>{
+      if(!l._fuenteCreditos) return;
+      const ov = overridesDeLinea(proyOverrides, emp, sec.cat, l.label, resoluciones) || {};
+      Object.entries(ov).forEach(([i,v])=>{
+        const idx=Number(i); if(isNaN(idx)||!MESES_65[idx]) return;
+        const val = typeof v==="object"&&v!==null ? Object.values(v).reduce((a,x)=>a+(Number(x)||0),0) : (Number(v)||0);
+        ovIgnorados.push({linea:l.label, mes:MESES_65[idx], manual:val, creditos:l.proy[idx]||0});
+      });
+    }));
+    return { arrastrados: fc.arrastrados, sinTC: fc.sinTC, ovIgnorados };
+  },[empNombre, creditosData, emp, proyOverrides, resoluciones]);
 
   // Asignar UN mes de un override ambiguo a una categoría concreta.
   const resolver = useCallback(async (amb, mes, cat) => {
@@ -6676,9 +6567,6 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         let val;
                         if(isTot||col.type==="month"||col.type==="month_collapsed"){
                           val=valMes;
-                        } else if(line.formula&&line.label.includes("Préstamos")&&col.type==="week"){
-                          const semMap=calcPrestamosSemanasEmpresa(empNombre, creditosData);
-                          val=(semMap[col.mes]?.[col.semana])||0;
                         } else if(col.type==="week") {
                           // Cada semana tiene su propio valor independiente
                           const propValSem = getProySemana(sec.cat, line.label, col.idx, col.semIdx, col.isLastInMonth);
@@ -6703,7 +6591,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         // solo aporta el valor por defecto; lo ingresado manda.
                         const overrideDesde = typeof line._permiteOverrideDesdeIdx === "number" ? line._permiteOverrideDesdeIdx : null;
                         const permiteOverrideManual = line.label === "Royalty IQ" || (overrideDesde !== null && col.idx >= overrideDesde);
-                        const formulaBloquea = line.formula && !esTemporadaActual && !permiteOverrideManual;
+                        // Pago Préstamos / Renovaciones: se editan en Créditos (única fuente).
+                        const formulaBloquea = line._fuenteCreditos || (line.formula && !esTemporadaActual && !permiteOverrideManual);
                         const isEditable=canEdit && !formulaBloquea && !isTot && col.type!=="month_collapsed";
                         return (
                           <td key={`${col.mes}-${col.label}-${line.label}-${ci}`}
@@ -6742,84 +6631,48 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     })}
                   </tr>
                   {/* SubLines: clientes/acreedores con montos por mes */}
-                  {/* For Pago Préstamos: auto-generate rows from calcPrestamosDesglose */}
-                  {line.subLines&&expandedSubs[line.label]&&line.label.includes("Préstamos")&&(()=>{
-                    const desglose      = calcPrestamosDesglose(empNombre, creditosData);
-                    const desgloseSemsn = calcPrestamosDesgloseSemanasEmpresa(empNombre, creditosData);
-                    return Object.entries(desglose).map(([acreedor, proyArr])=>{
-                      const semMap = desgloseSemsn[acreedor]||{};
-                      return (
-                      <tr key={`prest-${acreedor}`} style={{borderBottom:`1px solid ${C.border}11`,background:`${C.red}06`}}>
+                  {/* Pago Préstamos / Renovaciones: desglose automático desde Créditos —
+                      por acreedor y por componente (capital / intereses / otros cargos).
+                      Mismo cálculo que la fila padre: mes y semana exacta del vencimiento. */}
+                  {line._fuenteCreditos&&expandedSubs[line.label]&&(()=>{
+                    const fc = flujoCredEmpresa(empNombre, creditosData);
+                    const b = line.label==="Renovaciones" ? fc.renovaciones : fc.prestamos;
+                    const tieneValor = (arr)=>arr.some(v=>Math.abs(v)>0.005);
+                    const filas = [
+                      ...Object.entries(b.porAcreedor).map(([acr,x])=>({key:`a-${acr}`, label:acr, icono:line.label==="Renovaciones"?"↺":"↳", color:line.label==="Renovaciones"?C.orange:C.red, mes:x.mes, sem:x.sem})),
+                      ...[["capital","Amortización de capital"],["interes","Intereses"],["cargos","Otros cargos (comisiones, seguros)"],["sinDesglose","Sin desglose (registro antiguo)"]]
+                        .filter(([k])=>tieneValor(b[k]))
+                        .map(([k,lbl])=>({key:`c-${k}`, label:lbl, icono:"Σ", color:C.muted, mes:b[k], sem:b.semComp[k], comp:true})),
+                    ];
+                    return filas.map((f,fi)=>(
+                      <tr key={`fc-${line.label}-${f.key}`} style={{borderBottom:`1px solid ${C.border}11`,background:`${C.red}06`,
+                        borderTop:f.comp&&(fi===0||!filas[fi-1].comp)?`1px dashed ${C.border}`:undefined}}>
                         <td style={{padding:"4px 14px 4px 28px",fontSize:10,position:"sticky",left:0,
                           background:`${C.red}06`,zIndex:1,borderRight:`1px solid ${C.border}`,color:C.muted}}>
                           <div style={{display:"flex",alignItems:"center",gap:4}}>
-                            <span style={{color:C.red,fontSize:9}}>↳</span>
-                            <span style={{fontWeight:600}}>{acreedor}</span>
+                            <span style={{color:f.color,fontSize:9}}>{f.icono}</span>
+                            <span style={{fontWeight:f.comp?500:600,fontStyle:f.comp?"italic":"normal"}}>{f.label}</span>
                           </div>
                         </td>
                         {colStructure.map(({season:s,collapsed,cols})=>{
                           if(collapsed){
-                            const tot=s.indices.reduce((a,i)=>a+(proyArr[i]||0),0);
+                            const tot=s.indices.reduce((a,i)=>a+(f.mes[i]||0),0);
                             return <td key={s.key} style={{padding:"4px 6px",textAlign:"right",fontSize:9,
-                              color:tot?C.red:C.muted2,fontWeight:tot?700:400,
+                              color:tot?f.color:C.muted2,fontWeight:tot?700:400,
                               borderLeft:`2px solid ${C.border2}`}}>{tot?$$(tot):"—"}</td>;
                           }
                           return cols.map((col,ci)=>{
                             const isTot=col.isTotalMes;
-                            // Vista mensual: usar proy mensual
-                            // Vista semanal: usar semana exacta de vencimiento
                             let disp=0;
-                            if(isTot||col.type==="month"||col.type==="month_collapsed"){
-                              disp=proyArr[col.idx]||0;
-                            } else if(col.type==="week"&&col.mes&&col.semana){
-                              disp=(semMap[col.mes]?.[col.semana])||0;
-                            }
+                            if(isTot||col.type==="month"||col.type==="month_collapsed") disp=f.mes[col.idx]||0;
+                            else if(col.type==="week") disp=(f.sem[col.idx]?.[col.semIdx])||0;
                             const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                             return (
-                              <td key={`pr-${acreedor}-${col.mes||""}-${ci}`}
+                              <td key={`fc-${f.key}-${col.mes||""}-${ci}`}
                                 style={{padding:"4px 5px",textAlign:"right",fontSize:9,
                                   background:isTot?`${C.yellow}12`:`${C.red}06`,
                                   borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
-                                <span style={{color:disp?C.red:C.muted2,fontWeight:disp?700:400}}>
-                                  {disp?$$(disp):"—"}
-                                </span>
-                              </td>
-                            );
-                          });
-                        })}
-                      </tr>
-                      );
-                    });
-                  })()}
-                  {/* Renovaciones sub-rows */}
-                  {line.subLines&&expandedSubs[line.label]&&line.label==="Renovaciones"&&(()=>{
-                    const desgloseRen = calcRenovacionesDesglose(empNombre, creditosData);
-                    return Object.entries(desgloseRen).map(([acreedor, proyArr])=>(
-                      <tr key={`ren-${acreedor}`} style={{borderBottom:`1px solid ${C.border}11`,background:`${C.orange}06`}}>
-                        <td style={{padding:"4px 14px 4px 28px",fontSize:10,position:"sticky",left:0,
-                          background:`${C.orange}06`,zIndex:1,borderRight:`1px solid ${C.border}`,color:C.muted}}>
-                          <div style={{display:"flex",alignItems:"center",gap:4}}>
-                            <span style={{color:C.orange,fontSize:9}}>↺</span>
-                            <span style={{fontWeight:600}}>{acreedor}</span>
-                          </div>
-                        </td>
-                        {colStructure.map(({season:s,collapsed,cols})=>{
-                          if(collapsed){
-                            const tot=s.indices.reduce((a,i)=>a+(proyArr[i]||0),0);
-                            return <td key={s.key} style={{padding:"4px 6px",textAlign:"right",fontSize:9,
-                              color:tot?C.orange:C.muted2,fontWeight:tot?700:400,
-                              borderLeft:`2px solid ${C.border2}`}}>{tot?$$(tot):"—"}</td>;
-                          }
-                          return cols.map((col,ci)=>{
-                            const raw=proyArr[col.idx]||0;
-                            const disp=col.isTotalMes||col.type==="month"||col.type==="month_collapsed"||col.isLastInMonth?raw:0;
-                            const isFirst=col.isFirstInSeason||col.isFirstInMonth;
-                            return (
-                              <td key={`ren-${acreedor}-${col.mes||""}-${ci}`}
-                                style={{padding:"4px 5px",textAlign:"right",fontSize:9,
-                                  background:col.isTotalMes?`${C.yellow}12`:`${C.orange}06`,
-                                  borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
-                                <span style={{color:disp?C.orange:C.muted2,fontWeight:disp?700:400}}>
+                                <span style={{color:disp?f.color:C.muted2,fontWeight:disp&&!f.comp?700:400,fontStyle:f.comp?"italic":"normal"}}>
                                   {disp?$$(disp):"—"}
                                 </span>
                               </td>
@@ -7399,6 +7252,32 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
         </div>
       )}
 
+      {/* ── Créditos: vencidos arrastrados, sin TC, manuales que no aplican ── */}
+      {(avisoCreditos.arrastrados.length>0||avisoCreditos.sinTC.length>0||avisoCreditos.ovIgnorados.length>0)&&(
+        <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,borderRadius:10,padding:"10px 14px",fontSize:11,color:C.text,lineHeight:1.6}}>
+          {avisoCreditos.arrastrados.length>0&&(<div>
+            <strong>⚠ {avisoCreditos.arrastrados.length} vencimiento(s) de créditos impago(s) con fecha pasada: {$$(avisoCreditos.arrastrados.reduce((a,v)=>a+v.usd,0))}</strong> se
+            proyectan en el mes y semana en curso (no se dan por pagados). Si ya se pagaron, regístralo en Créditos → Pagos.
+            <div style={{color:C.muted,fontSize:10}}>
+              {avisoCreditos.arrastrados.slice(0,8).map(v=>`${v.acreedor} ${fmtDate(v.fecha)} ${$$(v.usd)}`).join(" · ")}
+              {avisoCreditos.arrastrados.length>8?` · y ${avisoCreditos.arrastrados.length-8} más`:""}
+            </div>
+          </div>)}
+          {avisoCreditos.sinTC.length>0&&(<div style={{marginTop:4}}>
+            <strong>⚠ {avisoCreditos.sinTC.length} crédito(s) en otra moneda sin tipo de cambio</strong> no entran al flujo
+            (no se suman montos en {[...new Set(avisoCreditos.sinTC.map(c=>c.moneda))].join("/")} a un flujo en USD): {avisoCreditos.sinTC.map(c=>c.acreedor).join(", ")}.
+            Carga el TC en Créditos.
+          </div>)}
+          {avisoCreditos.ovIgnorados.length>0&&(<div style={{marginTop:4}}>
+            <strong>ℹ {avisoCreditos.ovIgnorados.length} valor(es) manual(es) antiguo(s) en Pago Préstamos / Renovaciones ya no se aplican</strong>:
+            esas líneas se alimentan solo de Créditos. Quedan guardados (no se borraron).
+            <div style={{color:C.muted,fontSize:10}}>
+              {avisoCreditos.ovIgnorados.map(o=>`${o.linea} ${o.mes}: manual ${$$(o.manual)} → Créditos ${$$(o.creditos)}`).join(" · ")}
+            </div>
+          </div>)}
+        </div>
+      )}
+
       {/* ── Valores manuales antiguos sin categoría asignada ────────── */}
       {ambiguos.length>0&&(
         <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,borderRadius:10,padding:"12px 14px"}}>
@@ -7601,10 +7480,748 @@ function Dashboard({empresas, empresasConOverrides, saldosBancos}) {
 // ═══════════════════════════════════════════════════════════════════
 // CRÉDITOS
 // ═══════════════════════════════════════════════════════════════════
-function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canEdit=false, empresasPermitidas, nextCreditId}) {
+// ═══════════════════════════════════════════════════════════════════
+// CRÉDITOS — piezas de interfaz (detalle, contrato, análisis, prepago).
+// La lógica vive en src/creditos.js; acá solo se muestra y se captura.
+// ═══════════════════════════════════════════════════════════════════
+const $c = (n, mon) => {
+  if(n==null||n==="") return "—";
+  const v = Number(n)||0;
+  return `${v<0?"-":""}${mon&&mon!=="USD"?mon+" ":"$"}${Math.abs(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+};
+const CR_INP = {width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"};
+const CR_TH = {padding:"7px 10px",fontWeight:700,fontSize:10,color:"rgba(255,255,255,0.9)",letterSpacing:"0.4px",textTransform:"uppercase",whiteSpace:"nowrap"};
+const CR_TD = {padding:"6px 10px",fontSize:11,borderBottom:`1px solid ${C.border}22`};
+const ESTADO_VENC = {
+  pagada:   {lbl:"Pagada",    bg:"#dcfce7", fg:"#166534"},
+  parcial:  {lbl:"Parcial",   bg:"#dbeafe", fg:"#1e40af"},
+  vencida:  {lbl:"Vencida",   bg:"#fee2e2", fg:"#991b1b"},
+  pendiente:{lbl:"Pendiente", bg:"#fef9c3", fg:"#854d0e"},
+};
+const ESTADO_CRED = {
+  vigente:     {lbl:"Vigente",      bg:"#fef9c3", fg:"#854d0e"},
+  con_vencidos:{lbl:"Con vencidos", bg:"#fee2e2", fg:"#991b1b"},
+  cerrado:     {lbl:"Cerrado",      bg:"#dcfce7", fg:"#166534"},
+  anulado:     {lbl:"Anulado",      bg:"#e5e7eb", fg:"#374151"},
+};
+function Pill({def,extra}){
+  return <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:def.bg,color:def.fg,whiteSpace:"nowrap"}}>{def.lbl}{extra||""}</span>;
+}
+function CampoCr({label,children,ayuda,span}){
+  return (
+    <div style={span?{gridColumn:`span ${span}`}:undefined}>
+      <div style={{fontSize:10,color:C.muted,marginBottom:3,fontWeight:600}}>{label}</div>
+      {children}
+      {ayuda&&<div style={{fontSize:9,color:C.muted2,marginTop:2}}>{ayuda}</div>}
+    </div>
+  );
+}
+
+// ── Campos comunes a todo tipo de crédito ─────────────────────────────
+function CamposComunesCredito({form,setForm,sinMoneda=false}){
+  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const docs = Array.isArray(form.documentos)?form.documentos:[];
+  return (
+    <div style={{padding:"4px 20px 12px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+      <CampoCr label="Tipo de acreedor">
+        <select value={form.tipo_acreedor||""} onChange={e=>set("tipo_acreedor",e.target.value)} style={CR_INP}>
+          <option value="">— seleccionar —</option>{TIPOS_ACREEDOR.map(t=><option key={t}>{t}</option>)}
+        </select>
+      </CampoCr>
+      <CampoCr label="Identificador (N° operación / contrato)">
+        <input value={form.identificador||""} onChange={e=>set("identificador",e.target.value)} style={CR_INP}/>
+      </CampoCr>
+      <CampoCr label="Moneda del crédito" ayuda={sinMoneda?"Crédito de socio: en USD.":undefined}>
+        <select value={sinMoneda?"USD":(form.moneda||"USD")} disabled={sinMoneda} onChange={e=>set("moneda",e.target.value)} style={CR_INP}>
+          {MONEDAS_CREDITO.map(m=><option key={m}>{m}</option>)}
+        </select>
+      </CampoCr>
+      {!sinMoneda&&(form.moneda||"USD")!=="USD"&&(
+        <CampoCr label={`TC para el flujo (${form.moneda} por 1 US$)`} ayuda="Hipótesis declarada. Sin TC el crédito NO entra al flujo en USD.">
+          <InputNumero formato="tasa" value={form.tc_flujo||""} onChange={n=>set("tc_flujo",n)} style={CR_INP}/>
+        </CampoCr>
+      )}
+      <CampoCr label="Garantías" span={!sinMoneda&&(form.moneda||"USD")!=="USD"?2:3}>
+        <input value={form.garantias||""} onChange={e=>set("garantias",e.target.value)} placeholder="Ej: hipoteca predio X, aval Mediterra, prenda maquinaria" style={CR_INP}/>
+      </CampoCr>
+      <CampoCr label="Prepago: comisión / penalidad" ayuda="Se usa en la simulación. Si no está, la simulación lo declara como dato faltante.">
+        <select value={form.prepago_comision_tipo||""} onChange={e=>set("prepago_comision_tipo",e.target.value)} style={CR_INP}>
+          <option value="">— sin información —</option>
+          <option value="ninguna">Sin comisión</option>
+          <option value="pct">% sobre capital prepagado</option>
+          <option value="meses_interes">N meses de interés sobre lo prepagado</option>
+          <option value="monto">Monto fijo</option>
+        </select>
+      </CampoCr>
+      {["pct","meses_interes","monto"].includes(form.prepago_comision_tipo)&&(
+        <CampoCr label={form.prepago_comision_tipo==="pct"?"% comisión":form.prepago_comision_tipo==="meses_interes"?"N° de meses":"Monto"}>
+          <InputNumero formato={form.prepago_comision_tipo==="monto"?"monto":"tasa"} value={form.prepago_comision_valor||""} onChange={n=>set("prepago_comision_valor",n)} style={CR_INP}/>
+        </CampoCr>
+      )}
+      <CampoCr label="Otras condiciones de prepago (aviso, mínimos…)" span={["pct","meses_interes","monto"].includes(form.prepago_comision_tipo)?1:2}>
+        <input value={form.prepago_notas||""} onChange={e=>set("prepago_notas",e.target.value)} style={CR_INP}/>
+      </CampoCr>
+      <div style={{gridColumn:"span 3"}}>
+        <div style={{fontSize:10,color:C.muted,marginBottom:3,fontWeight:600,display:"flex",alignItems:"center",gap:8}}>
+          Documentos de respaldo (nombre + enlace)
+          <button type="button" onClick={()=>set("documentos",[...docs,{nombre:"",url:""}])}
+            style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700}}>+ documento</button>
+        </div>
+        {docs.map((d,i)=>(
+          <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 2fr auto",gap:6,marginBottom:4}}>
+            <input value={d.nombre||""} placeholder="Ej: Pagaré, Tabla de desarrollo" onChange={e=>set("documentos",docs.map((x,j)=>j===i?{...x,nombre:e.target.value}:x))} style={CR_INP}/>
+            <input value={d.url||""} placeholder="https://… (SharePoint, Drive)" onChange={e=>set("documentos",docs.map((x,j)=>j===i?{...x,url:e.target.value}:x))} style={CR_INP}/>
+            <button type="button" onClick={()=>set("documentos",docs.filter((_,j)=>j!==i))}
+              style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Condiciones de un crédito tipo "contrato" + vista previa ─────────
+function CamposContrato({form,setForm,EMP_SELECT}){
+  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const esManual = form.modalidad==="manual";
+  const cal = useMemo(()=>calendarioContrato(form),[form]);
+  const man = Array.isArray(form.calendario_manual)?form.calendario_manual:[];
+  const cp  = Array.isArray(form.cargos_periodicos)?form.cargos_periodicos:[];
+  const cu  = Array.isArray(form.cargos_unicos)?form.cargos_unicos:[];
+  const tot = cal.filas.reduce((a,f)=>({cap:a.cap+f.capital,int:a.int+f.interes,car:a.car+f.cargos}),{cap:0,int:0,car:0});
+  const mon = form.moneda||"USD";
+  const listaEditable=(arr,key,cols)=>(
+    <div>
+      {arr.map((r,i)=>(
+        <div key={i} style={{display:"grid",gridTemplateColumns:`${cols.map(c=>c.w||"1fr").join(" ")} auto`,gap:6,marginBottom:4}}>
+          {cols.map(c=>c.tipo==="date"
+            ? <input key={c.k} type="date" value={r[c.k]||""} onChange={e=>set(key,arr.map((x,j)=>j===i?{...x,[c.k]:e.target.value}:x))} style={CR_INP}/>
+            : c.tipo==="text"
+              ? <input key={c.k} value={r[c.k]||""} placeholder={c.ph} onChange={e=>set(key,arr.map((x,j)=>j===i?{...x,[c.k]:e.target.value}:x))} style={CR_INP}/>
+              : <InputNumero key={c.k} formato="monto" value={r[c.k]||""} placeholder={c.ph} onChange={n=>set(key,arr.map((x,j)=>j===i?{...x,[c.k]:n}:x))} style={CR_INP}/>)}
+          <button type="button" onClick={()=>set(key,arr.filter((_,j)=>j!==i))}
+            style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <div>
+      <div style={{padding:"16px 20px 8px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+        <CampoCr label="Empresa deudora">
+          <select value={form.empresa||""} onChange={e=>set("empresa",e.target.value)} style={CR_INP}>
+            <option value="">— seleccionar —</option>{EMP_SELECT.map(o=><option key={o}>{o}</option>)}
+          </select>
+        </CampoCr>
+        <CampoCr label="Acreedor"><input value={form.acreedor||""} onChange={e=>set("acreedor",e.target.value)} style={CR_INP}/></CampoCr>
+        <CampoCr label="Tipo de crédito">
+          <select value={form.tipo_cr||""} onChange={e=>set("tipo_cr",e.target.value)} style={CR_INP}>
+            <option value="">— seleccionar —</option>{TIPOS_CREDITO.map(o=><option key={o}>{o}</option>)}
+          </select>
+        </CampoCr>
+        <CampoCr label={`Capital original (${mon})`}><InputNumero formato="monto" value={form.monto||""} onChange={n=>set("monto",n)} style={CR_INP}/></CampoCr>
+        <CampoCr label="Fecha de desembolso"><input type="date" value={form.fecha_desembolso||""} onChange={e=>set("fecha_desembolso",e.target.value)} style={CR_INP}/></CampoCr>
+        <CampoCr label="¿El desembolso entra a caja?" ayuda="No, si es refinanciamiento con el mismo acreedor sin movimiento de caja.">
+          <select value={form.desembolso_en_flujo===false?"no":"si"} onChange={e=>set("desembolso_en_flujo",e.target.value==="si")} style={CR_INP}>
+            <option value="si">Sí (Ingresos Financiamiento)</option><option value="no">No</option>
+          </select>
+        </CampoCr>
+        <CampoCr label="Modalidad de pago" span={2}>
+          <select value={form.modalidad||""} onChange={e=>set("modalidad",e.target.value)} style={CR_INP}>
+            <option value="">— seleccionar —</option>{Object.entries(MODALIDADES).map(([k,l])=><option key={k} value={k}>{l}</option>)}
+          </select>
+        </CampoCr>
+        {!esManual&&<CampoCr label="Vencimiento final"><input type="date" value={form.vencimiento_final||""} onChange={e=>set("vencimiento_final",e.target.value)} style={CR_INP}/></CampoCr>}
+        {!esManual&&form.modalidad!=="bullet_total"&&(<>
+          <CampoCr label="Periodicidad">
+            <select value={String(form.periodicidad||1)} onChange={e=>set("periodicidad",Number(e.target.value))} style={CR_INP}>
+              <option value="1">Mensual</option><option value="3">Trimestral</option><option value="6">Semestral</option><option value="12">Anual</option>
+            </select>
+          </CampoCr>
+          <CampoCr label="Primer vencimiento" ayuda="Vacío = desembolso + 1 período"><input type="date" value={form.primer_venc||""} onChange={e=>set("primer_venc",e.target.value)} style={CR_INP}/></CampoCr>
+          <CampoCr label="Períodos de gracia (capital)">
+            <div style={{display:"flex",gap:6}}>
+              <InputNumero formato="entero" value={form.gracia_periodos||""} onChange={n=>set("gracia_periodos",n)} style={{...CR_INP,width:70}}/>
+              <select value={form.gracia_tipo||"interes"} onChange={e=>set("gracia_tipo",e.target.value)} style={CR_INP}>
+                <option value="interes">paga intereses</option><option value="total">total (intereses se capitalizan)</option>
+              </select>
+            </div>
+          </CampoCr>
+        </>)}
+        {!esManual&&(<>
+          <CampoCr label="Tasa">
+            <select value={form.tasa_tipo||"fija"} onChange={e=>set("tasa_tipo",e.target.value)} style={CR_INP}>
+              <option value="fija">Fija</option><option value="variable">Variable</option>
+            </select>
+          </CampoCr>
+          {(form.tasa_tipo||"fija")==="fija"
+            ? <CampoCr label="Tasa anual nominal (%)"><InputNumero formato="tasa" value={form.tasa_anual??""} onChange={n=>set("tasa_anual",n)} style={CR_INP}/></CampoCr>
+            : (<>
+              <CampoCr label="Referencia (nombre)"><input value={form.tasa_ref_nombre||""} placeholder="SOFR 3M, TAB 90, TPM…" onChange={e=>set("tasa_ref_nombre",e.target.value)} style={CR_INP}/></CampoCr>
+              <CampoCr label="Referencia vigente (%) — hipótesis" ayuda="Se proyecta constante. Actualízala cuando cambie."><InputNumero formato="tasa" value={form.tasa_ref_hipotesis??""} onChange={n=>set("tasa_ref_hipotesis",n)} style={CR_INP}/></CampoCr>
+              <CampoCr label="Margen / spread (%)"><InputNumero formato="tasa" value={form.margen??""} onChange={n=>set("margen",n)} style={CR_INP}/></CampoCr>
+            </>)}
+          <CampoCr label="Base de cálculo de intereses">
+            <select value={form.base||""} onChange={e=>set("base",e.target.value)} style={CR_INP}>
+              <option value="">— seleccionar —</option>{Object.entries(BASES).map(([k,l])=><option key={k} value={k}>{l}</option>)}
+            </select>
+          </CampoCr>
+        </>)}
+      </div>
+
+      {esManual&&(
+        <div style={{padding:"4px 20px 10px"}}>
+          <div style={{fontSize:11,fontWeight:800,color:C.text,marginBottom:6,display:"flex",gap:8,alignItems:"center"}}>
+            📑 Calendario contractual (tal como lo entrega el acreedor)
+            <button type="button" onClick={()=>set("calendario_manual",[...man,{fecha:"",capital:"",interes:"",cargos:""}])}
+              style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700}}>+ vencimiento</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr auto",gap:6,fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>
+            <div>Fecha</div><div>Capital</div><div>Intereses</div><div>Otros cargos</div><div/>
+          </div>
+          {listaEditable(man,"calendario_manual",[{k:"fecha",tipo:"date"},{k:"capital",ph:"capital"},{k:"interes",ph:"intereses"},{k:"cargos",ph:"cargos"}])}
+        </div>
+      )}
+
+      <div style={{padding:"4px 20px 10px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:4,display:"flex",gap:8,alignItems:"center"}}>
+            Cargos en cada vencimiento (seguros, comisiones)
+            <button type="button" onClick={()=>set("cargos_periodicos",[...cp,{concepto:"",monto:""}])}
+              style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700}}>+</button>
+          </div>
+          {listaEditable(cp,"cargos_periodicos",[{k:"concepto",tipo:"text",ph:"Ej: seguro desgravamen",w:"2fr"},{k:"monto",ph:"monto"}])}
+        </div>
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:4,display:"flex",gap:8,alignItems:"center"}}>
+            Cargos únicos (apertura, notaría, impuesto)
+            <button type="button" onClick={()=>set("cargos_unicos",[...cu,{concepto:"",fecha:"",monto:""}])}
+              style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700}}>+</button>
+          </div>
+          {listaEditable(cu,"cargos_unicos",[{k:"concepto",tipo:"text",ph:"concepto",w:"1.5fr"},{k:"fecha",tipo:"date"},{k:"monto",ph:"monto"}])}
+        </div>
+      </div>
+
+      {/* Vista previa del calendario */}
+      <div style={{padding:"4px 20px 14px"}}>
+        {cal.faltantes.length>0?(
+          <div style={{background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"8px 12px",fontSize:11,color:C.text}}>
+            Faltan datos para generar el calendario: <strong>{cal.faltantes.join(", ")}</strong>.
+          </div>
+        ):(
+          <div style={{border:`1px solid ${C.border}`,borderRadius:8,overflow:"auto",maxHeight:260}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr style={{background:C.primary}}>
+                {["#","Vencimiento","Capital","Intereses","Otros cargos","Total","Saldo capital"].map(h=><th key={h} style={{...CR_TH,textAlign:h==="#"||h==="Vencimiento"?"left":"right"}}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {cal.filas.map((f,i)=>(
+                  <tr key={i}>
+                    <td style={{...CR_TD,color:C.muted}}>{i+1}</td>
+                    <td style={{...CR_TD,whiteSpace:"nowrap"}}>{fmtDate(f.fecha)}{f.capitalizado>0&&<span title="Gracia total: el interés se capitaliza" style={{color:C.orange,marginLeft:4}}>↑cap.</span>}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{$c(f.capital,mon)}</td>
+                    <td style={{...CR_TD,textAlign:"right",color:C.orange}}>{$c(f.interes,mon)}</td>
+                    <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{$c(f.cargos,mon)}</td>
+                    <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(f.capital+f.interes+f.cargos,mon)}</td>
+                    <td style={{...CR_TD,textAlign:"right",color:C.blue}}>{f.saldoFinal!=null?$c(f.saldoFinal,mon):"—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr style={{background:C.bg2}}>
+                <td style={CR_TD}/><td style={{...CR_TD,fontWeight:800}}>Total</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(tot.cap,mon)}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:800,color:C.orange}}>{$c(tot.int,mon)}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(tot.car,mon)}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(tot.cap+tot.int+tot.car,mon)}</td><td style={CR_TD}/>
+              </tr></tfoot>
+            </table>
+          </div>
+        )}
+        {cal.avisos.map((a,i)=><div key={i} style={{fontSize:10,color:C.orange,marginTop:4}}>⚠ {a}</div>)}
+      </div>
+    </div>
+  );
+}
+
+// ── Detalle de un crédito: calendario, pagos, historial ──────────────
+function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
+  const hoy = hoyISO();
+  const e = useMemo(()=>estadoCredito(credito, hoy),[credito, hoy]);
+  const mon = credito.moneda||"USD";
+  const [pagoForm,setPagoForm]=useState(null); // {vencKey, fecha, capital, interes, cargos, sinDesglose, nota}
+  const [desgloseLegacy,setDesgloseLegacy]=useState(null);
+  const esLegacy = !credito.tipo_credito || credito.tipo_credito==="banco";
+  const abrirPago=(v)=>setPagoForm({vencKey:v.key, fecha:hoy, capital:v.pendiente.capital||"", interes:v.pendiente.interes||"",
+    cargos:v.pendiente.cargos||"", sinDesglose:v.pendiente.sinDesglose||"", nota:"", _v:v});
+  async function guardarPago(){
+    try {
+      const nuevo = registrarPago(credito, pagoForm, usuario);
+      await onSave(nuevo);
+      setPagoForm(null);
+    } catch(err){ alert(err.message); }
+  }
+  async function anular(p){
+    const motivo = window.prompt(`Anular el pago del ${fmtDate(p.fecha)} por ${$c(totalPago(p),mon)}.\nEl pago queda en el historial como anulado. Motivo (obligatorio):`);
+    if(motivo===null) return;
+    try { await onSave(anularPago(credito, p.id, motivo, usuario)); } catch(err){ alert(err.message); }
+  }
+  async function guardarDesglose(){
+    const d = desgloseLegacy;
+    const suma = (Number(d.capital)||0)+(Number(d.interes)||0)+(Number(d.cargos)||0);
+    const cuota = Number(credito.cuota)||0;
+    if(suma - cuota > 0.005){ alert(`El desglose (${$c(suma,mon)}) supera la cuota (${$c(cuota,mon)}).`); return; }
+    const ts=new Date().toISOString();
+    await onSave({...credito, desglose:{capital:d.capital, interes:d.interes, cargos:d.cargos},
+      historial:[...(credito.historial||[]),{ts,usuario,accion:"desglose",detalle:`capital ${d.capital||0} · interés ${d.interes||0} · cargos ${d.cargos||0}`}]});
+    setDesgloseLegacy(null);
+  }
+  const pagos = Array.isArray(credito.pagos)?credito.pagos:[];
+  const t = e.tasa;
+  const resumen = [
+    ["Empresa", credito.empresa], ["Acreedor", `${credito.acreedor}${credito.tipo_acreedor?` (${credito.tipo_acreedor})`:""}`],
+    ["Tipo", credito.tipo_cr||"—"], ["Identificador", credito.identificador||"—"], ["Moneda", mon+(mon!=="USD"?` · TC flujo ${credito.tc_flujo||"FALTA"}`:"")],
+    ["Capital original", $c(credito.monto,mon)], ["Desembolso", fmtDate(credito.fecha_desembolso||credito.f_inicio)],
+    ["Vencimiento final", fmtDate(e.vencimientoFinal)],
+    ["Tasa", t.tasa===null?"sin dato":`${t.tasa}% ${t.variable?"variable":"fija"}${t.efectiva?" efectiva":""} · ${t.origen}`],
+    ["Base", BASES[credito.base]||(credito.tipo_credito==="socio"?"Efectiva anual, Actual/365":"sin dato")],
+    ["Modalidad", MODALIDADES[credito.modalidad]||(credito.tipo_credito==="socio"?"Crédito de socio (cuotas definidas)":"Registro por vencimiento")],
+    ["Garantías", credito.garantias||"—"],
+    ["Prepago", credito.prepago_comision_tipo?({ninguna:"sin comisión",pct:`${credito.prepago_comision_valor}% s/capital`,meses_interes:`${credito.prepago_comision_valor} mes(es) de interés`,monto:$c(credito.prepago_comision_valor,mon)}[credito.prepago_comision_tipo]||"—")+(credito.prepago_notas?` · ${credito.prepago_notas}`:""):"sin información"],
+  ];
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.6)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:C.bg2,border:`1px solid ${C.blue}55`,borderRadius:16,width:1100,maxWidth:"96vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(16,24,40,0.4)"}}>
+        <div style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:13,fontWeight:800,color:C.text}}>📅 {credito.acreedor} · {credito.empresa}</span>
+          <Pill def={ESTADO_CRED[e.estado]||ESTADO_CRED.vigente}/>
+          <button onClick={onClose} style={{marginLeft:"auto",background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:20}}>×</button>
+        </div>
+        <div style={{padding:"12px 20px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"6px 16px",fontSize:11}}>
+          {resumen.map(([k,v])=><div key={k}><span style={{color:C.muted}}>{k}: </span><span style={{color:C.text,fontWeight:600}}>{v}</span></div>)}
+        </div>
+        {Array.isArray(credito.documentos)&&credito.documentos.length>0&&(
+          <div style={{padding:"0 20px 8px",fontSize:11}}>
+            <span style={{color:C.muted}}>Documentos: </span>
+            {credito.documentos.map((d,i)=>d.url?<a key={i} href={d.url} target="_blank" rel="noreferrer" style={{marginRight:10,color:C.blue}}>{d.nombre||d.url}</a>:<span key={i} style={{marginRight:10}}>{d.nombre}</span>)}
+          </div>
+        )}
+        <div style={{padding:"0 20px 10px",display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
+          <KPI label="Saldo capital" value={$c(e.saldoCapital,mon)} color={C.red}/>
+          <KPI label="Intereses pendientes" value={$c(e.interesPend,mon)} color={C.orange}/>
+          <KPI label="Otros cargos pendientes" value={$c(e.cargosPend,mon)} color={C.muted}/>
+          <KPI label="Sin desglose" value={$c(e.sinDesglosePend,mon)} color={e.sinDesglosePend>0?C.yellow:C.muted}/>
+          <KPI label="Vencido impago" value={$c(e.vencidoTotal,mon)} color={e.vencidoTotal>0?C.red:C.green}/>
+        </div>
+        {e.faltantes.length>0&&<div style={{margin:"0 20px 10px",background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
+          Faltan condiciones para el calendario: <strong>{e.faltantes.join(", ")}</strong>. Edita el crédito.</div>}
+        {e.huerfanos.length>0&&<div style={{margin:"0 20px 10px",background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
+          ⚠ {e.huerfanos.length} pago(s) quedaron sin vencimiento asociado (se modificaron las condiciones y esa fecha ya no existe). Siguen en el historial;
+          anúlalos y regístralos en el vencimiento correcto: {e.huerfanos.map(p=>`${fmtDate(p.fecha)} ${$c(totalPago(p),mon)}`).join(" · ")}</div>}
+        {esLegacy&&e.sinDesglosePend>0&&(
+          <div style={{margin:"0 20px 10px",fontSize:11,color:C.text,background:`${C.blue}0d`,border:`1px solid ${C.blue}33`,borderRadius:8,padding:"8px 12px"}}>
+            Este registro no separa capital de intereses: el saldo de capital y el costo financiero no se pueden calcular.
+            {canEdit&&!desgloseLegacy&&<button onClick={()=>setDesgloseLegacy({capital:credito.desglose?.capital??"",interes:credito.desglose?.interes??"",cargos:credito.desglose?.cargos??""})}
+              style={{marginLeft:8,padding:"3px 10px",borderRadius:6,border:`1px solid ${C.blue}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:11,fontWeight:700}}>Desglosar cuota ({$c(credito.cuota,mon)})</button>}
+            {desgloseLegacy&&(
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto auto",gap:8,marginTop:8,alignItems:"end"}}>
+                {[["capital","Capital"],["interes","Intereses"],["cargos","Otros cargos"]].map(([k,l])=>(
+                  <CampoCr key={k} label={`${l} por cuota`}><InputNumero formato="monto" value={desgloseLegacy[k]||""} onChange={n=>setDesgloseLegacy(p=>({...p,[k]:n}))} style={CR_INP}/></CampoCr>
+                ))}
+                <button onClick={guardarDesglose} style={{padding:"7px 14px",borderRadius:8,border:"none",background:C.blue,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Guardar</button>
+                <button onClick={()=>setDesgloseLegacy(null)} style={{padding:"7px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:12}}>Cancelar</button>
+                <div style={{gridColumn:"span 5",fontSize:10,color:C.muted}}>Lo que no se asigne queda "sin desglose". Capital + intereses + cargos no puede superar la cuota.</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Calendario */}
+        <div style={{margin:"0 20px 12px",border:`1px solid ${C.border}`,borderRadius:8,overflow:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead><tr style={{background:C.primary}}>
+              {["Vencimiento","Origen","Capital","Intereses","Otros cargos","Sin desglose","Total","Pagado","Pendiente","Estado",...(canEdit?[""]:[])].map((h,i)=>
+                <th key={i} style={{...CR_TH,textAlign:["Vencimiento","Origen","Estado",""].includes(h)?"left":"right"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {e.vencimientos.map(v=>(
+                <tr key={v.key} style={{background:v.estado==="vencida"?"#fee2e211":v.estado==="pagada"?`${C.green}08`:"transparent"}}>
+                  <td style={{...CR_TD,whiteSpace:"nowrap"}}>{fmtDate(v.fecha)}{v.estimado&&<span title="Interés estimado tras prepago sobre calendario manual" style={{color:C.orange}}> ≈</span>}</td>
+                  <td style={{...CR_TD,color:C.muted}}>{v.origen==="renovacion"?`Renov. ${v.renovacion+1}`:"Cuota"}</td>
+                  <td style={{...CR_TD,textAlign:"right"}}>{$c(v.capital,mon)}</td>
+                  <td style={{...CR_TD,textAlign:"right",color:C.orange}}>{$c(v.interes,mon)}</td>
+                  <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{$c(v.cargos,mon)}</td>
+                  <td style={{...CR_TD,textAlign:"right",color:v.sinDesglose?C.yellow:C.muted2}}>{v.sinDesglose?$c(v.sinDesglose,mon):"—"}</td>
+                  <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(v.total,mon)}</td>
+                  <td style={{...CR_TD,textAlign:"right",color:C.green}}>{v.pagadoSinRegistro?<span title="Marcado pagado antes del registro de pagos: sin fecha ni desglose">✓ (sin registro)</span>:(v.pagadoTotal?$c(v.pagadoTotal,mon):"—")}</td>
+                  <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:v.pendienteTotal?C.red:C.muted2}}>{v.pendienteTotal?$c(v.pendienteTotal,mon):"—"}</td>
+                  <td style={CR_TD}><Pill def={ESTADO_VENC[v.estado]} extra={v.estado==="vencida"&&v.parcial?" (parcial)":""}/></td>
+                  {canEdit&&<td style={CR_TD}>{v.pendienteTotal>0&&<button onClick={()=>abrirPago(v)}
+                    style={{padding:"3px 10px",borderRadius:6,border:`1px solid ${C.green}`,background:"transparent",color:C.green,cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>💵 Pagar</button>}</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {pagoForm&&(
+          <div style={{margin:"0 20px 12px",border:`1px solid ${C.green}66`,background:`${C.green}08`,borderRadius:10,padding:"12px 14px"}}>
+            <div style={{fontSize:12,fontWeight:800,color:C.text,marginBottom:8}}>
+              Registrar pago · vencimiento {fmtDate(pagoForm._v.fecha)} · pendiente {$c(pagoForm._v.pendienteTotal,mon)}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr 2fr",gap:8}}>
+              <CampoCr label="Fecha efectiva"><input type="date" value={pagoForm.fecha} onChange={ev=>setPagoForm(p=>({...p,fecha:ev.target.value}))} style={CR_INP}/></CampoCr>
+              {[["capital","Capital"],["interes","Intereses"],["cargos","Otros cargos"],["sinDesglose","Sin desglose"]].map(([k,l])=>(
+                <CampoCr key={k} label={l}><InputNumero formato="monto" value={pagoForm[k]||""} onChange={n=>setPagoForm(p=>({...p,[k]:n}))} style={CR_INP}/></CampoCr>
+              ))}
+              <CampoCr label="Nota (banco, N° operación…)"><input value={pagoForm.nota} onChange={ev=>setPagoForm(p=>({...p,nota:ev.target.value}))} style={CR_INP}/></CampoCr>
+            </div>
+            <div style={{fontSize:10,color:C.muted,marginTop:6}}>
+              Total del pago: <strong>{$c(["capital","interes","cargos","sinDesglose"].reduce((a,k)=>a+(Number(pagoForm[k])||0),0),mon)}</strong>.
+              Un pago parcial deja pendiente solo la diferencia. El saldo de capital baja solo con la parte de capital.
+              Lo "sin desglose" se imputa a cargos → intereses → capital (art. 1595 CC).
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}>
+              <button onClick={()=>setPagoForm(null)} style={{padding:"7px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:12}}>Cancelar</button>
+              <button onClick={guardarPago} style={{padding:"7px 14px",borderRadius:8,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>💾 Registrar pago</button>
+            </div>
+          </div>
+        )}
+
+        {/* Pagos */}
+        <div style={{margin:"0 20px 12px"}}>
+          <SectionTitle>Pagos registrados</SectionTitle>
+          {pagos.length===0?<div style={{fontSize:11,color:C.muted2,fontStyle:"italic"}}>Sin pagos registrados.</div>:(
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr style={{background:C.primary}}>
+                {["Fecha","Tipo","Vencimiento","Capital","Intereses","Cargos","Sin desglose","Total","Nota","Usuario",""].map((h,i)=><th key={i} style={{...CR_TH,textAlign:["Capital","Intereses","Cargos","Sin desglose","Total"].includes(h)?"right":"left"}}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {pagos.map(p=>{
+                  const v = e.vencimientos.find(x=>x.key===p.vencKey);
+                  return (
+                    <tr key={p.id} style={{opacity:p.anulado?0.5:1,textDecoration:p.anulado?"line-through":"none"}}>
+                      <td style={{...CR_TD,whiteSpace:"nowrap"}}>{fmtDate(p.fecha)}</td>
+                      <td style={CR_TD}>{p.tipo==="prepago"?"Prepago":p.tipo==="extincion"?"Extinción (sin caja)":"Pago"}</td>
+                      <td style={{...CR_TD,whiteSpace:"nowrap",color:C.muted}}>{v?fmtDate(v.fecha):(p.vencKey?"⚠ sin vencimiento":"—")}</td>
+                      <td style={{...CR_TD,textAlign:"right"}}>{$c(p.capital,mon)}</td>
+                      <td style={{...CR_TD,textAlign:"right"}}>{$c(p.interes,mon)}</td>
+                      <td style={{...CR_TD,textAlign:"right"}}>{$c(p.cargos,mon)}</td>
+                      <td style={{...CR_TD,textAlign:"right"}}>{p.sinDesglose?$c(p.sinDesglose,mon):"—"}</td>
+                      <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(totalPago(p),mon)}</td>
+                      <td style={{...CR_TD,color:C.muted,textDecoration:"none"}}>{p.nota}{p.anulado&&<div style={{color:C.red}}>Anulado: {p.motivoAnulacion} ({p.anuladoPor})</div>}</td>
+                      <td style={{...CR_TD,color:C.muted}}>{p.usuario}</td>
+                      <td style={CR_TD}>{canEdit&&!p.anulado&&p.tipo!=="extincion"&&<button onClick={()=>anular(p)}
+                        style={{padding:"2px 8px",borderRadius:6,border:"none",background:"#fee2e2",color:"#991b1b",cursor:"pointer",fontSize:10}}>Anular</button>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {Array.isArray(credito.historial)&&credito.historial.length>0&&(
+          <div style={{margin:"0 20px 16px"}}>
+            <SectionTitle>Historial</SectionTitle>
+            {credito.historial.slice().reverse().map((h,i)=>(
+              <div key={i} style={{fontSize:10,color:C.muted,padding:"2px 0"}}>{fmtDate(h.ts)} · {h.usuario||"—"} · <strong>{h.accion}</strong> · {h.detalle}</div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Análisis de cartera para el CFO ──────────────────────────────────
+function AnalisisCreditos({creditos, empresas}){
+  const hoy = hoyISO();
+  const an = useMemo(()=>analisisCartera(creditos, hoy),[creditos, hoy]);
+  const serv = useMemo(()=>servicioDeudaPorMes(creditos, hoy),[creditos, hoy]);
+  const [agrupar,setAgrupar]=useState("porEmpresa");
+  const tot = Object.values(an.porEmpresa).reduce((a,x)=>({cap:a.cap+x.saldoCapital,sd:a.sd+x.sinDesglose,pend:a.pend+x.pendiente,venc:a.venc+x.vencido}),{cap:0,sd:0,pend:0,venc:0});
+  // 18 meses desde el mes en curso
+  const meses = []; { let [y,m]=hoy.split("-").map(Number); for(let i=0;i<18;i++){ meses.push(`${y}-${String(m).padStart(2,"0")}`); m++; if(m>12){m=1;y++;} } }
+  const mesLbl = (k)=>{ const [y,m]=k.split("-"); return `${MESES_ABR_SD[Number(m)-1]}-${y.slice(2)}`; };
+  const s12 = meses.slice(0,12).reduce((a,k)=>a+(serv[k]?.total||0),0);
+  const fUSD = (c)=>factorUSD(c);
+  const venc = an.estados.flatMap(e=>e.f===null?[]:e.vencimientos.filter(v=>v.pendienteTotal>0).map(v=>({...v,usd:v.pendienteTotal*e.f})));
+  const vencidos = venc.filter(v=>v.vencida).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const lim60 = (()=>{ const d=new Date(); d.setDate(d.getDate()+60); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+  const lim180 = (()=>{ const d=new Date(); d.setDate(d.getDate()+180); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+  const proximos = venc.filter(v=>!v.vencida&&v.fecha<=lim60).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const porVencer = an.estados.filter(e=>e.pendienteTotal>0&&e.vencimientoFinal&&e.vencimientoFinal<=lim180).sort((a,b)=>a.vencimientoFinal.localeCompare(b.vencimientoFinal));
+  const grupo = an[agrupar]||{};
+  const filasGrupo = Object.entries(grupo).filter(([,x])=>x.pendiente>0).sort((a,b)=>(b[1].saldoCapital+b[1].sinDesglose)-(a[1].saldoCapital+a[1].sinDesglose));
+  const baseConc = filasGrupo.reduce((a,[,x])=>a+x.saldoCapital+x.sinDesglose,0)||1;
+  const T = an.tasas;
+  const tabla = (heads, filas, pie)=>(
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse"}}>
+        <thead><tr style={{background:C.primary}}>{heads.map((h,i)=><th key={i} style={{...CR_TH,textAlign:i===0?"left":"right"}}>{h}</th>)}</tr></thead>
+        <tbody>{filas}</tbody>
+        {pie&&<tfoot>{pie}</tfoot>}
+      </table>
+    </div>
+  );
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10}}>
+        <KPI label="Saldo capital (USD)" value={$$(tot.cap)} color={C.red}/>
+        <KPI label="Sin desglose capital/interés" value={$$(tot.sd)} color={tot.sd>0?C.yellow:C.muted}/>
+        <KPI label="Vencido impago" value={$$(tot.venc)} color={tot.venc>0?C.red:C.green}/>
+        <KPI label="Servicio próx. 12 meses" value={$$(s12)} color={C.orange}/>
+        <KPI label="Tasa promedio ponderada" value={T.tasaPromedio==null?"—":`${T.tasaPromedio.toFixed(2)}%`} color={C.blue}/>
+        <KPI label="Costo financiero anual est." value={$$(T.costoAnualEstimado)} color={C.orange}/>
+      </div>
+      {an.sinTC.length>0&&<div style={{background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
+        ⚠ {an.sinTC.length} crédito(s) en otra moneda sin TC quedan fuera de los totales en USD: {an.sinTC.map(e=>`${e.c.acreedor} (${e.c.moneda})`).join(", ")}.</div>}
+
+      <Card>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+          <SectionTitle>Saldo y concentración</SectionTitle>
+          <div style={{marginLeft:"auto",display:"flex",gap:4,flexWrap:"wrap"}}>
+            {[["porEmpresa","Empresa"],["porAcreedor","Acreedor"],["porTipoAcreedor","Tipo acreedor"],["porMoneda","Moneda"],["porTipo","Tipo crédito"]].map(([k,l])=>
+              <Btn key={k} small active={agrupar===k} onClick={()=>setAgrupar(k)}>{l}</Btn>)}
+          </div>
+        </div>
+        {tabla(["","Saldo capital","Sin desglose","% del total","Pendiente total (cap.+int.+cargos)","Vencido","N° créditos"],
+          filasGrupo.map(([k,x])=>{
+            const e2 = agrupar==="porEmpresa" ? (empresas[k]||{emoji:"🏢"}) : null;
+            return (
+              <tr key={k}>
+                <td style={{...CR_TD,fontWeight:600}}>{e2?`${e2.emoji} `:""}{k}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:C.red}}>{$$(x.saldoCapital)}</td>
+                <td style={{...CR_TD,textAlign:"right",color:x.sinDesglose?C.yellow:C.muted2}}>{x.sinDesglose?$$(x.sinDesglose):"—"}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{((x.saldoCapital+x.sinDesglose)/baseConc*100).toFixed(1)}%</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{$$(x.pendiente)}</td>
+                <td style={{...CR_TD,textAlign:"right",color:x.vencido?C.red:C.muted2}}>{x.vencido?$$(x.vencido):"—"}</td>
+                <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{x.n}</td>
+              </tr>
+            );
+          }),
+          <tr style={{background:C.bg2}}>
+            <td style={{...CR_TD,fontWeight:800}}>Total</td>
+            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(tot.cap)}</td>
+            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(tot.sd)}</td>
+            <td style={{...CR_TD,textAlign:"right"}}>100%</td>
+            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(tot.pend)}</td>
+            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(tot.venc)}</td><td style={CR_TD}/>
+          </tr>)}
+        <div style={{fontSize:10,color:C.muted,marginTop:6}}>
+          "Sin desglose" = cuotas de registros antiguos que no separan capital de intereses; se muestran aparte para no inflar ni subestimar el saldo de capital.
+          Desglósalas en el detalle de cada crédito.
+        </div>
+      </Card>
+
+      <Card>
+        <SectionTitle>Servicio de deuda por mes (pendiente, USD)</SectionTitle>
+        {tabla(["Mes","Capital","Intereses","Otros cargos","Sin desglose","Total","de ello vencido"],
+          meses.map((k,i)=>{ const x=serv[k]||{}; return (
+            <tr key={k} style={{background:i===0?`${C.yellow}10`:"transparent"}}>
+              <td style={{...CR_TD,fontWeight:600}}>{mesLbl(k)}{i===0?" (en curso)":""}</td>
+              {["capital","interes","cargos","sinDesglose","total"].map(c=><td key={c} style={{...CR_TD,textAlign:"right",fontWeight:c==="total"?700:400}}>{x[c]?$$(x[c]):"—"}</td>)}
+              <td style={{...CR_TD,textAlign:"right",color:x.vencido?C.red:C.muted2}}>{x.vencido?$$(x.vencido):"—"}</td>
+            </tr>);}),
+          <tr style={{background:C.bg2}}>
+            <td style={{...CR_TD,fontWeight:800}}>Total 18 meses</td>
+            {["capital","interes","cargos","sinDesglose","total","vencido"].map(c=><td key={c} style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(meses.reduce((a,k)=>a+(serv[k]?.[c]||0),0))}</td>)}
+          </tr>)}
+        <div style={{fontSize:10,color:C.muted,marginTop:6}}>Los vencidos impagos se muestran en el mes en curso, igual que en el Flujo de Caja. Incluye cuotas de renovaciones.</div>
+      </Card>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+        <Card>
+          <SectionTitle>Vencidos impagos ({vencidos.length})</SectionTitle>
+          {vencidos.length===0?<div style={{fontSize:11,color:C.green}}>Sin vencidos impagos.</div>:
+            tabla(["Fecha","Empresa","Acreedor","Pendiente USD","Días"], vencidos.map(v=>(
+              <tr key={v.key}><td style={CR_TD}>{fmtDate(v.fecha)}</td><td style={CR_TD}>{v.empresa}</td><td style={CR_TD}>{v.acreedor}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:C.red}}>{$$(v.usd)}</td>
+                <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{Math.round((new Date(hoy)-new Date(v.fecha))/86400000)}</td></tr>)))}
+        </Card>
+        <Card>
+          <SectionTitle>Próximos vencimientos (60 días)</SectionTitle>
+          {proximos.length===0?<div style={{fontSize:11,color:C.muted}}>Sin vencimientos en los próximos 60 días.</div>:
+            tabla(["Fecha","Empresa","Acreedor","Capital","Int.+cargos","Total USD"], proximos.map(v=>{
+              const f = v.usd/(v.pendienteTotal||1);
+              return (<tr key={v.key}><td style={CR_TD}>{fmtDate(v.fecha)}</td><td style={CR_TD}>{v.empresa}</td><td style={CR_TD}>{v.acreedor}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{$$(v.pendiente.capital*f)}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{$$((v.pendiente.interes+v.pendiente.cargos)*f)}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$$(v.usd)}</td></tr>);}))}
+        </Card>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+        <Card>
+          <SectionTitle>Créditos que vencen o se renuevan en 180 días</SectionTitle>
+          {porVencer.length===0?<div style={{fontSize:11,color:C.muted}}>Ninguno.</div>:
+            tabla(["Vence","Empresa","Acreedor","Tipo","Pendiente USD"], porVencer.map(e=>(
+              <tr key={e.uid}><td style={CR_TD}>{fmtDate(e.vencimientoFinal)}</td><td style={CR_TD}>{e.c.empresa}</td>
+                <td style={CR_TD}>{e.c.acreedor}{e.c.renovable?" 🔄":""}</td><td style={{...CR_TD,color:C.muted}}>{e.c.tipo_cr}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{e.f===null?"sin TC":$$(e.pendienteTotal*e.f)}</td></tr>)))}
+        </Card>
+        <Card>
+          <SectionTitle>Exposición a tasas y costo financiero</SectionTitle>
+          {tabla(["","Saldo USD","%"],[
+            ["Tasa fija",T.capFija],["Tasa variable",T.capVar],["Sin tasa registrada",T.capSinTasa]].map(([l,v])=>{
+              const b=(T.capFija+T.capVar+T.capSinTasa)||1;
+              return <tr key={l}><td style={CR_TD}>{l}</td><td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$$(v)}</td><td style={{...CR_TD,textAlign:"right"}}>{(v/b*100).toFixed(1)}%</td></tr>;
+            }))}
+          <div style={{fontSize:11,color:C.text,marginTop:8,lineHeight:1.6}}>
+            Sensibilidad: +100 pb en la tasa variable = <strong>{$$(T.sensibilidad100pb)}</strong> más de interés al año ({$$(T.capVar)} × 1%).
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginTop:6,lineHeight:1.6}}>
+            <strong>Hipótesis:</strong> costo anual = Σ saldo × tasa nominal registrada (capital + "sin desglose" como base). Tasa variable = referencia
+            vigente cargada como hipótesis + margen, proyectada constante. Créditos de socio usan su tasa efectiva. No incluye comisiones ni seguros.
+            Los créditos sin tasa quedan fuera del promedio y del costo.
+            {T.sinTasa.length>0&&<div style={{color:C.orange}}>Sin tasa: {T.sinTasa.map(e=>`${e.c.acreedor} (${e.c.empresa})`).filter((x,i,a)=>a.indexOf(x)===i).join(", ")}.</div>}
+            {T.variables.length>0&&<div>Variables: {T.variables.map(e=>`${e.c.acreedor}: ${e.tasa.origen}`).join(" · ")}.</div>}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ── Simulación de prepago ────────────────────────────────────────────
+function SimuladorPrepago({creditos, onSaveOne, canEdit, usuario}){
+  const hoy = hoyISO();
+  const opciones = useMemo(()=>creditos.map(c=>({c,e:estadoCredito(c,hoy)})).filter(x=>x.e.pendienteTotal>0),[creditos,hoy]);
+  const [uid,setUid]=useState("");
+  const [sim,setSim]=useState({fecha:hoy,total:true,capital:"",modo:"plazo",tasaHipotesis:"",baseHipotesis:"",comisionTipo:"",comisionValor:""});
+  const sel = opciones.find(x=>x.e.uid===uid);
+  const res = useMemo(()=>sel?simularPrepago(sel.c,{...sim,comisionTipo:sim.comisionTipo||undefined,comisionValor:sim.comisionValor===""?undefined:sim.comisionValor},hoy):null,[sel,sim,hoy]);
+  const mon = sel?.c.moneda||"USD";
+  const set=(k,v)=>setSim(p=>({...p,[k]:v}));
+  async function aplicar(){
+    if(!res||!res.aplicable) return;
+    const txt = `Aplicar prepago ${res.esTotal?"TOTAL":"parcial"} de ${sel.c.acreedor} (${sel.c.empresa}) al ${fmtDate(res.fecha)}:\n`+
+      `capital ${$c(res.capital,mon)} + interés devengado ${$c(res.devengado,mon)} + comisión ${$c(res.comision,mon)} = ${$c(res.capital+res.devengado+res.comision,mon)}\n\n`+
+      `Queda registrado como pago y el calendario y el flujo se recalculan. Se puede revertir anulando el pago.`;
+    if(!window.confirm(txt)) return;
+    try { await onSaveOne(aplicarPrepago(sel.c, res, usuario)); alert("Prepago aplicado."); }
+    catch(err){ alert(err.message); }
+  }
+  const totales=(arr)=>arr.reduce((a,v)=>({cap:a.cap+v.capital,int:a.int+v.interes,car:a.car+v.cargos,sd:a.sd+(v.sinDesglose||0),tot:a.tot+v.total}),{cap:0,int:0,car:0,sd:0,tot:0});
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
+      <Card>
+        <SectionTitle>Simular prepago (no modifica nada hasta confirmar)</SectionTitle>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:12}}>
+          <CampoCr label="Crédito">
+            <select value={uid} onChange={e=>setUid(e.target.value)} style={CR_INP}>
+              <option value="">— seleccionar —</option>
+              {opciones.map(({c,e})=><option key={e.uid} value={e.uid}>{c.empresa} · {c.acreedor} · {c.tipo_cr||""} · vence {fmtDate(e.vencimientoFinal)} · pend. {$c(e.pendienteTotal,c.moneda||"USD")}</option>)}
+            </select>
+          </CampoCr>
+          <CampoCr label="Fecha del prepago"><input type="date" value={sim.fecha} onChange={e=>set("fecha",e.target.value)} style={CR_INP}/></CampoCr>
+          <CampoCr label="Alcance">
+            <select value={sim.total?"total":"parcial"} onChange={e=>set("total",e.target.value==="total")} style={CR_INP}>
+              <option value="total">Total</option><option value="parcial">Parcial</option>
+            </select>
+          </CampoCr>
+          {!sim.total&&<CampoCr label={`Capital a prepagar (${mon})`}><InputNumero formato="monto" value={sim.capital} onChange={n=>set("capital",n)} style={CR_INP}/></CampoCr>}
+          {!sim.total&&<CampoCr label="Efecto">
+            <select value={sim.modo} onChange={e=>set("modo",e.target.value)} style={CR_INP}>
+              <option value="plazo">Reduce plazo (misma cuota)</option><option value="cuota">Reduce cuota (mismo plazo)</option>
+            </select>
+          </CampoCr>}
+        </div>
+        {res&&!res.error&&(res.faltantes.length>0||!sel.c.prepago_comision_tipo)&&(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginTop:12,paddingTop:10,borderTop:`1px dashed ${C.border}`}}>
+            <div style={{gridColumn:"span 4",fontSize:10,color:C.muted}}>Hipótesis de la simulación (solo si el crédito no trae el dato; el resultado queda marcado como estimación):</div>
+            {res.faltantes.includes("tasa de interés")||sim.tasaHipotesis!==""?<CampoCr label="Tasa anual (%) — hipótesis"><InputNumero formato="tasa" value={sim.tasaHipotesis} onChange={n=>set("tasaHipotesis",n)} style={CR_INP}/></CampoCr>:null}
+            {res.faltantes.includes("base de cálculo de intereses")||sim.baseHipotesis!==""?<CampoCr label="Base — hipótesis">
+              <select value={sim.baseHipotesis} onChange={e=>set("baseHipotesis",e.target.value)} style={CR_INP}>
+                <option value="">— elegir —</option>{Object.entries(BASES).map(([k,l])=><option key={k} value={k}>{l}</option>)}
+              </select></CampoCr>:null}
+            {!sel.c.prepago_comision_tipo&&<CampoCr label="Comisión de prepago — hipótesis">
+              <select value={sim.comisionTipo} onChange={e=>set("comisionTipo",e.target.value)} style={CR_INP}>
+                <option value="">— sin dato —</option><option value="ninguna">Sin comisión</option><option value="pct">% s/capital</option>
+                <option value="meses_interes">N meses de interés</option><option value="monto">Monto fijo</option>
+              </select></CampoCr>}
+            {!sel.c.prepago_comision_tipo&&["pct","meses_interes","monto"].includes(sim.comisionTipo)&&<CampoCr label="Valor">
+              <InputNumero formato={sim.comisionTipo==="monto"?"monto":"tasa"} value={sim.comisionValor} onChange={n=>set("comisionValor",n)} style={CR_INP}/></CampoCr>}
+          </div>
+        )}
+      </Card>
+
+      {res&&res.error&&<div style={{background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"10px 14px",fontSize:12}}>{res.error}</div>}
+
+      {res&&!res.error&&(()=>{
+        const o=totales(res.original), n=totales(res.escenario);
+        return (<>
+          <Card>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+              <SectionTitle>Resultado {res.estimacion?"— ESTIMACIÓN":""}</SectionTitle>
+              {res.estimacion&&<span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#fef9c3",color:"#854d0e"}}>Estimación</span>}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10}}>
+              <KPI label="Capital a prepagar" value={$c(res.capital,mon)} color={C.red}/>
+              <KPI label="Interés devengado a la fecha" value={res.devengado==null?"falta dato":$c(res.devengado,mon)} color={C.orange}/>
+              <KPI label="Comisión / penalidad" value={res.comision==null?"falta dato":$c(res.comision,mon)} color={C.orange}/>
+              <KPI label="Desembolso total estimado" value={res.desembolso==null?"—":$c(res.desembolso,mon)} color={C.blue}/>
+              <KPI label="Intereses futuros evitados" value={res.interesesEvitados==null?"—":$c(res.interesesEvitados,mon)} color={C.green}/>
+              <KPI label="Ahorro neto estimado" value={res.ahorroNeto==null?"—":$c(res.ahorroNeto,mon)} color={res.ahorroNeto!=null&&res.ahorroNeto<0?C.red:C.green}/>
+            </div>
+            <div style={{fontSize:11,color:C.text,marginTop:10,lineHeight:1.7,fontVariantNumeric:"tabular-nums"}}>
+              <div>Interés devengado = {$c(res.esTotal?res.saldoCapital:res.capital,mon)} × {res.tasa??"?"}% × {res.base==="efectiva365"?"[(1+t)^(días/365) − 1]":`fracción ${BASES[res.base]||"?"}`} desde {fmtDate(res.desde)} hasta {fmtDate(res.fecha)} = {res.devengado==null?"—":$c(res.devengado,mon)}</div>
+              <div>Desembolso = capital {$c(res.capital,mon)} + devengado {res.devengado==null?"—":$c(res.devengado,mon)} + comisión {res.comision==null?"—":$c(res.comision,mon)}{res.vencidosImpagos>0?` + vencidos impagos a regularizar ${$c(res.vencidosImpagos,mon)}`:""} = {res.desembolso==null?"—":$c(res.desembolso,mon)}</div>
+              <div>Intereses evitados = futuros originales {$c(res.interesesFuturosOriginal,mon)} − futuros del escenario {$c(res.interesesFuturosEscenario,mon)} − devengado {res.devengado==null?"—":$c(res.devengado,mon)} = {res.interesesEvitados==null?"—":$c(res.interesesEvitados,mon)}</div>
+              <div>Ahorro neto = intereses evitados − comisión = {res.ahorroNeto==null?"—":$c(res.ahorroNeto,mon)} <span style={{color:C.muted}}>(sin descontar el costo de oportunidad de la caja usada)</span></div>
+              {res.cargosEvitados>0.005&&<div>Además deja de pagar otros cargos futuros por {$c(res.cargosEvitados,mon)} (no incluidos en el ahorro neto).</div>}
+            </div>
+            {res.faltantes.length>0&&<div style={{marginTop:8,fontSize:11,color:C.red}}>Datos faltantes: {res.faltantes.join("; ")}.</div>}
+            {res.hipotesis.map((h,i)=><div key={i} style={{marginTop:4,fontSize:11,color:C.orange}}>Hipótesis: {h}</div>)}
+            {res.avisos.map((h,i)=><div key={i} style={{marginTop:4,fontSize:11,color:C.orange}}>⚠ {h}</div>)}
+            {canEdit&&(
+              <div style={{display:"flex",justifyContent:"flex-end",marginTop:10,gap:8,alignItems:"center"}}>
+                {!res.aplicable&&<span style={{fontSize:10,color:C.muted}}>
+                  {res.faltantes.length?"No se puede aplicar mientras falten datos.":"En registros antiguos o de socio solo se aplica el prepago total; para uno parcial, regístralo como crédito tipo contrato."}</span>}
+                <button disabled={!res.aplicable} onClick={aplicar}
+                  style={{padding:"8px 18px",borderRadius:8,border:"none",background:res.aplicable?C.blue:C.border,color:"#fff",cursor:res.aplicable?"pointer":"not-allowed",fontSize:12,fontWeight:700}}>
+                  Aplicar prepago
+                </button>
+              </div>
+            )}
+          </Card>
+          <Card>
+            <SectionTitle>Calendario original vs. escenario con prepago (vencimientos posteriores al {fmtDate(res.fecha)})</SectionTitle>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead><tr style={{background:C.primary}}>
+                  {["Vencimiento","Capital orig.","Interés orig.","Total orig.","Capital escen.","Interés escen.","Total escen.","Diferencia"].map((h,i)=><th key={i} style={{...CR_TH,textAlign:i===0?"left":"right"}}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {[...new Set([...res.original.map(v=>v.fecha),...res.escenario.map(v=>v.fecha)])].sort().map(f=>{
+                    const a=res.original.find(v=>v.fecha===f)||{capital:0,interes:0,total:0}, b=res.escenario.find(v=>v.fecha===f)||{capital:0,interes:0,total:0};
+                    return (<tr key={f}>
+                      <td style={CR_TD}>{fmtDate(f)}</td>
+                      <td style={{...CR_TD,textAlign:"right"}}>{$c(a.capital,mon)}</td><td style={{...CR_TD,textAlign:"right"}}>{$c(a.interes,mon)}</td><td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(a.total,mon)}</td>
+                      <td style={{...CR_TD,textAlign:"right"}}>{$c(b.capital,mon)}</td><td style={{...CR_TD,textAlign:"right"}}>{$c(b.interes,mon)}</td><td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(b.total,mon)}</td>
+                      <td style={{...CR_TD,textAlign:"right",color:b.total-a.total<0?C.green:C.red}}>{$c(b.total-a.total,mon)}</td>
+                    </tr>);
+                  })}
+                </tbody>
+                <tfoot><tr style={{background:C.bg2}}>
+                  <td style={{...CR_TD,fontWeight:800}}>Total</td>
+                  <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(o.cap,mon)}</td><td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(o.int,mon)}</td><td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(o.tot,mon)}</td>
+                  <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(n.cap,mon)}</td><td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(n.int,mon)}</td><td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(n.tot,mon)}</td>
+                  <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(n.tot-o.tot,mon)}</td>
+                </tr></tfoot>
+              </table>
+            </div>
+            {o.sd>0&&<div style={{fontSize:10,color:C.orange,marginTop:6}}>El calendario original tiene {$c(o.sd,mon)} sin desglose capital/interés (incluido en "Total orig.").</div>}
+          </Card>
+        </>);
+      })()}
+    </div>
+  );
+}
+
+function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canEdit=false, empresasPermitidas, nextCreditId, usuario=""}) {
   // Subset de empresas que el usuario puede ver. Todos los créditos,
   // KPIs y deudas se computan SOLO sobre este subset. Defensa adicional
-  // en guardar/togglePagado/eliminar para descartar registros fuera del subset.
+  // en guardar/pagos/anulación para descartar registros fuera del subset.
   const permitidasSet = useMemo(
     () => Array.isArray(empresasPermitidas) && empresasPermitidas.length>0
       ? new Set(empresasPermitidas)
@@ -7621,15 +8238,31 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   // Lista de empresas para el <select> del modal: filtrar por permisos
   const EMP_SELECT = ["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú"]
     .filter(e => esPermitida(e));
-  const [vistaCred,setVistaCred]=useState("creditos"); // "creditos" | "saldomes"
+  const [vistaCred,setVistaCred]=useState("creditos"); // "creditos" | "analisis" | "prepago" | "saldomes"
   const [busq,setBusq]=useState("");
   const [filtEmp,setFiltEmp]=useState("Todas");
-  const [filtPagado,setFiltPagado]=useState("Todos"); // "Todos" | "Pendientes" | "Pagados"
+  const [filtPagado,setFiltPagado]=useState("Vigentes"); // Todos | Vigentes | Con vencidos | Cerrados | Anulados
   const [modal,setModal]=useState(false);
-  const [editId,setEditId]=useState(null);
+  const [editId,setEditId]=useState(null);     // uid del crédito en edición
+  const [detalleUid,setDetalleUid]=useState(null);
+  const hoy = hoyISO();
+  // Estado de cada crédito (calendario + pagos) — misma fuente que el flujo.
+  const estados = useMemo(()=>{
+    const m = {};
+    creditosVisibles.forEach(c=>{ m[uidCredito(c)] = estadoCredito(c, hoy); });
+    return m;
+  },[creditosVisibles, hoy]);
+  const estadoDe = (c)=>estados[uidCredito(c)] || estadoCredito(c, hoy);
+  // Guarda UN crédito (por uid) y devuelve la promesa del guardado real.
+  async function guardarUno(nuevo){
+    const next = creditosVisibles.map(c=>uidCredito(c)===uidCredito(nuevo)?nuevo:c);
+    const res = onSaveCreditos ? await onSaveCreditos(next) : null;
+    if(res && res.ok===false) throw new Error("No se pudo guardar en el servidor. El cambio NO quedó registrado; revisa la conexión y vuelve a intentar.");
+    return res;
+  }
   const EMPTY_FORM = {
-    empresa:"",acreedor:"",tipo_inst:"",monto:"",f_inicio:"",f_venc:"",tipo_cr:"Bullet",tasa:"",cuota:"",
-    tipo_credito:"banco",       // "banco" | "socio"
+    empresa:"",acreedor:"",tipo_inst:"",monto:"",f_inicio:"",f_venc:"",tipo_cr:"",tasa:"",cuota:"",
+    tipo_credito:"contrato",       // "banco" | "socio" | "contrato"
     // Renovación (soporta VARIAS): renovaciones:[{monto,mes_ingreso,anio_ingreso,tasa_anual,cuotas:[{tipo,mes,anio}]}]
     renovable:false,
     tasa_anual:"",              // tasa por defecto (usada si una renovación no trae la suya)
@@ -7639,6 +8272,13 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     tasa_efectiva_anual:"",     // % efectiva anual (ej. 12.6)
     fecha_desembolso:"",        // ISO
     cuotas_socio:[],            // [{fecha_vencimiento, modo:"cuota"|"amortizacion", cuota_total, amortizacion}]
+    // Comunes (todo tipo)
+    tipo_acreedor:"", identificador:"", tc_flujo:"", garantias:"", documentos:[],
+    prepago_comision_tipo:"", prepago_comision_valor:"", prepago_notas:"",
+    // Contrato (calendario generado o manual)
+    desembolso_en_flujo:true, modalidad:"", periodicidad:1, primer_venc:"", vencimiento_final:"",
+    gracia_periodos:"", gracia_tipo:"interes", tasa_tipo:"fija", tasa_ref_nombre:"", tasa_ref_hipotesis:"", margen:"",
+    base:"", cargos_periodicos:[], cargos_unicos:[], calendario_manual:[],
   };
   const [form,setForm]=useState(EMPTY_FORM);
   const RENOVACION_VACIA = ()=>({ monto:"", mes_ingreso:"", anio_ingreso:"", tasa_anual:"", cuotas:[] });
@@ -7649,7 +8289,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     // Migra legacy (1 renovación en campos planos) → array renovaciones
     setForm({...c, monto:String(c.monto), cuota:String(c.cuota), tipo_credito:c.tipo_credito||"banco",
       renovaciones: getRenovaciones(c), cuotas_socio:c.cuotas_socio||[]});
-    setEditId(c.n); setModal(true);
+    setEditId(uidCredito(c)); setModal(true);
   }
   // ── Helpers cuotas de crédito de socio ──
   const addCuotaSocio = ()=>setForm(p=>({...p,cuotas_socio:[...(p.cuotas_socio||[]),CUOTA_SOCIO_VACIA()]}));
@@ -7681,7 +8321,12 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   const delRenCuota = (ri,ci)=>setForm(p=>{const arr=[...(p.renovaciones||[])];arr[ri]={...arr[ri],cuotas:(arr[ri].cuotas||[]).filter((_,j)=>j!==ci)};return {...p,renovaciones:arr};});
   function guardar(){
     const esSocio = form.tipo_credito === "socio";
-    if(esSocio){
+    const esContratoF = form.tipo_credito === "contrato";
+    if(esContratoF){
+      if(!form.empresa||!form.acreedor){ alert("Empresa y acreedor son obligatorios."); return; }
+      const falt = datosFaltantesContrato(form);
+      if(falt.length){ alert("Faltan datos para generar el calendario: "+falt.join(", ")+"."); return; }
+    } else if(esSocio){
       const cuotasVal = (form.cuotas_socio||[]).filter(cu=>cu.fecha_vencimiento);
       if(!form.empresa||!form.acreedor||!form.monto||!form.fecha_desembolso||!form.tasa_efectiva_anual||cuotasVal.length===0){
         alert("Socio: empresa, acreedor, capital, fecha desembolso, tasa y al menos una cuota con fecha son obligatorios."); return;
@@ -7692,25 +8337,47 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     // Cuotas Mensuales: la "Fecha desembolso" (f_inicio) es obligatoria — define
     // desde qué mes arrancan las cuotas. Sin ella, el reparto mensual no puede
     // arrancar y todo el crédito colapsa en el mes de vencimiento.
-    if(!esSocio && form.tipo_cr === "Cuotas Mensuales" && !form.f_inicio){
+    if(!esSocio && !esContratoF && form.tipo_cr === "Cuotas Mensuales" && !form.f_inicio){
       alert("Cuotas Mensuales: la 'Fecha desembolso' es obligatoria. Define desde qué mes se reparten las cuotas (hasta el vencimiento). Sin ella, todo caería en el mes de vencimiento.");
       return;
     }
     // Guardrail: no permitir crear/editar créditos de empresas fuera del subset
     if(!esPermitida(form.empresa)){ alert("Empresa no permitida."); return; }
+    if((form.moneda||"USD")!=="USD" && !(Number(form.tc_flujo)>0)){
+      if(!window.confirm(`El crédito está en ${form.moneda} y no tiene TC para el flujo: NO entrará al Flujo de Caja (en USD) hasta que lo cargues. ¿Guardar igual?`)) return;
+    }
     // ID secuencial: usa nextCreditId del parent (sobre el blob completo) si está disponible;
     // fallback al cálculo local sobre el subset visible (para retrocompat).
     const maxNLocal = creditosVisibles.reduce((m,c)=> Math.max(m, typeof c.n === 'number' && c.n < 100000 ? c.n : 0), 0);
-    const newN = editId || (typeof nextCreditId === 'number' ? nextCreditId : (maxNLocal + 1));
+    const original = editId ? creditosVisibles.find(c=>uidCredito(c)===editId) : null;
+    const newN = original ? original.n : (typeof nextCreditId === 'number' ? nextCreditId : (maxNLocal + 1));
+    const uid = original ? uidCredito(original) : `cr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+    const ts = new Date().toISOString();
+    const historial = [...(original?.historial||form.historial||[]), {ts, usuario, accion: original?"edición":"alta",
+      detalle: original ? "condiciones modificadas" : `${form.acreedor} · ${form.monto} ${form.moneda||"USD"}`}];
     let item;
-    if(esSocio){
+    if(esContratoF){
+      const cal = calendarioContrato(form);
+      const t = tasaCredito(form);
+      item = {
+        ...form, n:newN, uid, historial, tipo_credito:"contrato",
+        tipo_inst: form.tipo_acreedor || form.tipo_inst || "",
+        monto: parseFloat(form.monto)||0,
+        cuota: 0,                                   // no se usa: el flujo lee el calendario
+        tasa: t.tasa===null ? "" : `${t.tasa}%`,    // compatibilidad con vistas antiguas
+        f_inicio: form.fecha_desembolso || "",
+        f_venc: cal.filas.length ? cal.filas[cal.filas.length-1].fecha : (form.vencimiento_final||""),
+        pagado: false, renovable:false, renovaciones:[],
+        cuotas_socio: undefined, amortizacion_calc: undefined,
+      };
+    } else if(esSocio){
       const cuotas = (form.cuotas_socio||[]).filter(cu=>cu.fecha_vencimiento);
       const capital = parseFloat(form.monto)||0;
       const res = calcularAmortizacionSocio(capital, form.tasa_efectiva_anual, form.fecha_desembolso, cuotas);
       const fechaUlt = cuotas.length ? cuotas[cuotas.length-1].fecha_vencimiento : "";
       item={
         ...form,
-        n:newN, tipo_credito:"socio", tipo_inst:"Socio", moneda:"USD",
+        n:newN, uid, historial, tipo_credito:"socio", tipo_inst:"Socio", moneda:"USD",
         monto: capital,
         cuota: 0,                       // no se usa: el flujo lee cuotas_socio
         tasa: `${form.tasa_efectiva_anual}%`,
@@ -7726,7 +8393,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     } else {
     item={
       ...form,
-      n: newN,
+      n: newN, uid, historial,
       monto: parseFloat(form.monto)||0,
       cuota: parseFloat(form.cuota||form.monto)||0,
       pagado: form.pagado === true ? true : false,
@@ -7743,26 +8410,39 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     };
     }
     // El payload al parent contiene SOLO el subset visible — el parent hace merge.
-    const next=editId
-      ? creditosVisibles.map(c=>String(c.n)===String(editId)?item:c)
+    const next=original
+      ? creditosVisibles.map(c=>uidCredito(c)===editId?item:c)
       : [...creditosVisibles,item];
     if(onSaveCreditos) onSaveCreditos(next);
     setModal(false);
   }
-  function togglePagado(n, value){
-    const next=creditosVisibles.map(c=>String(c.n)===String(n)?{...c,pagado:value!==undefined?value:!c.pagado}:c);
-    if(onSaveCreditos) onSaveCreditos(next);
+  // No se borra: se anula con motivo (queda en la lista "Anulados").
+  function anularCredito(c){
+    if(!puedeAnularCredito(c)){
+      alert("Este crédito tiene pagos registrados: no se puede anular. Si fue un error, anula primero los pagos (quedan en el historial).");
+      return;
+    }
+    const motivo = window.prompt(`Anular el crédito ${c.acreedor} (${c.empresa}).\nNo se borra: queda en "Anulados" y deja de proyectarse. Motivo (obligatorio):`);
+    if(!motivo || !motivo.trim()) return;
+    const ts=new Date().toISOString();
+    guardarUno({...c, anulado:true, motivoAnulacion:motivo.trim(), anuladoPor:usuario, anuladoTs:ts,
+      historial:[...(c.historial||[]),{ts,usuario,accion:"anulación",detalle:motivo.trim()}]}).catch(err=>alert(err.message));
   }
-  function eliminar(n){
-    if(!window.confirm("¿Eliminar este crédito?")) return;
-    if(onSaveCreditos) onSaveCreditos(creditosVisibles.filter(c=>String(c.n)!==String(n)));
+  function reactivarCredito(c){
+    if(!window.confirm(`Reactivar ${c.acreedor} (${c.empresa})? Vuelve a proyectarse en el flujo.`)) return;
+    const ts=new Date().toISOString();
+    guardarUno({...c, anulado:false, historial:[...(c.historial||[]),{ts,usuario,accion:"reactivación",detalle:""}]}).catch(err=>alert(err.message));
   }
   const empList=["Todas",...new Set(creditosVisibles.map(c=>c.empresa))];
   const filtered=creditosVisibles.filter(c=>{
     if(filtEmp!=="Todas"&&c.empresa!==filtEmp) return false;
-    if(filtPagado==="Pendientes"&&c.pagado) return false;
-    if(filtPagado==="Pagados"&&!c.pagado) return false;
-    if(busq&&![c.empresa,c.acreedor].some(s=>s.toLowerCase().includes(busq.toLowerCase()))) return false;
+    const est = c.anulado ? "anulado" : estadoDe(c).estado;
+    if(filtPagado!=="Anulados" && est==="anulado") return false;
+    if(filtPagado==="Anulados" && est!=="anulado") return false;
+    if(filtPagado==="Vigentes" && !["vigente","con_vencidos"].includes(est)) return false;
+    if(filtPagado==="Con vencidos" && est!=="con_vencidos") return false;
+    if(filtPagado==="Cerrados" && est!=="cerrado") return false;
+    if(busq&&![c.empresa,c.acreedor,c.identificador||""].some(s=>String(s||"").toLowerCase().includes(busq.toLowerCase()))) return false;
     return true;
   }).sort((a,b)=>{
     // Ordenar por empresa, luego por fecha de vencimiento
@@ -7770,22 +8450,44 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     if(empCmp!==0) return empCmp;
     return (a.f_venc||"").localeCompare(b.f_venc||"");
   });
+  // Deuda por empresa (USD) = saldo de capital + cuotas sin desglose, ya
+  // descontados los pagos. Misma fuente que el flujo.
   const deudaEmp={};creditosVisibles.forEach(c=>{
-    if(!deudaEmp[c.empresa]) deudaEmp[c.empresa]=0;
-    // Deuda original (si no está pagado)
-    if(!c.pagado) deudaEmp[c.empresa]+=c.monto;
-    // Deuda renovación (cuotas pendientes de capital)
-    if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
-      if((cq.tipo||'Solo Interés')==='Capital+Interés') deudaEmp[c.empresa]+=(Number(cq.monto)||0);
-    });
+    if(c.anulado) return;
+    const e=estadoDe(c), f=factorUSD(c);
+    if(f===null) return;
+    deudaEmp[c.empresa]=(deudaEmp[c.empresa]||0)+(e.saldoCapital+e.sinDesglosePend)*f;
   });
+  const kpi = creditosVisibles.reduce((a,c)=>{
+    if(c.anulado) return a;
+    const e=estadoDe(c), f=factorUSD(c);
+    if(f===null){ a.sinTC++; return a; }
+    a.cap+=e.saldoCapital*f; a.sd+=e.sinDesglosePend*f; a.venc+=e.vencidoTotal*f;
+    if(e.pendienteTotal>0) a.vig++;
+    return a;
+  },{cap:0,sd:0,venc:0,vig:0,sinTC:0});
+  // Próximos 8 trimestres calendario (desde el trimestre en curso): servicio y saldo al cierre.
+  const trimestres = (()=>{
+    const serv = servicioDeudaPorMes(creditosVisibles, hoy);
+    let [y,m]=hoy.split("-").map(Number); let q=Math.floor((m-1)/3);
+    const out=[];
+    for(let i=0;i<8;i++){
+      const meses=[1,2,3].map(k=>`${y}-${String(q*3+k).padStart(2,"0")}`);
+      const s2=meses.reduce((a,k)=>{const x=serv[k]||{};return {cap:a.cap+(x.capital||0),int:a.int+(x.interes||0)+(x.cargos||0),sd:a.sd+(x.sinDesglose||0),tot:a.tot+(x.total||0)};},{cap:0,int:0,sd:0,tot:0});
+      const fin=`${y}-${String(q*3+3).padStart(2,"0")}-${q===0||q===3?"31":"30"}`;
+      const sal=saldoCapitalAl(creditosVisibles, fin, hoy);
+      out.push({lbl:`Q${q+1} ${y}`, ...s2, saldoCap:sal.capital, saldoSd:sal.sinDesglose});
+      q++; if(q>3){q=0;y++;}
+    }
+    return out;
+  })();
   const deudaList=Object.entries(deudaEmp).sort((a,b)=>b[1]-a[1]);
   const maxD=deudaList[0]?.[1]||1;
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
       {/* Subpestañas de Créditos */}
       <div style={{display:"flex",gap:6}}>
-        {[["creditos","💳 Créditos"],["saldomes","📅 Saldo por Mes"]].map(([id,lbl])=>(
+        {[["creditos","💳 Créditos"],["analisis","📊 Análisis CFO"],["prepago","🧮 Simular prepago"],["saldomes","📅 Saldo por Mes"]].map(([id,lbl])=>(
           <button key={id} onClick={()=>setVistaCred(id)}
             className={`mdt-tab${vistaCred===id?" mdt-tab--active":""}`}
             style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${vistaCred===id?C.blue:C.border}`,
@@ -7795,16 +8497,27 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
       </div>
 
       {vistaCred==="saldomes" && <SaldoDeudaPorMes creditos={creditosVisibles} empresas={empresas}/>}
+      {vistaCred==="analisis" && <AnalisisCreditos creditos={creditosVisibles} empresas={empresas}/>}
+      {vistaCred==="prepago" && <SimuladorPrepago creditos={creditosVisibles.filter(c=>!c.anulado)} onSaveOne={guardarUno} canEdit={canEdit} usuario={usuario}/>}
+      {detalleUid && (()=>{
+        const c = creditosVisibles.find(x=>uidCredito(x)===detalleUid);
+        return c ? <CreditoDetalleModal credito={c} onClose={()=>setDetalleUid(null)} onSave={guardarUno} canEdit={canEdit&&!c.anulado} usuario={usuario}/> : null;
+      })()}
 
       {vistaCred==="creditos" && (<>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
-        <KPI label="Deuda Total Q1-2026" value={$$(CREDITOS_TRIM.saldos[0])} color={C.red}/>
-        <KPI label="Pagos Q1-2026"       value={$$(CREDITOS_TRIM.pagos[0])}  color={C.yellow}/>
-        <KPI label="N° Créditos"         value={creditosVisibles.length}             color={C.blue}/>
-        <KPI label="Renovables"          value={creditosVisibles.filter(c=>c.renovable).length} color={C.orange}/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
+        <KPI label="Saldo capital (USD)"      value={$$(kpi.cap)} color={C.red}/>
+        <KPI label="Cuotas sin desglose"      value={$$(kpi.sd)}  color={kpi.sd>0?C.yellow:C.muted}/>
+        <KPI label="Vencido impago"           value={$$(kpi.venc)} color={kpi.venc>0?C.red:C.green}/>
+        <KPI label={`Servicio ${trimestres[0].lbl}`} value={$$(trimestres[0].tot)} color={C.orange}/>
+        <KPI label="Créditos con saldo"       value={`${kpi.vig}${kpi.sinTC?` (+${kpi.sinTC} sin TC)`:""}`} color={C.blue}/>
       </div>
+      {kpi.sd>0&&<div style={{fontSize:10.5,color:C.text,background:`${C.yellow}14`,border:`1px solid ${C.yellow}55`,borderRadius:8,padding:"6px 12px"}}>
+        {$$(kpi.sd)} corresponde a cuotas de registros antiguos que no separan capital de intereses: no se suman al saldo de capital.
+        Ábrelas con 📅 y usa "Desglosar cuota" para completar el saldo y el costo financiero.
+      </div>}
       <Card>
-        <SectionTitle>Deuda por Empresa</SectionTitle>
+        <SectionTitle>Deuda por Empresa (saldo de capital + cuotas sin desglose, USD)</SectionTitle>
         {deudaList.map(([n,monto])=>{const e=empresas[n]||{emoji:"🏢",color:C.blue};return (
           <div key={n} style={{display:"flex",alignItems:"center",gap:10,marginBottom:7}}>
             <div style={{width:148,fontSize:11,color:C.text,flexShrink:0}}>{e.emoji} {n}</div>
@@ -7814,23 +8527,28 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         );})}
       </Card>
       <Card style={{padding:"12px 16px"}}>
-        <SectionTitle>Saldo Deuda por Trimestre</SectionTitle>
+        <SectionTitle>Servicio de deuda y saldo por trimestre (calculado desde los créditos, USD)</SectionTitle>
         <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead><tr style={{background:C.primary}}>
-              {["Trimestre","Pagos","Saldo Deuda"].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:700,fontSize:10,color:"rgba(255,255,255,0.9)",letterSpacing:"0.5px",textTransform:"uppercase",borderBottom:`1px solid rgba(255,255,255,0.12)`,textAlign:h==="Trimestre"?"left":"right"}}>{h}</th>)}
+              {["Trimestre","Capital","Intereses + cargos","Sin desglose","Servicio total","Saldo capital al cierre","Sin desglose al cierre"].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:700,fontSize:10,color:"rgba(255,255,255,0.9)",letterSpacing:"0.5px",textTransform:"uppercase",borderBottom:`1px solid rgba(255,255,255,0.12)`,textAlign:h==="Trimestre"?"left":"right"}}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {CREDITOS_TRIM.quarters.map((q,i)=>(
-                <tr key={q} style={{borderBottom:`1px solid ${C.border}22`}}>
-                  <td style={{padding:"7px 12px",fontWeight:600,color:C.text}}>{q}</td>
-                  <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow,fontWeight:600}}>{$$(CREDITOS_TRIM.pagos[i])}</td>
-                  <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:C.red}}>{$$(CREDITOS_TRIM.saldos[i])}</td>
+              {trimestres.map((q,i)=>(
+                <tr key={q.lbl} style={{borderBottom:`1px solid ${C.border}22`}}>
+                  <td style={{padding:"7px 12px",fontWeight:600,color:C.text}}>{q.lbl}{i===0?" (en curso, incluye vencidos)":""}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right"}}>{$$(q.cap)}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",color:C.orange}}>{$$(q.int)}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",color:q.sd?C.yellow:C.muted2}}>{q.sd?$$(q.sd):"—"}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow,fontWeight:700}}>{$$(q.tot)}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:C.red}}>{$$(q.saldoCap)}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",color:q.saldoSd?C.yellow:C.muted2}}>{q.saldoSd?$$(q.saldoSd):"—"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <div style={{fontSize:10,color:C.muted,marginTop:6}}>Antes esta tabla mostraba cifras fijas cargadas a mano (Q1-2026 a Q4-2028); ahora sale de los créditos registrados y sus pagos.</div>
       </Card>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         {canEdit&&<button onClick={openNew} className="mdt-btn-solid"
@@ -7846,38 +8564,53 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         </select>
         <select value={filtPagado} onChange={e=>setFiltPagado(e.target.value)}
           style={{padding:"7px 12px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none"}}>
-          {["Todos","Pendientes","Pagados"].map(v=><option key={v}>{v}</option>)}
+          {["Vigentes","Con vencidos","Cerrados","Anulados","Todos"].map(v=><option key={v}>{v}</option>)}
         </select>
       </div>
       <Card style={{padding:0,overflow:"hidden"}}>
         <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead><tr style={{background:C.primary}}>
-              {["#","Empresa","Acreedor","Tipo","Monto","Cuota","Desembolso","Vencimiento","Tasa","Renovación",...(canEdit?["Acciones"]:[])
-              ].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:700,fontSize:10,color:"rgba(255,255,255,0.9)",letterSpacing:"0.5px",textTransform:"uppercase",borderBottom:`1px solid rgba(255,255,255,0.12)`,textAlign:["Monto","Cuota","Tasa"].includes(h)?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
+              {["#","Empresa","Acreedor","Tipo","Monto","Cuota","Desembolso","Vencimiento","Tasa","Pendiente","Estado","Renovación","Acciones"
+              ].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:700,fontSize:10,color:"rgba(255,255,255,0.9)",letterSpacing:"0.5px",textTransform:"uppercase",borderBottom:`1px solid rgba(255,255,255,0.12)`,textAlign:["Monto","Cuota","Tasa","Pendiente"].includes(h)?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
             </tr></thead>
             <tbody>
               {filtered.map(c=>{
-                const vencProx=new Date(c.f_venc)<=new Date("2026-12-31");
+                const est=estadoDe(c);
+                const cerrado = est.estado==="cerrado"||c.anulado;
+                const fVenc = est.vencimientoFinal || c.f_venc;
+                // "Próximo": vence en los próximos 90 días (antes: fecha fija 31-12-2026)
+                const lim90=(()=>{const d=new Date();d.setDate(d.getDate()+90);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;})();
+                const vencProx=!cerrado && fVenc && fVenc<=lim90;
                 const e=empresas[c.empresa]||{emoji:"🏢",color:C.blue};
+                const mon=c.moneda||"USD";
                 return (
-                  <tr key={c.n} style={{borderBottom:`1px solid ${C.border}22`,
-                    opacity:c.pagado?0.5:1,
-                    background:c.pagado?`${C.green}08`:vencProx?`${C.yellow}08`:"transparent"}}>
+                  <tr key={uidCredito(c)} style={{borderBottom:`1px solid ${C.border}22`,
+                    opacity:cerrado?0.5:1,
+                    background:est.estado==="con_vencidos"?"#fee2e211":cerrado?`${C.green}08`:vencProx?`${C.yellow}08`:"transparent"}}>
                     <td style={{padding:"7px 12px",color:C.muted}}>{c.n}</td>
                     <td style={{padding:"7px 12px",fontWeight:600,color:e.color,whiteSpace:"nowrap"}}>{e.emoji} {c.empresa}</td>
                     <td style={{padding:"7px 12px",color:C.text}}>{c.acreedor}
                       {c.tipo_credito==="socio"&&<span style={{fontSize:9,marginLeft:4,background:`${C.blue}22`,color:C.blue,borderRadius:10,padding:"1px 6px",fontWeight:700}}>🤝 Socio</span>}
+                      {c.tipo_credito==="contrato"&&<span style={{fontSize:9,marginLeft:4,background:`${C.green}22`,color:C.green,borderRadius:10,padding:"1px 6px",fontWeight:700}}>📑 Contrato</span>}
+                      {c.identificador&&<div style={{fontSize:9,color:C.muted}}>{c.identificador}</div>}
                     </td>
                     <td style={{padding:"7px 12px"}}><span style={{fontSize:9,padding:"2px 7px",borderRadius:20,background:C.card2,border:`1px solid ${C.border}`,color:C.muted}}>{c.tipo_cr}</span></td>
-                    <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:c.pagado?C.green:C.red}}>
-                      {c.pagado?<span>✓ {$$(c.monto)}</span>:$$(c.monto)}
+                    <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:cerrado?C.green:C.red}}>
+                      {mon!=="USD"&&<span style={{fontSize:9,color:C.muted,marginRight:3}}>{mon}</span>}{cerrado?<span>✓ {$$(c.monto)}</span>:$$(c.monto)}
                     {c.renovable&&<span style={{fontSize:9,marginLeft:4,background:`${C.orange}22`,color:C.orange,borderRadius:10,padding:"1px 5px"}}>🔄 Renov.</span>}
                     </td>
-                    <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow}}>{$$(c.cuota)}</td>
-                    <td style={{padding:"7px 12px",whiteSpace:"nowrap",color:C.muted}}>{c.f_inicio?fmtDate(c.f_inicio):"—"}</td>
-                    <td style={{padding:"7px 12px",whiteSpace:"nowrap",color:vencProx?C.orange:C.muted}}>{fmtDate(c.f_venc)}{vencProx&&" ⚠️"}</td>
-                    <td style={{padding:"7px 12px",textAlign:"right",color:C.muted}}>{c.tasa||"—"}</td>
+                    <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow}}>{c.tipo_credito==="contrato"||c.tipo_credito==="socio"?<span style={{color:C.muted,fontSize:10}}>calendario</span>:$$(c.cuota)}</td>
+                    <td style={{padding:"7px 12px",whiteSpace:"nowrap",color:C.muted}}>{(c.fecha_desembolso||c.f_inicio)?fmtDate(c.fecha_desembolso||c.f_inicio):"—"}</td>
+                    <td style={{padding:"7px 12px",whiteSpace:"nowrap",color:vencProx?C.orange:C.muted}}>{fmtDate(fVenc)}{vencProx&&" ⚠️"}</td>
+                    <td style={{padding:"7px 12px",textAlign:"right",color:C.muted}}>{c.tasa||"—"}{c.tasa_tipo==="variable"?" var.":""}</td>
+                    <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:est.pendienteTotal?C.red:C.muted2}}>
+                      {est.pendienteTotal?$c(est.pendienteTotal,mon):"—"}
+                      {est.vencidoTotal>0&&<div style={{fontSize:9,color:C.red}}>vencido {$c(est.vencidoTotal,mon)}</div>}
+                    </td>
+                    <td style={{padding:"7px 12px"}}><Pill def={ESTADO_CRED[c.anulado?"anulado":est.estado]||ESTADO_CRED.vigente}/>
+                      {(mon!=="USD"&&!(Number(c.tc_flujo)>0))&&<div style={{fontSize:9,color:C.red}}>sin TC: fuera del flujo</div>}
+                      {est.faltantes.length>0&&<div style={{fontSize:9,color:C.red}}>faltan datos</div>}</td>
                     <td style={{padding:"7px 10px",textAlign:"center",fontSize:10}}>
                       {c.renovable ? (
                         <div>
@@ -7891,29 +8624,26 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                         </div>
                       ) : <span style={{color:C.muted2}}>—</span>}
                     </td>
-                    {canEdit&&(
-                      <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
-                        <div style={{display:"flex",gap:4}}>
-                          <select value={c.pagado?"pagado":"pendiente"}
-                            onChange={e=>togglePagado(c.n,e.target.value==="pagado")}
-                            style={{padding:"3px 7px",borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer",
-                              border:`1px solid ${c.pagado?"#86efac":"#fde68a"}`,
-                              background:c.pagado?"#dcfce7":"#fef9c3",
-                              color:c.pagado?"#166534":"#854d0e",outline:"none"}}>
-                            <option value="pendiente">⏳ Pendiente</option>
-                            <option value="pagado">✓ Pagado</option>
-                          </select>
-                          <button onClick={()=>openEdit(c)}
-                            style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:11,background:"transparent",color:C.muted}}>
-                            ✏️
-                          </button>
-                          <button onClick={()=>eliminar(c.n)}
-                            style={{padding:"3px 8px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,background:"#fee2e2",color:"#991b1b"}}>
-                            ×
-                          </button>
-                        </div>
-                      </td>
-                    )}
+                    <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
+                      <div style={{display:"flex",gap:4}}>
+                        <button onClick={()=>setDetalleUid(uidCredito(c))} title="Calendario, pagos e historial"
+                          style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${C.blue}`,cursor:"pointer",fontSize:11,background:"transparent",color:C.blue,fontWeight:700}}>
+                          📅 {canEdit&&!c.anulado?"Pagos":"Ver"}
+                        </button>
+                        {canEdit&&!c.anulado&&<button onClick={()=>openEdit(c)} title="Editar condiciones"
+                          style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:11,background:"transparent",color:C.muted}}>
+                          ✏️
+                        </button>}
+                        {canEdit&&!c.anulado&&<button onClick={()=>anularCredito(c)} title="Anular (no se borra)"
+                          style={{padding:"3px 8px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,background:"#fee2e2",color:"#991b1b"}}>
+                          Anular
+                        </button>}
+                        {canEdit&&c.anulado&&<button onClick={()=>reactivarCredito(c)} title={`Anulado: ${c.motivoAnulacion||""}`}
+                          style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:11,background:"transparent",color:C.muted}}>
+                          Reactivar
+                        </button>}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -7922,164 +8652,78 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         </div>
       </Card>
 
-      {/* Saldo deuda por empresa al cierre de temporada (junio) */}
+      {/* Saldo deuda por empresa al cierre de temporada (junio) — desde el motor de créditos */}
       <Card style={{padding:0,overflow:"hidden"}}>
         <div style={{padding:"12px 16px 8px",borderBottom:`1px solid ${C.border}`}}>
           <SectionTitle>Saldo Deuda por Empresa — Cierre de Temporada (Junio)</SectionTitle>
           <div style={{fontSize:10,color:C.muted}}>
-            Deuda pendiente por empresa al 30 de junio de cada año
+            Saldo de capital + cuotas sin desglose con vencimiento posterior al 30 de junio, ya descontados los pagos registrados (USD)
           </div>
         </div>
         <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-            <thead>
-              <tr style={{background:C.primary}}>
-                <th style={{padding:"8px 14px",fontWeight:700,fontSize:11,color:C.text,
-                  textAlign:"left",borderBottom:`1px solid ${C.border}`,
-                  position:"sticky",left:0,background:C.bg2,zIndex:1,minWidth:180}}>
-                  Empresa
-                </th>
-                {["Jun-26","Jun-27","Jun-28","Jun-29","Jun-30","Jun-31"].map(t=>(
-                  <th key={t} style={{padding:"8px 14px",fontWeight:600,fontSize:10,
-                    color:C.muted,textAlign:"right",borderBottom:`1px solid ${C.border}`,
-                    textTransform:"uppercase",whiteSpace:"nowrap"}}>
-                    {t}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {(()=>{
-                const CIERRES = [
-                  ["Jun-26","2026-06-30"],["Jun-27","2027-06-30"],
-                  ["Jun-28","2028-06-30"],["Jun-29","2029-06-30"],
-                  ["Jun-30","2030-06-30"],["Jun-31","2031-06-30"],
-                ];
-                const emps = [...new Set(creditosVisibles.map(c=>c.empresa))].sort();
-                return emps.map(emp=>{
-                  const e = empresas[emp]||{emoji:"🏢",color:C.blue};
-                  const empCreds = creditosVisibles.filter(c=>c.empresa===emp);
-                  const saldos = CIERRES.map(([,fecha])=>
-                    empCreds.reduce((s,c)=>{
-                      // Deuda original pendiente
-                      let d = (!c.pagado && c.f_venc>fecha) ? (Number(c.cuota)||0) : 0;
-                      // Cuotas de renovación pendientes (Capital+Interés aún no vencidas)
-                      if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
-                        if((cq.tipo||'Solo Interés')==='Capital+Interés'){
-                          const mesEn = ({Ene:'Jan',Feb:'Feb',Mar:'Mar',Abr:'Apr',May:'May',Jun:'Jun',Jul:'Jul',Ago:'Aug',Sep:'Sep',Oct:'Oct',Nov:'Nov',Dic:'Dec'})[cq.mes]||cq.mes;
-                          const fCuota = cq.anio&&cq.mes ? `${cq.anio}-${String(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].indexOf(mesEn)+1).padStart(2,'0')}-28` : '';
-                          if(fCuota>fecha) d+=Number(cq.monto)||0;
-                        }
-                      });
-                      return s+d;
-                    },0)
-                  );
-                  const hasSaldo = saldos.some(s=>s>0);
-                  if(!hasSaldo) return null;
-                  // Total inicial = saldo al cierre anterior (antes de Jun-26 = total deuda)
-                  const totalInicial = empCreds.reduce((s,c)=>{
-                    let d = Number(c.cuota)||0;
-                    if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
-                      if((cq.tipo||'Solo Interés')==='Capital+Interés') d+=Number(cq.monto)||0;
-                    });
-                    return s+d;
-                  },0);
-                  return (
-                    <tr key={emp} style={{borderBottom:`1px solid ${C.border}22`}}
-                      onMouseEnter={e2=>e2.currentTarget.style.background=`${C.card2}`}
-                      onMouseLeave={e2=>e2.currentTarget.style.background="transparent"}>
-                      <td style={{padding:"8px 14px",position:"sticky",left:0,
-                        background:C.card,zIndex:1,borderRight:`1px solid ${C.border}22`}}>
-                        <div style={{fontWeight:700,color:e.color,fontSize:11}}>
-                          {e.emoji} {emp}
-                        </div>
-                        <div style={{fontSize:9,color:C.muted,marginTop:1}}>
-                          Total: {$$(totalInicial)}
-                        </div>
-                      </td>
-                      {saldos.map((saldo,i)=>{
-                        const prev = i===0 ? totalInicial : saldos[i-1];
-                        const pagado = prev - saldo;
-                        const pct = totalInicial>0 ? Math.round((1-saldo/totalInicial)*100) : 100;
-                        return (
-                          <td key={i} style={{padding:"8px 14px",textAlign:"right"}}>
-                            {saldo>0 ? (
-                              <div>
-                                <div style={{fontWeight:800,fontSize:12,
-                                  color:saldo<totalInicial*0.3?C.yellow:C.red}}>
-                                  {$$(saldo)}
-                                </div>
-                                {pagado>0&&(
-                                  <div style={{fontSize:9,color:C.green,marginTop:1}}>
-                                    ↓ {$$(pagado)} pagado
-                                  </div>
-                                )}
-                                <div style={{fontSize:9,color:C.muted,marginTop:1}}>
-                                  {100-pct}% pendiente
-                                </div>
-                              </div>
-                            ) : (
-                              <span style={{color:C.green,fontWeight:700,fontSize:12}}>✓ Saldado</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                }).filter(Boolean);
-              })()}
-            </tbody>
-            {/* Fila total consolidado */}
-            <tfoot>
-              <tr style={{background:C.bg2,borderTop:`2px solid ${C.border}`}}>
-                <td style={{padding:"8px 14px",fontWeight:800,color:C.text,fontSize:11,
-                  position:"sticky",left:0,background:C.bg2,zIndex:1}}>
-                  TOTAL GRUPO
-                </td>
-                {(()=>{
-                  const CIERRES_F = [
-                    "2026-06-30","2027-06-30","2028-06-30",
-                    "2029-06-30","2030-06-30","2031-06-30"
-                  ];
-                  const MES_ABREV = {Ene:'01',Feb:'02',Mar:'03',Abr:'04',May:'05',Jun:'06',Jul:'07',Ago:'08',Sep:'09',Oct:'10',Nov:'11',Dic:'12'};
-                  return CIERRES_F.map((fecha,i)=>{
-                    const total = creditosVisibles.reduce((s,c)=>{
-                      let d = (!c.pagado && c.f_venc>fecha)?(Number(c.cuota)||0):0;
-                      if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
-                        if((cq.tipo||'Solo Interés')==='Capital+Interés'){
-                          const fCuota=cq.anio&&cq.mes?`\${cq.anio}-\${MES_ABREV[cq.mes]||'06'}-28`:'';
-                          if(fCuota>fecha) d+=Number(cq.monto)||0;
-                        }
-                      });
-                      return s+d;
-                    },0);
+          {(()=>{
+            const y0 = Number(hoy.slice(0,4)) + (hoy.slice(5,7)>"06"?1:0);
+            const CIERRES = Array.from({length:6},(_,i)=>[`Jun-${String(y0+i).slice(2)}`,`${y0+i}-06-30`]);
+            const activos = creditosVisibles.filter(c=>!c.anulado);
+            const emps = [...new Set(activos.map(c=>c.empresa))].sort();
+            const hoyTot = (lista)=>lista.reduce((a,c)=>{const e=estadoDe(c),f=factorUSD(c);return f===null?a:a+(e.saldoCapital+e.sinDesglosePend)*f;},0);
+            const filas = emps.map(emp=>{
+              const ec = activos.filter(c=>c.empresa===emp);
+              const saldos = CIERRES.map(([,f])=>{const x=saldoCapitalAl(ec,f,hoy);return x.capital+x.sinDesglose;});
+              return {emp, actual:hoyTot(ec), saldos};
+            }).filter(r=>r.actual>0.5||r.saldos.some(x=>x>0.5));
+            const th = {padding:"8px 14px",fontWeight:600,fontSize:10,color:C.muted,textAlign:"right",borderBottom:`1px solid ${C.border}`,textTransform:"uppercase",whiteSpace:"nowrap"};
+            return (
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                <thead><tr style={{background:C.primary}}>
+                  <th style={{...th,textAlign:"left",color:C.text,position:"sticky",left:0,background:C.bg2,zIndex:1,minWidth:180}}>Empresa</th>
+                  <th style={th}>Hoy</th>
+                  {CIERRES.map(([t])=><th key={t} style={th}>{t}</th>)}
+                </tr></thead>
+                <tbody>
+                  {filas.map(({emp,actual,saldos})=>{
+                    const e = empresas[emp]||{emoji:"🏢",color:C.blue};
                     return (
-                      <td key={i} style={{padding:"8px 14px",textAlign:"right",
-                        fontWeight:800,fontSize:12,color:total?C.red:C.green}}>
-                        {total?$$(total):"✓ Saldado"}
-                      </td>
+                      <tr key={emp} style={{borderBottom:`1px solid ${C.border}22`}}>
+                        <td style={{padding:"8px 14px",position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}22`,fontWeight:700,color:e.color}}>{e.emoji} {emp}</td>
+                        <td style={{padding:"8px 14px",textAlign:"right",fontWeight:800,color:C.red}}>{$$(actual)}</td>
+                        {saldos.map((saldo,i)=>{
+                          const prev = i===0 ? actual : saldos[i-1];
+                          return (
+                            <td key={i} style={{padding:"8px 14px",textAlign:"right"}}>
+                              {saldo>0.5 ? (<div>
+                                <div style={{fontWeight:800,fontSize:12,color:saldo<actual*0.3?C.yellow:C.red}}>{$$(saldo)}</div>
+                                {prev-saldo>0.5&&<div style={{fontSize:9,color:C.green,marginTop:1}}>↓ {$$(prev-saldo)} amortizado</div>}
+                                {saldo-prev>0.5&&<div style={{fontSize:9,color:C.orange,marginTop:1}}>↑ {$$(saldo-prev)} nueva deuda</div>}
+                              </div>) : <span style={{color:C.green,fontWeight:700,fontSize:12}}>✓ Saldado</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
                     );
-                  });
-                })()}
-              </tr>
-            </tfoot>
-          </table>
+                  })}
+                </tbody>
+                <tfoot><tr style={{background:C.bg2,borderTop:`2px solid ${C.border}`}}>
+                  <td style={{padding:"8px 14px",fontWeight:800,color:C.text,position:"sticky",left:0,background:C.bg2,zIndex:1}}>TOTAL GRUPO</td>
+                  <td style={{padding:"8px 14px",textAlign:"right",fontWeight:800,color:C.red}}>{$$(filas.reduce((a,r)=>a+r.actual,0))}</td>
+                  {CIERRES.map((_,i)=>{const t=filas.reduce((a,r)=>a+r.saldos[i],0);return <td key={i} style={{padding:"8px 14px",textAlign:"right",fontWeight:800,fontSize:12,color:t>0.5?C.red:C.green}}>{t>0.5?$$(t):"✓ Saldado"}</td>;})}
+                </tr></tfoot>
+              </table>
+            );
+          })()}
         </div>
       </Card>
 
-      {/* Cronograma de pagos por empresa */}
+      {/* Cronograma de pagos por empresa → acreedor (vencimientos del calendario de cada crédito) */}
       <Card style={{padding:0,overflow:"hidden"}}>
         <div style={{padding:"12px 16px 8px",borderBottom:`1px solid ${C.border}`}}>
           <SectionTitle>Timeline de Pagos por Acreedor</SectionTitle>
-          <div style={{fontSize:10,color:C.muted}}>Cronograma visual: cuotas originales → renovaciones por empresa y acreedor</div>
+          <div style={{fontSize:10,color:C.muted}}>Vencimientos de cada crédito (cuotas y renovaciones) con su estado; ingresos de renovación en verde</div>
         </div>
         {(()=>{
-          // Agrupar por empresa → acreedor
           const byEmp = {};
-          creditosVisibles.forEach(c=>{
-            if(!byEmp[c.empresa]) byEmp[c.empresa]={};
-            if(!byEmp[c.empresa][c.acreedor]) byEmp[c.empresa][c.acreedor]=[];
-            byEmp[c.empresa][c.acreedor].push(c);
+          creditosVisibles.filter(c=>!c.anulado).forEach(c=>{
+            ((byEmp[c.empresa]=byEmp[c.empresa]||{})[c.acreedor]=byEmp[c.empresa][c.acreedor]||[]).push(c);
           });
           const MES_A = {Ene:"Jan",Feb:"Feb",Mar:"Mar",Abr:"Apr",May:"May",Jun:"Jun",Jul:"Jul",Ago:"Aug",Sep:"Sep",Oct:"Oct",Nov:"Nov",Dic:"Dec"};
           return Object.entries(byEmp).map(([emp,acreedores])=>{
@@ -8088,35 +8732,17 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
               <div key={emp} style={{borderBottom:`1px solid ${C.border}`,padding:"12px 16px"}}>
                 <div style={{fontSize:12,fontWeight:800,color:e.color,marginBottom:10}}>{e.emoji} {emp}</div>
                 {Object.entries(acreedores).map(([acreedor,creds])=>{
-                  // Construir eventos del timeline para este acreedor
                   const eventos = [];
-                  // Cuotas originales
                   creds.forEach(c=>{
-                    eventos.push({fecha:c.f_venc,label:mesDeDate(c.f_venc),monto:c.cuota,tipo:"original",pagado:c.pagado,id:c.n});
-                  });
-                  // Cuotas de renovación (todas las renovaciones del crédito)
-                  creds.filter(c=>c.renovable).forEach(c=>{
-                    getRenovaciones(c).forEach((ren,ri)=>{
-                      calcCuotasRenovacion(ren).forEach((cq,ci)=>{
-                        if(!cq.mes||!cq.anio) return;
-                        const mesEn=MES_A[cq.mes]||cq.mes;
-                        const label=`${mesEn}-${String(cq.anio).slice(2)}`;
-                        const fecha=`${cq.anio}-${String(Object.values(MES_A).indexOf(mesEn)+1).padStart(2,"0")}-15`;
-                        eventos.push({fecha,label,monto:cq.montoReal||0,tipo:cq.tipo||"Solo Interés",pagado:false,id:`ren-${c.n}-${ri}-${ci}`,isRen:true});
-                      });
-                    });
-                  });
-                  // Ingreso de renovación (todas las renovaciones)
-                  creds.filter(c=>c.renovable).forEach(c=>{
-                    getRenovaciones(c).forEach((ren,ri)=>{
+                    estadoDe(c).vencimientos.forEach(v=>eventos.push({fecha:v.fecha, label:fmtDate(v.fecha), monto:v.total, pend:v.pendienteTotal,
+                      estado:v.estado, isRen:v.origen==="renovacion", id:v.key, comp:v}));
+                    if(c.renovable) getRenovaciones(c).forEach((ren,ri)=>{
                       if(!ren.monto||!ren.mes_ingreso||!ren.anio_ingreso) return;
                       const mesEn=MES_A[ren.mes_ingreso]||ren.mes_ingreso;
-                      const label=`${mesEn}-${String(ren.anio_ingreso).slice(2)}`;
                       const fecha=`${ren.anio_ingreso}-${String(Object.values(MES_A).indexOf(mesEn)+1).padStart(2,"0")}-01`;
-                      eventos.push({fecha,label,monto:Number(ren.monto),tipo:"ingreso",pagado:false,id:`ing-${c.n}-${ri}`,isIngreso:true});
+                      eventos.push({fecha,label:`${mesEn}-${String(ren.anio_ingreso).slice(2)}`,monto:Number(ren.monto),isIngreso:true,id:`ing-${uidCredito(c)}-${ri}`});
                     });
                   });
-                  // Ordenar cronológicamente
                   eventos.sort((a,b)=>a.fecha.localeCompare(b.fecha));
                   if(eventos.length===0) return null;
                   return (
@@ -8124,24 +8750,23 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                       <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6}}>{acreedor}</div>
                       <div style={{display:"flex",alignItems:"center",gap:0,overflowX:"auto",paddingBottom:4}}>
                         {eventos.map((ev,ei)=>{
-                          const isLast=ei===eventos.length-1;
-                          const bgColor=ev.isIngreso?"#22c55e22":ev.isRen?(ev.tipo==="Capital+Interés"?"#3b82f622":"#f59e0b22"):`${C.bg}`;
-                          const borderColor=ev.isIngreso?"#22c55e":ev.isRen?(ev.tipo==="Capital+Interés"?C.blue:C.orange):(ev.pagado?"#22c55e44":C.border);
-                          const textColor=ev.isIngreso?"#22c55e":ev.isRen?(ev.tipo==="Capital+Interés"?C.blue:C.orange):C.red;
+                          const pag = ev.estado==="pagada", venc = ev.estado==="vencida";
+                          const col = ev.isIngreso?"#22c55e":venc?C.red:ev.isRen?C.orange:C.red;
                           return (
                             <React.Fragment key={ev.id}>
-                              <div style={{flexShrink:0,background:bgColor,borderRadius:8,
-                                padding:"6px 10px",border:`1px solid ${borderColor}`,
-                                opacity:ev.pagado?0.45:1,minWidth:70,textAlign:"center"}}>
+                              <div title={ev.comp?`Capital ${$$(ev.comp.capital)} · Interés ${$$(ev.comp.interes)} · Cargos ${$$(ev.comp.cargos)}${ev.comp.sinDesglose?` · Sin desglose ${$$(ev.comp.sinDesglose)}`:""}`:""}
+                                style={{flexShrink:0,background:ev.isIngreso?"#22c55e22":venc?"#fee2e2":C.bg,borderRadius:8,
+                                padding:"6px 10px",border:`1px solid ${ev.isIngreso?"#22c55e":pag?"#22c55e44":venc?C.red:C.border}`,
+                                opacity:pag?0.45:1,minWidth:74,textAlign:"center"}}>
                                 {ev.isIngreso&&<div style={{fontSize:8,color:"#22c55e",fontWeight:700,marginBottom:1}}>💰 INGRESO</div>}
-                                {ev.isRen&&!ev.isIngreso&&<div style={{fontSize:8,color:ev.tipo==="Capital+Interés"?C.blue:C.orange,fontWeight:700,marginBottom:1}}>🔄 {ev.tipo==="Capital+Interés"?"CAP+INT":"INT"}</div>}
+                                {ev.isRen&&<div style={{fontSize:8,color:C.orange,fontWeight:700,marginBottom:1}}>🔄 RENOV.</div>}
+                                {venc&&<div style={{fontSize:8,color:C.red,fontWeight:700,marginBottom:1}}>VENCIDA</div>}
                                 <div style={{fontSize:10,fontWeight:700,color:C.yellow}}>{ev.label}</div>
-                                <div style={{fontSize:11,fontWeight:800,color:textColor}}>{$$(ev.monto)}</div>
-                                {ev.pagado&&<div style={{fontSize:8,color:"#22c55e"}}>✓</div>}
+                                <div style={{fontSize:11,fontWeight:800,color:col}}>{$$(ev.monto)}</div>
+                                {ev.estado==="parcial"||(venc&&ev.pend<ev.monto)?<div style={{fontSize:8,color:C.blue}}>pend. {$$(ev.pend)}</div>:null}
+                                {pag&&<div style={{fontSize:8,color:"#22c55e"}}>✓</div>}
                               </div>
-                              {!isLast&&<div style={{width:16,height:1,background:`${C.border}`,flexShrink:0,marginTop:8}}>
-                                <div style={{width:"100%",height:"100%",background:C.muted2}}/>
-                              </div>}
+                              {ei<eventos.length-1&&<div style={{width:16,height:1,background:C.muted2,flexShrink:0}}/>}
                             </React.Fragment>
                           );
                         })}
@@ -8158,18 +8783,19 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
       {/* Modal nuevo / editar crédito */}
       {modal&&(()=>{
         const esSocio = form.tipo_credito === "socio";
+        const esContratoF = form.tipo_credito === "contrato";
         const socioCuotas = (form.cuotas_socio||[]).filter(cu=>cu.fecha_vencimiento);
         const amort = esSocio ? calcularAmortizacionSocio(form.monto, form.tasa_efectiva_anual, form.fecha_desembolso, socioCuotas) : null;
         return (
         <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.6)",zIndex:400,
           display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:C.bg2,border:`1px solid ${C.blue}55`,borderRadius:16,
-            width:esSocio?900:520,maxWidth:"95vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(16,24,40,0.4)"}}>
+            width:esSocio?900:esContratoF?1000:620,maxWidth:"95vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(16,24,40,0.4)"}}>
             <div style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,
               display:"flex",alignItems:"center",gap:10}}>
-              <span style={{fontSize:20}}>{esSocio?"🤝":"🏦"}</span>
+              <span style={{fontSize:20}}>{esSocio?"🤝":esContratoF?"📑":"🏦"}</span>
               <span style={{fontSize:13,fontWeight:800,color:C.text}}>
-                {editId?"Editar":"Nuevo"} {esSocio?"Crédito de Socio":"Crédito"}
+                {editId?"Editar":"Nuevo"} {esSocio?"Crédito de Socio":esContratoF?"Crédito con calendario contractual":"Crédito"}
               </span>
               <button onClick={()=>setModal(false)}
                 style={{marginLeft:"auto",background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:20}}>×</button>
@@ -8177,7 +8803,9 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
             {/* Selector tipo de crédito */}
             <div style={{padding:"12px 20px 0",display:"flex",gap:8,alignItems:"center"}}>
               <span style={{fontSize:11,fontWeight:700,color:C.muted}}>Tipo de crédito:</span>
-              {[["banco","🏦 Bancario / Privado"],["socio","🤝 De Socio"]].map(([v,lbl])=>(
+              {[["contrato","📑 Con calendario (recomendado)"],["banco","🏦 Vencimiento único / registro simple"],["socio","🤝 De Socio"]]
+                .filter(([v])=>!editId||v===form.tipo_credito||(v==="contrato"&&form.tipo_credito!=="socio"&&!(form.pagos||[]).length))
+                .map(([v,lbl])=>(
                 <button key={v} type="button" onClick={()=>setForm(p=>({...p,tipo_credito:v,
                   cuotas_socio: v==="socio" && !(p.cuotas_socio||[]).length ? [CUOTA_SOCIO_VACIA(),CUOTA_SOCIO_VACIA()] : (p.cuotas_socio||[]),
                   tasa_efectiva_anual: v==="socio" && !p.tasa_efectiva_anual ? "12.6" : p.tasa_efectiva_anual }))}
@@ -8187,7 +8815,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                     background:form.tipo_credito===v?`${C.blue}22`:"transparent",color:form.tipo_credito===v?C.blue:C.muted}}>{lbl}</button>
               ))}
             </div>
-            <div style={{padding:"16px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            {esContratoF && <CamposContrato form={form} setForm={setForm} EMP_SELECT={EMP_SELECT}/>}
+            {!esContratoF&&<div style={{padding:"16px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               {(esSocio?[
                 ["Empresa","empresa","select",EMP_SELECT],
                 ["Acreedor / Socio","acreedor","text",null],
@@ -8198,9 +8827,9 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                 ["Empresa","empresa","select",EMP_SELECT],
                 ["Acreedor / Institución","acreedor","text",null],
                 ["Tipo institución","tipo_inst","text",null],
-                ["Tipo crédito","tipo_cr","select",["Bullet","Cuotas Mensuales","Leasing","Crédito Hipotecario","Inversión","Otro"]],
-                ["Monto total (USD)","monto","number",null],
-                ["Cuota (USD)","cuota","number",null],
+                ["Tipo crédito","tipo_cr","select",TIPOS_CREDITO],
+                [`Monto total (${form.moneda||"USD"})`,"monto","number",null],
+                [`Cuota (${form.moneda||"USD"})`,"cuota","number",null],
                 ["Fecha desembolso","f_inicio","date",null],
                 ["Fecha vencimiento","f_venc","date",null],
                 ["Tasa (%)","tasa","text",null],
@@ -8223,9 +8852,16 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                   )}
                 </div>
               ))}
-            </div>
+            </div>}
+            {!esSocio&&!esContratoF&&(
+              <div style={{margin:"0 20px 10px",fontSize:10,color:C.muted}}>
+                Registro simple: la cuota se proyecta completa en su vencimiento y, si no se desglosa (en 📅 Pagos), no separa capital de intereses.
+                Para cuotas con capital e intereses, gracia o prepagos, usa "Con calendario".
+              </div>
+            )}
+            <CamposComunesCredito form={form} setForm={setForm} sinMoneda={esSocio}/>
 
-            {!esSocio && form.tipo_cr==="Cuotas Mensuales" && (
+            {!esSocio && !esContratoF && form.tipo_cr==="Cuotas Mensuales" && (
               <div style={{margin:"0 20px 12px",padding:"8px 12px",background:`${C.blue}12`,
                 border:`1px solid ${C.blue}33`,borderRadius:8,fontSize:10.5,color:C.text}}>
                 💡 En <b>Cuotas Mensuales</b>, la <b>Fecha desembolso</b> es obligatoria: define desde qué mes arrancan las cuotas, que se reparten mes a mes hasta el vencimiento. Sin ella, todo el crédito caería en el mes de vencimiento.
@@ -8326,8 +8962,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
               );
             })()}
 
-            {/* Sección Renovación (solo créditos no-socio) */}
-            {!esSocio&&(
+            {/* Sección Renovación (solo registros simples) */}
+            {!esSocio&&!esContratoF&&(
             <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
                 <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,fontWeight:700,color:C.text}}>
@@ -8508,8 +9144,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
 // SALDO DE DEUDA POR MES — subvista de Créditos
 // Filas: meses desde el mes actual hasta el último vencimiento.
 // Columnas: una por empresa + Total Grupo. Saldo al cierre del mes M =
-// suma de cuotas (cuota/monto) con f_venc posterior al último día de M,
-// de créditos no pagados (+ cuotas de renovación Capital+Interés).
+// capital pendiente de los vencimientos posteriores al último día de M
+// (+ cuotas sin desglose de registros antiguos), descontados los pagos.
 // Montos en USD; toggle a CLP convierte con TC editable.
 // ─────────────────────────────────────────────────────────────────
 const MESES_ABR_SD = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -8520,16 +9156,14 @@ function fechaCuotaRenov(cq){
   if(!cq?.anio||!cq?.mes) return '';
   return `${cq.anio}-${MES2NUM_SD[cq.mes]||'06'}-28`;
 }
-// Saldo de un crédito al cierre de fechaISO.
+// Saldo de un crédito al cierre de fechaISO (USD): capital pendiente de los
+// vencimientos posteriores + cuotas sin desglose (registros antiguos), ya
+// descontados los pagos. Antes sumaba la cuota total (con intereses) y las
+// renovaciones leían un campo `monto` que no existe (quedaban en 0).
 function saldoCreditoAt(c, fechaISO){
-  let d = (!c.pagado && c.f_venc && c.f_venc>fechaISO) ? (Number(c.cuota)||0) : 0;
-  if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
-    if((cq.tipo||'Solo Interés')==='Capital+Interés'){
-      const f = fechaCuotaRenov(cq);
-      if(f && f>fechaISO) d += Number(cq.monto)||0;
-    }
-  });
-  return d;
+  if(c.anulado) return 0;
+  const x = saldoCapitalAl([c], fechaISO);
+  return x.capital + x.sinDesglose;
 }
 
 function SaldoDeudaPorMes({creditos=[], empresas={}}){
@@ -8540,6 +9174,8 @@ function SaldoDeudaPorMes({creditos=[], empresas={}}){
   const meses = useMemo(()=>{
     let maxISO="";
     creditos.forEach(c=>{
+      if(c.anulado) return;
+      vencimientosCredito(c).forEach(v=>{ if(v.fecha>maxISO) maxISO=v.fecha; });
       if(c.f_venc && c.f_venc>maxISO) maxISO=c.f_venc;
       if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
         const f=fechaCuotaRenov(cq); if(f&&f>maxISO) maxISO=f;
@@ -9956,13 +10592,17 @@ function reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBan
   // Función getProySemana idéntica a FlujoEmpresa
   function getProySemana(cat, lineLabel, idx, semIdx, isLastInMonth) {
     const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel, realData?.[empNombre]?._resolucionesOverride)?.[idx];
-    let base = 0;
+    let base = 0, lockFrom = null, semProy = null;
     {
       const sec = (empData.sections || []).find(x=>x.cat===cat);
       const l = sec && sec.lines.find(x=>x.label===lineLabel);
-      if(l) base = l.proy?.[idx]||0;
+      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; if(l._semProy) semProy=l._semProy; }
     }
-    if(ov === undefined) return semIdx === 0 ? base : 0;
+    // Igual que FlujoEmpresa: Créditos manda y reparte por semana de vencimiento.
+    if(ov === undefined || (lockFrom !== null && idx >= lockFrom)) {
+      if(semProy) return (semProy[idx]?.[semIdx]) || 0;
+      return semIdx === 0 ? base : 0;
+    }
     if(typeof ov === "number") return isLastInMonth ? ov : 0;
     if(typeof ov === "object" && ov !== null) {
       const k = `_sem${semIdx}`;
@@ -11866,7 +12506,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // paramsEmp: { empresa: { seasonKey: { prodId: defaultProducto() } } }
   const [paramsEmp,setParamsEmp]=useState({});
   // CREDITOS: dinámico — se puede agregar, editar y marcar como pagado
-  const [creditosData,setCreditosData]=useState(CREDITOS_DEFAULT);
+  const [creditosData,setCreditosData]=useState(()=>asegurarUids(CREDITOS_DEFAULT).lista);
   // paramsAS: parámetros específicos Allegria Service
   const [paramsAS,setParamsAS]=useState(defaultParamsAllegriaService);
   // paramsIF: parámetros específicos Integrity Farms
@@ -11930,42 +12570,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   const empresas=useMemo(()=>{
     const base = buildEmpresas(params, allegraComisionArandanos);
-    // Recalculate Préstamos + Renovaciones proy using current creditosData
-    Object.keys(base).forEach(empNombre=>{
-      const emp = base[empNombre];
-      base[empNombre] = {
-        ...emp,
-        sections: emp.sections.map(sec=>{
-          // egr_nop: Pago Préstamos + Renovaciones (egresos)
-          if(sec.cat==="egr_nop") {
-            return {
-              ...sec,
-              lines: sec.lines.map(l=>{
-                if(l.label==="Pago Préstamos - Total")
-                  return {...l, proy: calcPrestamosEmpresa(empNombre, creditosData)};
-                if(l.label==="Renovaciones")
-                  return {...l, proy: calcRenovacionesEmpresa(empNombre, creditosData)};
-                return l;
-              })
-            };
-          }
-          // ing_nop: Ingreso Renovación + Ingresos Financiamiento (ingresos)
-          if(sec.cat==="ing_nop") {
-            return {
-              ...sec,
-              lines: sec.lines.map(l=>{
-                if(l.label==="Ingreso Renovación")
-                  return {...l, proy: calcIngresoRenovacionEmpresa(empNombre, creditosData)};
-                if(l.label==="Ingresos Financiamiento")
-                  return {...l, proy: calcIngresosPrestamosEmpresa(empNombre, creditosData)};
-                return l;
-              })
-            };
-          }
-          return sec;
-        })
-      };
-    });
+    // Préstamos, Renovaciones e Ingresos Financiamiento desde Créditos
+    aplicarCreditosAEmpresas(base, creditosData);
     // Inject Allegria Service calculated projections
     const {ingCerezas,ingCiruelas} = calcAllegriaService(paramsAS);
     const as = base["Allegria Service"];
@@ -12232,7 +12838,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     if(d?.sub_lines)    setSubLines(d.sub_lines);
     if(d?.added_lines)  setAddedLinesGlobal(d.added_lines);
     if(d?.intercompany)   setIntercompany(d.intercompany||[]);
-    if(d?.creditos_data && Array.isArray(d.creditos_data) && d.creditos_data.length>0) setCreditosData(d.creditos_data);
+    // uid estable por crédito (los `n` históricos se repiten). Se persiste con el próximo guardado.
+    if(d?.creditos_data && Array.isArray(d.creditos_data) && d.creditos_data.length>0) setCreditosData(asegurarUids(d.creditos_data).lista);
     if(d?.params_frisku) setParamsFrisku(prev=>d.params_frisku||prev);
   }
 
@@ -12714,10 +13321,11 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
     setCreditosData(final);
     creditosRef.current = final;
-    setTimeout(()=>{
-      persistAll({ creditos_data: final })
-        .then(ok=>{ setSaved(ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
-    }, 0);
+    // Devuelve el resultado REAL del guardado ({ok}) para que Créditos no
+    // confirme un pago que el servidor no recibió. (Antes se evaluaba el objeto
+    // como booleano y siempre mostraba "Guardado".)
+    return persistAll({ creditos_data: final })
+      .then(res=>{ setSaved(res?.ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); return res; });
   },[persistAll, usuarioActual]);
 
   // Guardar transferencias intercompany
@@ -13224,7 +13832,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         // nextCreditId calculado sobre el BLOB COMPLETO (no sobre el subset visible)
         // para evitar colisión de IDs cuando un usuario restringido crea un crédito.
         const maxNFull = (creditosData||[]).reduce((m,c)=> Math.max(m, typeof c.n==='number' && c.n<100000 ? c.n : 0), 0);
-        return <Creditos empresas={empresasVisibles} creditosData={creditosData} onSaveCreditos={handleSaveCreditos} canEdit={puedoEdit('creditos')} empresasPermitidas={empresasPermitidas} nextCreditId={maxNFull+1}/>;
+        return <Creditos empresas={empresasVisibles} creditosData={creditosData} onSaveCreditos={handleSaveCreditos} canEdit={puedoEdit('creditos')} empresasPermitidas={empresasPermitidas} nextCreditId={maxNFull+1} usuario={usuarioActual?.nombre||""}/>;
       })()}
 
       {tab==="nominas"&&puedoVer("nominas")&&(
