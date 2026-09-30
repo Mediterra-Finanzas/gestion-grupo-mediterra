@@ -5,6 +5,7 @@ import {
   sumarMeses, fraccionAnio, calendarioContrato, vencimientosCredito, aplicarPagos, estadoCredito,
   registrarPago, anularPago, flujoCreditosEmpresa, simularPrepago, aplicarPrepago, asegurarUids,
   servicioDeudaPorMes, saldoCapitalAl, analisisCartera, datosFaltantesContrato,
+  confirmarImpaga, anularConciliacion, porConciliarCartera, registrarPagoIdempotente, pagoPorOrigen,
 } from './creditos.js';
 
 let fallos = 0;
@@ -52,7 +53,8 @@ check('C1: Σ intereses = 12 × 10.661,855 − 120.000 = 7.942,26', aprox(suma(k
 const c2 = { uid: 'c2', n: 2, tipo_credito: 'contrato', empresa: 'Osiris', acreedor: 'Banco B', moneda: 'USD',
   monto: 400000, fecha_desembolso: '2026-01-10', primer_venc: '2026-04-10', vencimiento_final: '2027-01-10',
   periodicidad: 3, modalidad: 'lineal', tasa_tipo: 'fija', tasa_anual: 8, base: 'act360',
-  prepago_comision_tipo: 'meses_interes', prepago_comision_valor: 1 };
+  prepago_comision_tipo: 'meses_interes', prepago_comision_valor: 1,
+  control_desde: '2026-01-10' };   // controlado en la app desde el desembolso
 const k2 = calendarioContrato(c2).filas;
 check('C2: 4 cuotas trimestrales', k2.map(f => f.fecha).join(',') === '2026-04-10,2026-07-10,2026-10-10,2027-01-10');
 check('C2: capital 100.000 cada una', k2.every(f => aprox(f.capital, 100000)));
@@ -159,6 +161,10 @@ const s6c = simularPrepago(c6, { fecha: '2026-05-25', total: true, modo: 'plazo'
 check('C6c: total → capital 300.000, devengado 3.000, comisión 2.000, desembolso 305.000',
   aprox(s6c.capital, 300000) && aprox(s6c.devengado, 3000) && aprox(s6c.comision, 2000) && aprox(s6c.desembolso, 305000));
 check('C6c: evitados 9.200 · ahorro neto 7.200', aprox(s6c.interesesEvitados, 9200) && aprox(s6c.ahorroNeto, 7200));
+check('C6c detalle: devengo desde 10-abr-26 (último pago de intereses) hasta 25-may-26 = 45 días', s6c.desde === '2026-04-10' && s6c.diasDevengados === 45);
+check('C6c detalle: saldo capital antes del prepago 300.000 (3 cuotas de 100.000)', aprox(s6c.saldoCapital, 300000));
+check('C6c detalle: calendario original posterior = 10-jul, 10-oct, 10-ene-27; escenario vacío',
+  s6c.original.map(v => v.fecha).join(',') === '2026-07-10,2026-10-10,2027-01-10' && s6c.escenario.length === 0);
 const c6cap = aplicarPrepago(c6, s6c, 'test');
 const e6c = estadoCredito(c6cap, HOY);
 check('C6c aplicado: crédito cerrado, sin nada en el flujo', e6c.estado === 'cerrado' && suma(flujoCreditosEmpresa('Osiris', [c6cap], { hoy: HOY, ubicar }).prestamos.total) === 0);
@@ -215,6 +221,48 @@ const sc = saldoCapitalAl(cartera, '2026-12-31', HOY2);
 check('Saldo capital al 31-12-26 = C1 cuota ene-27 + 100.000 + 500.000', aprox(sc.capital, k1[11].capital + 100000 + 500000, 0.02), `${sc.capital}`);
 const an = analisisCartera(cartera, HOY2);
 check('Análisis: saldo por empresa suma el total', aprox(Object.values(an.porEmpresa).reduce((s, x) => s + x.saldoCapital, 0), 120000 + 400000 + 500000 + 200000, 0.05));
+
+// ═══ Conciliación de cuotas históricas (registros antiguos) ═════════
+// Registro antiguo con cuota vencida el 30-abr-26 y sin pago registrado:
+// no se sabe si se pagó → por conciliar, fuera de la deuda confirmada y del flujo.
+const vieja = { uid: 'V1', n: 30, empresa: 'Osiris', acreedor: 'Banco Security', monto: 9178, cuota: 9178, f_venc: '2026-04-30', tipo_cr: 'Cuotas Mensuales', pagado: false };
+const eV = estadoCredito(vieja, HOY);
+check('Antiguo vencido sin pago → "por conciliar", no "vencida"', eV.vencimientos[0].estado === 'por_conciliar' && eV.vencidoTotal === 0 && eV.porConciliarTotal === 9178);
+check('Por conciliar NO suma a la deuda confirmada ni al flujo', eV.pendienteTotal === 0 && suma(flujoCreditosEmpresa('Osiris', [vieja], { hoy: HOY, ubicar }).prestamos.total) === 0);
+check('…y se informa con su impacto potencial', flujoCreditosEmpresa('Osiris', [vieja], { hoy: HOY, ubicar }).porConciliar[0].usd === 9178);
+check('Servicio de deuda: por conciliar en columna aparte, fuera del total', servicioDeudaPorMes([vieja], HOY)['2026-05'].porConciliar === 9178 && servicioDeudaPorMes([vieja], HOY)['2026-05'].total === 0);
+let errC = ''; try { confirmarImpaga(vieja, vencimientosCredito(vieja)[0].key, '', 'test'); } catch (e) { errC = e.message; }
+check('Confirmar impaga exige respaldo', /respaldo/.test(errC));
+const viejaConf = confirmarImpaga(vieja, vencimientosCredito(vieja)[0].key, 'Certificado de deuda Banco Security 15-05-26', 'test');
+const flConf = flujoCreditosEmpresa('Osiris', [viejaConf], { hoy: HOY, ubicar });
+check('Confirmada impaga → vencida, se arrastra a May-26 conservando su fecha 30-04-26',
+  flConf.prestamos.total[iM(2026, 5)] === 9178 && flConf.arrastrados[0].fecha === '2026-04-30' && estadoCredito(viejaConf, HOY).vencimientos[0].estado === 'vencida');
+const viejaRev = anularConciliacion(viejaConf, viejaConf.conciliaciones[0].id, 'era otro crédito', 'test');
+check('Anular la confirmación la devuelve a por conciliar y queda en el historial',
+  estadoCredito(viejaRev, HOY).vencimientos[0].estado === 'por_conciliar' && viejaRev.conciliaciones[0].anulado === true);
+const viejaPag = registrarPago(vieja, { vencKey: vencimientosCredito(vieja)[0].key, fecha: '2026-04-30', sinDesglose: 9178, nota: 'cartola abril' }, 'test');
+check('Registrar el pago (conciliada como pagada) la cierra', estadoCredito(viejaPag, HOY).estado === 'cerrado');
+check('porConciliarCartera lista la cuota con su USD', porConciliarCartera([vieja, c2], HOY).length === 1);
+// Crédito nuevo (control desde el alta): una cuota posterior al alta sin pago es vencida confirmada
+const nuevoCtrl = { ...vieja, uid: 'V2', control_desde: '2026-04-01' };
+check('Crédito controlado desde antes del vencimiento → vencida confirmada', estadoCredito(nuevoCtrl, HOY).vencimientos[0].estado === 'vencida');
+
+// ═══ Pago desde nómina: idempotente ════════════════════════════════
+const orig = { tipo: 'nomina', clave: 'nomina:N1:item7', nominaId: 'N1', itemId: 'item7' };
+const r1 = registrarPagoIdempotente(c2, { vencKey: 'c2@2026-04-10', fecha: '2026-04-10', capital: 50000, interes: 8000, origen: orig }, 'test');
+const r2b = registrarPagoIdempotente(r1.credito, { vencKey: 'c2@2026-04-10', fecha: '2026-04-10', capital: 50000, interes: 8000, origen: orig }, 'test');
+check('Nómina: reintentar el mismo pago NO lo duplica', r2b.duplicado === true && r2b.pagoId === r1.pagoId && r2b.credito.pagos.length === 1);
+check('Nómina: pago parcial deja pendiente 50.000 de capital', aprox(estadoCredito(r1.credito, HOY).vencimientos[0].pendienteTotal, 50000));
+const r1anul = anularPago(r1.credito, r1.pagoId, 'línea de nómina revertida', 'test');
+check('Nómina: anulado el pago se puede volver a registrar (nuevo id, historial conserva el anulado)',
+  pagoPorOrigen(r1anul, orig.clave) === null && registrarPagoIdempotente(r1anul, { vencKey: 'c2@2026-04-10', fecha: '2026-04-12', capital: 50000, interes: 8000, origen: orig }, 'test').credito.pagos.length === 2);
+
+// ═══ Tasa variable: el interés se marca como proyección ════════════
+const cv = { ...c2, uid: 'cv', tasa_tipo: 'variable', tasa_ref_nombre: 'SOFR 3M', tasa_ref_hipotesis: 5, margen: 3, tasa_anual: '' };
+const kv = calendarioContrato(cv).filas;
+check('Variable SOFR 5% (hipótesis) + 3% = 8% → mismos intereses que C2', aprox(kv[1].interes, 6066.67));
+check('Variable: vencimientos marcados tasaVariable y servicio de deuda separa el interés proyectado',
+  vencimientosCredito(cv).every(v => v.tasaVariable) && aprox(servicioDeudaPorMes([cv], HOY)['2026-07'].interesVariable, 6066.67));
 
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

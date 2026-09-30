@@ -354,7 +354,9 @@ const V = (c, key, fecha, comp, extra = {}) => {
   return {
     key, uid: uidCredito(c), n: c.n, empresa: c.empresa, acreedor: c.acreedor || '', moneda: c.moneda || 'USD',
     tipo_cr: c.tipo_cr || '', fecha, capital, interes, cargos, sinDesglose,
-    total: r2(capital + interes + cargos + sinDesglose), origen: 'cuota', ...extra,
+    total: r2(capital + interes + cargos + sinDesglose), origen: 'cuota',
+    // Interés de tasa variable = proyección con la referencia supuesta constante.
+    tasaVariable: tasaCredito(c).variable === true, ...extra,
   };
 };
 
@@ -426,6 +428,8 @@ const COMP = ['capital', 'interes', 'cargos', 'sinDesglose'];
 // fecha < hoy y saldo por pagar quedan como vencidos.
 export function aplicarPagos(c, vencs, hoy = hoyISO()) {
   const pagos = pagosVigentes(c);
+  const confirmadas = new Set(conciliacionesVigentes(c).filter(x => x.resultado === 'impaga').map(x => x.vencKey));
+  const ctrl = controlDesde(c);
   const porVenc = {};
   pagos.forEach(p => { if (p.vencKey) (porVenc[p.vencKey] = porVenc[p.vencKey] || []).push(p); });
   const legacyPagado = c && c.pagado === true && !esContrato(c);
@@ -454,8 +458,14 @@ export function aplicarPagos(c, vencs, hoy = hoyISO()) {
     COMP.forEach(k => { pend[k] = r2(pend[k]); pag[k] = r2(pag[k]); });
     const vencida = pendienteTotal > 0 && v.fecha < hoy;
     const parcial = pendienteTotal > 0 && pagadoTotal > EPS;
-    const estado = pendienteTotal === 0 ? 'pagada' : (vencida ? 'vencida' : (parcial ? 'parcial' : 'pendiente'));
-    return { ...v, pagado: pag, pagadoTotal, pendiente: pend, pendienteTotal, exceso, vencida, parcial, estado,
+    // Una cuota vencida ANTES de que el crédito se controlara en la app, sin
+    // ningún pago registrado, no prueba que siga impaga: queda "por conciliar"
+    // (fuera de la deuda confirmada y del flujo) hasta confirmarla o pagarla.
+    const porConciliar = vencida && pagadoTotal <= EPS && !confirmadas.has(v.key) && (!ctrl || v.fecha < ctrl);
+    const vencidaConfirmada = vencida && !porConciliar;
+    const estado = pendienteTotal === 0 ? 'pagada' : (porConciliar ? 'por_conciliar' : (vencida ? 'vencida' : (parcial ? 'parcial' : 'pendiente')));
+    return { ...v, pagado: pag, pagadoTotal, pendiente: pend, pendienteTotal, exceso, vencida: vencidaConfirmada, porConciliar,
+      impagaConfirmada: confirmadas.has(v.key), parcial, estado,
       pagadoSinRegistro: legacyOrigen && pagadoTotal <= EPS, pagos: ps };
   });
   const huerfanos = pagos.filter(p => p.vencKey && !claves.has(p.vencKey) && (p.tipo || 'pago') === 'pago');
@@ -467,27 +477,35 @@ export function estadoCredito(c, hoy = hoyISO()) {
   const vencs = vencimientosCredito(c);
   const { vencimientos, huerfanos } = aplicarPagos(c, vencs, hoy);
   const suma = (arr, f) => r2(arr.reduce((s, v) => s + f(v), 0));
-  const saldoCapital = suma(vencimientos, v => v.pendiente.capital);
-  const sinDesglosePend = suma(vencimientos, v => v.pendiente.sinDesglose);
-  const pendienteTotal = suma(vencimientos, v => v.pendienteTotal);
-  const vencidoTotal = suma(vencimientos.filter(v => v.vencida), v => v.pendienteTotal);
+  // Cifras CONFIRMADAS: excluyen lo por conciliar (se informa aparte).
+  const conf = vencimientos.filter(v => !v.porConciliar);
+  const pc = vencimientos.filter(v => v.porConciliar);
+  const saldoCapital = suma(conf, v => v.pendiente.capital);
+  const sinDesglosePend = suma(conf, v => v.pendiente.sinDesglose);
+  const pendienteTotal = suma(conf, v => v.pendienteTotal);
+  const vencidoTotal = suma(conf.filter(v => v.vencida), v => v.pendienteTotal);
+  const porConciliarTotal = suma(pc, v => v.pendienteTotal);
+  const porConciliarCapital = suma(pc, v => v.pendiente.capital);
+  const porConciliarSinDesglose = suma(pc, v => v.pendiente.sinDesglose);
   // "extincion" = capital/interés que se extinguen por un prepago sin ser un
   // movimiento de caja propio (la caja está en el registro "prepago").
   const pagosTot = pagosVigentes(c).filter(p => p.tipo !== 'extincion');
   const ultimo = vencimientos.length ? vencimientos[vencimientos.length - 1].fecha : (c.f_venc || '');
   let estado = 'vigente';
   if (esAnulado(c)) estado = 'anulado';
-  else if (vencimientos.length && pendienteTotal === 0) estado = 'cerrado';
   else if (vencidoTotal > 0) estado = 'con_vencidos';
+  else if (porConciliarTotal > 0) estado = 'por_conciliar';
+  else if (vencimientos.length && pendienteTotal === 0) estado = 'cerrado';
   const t = tasaCredito(c);
   const faltantes = esContrato(c) ? datosFaltantesContrato(c) : [];
   return {
     c, uid: uidCredito(c), vencimientos, huerfanos, saldoCapital, sinDesglosePend, pendienteTotal, vencidoTotal,
-    interesPend: suma(vencimientos, v => v.pendiente.interes), cargosPend: suma(vencimientos, v => v.pendiente.cargos),
+    porConciliarTotal, porConciliarCapital, porConciliarSinDesglose,
+    interesPend: suma(conf, v => v.pendiente.interes), cargosPend: suma(conf, v => v.pendiente.cargos),
     pagadoCapital: r2(pagosTot.reduce((s, p) => s + num(p.capital), 0)),
     pagadoTotal: r2(pagosTot.reduce((s, p) => s + totalPago(p), 0)),
     vencimientoFinal: ultimo, estado, tasa: t, faltantes,
-    proximo: vencimientos.find(v => v.pendienteTotal > 0 && !v.vencida) || null,
+    proximo: vencimientos.find(v => v.pendienteTotal > 0 && !v.vencida && !v.porConciliar) || null,
   };
 }
 
@@ -500,10 +518,66 @@ export function registrarPago(c, pago, usuario = '') {
   if (!isoValida(pago.fecha)) throw new Error('El pago necesita fecha efectiva (AAAA-MM-DD).');
   const ts = new Date().toISOString();
   const nuevo = { id: `pg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, vencKey: pago.vencKey || null,
-    fecha: pago.fecha, ...comp, tipo: pago.tipo || 'pago', nota: pago.nota || '', usuario, ts, ...(pago.extra || {}) };
+    fecha: pago.fecha, ...comp, tipo: pago.tipo || 'pago', nota: pago.nota || '', usuario, ts,
+    ...(pago.origen ? { origen: pago.origen } : {}), ...(pago.extra || {}) };
   return { ...c, pagos: [...(c.pagos || []), nuevo],
     historial: [...(c.historial || []), { ts, usuario, accion: nuevo.tipo === 'prepago' ? 'prepago' : 'pago', detalle: `${nuevo.fecha} · ${r2(tot)} ${c.moneda || 'USD'}${pago.vencKey ? ' · ' + pago.vencKey : ''}` }] };
 }
+// Pago con origen externo (p. ej. una línea de nómina): la clave del origen
+// hace que reintentar NO duplique. Si ya hay un pago vigente con esa clave,
+// se devuelve ese mismo (duplicado:true) sin tocar el crédito.
+export function pagoPorOrigen(c, clave) {
+  return pagosVigentes(c).find(p => p.origen && p.origen.clave === clave) || null;
+}
+export function registrarPagoIdempotente(c, pago, usuario = '') {
+  const clave = pago && pago.origen && pago.origen.clave;
+  if (!clave) throw new Error('Falta la clave de origen del pago.');
+  const ex = pagoPorOrigen(c, clave);
+  if (ex) return { credito: c, pagoId: ex.id, duplicado: true };
+  if (pago.vencKey && !vencimientosCredito(c).some(v => v.key === pago.vencKey)) throw new Error('El vencimiento vinculado ya no existe en el calendario del crédito.');
+  const nuevo = registrarPago(c, pago, usuario);
+  return { credito: nuevo, pagoId: nuevo.pagos[nuevo.pagos.length - 1].id, duplicado: false };
+}
+
+// ── Conciliación de cuotas históricas ────────────────────────────────
+// c.control_desde: fecha desde la cual el crédito se controla en la app (se
+// fija al darlo de alta). Registros anteriores no lo tienen: todas sus
+// cuotas vencidas sin pago quedan por conciliar.
+export function controlDesde(c) { return c && isoValida(c.control_desde) ? c.control_desde : null; }
+export const conciliacionesVigentes = (c) => (c && Array.isArray(c.conciliaciones) ? c.conciliaciones : []).filter(x => x && !x.anulado);
+export function confirmarImpaga(c, vencKey, nota, usuario = '') {
+  if (!vencimientosCredito(c).some(v => v.key === vencKey)) throw new Error('Vencimiento no encontrado.');
+  if (conciliacionesVigentes(c).some(x => x.vencKey === vencKey)) return c;
+  if (!nota || !String(nota).trim()) throw new Error('Indica el respaldo de la confirmación (cartola, certificado de deuda, correo del acreedor…).');
+  const ts = new Date().toISOString();
+  return { ...c,
+    conciliaciones: [...(c.conciliaciones || []), { id: `cc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      vencKey, resultado: 'impaga', nota: String(nota).trim(), usuario, ts }],
+    historial: [...(c.historial || []), { ts, usuario, accion: 'conciliación', detalle: `${vencKey} confirmada impaga · ${String(nota).trim()}` }] };
+}
+export function anularConciliacion(c, id, motivo, usuario = '') {
+  if (!motivo || !String(motivo).trim()) throw new Error('Anular una conciliación requiere motivo.');
+  const ts = new Date().toISOString();
+  let ok = false;
+  const conciliaciones = (c.conciliaciones || []).map(x => {
+    if (x.id !== id || x.anulado) return x;
+    ok = true; return { ...x, anulado: true, motivoAnulacion: String(motivo).trim(), anuladoPor: usuario, anuladoTs: ts };
+  });
+  if (!ok) throw new Error('Conciliación no encontrada o ya anulada.');
+  return { ...c, conciliaciones, historial: [...(c.historial || []), { ts, usuario, accion: 'anula_conciliación', detalle: `${id} · ${motivo}` }] };
+}
+// Todas las cuotas por conciliar de una cartera (USD cuando hay TC).
+export function porConciliarCartera(creditos, hoy = hoyISO()) {
+  const out = [];
+  (creditos || []).filter(c => c && !esAnulado(c)).forEach(c => {
+    const f = factorUSD(c);
+    aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.forEach(v => {
+      if (v.porConciliar) out.push({ ...v, credito: c, usd: f === null ? null : r2(v.pendienteTotal * f) });
+    });
+  });
+  return out.sort((a, b) => a.empresa.localeCompare(b.empresa) || a.fecha.localeCompare(b.fecha));
+}
+
 export function anularPago(c, pagoId, motivo, usuario = '') {
   if (!motivo || !String(motivo).trim()) throw new Error('Anular un pago requiere motivo.');
   const ts = new Date().toISOString();
@@ -543,7 +617,7 @@ export function flujoCreditosEmpresa(empresa, creditos, opts = {}) {
   const bloque = () => ({ total: Z(), capital: Z(), interes: Z(), cargos: Z(), sinDesglose: Z(), sem: {}, porAcreedor: {},
     semComp: { capital: {}, interes: {}, cargos: {}, sinDesglose: {} } });
   const out = { prestamos: bloque(), renovaciones: bloque(), ingresos: { total: Z(), porAcreedor: {} },
-    arrastrados: [], sinTC: [], antesHorizonte: [] };
+    arrastrados: [], porConciliar: [], sinTC: [], antesHorizonte: [] };
   const hoyPos = ubicar ? ubicar(hoy) : { idx: -1, semIdx: 0 };
   (creditos || []).filter(c => c && c.empresa === empresa && !esAnulado(c)).forEach(c => {
     const f = factorUSD(c);
@@ -551,6 +625,8 @@ export function flujoCreditosEmpresa(empresa, creditos, opts = {}) {
     const { vencimientos } = aplicarPagos(c, vencimientosCredito(c), hoy);
     vencimientos.forEach(v => {
       if (!(v.pendienteTotal > 0)) return;
+      // Por conciliar: NO entra al flujo; se informa con su impacto potencial.
+      if (v.porConciliar) { out.porConciliar.push({ ...v, usd: r2(v.pendienteTotal * f) }); return; }
       let pos = ubicar ? ubicar(v.fecha) : { idx: -1, semIdx: 0 };
       // Impago con fecha pasada: se arrastra al mes/semana en curso (no se pierde).
       if (v.fecha < hoy && hoyPos.idx >= 0) { pos = hoyPos; out.arrastrados.push({ ...v, usd: r2(v.pendienteTotal * f) }); }
@@ -603,11 +679,12 @@ export function analisisCartera(creditos, hoy = hoyISO()) {
     estados.forEach(e => {
       if (e.f === null) return;
       const k = clave(e.c) || '—';
-      const x = g[k] || (g[k] = { saldoCapital: 0, sinDesglose: 0, pendiente: 0, vencido: 0, n: 0 });
+      const x = g[k] || (g[k] = { saldoCapital: 0, sinDesglose: 0, pendiente: 0, vencido: 0, porConciliar: 0, n: 0 });
       x.saldoCapital += e.saldoCapital * e.f; x.sinDesglose += e.sinDesglosePend * e.f;
-      x.pendiente += e.pendienteTotal * e.f; x.vencido += e.vencidoTotal * e.f; if (e.pendienteTotal > 0) x.n++;
+      x.pendiente += e.pendienteTotal * e.f; x.vencido += e.vencidoTotal * e.f; x.porConciliar += e.porConciliarTotal * e.f;
+      if (e.pendienteTotal > 0 || e.porConciliarTotal > 0) x.n++;
     });
-    Object.values(g).forEach(x => { ['saldoCapital', 'sinDesglose', 'pendiente', 'vencido'].forEach(k => { x[k] = r2(x[k]); }); });
+    Object.values(g).forEach(x => { ['saldoCapital', 'sinDesglose', 'pendiente', 'vencido', 'porConciliar'].forEach(k => { x[k] = r2(x[k]); }); });
     return g;
   };
   const tipoAcr = (c) => c.tipo_acreedor || (esSocio(c) ? 'Socio' : (c.tipo_inst === 'Banco' ? 'Banco' : (c.tipo_inst || 'Sin clasificar')));
@@ -645,8 +722,11 @@ export function servicioDeudaPorMes(creditos, hoy = hoyISO(), { arrastrar = true
     aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.forEach(v => {
       if (!(v.pendienteTotal > 0)) return;
       const k = (arrastrar && v.fecha < hoy) ? hoy.slice(0, 7) : v.fecha.slice(0, 7);
-      const x = out[k] || (out[k] = { capital: 0, interes: 0, cargos: 0, sinDesglose: 0, total: 0, vencido: 0 });
+      const x = out[k] || (out[k] = { capital: 0, interes: 0, cargos: 0, sinDesglose: 0, total: 0, vencido: 0, porConciliar: 0, interesVariable: 0 });
+      // Por conciliar: columna aparte, fuera del total (impacto potencial).
+      if (v.porConciliar) { x.porConciliar += v.pendienteTotal * f; return; }
       x.capital += v.pendiente.capital * f; x.interes += v.pendiente.interes * f; x.cargos += v.pendiente.cargos * f;
+      if (v.tasaVariable) x.interesVariable += v.pendiente.interes * f;
       x.sinDesglose += v.pendiente.sinDesglose * f; x.total += v.pendienteTotal * f; if (v.vencida) x.vencido += v.pendienteTotal * f;
     });
   });
@@ -662,7 +742,7 @@ export function saldoCapitalAl(creditos, corteISO, hoy = hoyISO()) {
   (creditos || []).filter(c => c && !esAnulado(c)).forEach(c => {
     const f = factorUSD(c); if (f === null) return;
     aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.forEach(v => {
-      if (v.fecha > corteISO) { capital += v.pendiente.capital * f; sinDesglose += v.pendiente.sinDesglose * f; }
+      if (v.fecha > corteISO && !v.porConciliar) { capital += v.pendiente.capital * f; sinDesglose += v.pendiente.sinDesglose * f; }
     });
   });
   return { capital: r2(capital), sinDesglose: r2(sinDesglose) };
@@ -686,7 +766,13 @@ export function simularPrepago(c, sim, hoy = hoyISO()) {
   const fecha = sim.fecha;
   if (!isoValida(fecha)) return { error: 'Fecha de prepago inválida.' };
   const vencs = aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.filter(v => v.origen === 'cuota');
-  const vencidosImpagos = r2(vencs.filter(v => v.fecha <= fecha && v.pendienteTotal > 0).reduce((s, v) => s + v.pendienteTotal, 0));
+  // Cuotas con vencimiento hasta la fecha del prepago aún impagas: se
+  // regularizan junto con el prepago. Las "por conciliar" se informan aparte
+  // (no se suman al desembolso porque no está probado que se deban).
+  const previasImpagas = vencs.filter(v => v.fecha <= fecha && v.pendienteTotal > 0);
+  const vencidosImpagos = r2(previasImpagas.filter(v => !v.porConciliar).reduce((s, v) => s + v.pendienteTotal, 0));
+  const porConciliarPrevio = r2(previasImpagas.filter(v => v.porConciliar).reduce((s, v) => s + v.pendienteTotal, 0));
+  if (porConciliarPrevio > EPS) avisos.push(`Hay ${porConciliarPrevio} ${c.moneda || 'USD'} en cuotas anteriores por conciliar: no se suman al desembolso hasta confirmar si están impagas.`);
   const futuros = vencs.filter(v => v.fecha > fecha);
   const saldoCap = r2(futuros.reduce((s, v) => s + v.pendiente.capital, 0));
   const sinDesgFut = r2(futuros.reduce((s, v) => s + v.pendiente.sinDesglose, 0));
@@ -703,7 +789,7 @@ export function simularPrepago(c, sim, hoy = hoyISO()) {
     if (esNum(sim.tasaHipotesis)) { tasa = num(sim.tasaHipotesis); hipotesis.push(`Tasa ${tasa}% ingresada como hipótesis (el crédito no la tiene registrada).`); }
     else faltantes.push('tasa de interés');
   } else if (tc.origen !== 'contrato') hipotesis.push(`Tasa ${tasa}% tomada de: ${tc.origen}.`);
-  if (tc.variable) hipotesis.push(`Tasa variable: se usa ${tc.origen}.`);
+  if (tc.variable) hipotesis.push(`Tasa variable: devengado e intereses futuros son una PROYECCIÓN con ${tc.origen}, supuesta constante hasta el vencimiento.`);
   let base = esContrato(c) ? c.base : c.base;
   if (esSocio(c)) base = 'efectiva365';
   if (!BASES[base] && base !== 'efectiva365') {
@@ -767,7 +853,8 @@ export function simularPrepago(c, sim, hoy = hoyISO()) {
   const ahorroNeto = (interesesEvitados === null || comision === null) ? null : r2(interesesEvitados - comision);
   const desembolso = (devengado === null || comision === null) ? null : r2(capital + devengado + comision + vencidosImpagos);
   return {
-    fecha, esTotal, capital: r2(capital), saldoCapital: saldoCap, devengado, desde, comision, vencidosImpagos,
+    fecha, esTotal, capital: r2(capital), saldoCapital: saldoCap, devengado, desde, comision, vencidosImpagos, porConciliarPrevio,
+    diasDevengados: isoValida(desde) ? diasEntre(desde, fecha) : null, comisionTipo: comTipo, comisionValor: comVal,
     desembolso, original: origFut, escenario: nuevoFut, interesesFuturosOriginal: I0, interesesFuturosEscenario: I1,
     cargosEvitados, interesesEvitados, ahorroNeto, exacto, estimacion: !exacto || faltantes.length > 0 || hipotesis.length > 0,
     faltantes, hipotesis, avisos, modo: sim.modo || 'plazo', tasa, base,

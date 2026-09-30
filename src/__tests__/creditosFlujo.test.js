@@ -25,7 +25,7 @@ const OUT_DIR = process.env.CRED_OUT_DIR || path.join(os.tmpdir(), 'creditos-flu
 // 400.000 al 8% Act/360, capital 100.000 trimestral (caso 2 de src/creditos.test.mjs)
 const c2 = { uid:'c2', n:900, tipo_credito:'contrato', empresa:'Osiris', acreedor:'Banco B', moneda:'USD',
   monto:400000, fecha_desembolso:'2026-01-10', primer_venc:'2026-04-10', vencimiento_final:'2027-01-10',
-  periodicidad:3, modalidad:'lineal', tasa_tipo:'fija', tasa_anual:8, base:'act360' };
+  periodicidad:3, modalidad:'lineal', tasa_tipo:'fija', tasa_anual:8, base:'act360', control_desde:'2026-01-10' };
 // Q1 (108.000) pagada en parte: interés 8.000 + capital 40.000 → quedan 60.000
 const c2p = registrarPago(c2, { vencKey:'c2@2026-04-10', fecha:'2026-04-10', interes:8000, capital:40000 }, 'test');
 // Registro antiguo: un vencimiento el día 1 (antes en Chile caía en el mes anterior)
@@ -62,10 +62,12 @@ describe('Pago Préstamos desde Créditos', () => {
     });
   });
 
-  test('un valor manual antiguo sobre Pago Préstamos ya no reemplaza a Créditos', () => {
+  test('un valor manual antiguo sobre Pago Préstamos SIGUE aplicando hasta conciliarlo (no se retira en silencio)', () => {
     const realData = { Osiris: { _proyOverrides: { [claveLinea('egr_nop', 'Pago Préstamos - Total')]: { [iM('Jul-26')]: 1 } } } };
     const cons = buildEmpresasConOverrides(empresas, realData, {}, {});
-    expect(linea(cons, 'Osiris', 'Pago Préstamos - Total').proy[iM('Jul-26')]).toBeCloseTo(106066.67, 2);
+    expect(linea(cons, 'Osiris', 'Pago Préstamos - Total').proy[iM('Jul-26')]).toBe(1);
+    // los demás meses siguen saliendo de Créditos
+    expect(linea(cons, 'Osiris', 'Pago Préstamos - Total').proy[iM('Oct-26')]).toBeCloseTo(104088.89, 2);
   });
 
   test('el Excel muestra lo mismo que la pantalla', () => {
