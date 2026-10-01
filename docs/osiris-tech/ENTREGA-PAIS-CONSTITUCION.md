@@ -4,10 +4,10 @@ Un campo nuevo para registrar dónde está constituida cada sociedad. **No toca 
 que ya existe, no toca el territorio y no entra en ningún cálculo.** Ningún importe cambia.
 
 - **Rama:** `osiris/pais-constitucion`
-- **Base:** `8a1605502a3880451333d3aaa244e519c7ddc3ed` (= `main` publicado)
-- **Independiente de T3:** no comparte archivos de pantalla con el registro de condiciones.
-  T3 trabaja en la ficha del contrato; esto, en el Maestro de Clientes. Se pueden publicar en
-  cualquier orden.
+- **Base:** `70c29032cb3d6fc07fe55315a25ab5f427c1ce89` (= `main` con T3 ya publicado)
+- **Candidato:** la punta de la rama; el SHA va en el mensaje al pedir la ventana
+- **Integrado sobre la base nueva**, no reconstruido: rebase limpio salvo un conflicto trivial
+  (los dos paquetes agregan un bloque de `import` en el mismo lugar), resuelto conservando los dos
 
 ---
 
@@ -146,9 +146,36 @@ volver, porque ninguno cambió al publicar.
 | Mostrarlo en la ficha del contrato | No en esta entrega: ahí trabaja T3 y no quiero cruzar los dos paquetes. Se agrega después, cuando uno de los dos esté publicado |
 | Usarlo para decidir una retención | No. Eso requiere la decisión tributaria y la compuerta, que siguen pendientes |
 
-## 9 · Estado y secuencia
+## 9 · La integración sobre el main con T3
 
-Local, sin push ni despliegue. **Se publica después de T3**, según tu indicación: cuando T3 esté
-en `main`, integro este candidato sobre la nueva base y entrego el SHA completo y el diff final
-antes de pedir ventana. La integración no debería tener conflicto: T3 toca la ficha del contrato
-y este paquete el Maestro de Clientes, en zonas distintas del archivo.
+T3 se publicó primero (`8a16055` → `70c2903`). Este paquete se integró encima. Se verificó lo
+que la integración podía romper, sin repetir lo que seguía siendo válido:
+
+| | |
+|---|---|
+| **El conflicto** | Uno solo, en los `import` del tope. Los dos bloques conviven |
+| **El bloque de T3 sigue íntegro** | Presentes en el archivo integrado: el encabezado del registro, "Territorio contractual", el cupo del contract fee, el saldo "indeterminados", y la guarda de permisos `if(!can) return` que corrigió `cf5d2b4` |
+| **`PAISES` sigue congelado** | `["Peru","Mexico","Chile","Corea","España"]`, con su prueba |
+| **Las suites del área** | `paisConstitucion`, `registroCondiciones`, `condicionesConfigurables`, `consolidacionRetencion`, `acoplamiento` y `retencion`: **184 pruebas verdes** |
+| **El diff contra el main publicado** | Solo lo de este paquete más dos actas. `OsirisModule.jsx` +87/−6, sin tocar ninguna línea de T3 |
+
+No se repitieron las comprobaciones en navegador de T3 ni las mediciones de impacto de retención:
+siguen valiendo, y la integración no toca ese código.
+
+## 10 · Estado y secuencia
+
+Local, sin push ni despliegue. T3 ya está publicado y este candidato está integrado sobre esa
+base, a la espera de tu autorización.
+
+**Suite completa: 1.386 pasan, 24 saltadas, 1 falla** — `paramsFrutaAnticipos`, atada a la fecha del
+carril de anticipos, que falla igual en `main` sin este cambio. Build `CI=true`:
+`Compiled successfully`.
+
+Este paquete arrastra además dos commits de documentación que no quise publicar en una ventana
+propia: el cierre de la ventana 6 en el registro de ventanas, y la aclaración en el acta de T3 de
+que la medición acredita que los cálculos no cambian pero **no** acredita las facturas emitidas
+ni lo cobrado.
+
+**Qué no autoriza este paquete**, aunque el catálogo permita registrar Reino Unido: no habilita
+completar Agroberries, no determina su retención, y no activa beneficios, reajustes, transición
+ni validación tributaria.
