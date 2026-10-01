@@ -8,7 +8,8 @@
    --build   ejecuta antes `react-scripts build` (si no existe build/ también).
    Salida (por defecto scripts/vista-previa/dist, no se versiona):
      index.html     para abrir en local (diálogos y descargas Excel nativos)
-     artifact.html  para publicar como Artifact (sin doctype; diálogos auto)
+     artifact.html  para publicar como Artifact (sin doctype; diálogos en la página,
+                    descargas vía la capacidad "downloads" del visor)
    Los datos son SIMULADOS. Nada se lee ni se escribe en producción.
    ───────────────────────────────────────────────────────────────────────── */
 import fs from 'fs';
@@ -151,7 +152,7 @@ const cuerpo = (auto) => `<title>Vista previa Créditos</title>
 ${fuentes}
 <link href="${css}" rel="stylesheet"/>
 <div id="root"></div>
-<script>window.__VP_DIALOGOS_AUTO = ${auto};</script>
+<script>window.__VP_DIALOGOS_EN_PAGINA = ${auto};</script>
 <script src="semilla.js"></script>
 <script src="shim.js"></script>
 <script src="${js}"></script>

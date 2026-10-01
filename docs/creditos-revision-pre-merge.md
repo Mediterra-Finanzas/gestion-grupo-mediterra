@@ -371,8 +371,11 @@ Ahora el Supabase falso (`scripts/e2e/fake.mjs`) y la vista previa reemplazan es
 - `scripts/vista-previa/`: la app real compilada con un Supabase simulado **dentro del navegador** (`shim.js`) y datos de ejemplo (`semilla.js`).
 - Cubre la pauta `docs/creditos-pauta-revision.md`: cuotas, bullet, pago parcial, prepago, UF, nómina → crédito y conciliación.
 - No lee ni escribe producción, no envía correos (EmailJS y `/api/*` se responden en vacío) y no abre el tiempo real.
-- **Local:** `node scripts/vista-previa/armar.mjs --build` y luego `node scripts/vista-previa/servir.mjs` → http://localhost:4180. Diálogos y descargas Excel funcionan. La descarga de UF sale a internet, así que ahí se puede probar en vivo.
-- **Artifact:** el mismo contenido como enlace privado. Los diálogos se responden solos con aviso en pantalla y las descargas no funcionan dentro del visor.
+- **Local:** `node scripts/vista-previa/armar.mjs --build` y luego `node scripts/vista-previa/servir.mjs` → http://localhost:4180. Usa los diálogos nativos y descarga los Excel. Es la única versión que **intenta** la descarga de UF en vivo; ese intento sigue **sin verificar** (valor, fecha y fuente pendientes de comprobar contra el Banco Central).
+- **Artifact** (https://claude.ai/artifact/8gM287dbiu1FieVMYEiqp2):
+  - El visor no muestra los diálogos nativos. Cada motivo y confirmación aparece en un cuadro dentro de la página: el usuario escribe y presiona Aceptar o Cancelar, y **nada se responde solo**.
+  - Como los diálogos nativos son síncronos, el shim responde "cancelar" en la primera llamada, muestra el cuadro y, al aceptar, repite el mismo clic con la respuesta escrita. Las respuestas se descartan a los pocos segundos o al cancelar.
+  - Los Excel, PDF y ZIP se entregan por la capacidad `downloads` del visor, que pide confirmación antes de guardar.
 - **No usar la vista previa de Vercel del PR para probar acciones:** apunta a la base de **producción**. Solo sirve para mirar.
 
 ---
@@ -389,7 +392,8 @@ Ahora el Supabase falso (`scripts/e2e/fake.mjs`) y la vista previa reemplazan es
 | Navegador (datos simulados) | `scripts/e2e/vista-previa-creditos.mjs`: puntos 1–8 (cobertura, tolerancia, movimientos, Saldo por Mes, estimado, UF), Excel recalculado por LibreOffice | 36/36 OK |
 | Navegador (datos simulados) | `scripts/e2e/creditos.mjs`, `scripts/e2e/nomina-credito.mjs` | OK / OK |
 | Navegador (datos simulados) | `scripts/e2e/apertura-sin-cambios.mjs`: abrir con registros antiguos sin acción | falla antes de la corrección; OK después |
-| Navegador (vista previa) | `scripts/e2e/vista-previa-funcional.mjs`: pauta completa sobre la vista previa armada, sin interceptar nada desde fuera | 19/19 OK; 0 HTTP y 0 WebSocket a producción |
+| Navegador (vista previa) | `scripts/e2e/vista-previa-funcional.mjs`: pauta completa sobre la vista previa armada, sin interceptar nada desde fuera. Incluye, en modo Artifact, el cuadro de motivo con Cancelar (no registra nada) y Aceptar (registra con lo escrito), y la descarga del Excel local y vía la capacidad del visor | 26/26 OK; 0 HTTP y 0 WebSocket a producción |
+| Pantalla vs Excel sobre el commit integrado `02d4dcb` (incluye `main`) | `scripts/e2e/regresion-empresas.mjs`, build nuevo desde ese commit con el árbol limpio | 12.032 celdas, 0 diferencias; 0 peticiones a producción |
 | Navegador (datos simulados) | `scripts/e2e/regresion-empresas.mjs`: pantalla vs Excel recalculado, 8 empresas | 12.032 celdas, 0 diferencias; 0 peticiones a producción |
 | **Datos reales** | — | **NO verificado** |
 

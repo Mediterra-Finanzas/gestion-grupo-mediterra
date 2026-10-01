@@ -6,17 +6,21 @@
 
 ## Cómo abrirla
 
-- **Enlace (Artifact):** no requiere instalar nada.
-  - Los diálogos de motivo y confirmación se responden solos, con aviso en pantalla.
-  - Las descargas Excel no funcionan dentro del visor.
-- **Local (recomendado para revisar todo):** diálogos y Excel funcionan normal. Requiere Node.
+En las dos versiones **nada se confirma por ti**: cada motivo lo escribes tú, y cada pago, anulación o prepago lo aceptas o cancelas tú.
+
+- **Enlace (Artifact):** https://claude.ai/artifact/8gM287dbiu1FieVMYEiqp2. No requiere instalar nada.
+  - Cuando la app pide un motivo o una confirmación, aparece un cuadro dentro de la página con el texto, un campo para el motivo y los botones **Aceptar** y **Cancelar**.
+  - Con Cancelar no se registra nada.
+  - Con Aceptar, la acción se ejecuta con lo que escribiste.
+  - Los Excel se descargan desde el botón de exportar de siempre; el visor te pide confirmar antes de guardar el archivo.
+- **Local:** usa los diálogos y descargas normales del navegador. Requiere Node y una copia del repositorio en la rama del PR.
 
   ```bash
   node scripts/vista-previa/armar.mjs --build
   node scripts/vista-previa/servir.mjs
   ```
 
-  Luego abre http://localhost:4180.
+  Luego abre http://localhost:4180. Es la única versión desde la que se puede **intentar** la descarga de UF en vivo; ver el punto 5.
 
 **Ingreso:** `ahuerta@grupomediterra.cl`, PIN `482913`. Luego Flujo de Caja → 💳 Créditos.
 
@@ -106,10 +110,16 @@ No se proyecta IPC. El USD-CLP de una fecha futura es el último conocido (955, 
 - Si cambias la tolerancia de UF a 0,001 en "Editar tolerancias", pasa a **Cuadra**.
 - Si el saldo informado no tuviera respaldo, el estado sería "incompleta" con cualquier tolerancia.
 
-**Descarga de UF en vivo (pendiente):**
-- Solo se puede probar en la vista **local**, que sí sale a internet.
-- Ve a Maestros → Tipo de Cambio → "Actualizar hoy" y compara la UF descargada con la del Banco Central para la misma fecha.
-- Si difiere, cárgala como valor manual: el par `UF-CLP` ya se acepta.
+**Descarga de UF en vivo: PENDIENTE, NO VERIFICADA.**
+- La versión con enlace no sale a internet, así que no puede descargar la UF.
+- En la versión **local**, Maestros → Tipo de Cambio → "Actualizar hoy" **intenta** la descarga desde mindicador.cl.
+- Ese intento no está verificado: desde el entorno de desarrollo la llamada real estuvo bloqueada, así que nunca se comprobó la respuesta.
+- Para darla por buena hay que comprobar tres cosas contra el Banco Central para la misma fecha:
+  - el **valor**;
+  - la **fecha** (la del valor, no la de la descarga);
+  - la **fuente** (`mindicador` en la tabla de Maestros y en el panel "UF utilizada").
+- Si algo difiere, carga la UF como valor manual (el par `UF-CLP` ya se acepta) y avísame.
+- Hasta entonces, el panel "UF utilizada" sigue mostrando "pendiente de prueba en vivo".
 
 ## Otros puntos para mirar
 

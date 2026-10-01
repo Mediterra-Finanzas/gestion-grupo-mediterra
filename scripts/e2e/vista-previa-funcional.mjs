@@ -10,6 +10,7 @@
    ───────────────────────────────────────────────────────────────────────── */
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import { chromium } from '/home/user/gestion-grupo-mediterra/node_modules/playwright/index.mjs';
 import { cerrarAvisos, entrarFinanzas, subTab, inputTras, ponerNumero } from './lib.mjs';
 import { estadoCredito } from '../../src/creditos.js';
@@ -25,6 +26,11 @@ const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromi
 const ctx = await browser.newContext({ viewport: { width: 1700, height: 1100 } });
 let aProduccion = 0;
 await ctx.route('**bywovqayuzodbzwsriet.supabase.co/**', r => { aProduccion++; return r.abort(); });
+// En el visor real, window.claude.use('downloads') guarda previa confirmación del usuario.
+await ctx.addInitScript(() => {
+  window.__guardados = [];
+  window.claude = { use: async (n) => n === 'downloads' ? { save: async (r) => { window.__guardados.push(r); return { status: 'saved' }; } } : null };
+});
 const page = await ctx.newPage();
 const errores = []; page.on('pageerror', e => errores.push(String(e)));
 let wsProduccion = 0; page.on('websocket', ws => { if (ws.url().includes('bywovqayuzodbzwsriet')) wsProduccion++; });
@@ -145,14 +151,63 @@ check('Tras recargar, los pagos siguen registrados (datos en el navegador)', ((a
 await page.evaluate(() => window.__VP_REINICIAR()); await page.waitForTimeout(2500);
 check('"Reiniciar datos" vuelve a la semilla', ((await cred('A')).pagos || []).length === 2 && !((await cred('H')).prepagos || []).length);
 
-// ── Modo Artifact: diálogos respondidos solos (anular un pago exige motivo)
+// ── Versión local: descarga nativa del Excel con la hoja "Servicio deuda"
+const XLSXns = createRequire('/home/user/gestion-grupo-mediterra/package.json')('xlsx-js-style');
+const XLSXm = XLSXns.utils ? XLSXns : (XLSXns.default || XLSXns);
+const hojas = (buf) => XLSXm.read(buf, { type: 'buffer' }).SheetNames;
+const irFlujoOsiris = async () => {
+  await page.getByRole('button', { name: /Flujo Empresas/ }).first().click(); await page.waitForTimeout(1200);
+  const bs = page.getByRole('button'); const n = await bs.count();
+  for (let k = 0; k < n; k++) { const t = (await bs.nth(k).innerText().catch(() => '')).replace(/[✦\s]+$/g, '').trim(); if (t.endsWith('Osiris') && t !== 'Osiris') { await bs.nth(k).click(); break; } }
+  await page.waitForTimeout(1500);
+};
+await irFlujoOsiris();
+const [dlLocal] = await Promise.all([page.waitForEvent('download', { timeout: 120000 }), page.getByRole('button', { name: /📥 Excel/ }).first().click()]);
+const rutaLocal = path.join(OUT, 'local-' + dlLocal.suggestedFilename()); await dlLocal.saveAs(rutaLocal);
+check('Local: el Excel de Osiris se descarga e incluye la hoja "Servicio deuda"', hojas(fs.readFileSync(rutaLocal)).includes('Servicio deuda'), dlLocal.suggestedFilename());
+
+// ── Modo Artifact: diálogos DENTRO de la página, respondidos por el usuario
 await entrar('/artifact.html');
 const filaA2 = page.locator('tr', { hasText: 'Banco Demo' }).filter({ hasText: 'Osiris' }).first();
 await filaA2.getByRole('button', { name: /Pagos/ }).click(); await page.waitForTimeout(600);
-await page.locator('tr', { hasText: '10/04/2026' }).filter({ hasText: 'Pago' }).getByRole('button', { name: 'Anular' }).first().click(); await page.waitForTimeout(1200);
+const btnAnular = () => page.locator('tr', { hasText: '10/04/2026' }).filter({ hasText: 'Pago' }).getByRole('button', { name: 'Anular' }).first();
+await btnAnular().click(); await page.waitForTimeout(700);
+check('Artifact: anular abre un cuadro en la página que pide el motivo (no se responde solo)', await page.locator('#vp-dialogo #vp-respuesta').count() === 1
+  && !(await cred('A')).pagos.find(p => p.id === 'pA1').anulado);
+await foto(page, 'f07-artifact-dialogo');
+await page.locator('#vp-cancelar').click(); await page.waitForTimeout(1200);
+check('Artifact: "Cancelar" no anula el pago', !(await cred('A')).pagos.find(p => p.id === 'pA1').anulado);
+await btnAnular().click(); await page.waitForTimeout(700);
+await page.locator('#vp-respuesta').fill('Pago duplicado según cartola (motivo escrito a mano)');
+await page.locator('#vp-aceptar').click(); await page.waitForTimeout(1500);
 A = await cred('A');
-check('Modo Artifact: anular un pago funciona (motivo automático, aviso en pantalla)', A.pagos.find(p => p.id === 'pA1').anulado === true && /Motivo de prueba/.test(A.pagos.find(p => p.id === 'pA1').motivoAnulacion)
-  && await page.locator('#vp-toasts').count() > 0);
+check('Artifact: "Aceptar" anula el pago con el motivo escrito por el usuario', A.pagos.find(p => p.id === 'pA1').anulado === true && A.pagos.find(p => p.id === 'pA1').motivoAnulacion === 'Pago duplicado según cartola (motivo escrito a mano)');
+await page.getByRole('button', { name: '×' }).first().click(); await page.waitForTimeout(300);
+// Prepago: confirmar en la página
+await subTab(page, /Simular prepago/);
+const opt2 = await page.locator('select').first().locator('option', { hasText: 'Banco Prepago Demo' }).getAttribute('value');
+await page.locator('select').first().selectOption(opt2);
+await inputTras(page, 'Fecha del prepago').fill('2026-10-15'); await page.waitForTimeout(500);
+await page.getByRole('button', { name: /Aplicar prepago/ }).click(); await page.waitForTimeout(700);
+check('Artifact: "Aplicar prepago" pide confirmación en la página y no aplica nada aún', await page.locator('#vp-dialogo #vp-aceptar').count() === 1 && !((await cred('H')).prepagos || []).length);
+await page.locator('#vp-cancelar').click(); await page.waitForTimeout(1200);
+check('Artifact: prepago cancelado → sin pago ni evento de prepago', !((await cred('H')).prepagos || []).length && !((await cred('H')).pagos || []).some(p => p.tipo === 'prepago'));
+await page.getByRole('button', { name: /Aplicar prepago/ }).click(); await page.waitForTimeout(700);
+await page.locator('#vp-aceptar').click(); await page.waitForTimeout(1500);
+const H2 = await cred('H');
+check('Artifact: prepago aceptado → total 111.566,98 + 312,39 + 1.115,67 = 112.995,04', (H2.prepagos || []).length === 1
+  && Math.abs((H2.pagos || []).filter(p => p.tipo === 'prepago').reduce((a, p) => a + p.capital + p.interes + p.cargos, 0) - 112995.04) < 0.02);
+// Excel vía la capacidad "downloads" del visor (simulada aquí con window.claude)
+while (await page.locator('#vp-dialogo').count()) { console.log('  aviso de la app: ' + (await page.locator('#vp-dialogo').innerText()).replace(/\s+/g, ' ').slice(0, 160)); await page.locator('#vp-aceptar').click(); await page.waitForTimeout(300); }
+await irFlujoOsiris();
+await page.getByRole('button', { name: /📥 Excel/ }).first().click();
+await page.waitForFunction(() => (window.__guardados || []).length > 0, null, { timeout: 120000 }).catch(() => {});
+const g = await page.evaluate(async () => { const x = (window.__guardados || [])[0]; if (!x) return null;
+  const b = x.data instanceof Blob ? x.data : new Blob([x.data]); const ab = await b.arrayBuffer(); const u = new Uint8Array(ab); let bin = ''; for (let k = 0; k < u.length; k += 8192) bin += String.fromCharCode.apply(null, u.subarray(k, k + 8192));
+  return { filename: x.filename, b64: btoa(bin) }; });
+const bufA = g ? Buffer.from(g.b64, 'base64') : null;
+if (bufA) fs.writeFileSync(path.join(OUT, 'artifact-' + g.filename), bufA);
+check('Artifact: el Excel se entrega por la capacidad de descargas (con confirmación del visor) e incluye "Servicio deuda"', !!g && /\.xlsx$/.test(g.filename) && hojas(bufA).includes('Servicio deuda'), g ? g.filename : 'sin archivo');
 
 check('Ninguna llamada HTTP al Supabase de producción', aProduccion === 0, String(aProduccion));
 check('Ningún WebSocket de tiempo real hacia producción (el de la app queda inerte)', wsProduccion === 0 && await page.evaluate(() => window.__VP_WS_BLOQUEADOS > 0), `abiertos ${wsProduccion}`);

@@ -104,15 +104,99 @@
   }
   window.__VP_TOAST = toast;
 
-  // Dentro del visor de Artifacts los diálogos nativos no se muestran
-  // (confirm devuelve false y prompt null). Ahí se responden solos y se avisa.
-  if (window.__VP_DIALOGOS_AUTO) {
-    window.alert = function (m) { toast(String(m)); };
-    window.confirm = function (m) { toast('Confirmación respondida "Aceptar" automáticamente (vista previa):\n' + String(m).slice(0, 300)); return true; };
+  // ── Visor de Artifacts: diálogos y descargas ─────────────────────────
+  // El visor NO muestra los diálogos nativos (confirm devuelve false y prompt
+  // null) y bloquea las descargas. En ese modo:
+  //   · Cada diálogo se muestra DENTRO de la página: el usuario escribe el
+  //     motivo y acepta o cancela. Nada se responde solo. Como los diálogos
+  //     nativos son síncronos, la primera llamada devuelve "cancelar" (la app
+  //     no hace nada); al aceptar, se guarda la respuesta y se repite el
+  //     mismo clic, y la app recibe ahora la respuesta escrita. Las
+  //     respuestas valen solo para esa acción: se descartan a los pocos
+  //     segundos de terminar o al cancelar.
+  //   · Las descargas (Excel, PDF, ZIP) pasan por la capacidad "downloads"
+  //     del visor, que pide confirmación antes de guardar.
+  if (window.__VP_DIALOGOS_EN_PAGINA) {
+    var ultimoClic = null, reproduciendo = false, respuestas = {}, timerLimpieza = null;
+    document.addEventListener('click', function (e) {
+      if (reproduciendo) return;
+      if (e.target && e.target.closest && e.target.closest('#vp-dialogo, #vp-barra, #vp-toasts')) return;
+      ultimoClic = { el: e.target, ts: Date.now() };
+    }, true);
+    var limpiarLuego = function (ms) { clearTimeout(timerLimpieza); timerLimpieza = setTimeout(function () { respuestas = {}; }, ms); };
+    var reproducir = function () {
+      var c = ultimoClic;
+      if (!c || !c.el || !c.el.isConnected || Date.now() - c.ts > 10 * 60 * 1000) {
+        toast('Respuesta guardada. Vuelve a ejecutar la acción para aplicarla.'); limpiarLuego(60000); return;
+      }
+      reproduciendo = true;
+      try { c.el.click(); } finally { reproduciendo = false; }
+      limpiarLuego(4000);
+    };
+    var dialogo = function (tipo, msg, def) {
+      clearTimeout(timerLimpieza);
+      var viejo = document.getElementById('vp-dialogo'); if (viejo) viejo.remove();
+      var fondo = document.createElement('div'); fondo.id = 'vp-dialogo';
+      fondo.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(16,24,40,.5);display:flex;align-items:center;justify-content:center;padding:16px;font:13px/1.5 Inter,system-ui,sans-serif';
+      var caja = document.createElement('div');
+      caja.style.cssText = 'background:#fff;color:#1e2733;border-radius:10px;border:1px solid #1E2761;max-width:560px;width:100%;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.3)';
+      var t = document.createElement('div'); t.style.cssText = 'font-weight:800;margin-bottom:8px';
+      t.textContent = tipo === 'prompt' ? 'La aplicación pide un dato' : tipo === 'confirm' ? 'La aplicación pide confirmar' : 'Aviso de la aplicación';
+      var m = document.createElement('div'); m.style.cssText = 'white-space:pre-wrap;margin-bottom:10px;max-height:40vh;overflow:auto'; m.textContent = String(msg);
+      caja.appendChild(t); caja.appendChild(m);
+      var campo = null;
+      if (tipo === 'prompt') {
+        campo = document.createElement('textarea'); campo.id = 'vp-respuesta'; campo.rows = 3; campo.value = def != null ? String(def) : '';
+        campo.style.cssText = 'width:100%;box-sizing:border-box;border:1px solid #aab6c6;border-radius:8px;padding:8px;font:inherit;margin-bottom:10px';
+        caja.appendChild(campo);
+      }
+      var pie = document.createElement('div'); pie.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+      var boton = function (txt, id, primario, fn) {
+        var b = document.createElement('button'); b.id = id; b.textContent = txt;
+        b.style.cssText = 'padding:7px 16px;border-radius:8px;cursor:pointer;font:inherit;font-weight:700;' + (primario ? 'background:#1E2761;color:#fff;border:none' : 'background:#fff;color:#5b6b7f;border:1px solid #c5cedb');
+        b.onclick = function () { fondo.remove(); fn(); }; pie.appendChild(b);
+      };
+      if (tipo === 'alert') boton('Entendido', 'vp-aceptar', true, function () {});
+      else {
+        boton('Cancelar', 'vp-cancelar', false, function () { respuestas = {}; toast('Operación cancelada: no se registró nada.'); });
+        boton('Aceptar', 'vp-aceptar', true, function () { respuestas[tipo + '|' + msg] = tipo === 'prompt' ? campo.value : true; reproducir(); });
+      }
+      caja.appendChild(pie); fondo.appendChild(caja); document.body.appendChild(fondo);
+      if (campo) campo.focus();
+    };
+    window.alert = function (m) { dialogo('alert', m); };
+    window.confirm = function (m) {
+      var k = 'confirm|' + m; if (k in respuestas) return respuestas[k] === true;
+      setTimeout(function () { dialogo('confirm', m); }, 0); return false;
+    };
     window.prompt = function (m, def) {
-      var r = def ? String(def) : (/Ingrese 1 o 2/.test(m) ? '1' : 'Motivo de prueba (vista previa)');
-      toast('Diálogo respondido automáticamente con "' + r + '" (vista previa):\n' + String(m).slice(0, 300));
-      return r;
+      var k = 'prompt|' + m; if (k in respuestas) return respuestas[k];
+      setTimeout(function () { dialogo('prompt', m, def); }, 0); return null;
+    };
+
+    // Descargas → capacidad "downloads" del visor (confirmación antes de guardar).
+    var dl = null;
+    try { if (window.claude && window.claude.use) window.claude.use('downloads').then(function (x) { dl = x; }, function () {}); } catch (e) {}
+    var ofrecer = function (nombre, datos) {
+      if (!dl) { toast('Este visor no permite guardar archivos. Usa la versión local de la vista previa para descargar "' + nombre + '".'); return; }
+      dl.save({ filename: nombre, data: datos }).then(function () { toast('Guardado: ' + nombre); },
+        function (err) { toast((err && err.code === 'declined') ? 'Descarga cancelada.' : 'No se pudo guardar ' + nombre + (err && err.code ? ' (' + err.code + ')' : '') + '.'); });
+    };
+    window.saveAs = function (blob, nombre) { ofrecer(nombre || 'archivo', blob); };
+    var clickReal = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.hasAttribute('download') && /^(blob:|data:)/.test(this.href || '')) {
+        var nombre = this.getAttribute('download') || 'archivo';
+        fetchReal(this.href).then(function (r) { return r.blob(); }).then(function (b) { ofrecer(nombre, b); },
+          function () { toast('No se pudo preparar la descarga de ' + nombre + '.'); });
+        return;
+      }
+      return clickReal.apply(this, arguments);
+    };
+    var dispatchReal = HTMLAnchorElement.prototype.dispatchEvent;
+    HTMLAnchorElement.prototype.dispatchEvent = function (ev) {
+      if (ev && ev.type === 'click' && this.hasAttribute('download') && /^(blob:|data:)/.test(this.href || '')) { this.click(); return false; }
+      return dispatchReal.apply(this, arguments);
     };
   }
 
@@ -134,7 +218,7 @@
     b.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:99998;background:#fef3c7;color:#78350f;border:1px solid #f59e0b;border-radius:10px;padding:8px 12px;font:12px/1.45 Inter,system-ui,sans-serif;max-width:min(560px,calc(100vw - 24px));box-shadow:0 4px 14px rgba(0,0,0,.18)';
     b.innerHTML = '<strong>VISTA PREVIA · DATOS SIMULADOS</strong> · nada se lee ni se escribe en producción; no se envían correos.<br>' +
       'Ingreso: <code>ahuerta@grupomediterra.cl</code> · PIN <code>482913</code> → Flujo de Caja → Créditos. ' +
-      (window.__VP_DIALOGOS_AUTO ? 'Los diálogos (motivo, confirmación) se responden solos; las descargas Excel no funcionan aquí. ' : '') +
+      (window.__VP_DIALOGOS_EN_PAGINA ? 'Los motivos y confirmaciones se piden en un cuadro de esta página; las descargas piden tu confirmación. ' : '') +
       '<button id="vp-reset" style="margin-left:4px;padding:2px 8px;border-radius:6px;border:1px solid #b45309;background:#fff;color:#78350f;cursor:pointer;font:inherit">Reiniciar datos</button> ' +
       '<button id="vp-min" style="padding:2px 8px;border-radius:6px;border:1px solid #b45309;background:#fff;color:#78350f;cursor:pointer;font:inherit">Ocultar</button>';
     document.body.appendChild(b);
