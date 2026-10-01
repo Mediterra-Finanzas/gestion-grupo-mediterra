@@ -24,8 +24,13 @@ El T1 que describí antes tenía tres piezas. **Dos de ellas no son independient
 Una sola frase visible, en el panel de cobros derivados de cada contrato:
 
 - **Antes:** "Contract Fee: **100% sin WHT**"
-- **Ahora:** "Contract Fee: **se factura y se cobra en bruto** (el sistema no le calcula retención;
-  si corresponde o no es una definición pendiente)"
+- **Ahora:** "Contract Fee: **esta vista muestra el importe bruto, sin descontar retención**. El
+  tratamiento tributario está pendiente de validación."
+
+El texto se limita a lo comprobable: qué importe muestra esta vista. **No afirma que el fee se
+facture ni que se cobre efectivamente**, porque eso no se comprueba desde acá: la tabla de Fee de
+Entrada tiene su propio estado de facturación y de cobro por fila, y un contrato puede tener el fee
+pendiente de facturar.
 
 "100 % sin WHT" es una afirmación tributaria: dice que ese cobro no está afecto a retención. No hay
 documento que la respalde, y el propio código la contradice: `derivarContractFeeDesdeContratos`
