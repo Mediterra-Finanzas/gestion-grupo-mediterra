@@ -11,7 +11,7 @@ que quede registrada **como excepción, nunca como consentimiento**.
 
 ---
 
-## Las cinco ventanas
+## Las seis ventanas
 
 | # | Fecha | Paquete | Base → candidato | Confirmaron | Avisados sin respuesta antes del push | No consultados |
 |---|---|---|---|---|---|---|
@@ -20,6 +20,7 @@ que quede registrada **como excepción, nunca como consentimiento**.
 | 3 | 2026-10-01 | Textos del contract fee | `cf26841` → `aa40f07` | Allegria Service, Rendición de gastos | Mediterra One (respondió después del push) | **Frisku** (sin sesión) |
 | 4 | 2026-10-01 | Retención visible | `aa40f07` → `2a3af93` | Allegria Service | Mediterra One (respondió después del push) | Rendición de gastos (ver nota), **Frisku** (sin sesión) |
 | 5 | 2026-10-01 | Propuestas no operativas | `2a3af93` → `8a16055` | Allegria Service | Mediterra One, Rendición de gastos | **Frisku** (sin sesión) |
+| 6 | 2026-10-01 | Registro de condiciones | `8a16055` → `70c2903` | **Allegria Service, Mediterra One** (las dos antes del push) | — | Rendición de gastos (acuerdo vigente, avisada), **Frisku** (excepción concedida por el CFO) |
 
 **La ventana 5 se publicó sin las confirmaciones requeridas.** Ver el apartado siguiente.
 
@@ -48,6 +49,38 @@ que quede registrada **como excepción, nunca como consentimiento**.
   No hubo consecuencia técnica —ningún carril tenía push en curso y el despliegue salió limpio—
   pero la ausencia de consecuencia no valida el procedimiento.
 
+
+### Ventana 6 — la primera que cumple el protocolo completo
+
+Es la primera ventana en la que **esperé las dos confirmaciones requeridas antes de empujar**,
+que es lo que falló en la 4 y en la 5.
+
+| | |
+|---|---|
+| Candidato | `70c29032cb3d6fc07fe55315a25ab5f427c1ce89` |
+| Base | `8a1605502a3880451333d3aaa244e519c7ddc3ed`, revalidada contra `origin/main` justo antes del push |
+| Deployment productivo anterior (= recuperación) | `dpl_5nzrn9EzMdoLKf1rdrRQ6c8ZFdCT`, commit `8a16055` por metadatos de GitHub |
+| Deployment publicado | `dpl_8MpD89YZwaaiidy2RVBDyRS8Z1d8`, commit `70c29032`, rama `main`, READY, con los aliases de producción |
+| Despliegues en curso o en cola al pedir la ventana | 0 |
+
+**Confirmaciones efectivamente recibidas, y en qué términos:**
+
+- **Allegria Service** — *"SÍ, podés mergear y desplegar ahora. NO estoy tocando producción:
+  mi carril AUTHZ está 100% local, push=0/merge=0/deploy=0/Supabase=0."*
+- **Mediterra One** — *"Sí, ventana libre. Esta sesión es LOCAL ONLY en worktree aislado: solo
+  edits de SQL en migrations, sin staging mutations, sin deploy, sin merge, sin commit."*
+- **Rendición de gastos** — no respondió, y no se le pidió respuesta: rige el acuerdo de la
+  ventana 3. Se la avisó igual, diciéndole expresamente que su silencio se registraría como ese
+  acuerdo y no como conformidad interpretada.
+- **Frisku** — sin sesión activa. **El CFO concedió la excepción por anticipado**, nombrándola.
+  Sigue siendo excepción, no consentimiento.
+
+**Lo que esta vez sí se verificó por metadatos.** En las ventanas anteriores la correspondencia
+entre Production y el commit se comprobó por las marcas del bundle. Acá, además, se leó el
+`githubCommitSha` del deployment en la API de Vercel. Importa porque el hash del bundle **no
+sirve** para eso: un compilado local de `8a16055` da `main.7123b5d7.js` y Vercel sirve
+`main.933069fe.js` para el mismo commit, porque el entorno de build no es el mismo.
+
 ### Protocolo para las próximas ventanas
 
 Se fija **antes** de pedir la autorización, no sobre la marcha:
@@ -66,7 +99,8 @@ Se fija **antes** de pedir la autorización, no sobre la marcha:
 
 ### Frisku
 
-No fue consultada en ninguna de las cinco ventanas. No hay sesión de Frisku activa en el equipo, y
+No fue consultada en ninguna de las seis ventanas. En la 6 el CFO concedió la excepción por
+anticipado y por escrito, nombrándola; en las cinco anteriores no. No hay sesión de Frisku activa en el equipo, y
 no existe otro canal por el que esta sesión pueda pedirle confirmación. Su último commit en `main`
 es `7f2f747`, del 29 de septiembre, anterior a las cinco ventanas; entre `5c0da41` y `8a16055` no
 entró nada de Frisku.

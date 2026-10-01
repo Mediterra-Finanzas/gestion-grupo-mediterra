@@ -174,7 +174,22 @@ sin la copia de datos. Es justamente lo que esta revisión tenía que destapar.
 | Royalty comercial neto | US$ 11.478.901,50 | 11.478.901,50 | 11.478.901,50 | 11.478.901,50 |
 | Filas | 110 | 110 | 110 | 110 |
 
-**Delta cero en las cuatro columnas.** Y el estado de partida de la cartera: 0 contratos con
+**Delta cero en las cuatro columnas.**
+
+### Qué acredita esta medición y qué no
+
+Los cuatro totales son **lo que el motor calcula** a partir de los contratos y sus plantaciones.
+No son las facturas emitidas ni lo cobrado.
+
+| | |
+|---|---|
+| **Acredita** | Que registrar estas condiciones **no cambia ningún cálculo**: el motor produce exactamente los mismos números antes y después |
+| **No acredita** | Que esos números coincidan con las facturas efectivamente emitidas, ni con lo cobrado, ni que la facturación del período esté correcta |
+
+La conciliación entre lo que el motor calcula y lo que efectivamente se facturó y se cobró es un
+trabajo aparte, no resuelto por este paquete ni medido acá. Lo mismo vale para la evidencia en
+navegador: que el hub muestre *Por cobrar $5.578.534* dice que la pantalla calcula igual con y
+sin registro, no que esa sea la cobranza real. Y el estado de partida de la cartera: 0 contratos con
 beneficio declarado, 0 con retención pendiente, 23 con territorio sin declarar, y 18 con el
 reajuste en **pendiente** (marcados sujetos a inflación sin reajuste declarado) contra 5 que no
 lo declaran. Esos 18 son un dato para vos, no algo que este paquete resuelva.
@@ -260,7 +275,17 @@ pido la excepción **antes** del push, nunca después.
 4. Esperar el deployment y comprobar que el bundle servido contiene el bloque del registro.
 5. Registrar el nuevo deployment ID junto al de recuperación.
 
-## 9 · Autorización que se necesita
+## 9 · Publicado
+
+| | |
+|---|---|
+| Publicado | `8a16055..70c2903` por fast-forward, 2026-10-01 |
+| Deployment | `dpl_8MpD89YZwaaiidy2RVBDyRS8Z1d8`, commit `70c29032` por metadatos, READY, con los aliases de producción |
+| Recuperación | `dpl_5nzrn9EzMdoLKf1rdrRQ6c8ZFdCT`, commit `8a16055` |
+| Comprobado en vivo | El dominio sirve `main.d43e2d96.js`, que trae los textos del paquete; la aplicación carga sin errores de consola. **No se inició sesión y no se tocó ningún contrato real** |
+| Ventana | Confirmaron Allegria Service y Mediterra One antes del push; Rendición de gastos por acuerdo vigente; Frisku con excepción concedida por el CFO. Detalle en el registro de ventanas |
+
+## 10 · Autorización (concedida)
 
 > `AUTORIZO MERGE osiris/registro-condiciones → main`, push y despliegue del paquete exacto
 > <SHA de la punta, el del mensaje que pide la ventana> sobre la base exacta
