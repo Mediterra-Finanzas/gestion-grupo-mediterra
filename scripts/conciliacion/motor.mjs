@@ -126,6 +126,12 @@ export function dependencias(ops, claves) {
       const uid = (o.despues || o.antes || {}).uid;
       idx((p) => p.op === 'agregar_credito' && p.credito === uid).forEach((j) => dep[i].add(j));
     }
+    // desvincular una línea va DESPUÉS de anular el pago que salió de ella
+    // (la app no deja una línea desvinculada con un pago vigente de origen nómina)
+    if (o.op === 'desvincular_linea_nomina') {
+      const clave = `nomina:${o.nomina}:${o.linea}`;
+      idx((p) => p.op === 'anular_pago' && p.despues && p.despues.origen && p.despues.origen.clave === clave).forEach((j) => dep[i].add(j));
+    }
     // historial: depende de la operación que describe (o, si no se reconoce, de todas las de su crédito)
     if (o.op === 'agregar_historial') {
       const h = o.registro || {}; const det = String(h.detalle || '');
@@ -160,7 +166,8 @@ function evaluar(o, est, ctx) {
     const lista = F.creditos_data;
     if (o.op === 'agregar_credito') {
       const ex = lista.find((c) => c && c.uid === o.credito);
-      if (ex) return igual(ex, o.registro) ? clase('ya_aplicada', 'El crédito ya existe igual.') : clase('conflicto', 'Ya existe un crédito con ese uid y distinto contenido.', { produccion: ex });
+      const sinSep = (c) => (o._pagosSeparados ? { ...c, pagos: (c.pagos || []).filter((p) => !p || !o._pagosSeparados.includes(p.id)) } : c);
+      if (ex) return igual(sinSep(ex), o.registro) ? clase('ya_aplicada', 'El crédito ya existe igual.') : clase('conflicto', 'Ya existe un crédito con ese uid y distinto contenido.', { produccion: ex });
       const h = VPDiff.huella(o.registro);
       const parecidos = lista.filter((c) => c && igual(VPDiff.huella(c), h));
       if (parecidos.length) return clase('posible_duplicado', `Hay ${parecidos.length} crédito(s) en producción con la misma huella.`, { produccion: parecidos });
@@ -327,13 +334,31 @@ function evaluar(o, est, ctx) {
   return clase('no_aplicable', `Operación ${o.op} no soportada.`);
 }
 
+// Un crédito NUEVO exportado puede traer dentro un pago con origen en una línea
+// de nómina (alta + vínculo + pago en la misma sesión). Aplicarlo de una vez
+// dejaría, entre la escritura de finanzas y la de nóminas, un pago de nómina sin
+// su vínculo. Se separa: el alta va sin esos pagos y cada pago se vuelve una
+// operación agregar_pago propia (que depende del alta y del vínculo).
+export function normalizarOps(ops) {
+  const out = [];
+  (ops || []).forEach((o) => {
+    if (o.op !== 'agregar_credito' || !o.registro || !Array.isArray(o.registro.pagos)) { out.push(o); return; }
+    const sep = o.registro.pagos.filter((p) => p && !p.anulado && p.origen && /^nomina:/.test(p.origen.clave || ''));
+    if (!sep.length) { out.push(o); return; }
+    const ids = new Set(sep.map((p) => p.id));
+    out.push({ ...o, registro: { ...o.registro, pagos: o.registro.pagos.filter((p) => !p || !ids.has(p.id)) }, _pagosSeparados: [...ids] });
+    sep.forEach((p) => out.push({ op: 'agregar_pago', credito: o.credito, uidEnRespaldo: true, etiqueta: o.etiqueta, id: p.id, registro: clon(p), _separadoDeAlta: true }));
+  });
+  return out;
+}
+
 // ── Ensayo / plan ─────────────────────────────────────────────────────
 // modo 'ensayo': supone aprobadas todas las aplicables (para ver qué pasaría).
 // modo 'aplicar': solo las aprobadas en `decisiones`; los posibles duplicados
 // se aplican únicamente con decisión individual "aplicar".
-export function planificar(resultado, filas, { decisiones = null, modo = 'ensayo', ahora = new Date() } = {}) {
+export function planificar(resultado, filas, { decisiones = null, modo = 'ensayo', ahora = new Date(), idConciliacion = '' } = {}) {
   if (!resultado || resultado.formato !== FORMATO_RESULTADO) throw new Error('El archivo no es un resultado de conciliación de Créditos (formato desconocido).');
-  const ops = resultado.operaciones || [];
+  const ops = normalizarOps(resultado.operaciones || []);
   const claves = clavesOps(ops);
   const { dep, grupo } = dependencias(ops, claves);
   const aprobadas = new Set((decisiones && decisiones.aprobadas) || []);
@@ -349,14 +374,16 @@ export function planificar(resultado, filas, { decisiones = null, modo = 'ensayo
     orden.push(sig); hecho.add(sig);
   }
   let items, est;
+  const ubicables = new Set();
+  { const F0 = filas.finanzas && filas.finanzas.existe && filas.finanzas.valor;
+    ops.forEach((o) => { if (o.credito && F0 && Array.isArray(F0.creditos_data) && !ubicarCredito(F0.creditos_data, o).error) ubicables.add(o.credito); }); }
 
   // Itera hasta un punto fijo: lo bloqueado no se aplica en la simulación, lo
   // que cambia la clasificación de lo que viene después.
   for (let vuelta = 0; vuelta < ops.length + 2; vuelta++) {
     est = {};
     Object.keys(filas).forEach((id) => { if (filas[id].existe) est[id] = clon(filas[id].valor); });
-    const ctx = { ref, resultado, aplicadosAhora: new Set(), creditosUbicables: new Set() };
-    ops.forEach((o) => { if (o.credito && est.finanzas && Array.isArray(est.finanzas.creditos_data) && !ubicarCredito(est.finanzas.creditos_data, o).error) ctx.creditosUbicables.add(o.credito); });
+    const ctx = { ref, resultado, aplicadosAhora: new Set(), creditosUbicables: ubicables };
     items = ops.map((o, i) => ({ i, clave: claves[i], op: o.op, fila: filaDeOp(o), etiqueta: o.etiqueta || o.empresa || o.par || o.fila || '', depende: [...dep[i]].map((j) => claves[j]), grupo: grupo[i] }));
     orden.forEach((i) => {
       const o = ops[i], it = items[i];
@@ -394,15 +421,61 @@ export function planificar(resultado, filas, { decisiones = null, modo = 'ensayo
   }
   items.forEach((it) => { if (it.clase === 'bloqueada') it.estado = 'bloqueada'; });
 
-  // valores nuevos por fila (solo filas que cambian)
-  const escrituras = [];
-  Object.keys(est).forEach((id) => {
-    if (!igual(est[id], filas[id].valor)) escrituras.push({ id, version: filas[id].updated_at, enc: filas[id].enc, valorNuevo: est[id],
-      ops: items.filter((it) => it.seAplica && it.fila === id).map((it) => it.clave) });
+  // ── Escrituras por FASES ──
+  // No hay transacción entre filas. Para que cualquier prefijo de escrituras deje
+  // un estado válido, una operación va en la fase
+  //   máx( fase(dependencia) + (dependencia en OTRA fila ? 1 : 0) )
+  // y cada fase escribe sus filas. Ej.: alta de crédito (finanzas, fase 0) →
+  // vínculo de la línea (nómina, fase 1) → pago con origen en esa línea
+  // (finanzas, fase 2). Si se corta entre fases, nunca queda un pago de nómina
+  // sin su vínculo ni un vínculo a un crédito que no existe.
+  const fase = new Map();
+  orden.forEach((i) => {
+    if (!items[i].seAplica) return;
+    let f = 0;
+    dep[i].forEach((j) => { if (fase.has(j)) f = Math.max(f, fase.get(j) + (items[j].fila !== items[i].fila ? 1 : 0)); });
+    fase.set(i, f);
   });
-  // orden: finanzas primero (pagos), luego TC y nóminas (vínculos)
+  const base = {};
+  Object.keys(filas).forEach((id) => { if (filas[id].existe) base[id] = filas[id].valor; });
+  const simularHasta = (fMax) => {
+    const e = {}; Object.keys(base).forEach((id) => { e[id] = clon(base[id]); });
+    const c = { ref, resultado, aplicadosAhora: new Set(), creditosUbicables: ubicables };
+    orden.forEach((i) => {
+      if (!fase.has(i) || fase.get(i) > fMax) return;
+      const r = evaluar(ops[i], e, c);
+      if (!r.aplicar || !['aplicable', 'posible_duplicado'].includes(r.clase)) throw new Error(`Incoherencia interna al separar en fases: ${claves[i]} quedó "${r.clase}".`);
+      r.aplicar();
+    });
+    return e;
+  };
   const ordenFila = (id) => (id === 'finanzas' ? 0 : id === 'maestro_tc' ? 1 : 2);
-  escrituras.sort((a, b) => ordenFila(a.id) - ordenFila(b.id) || a.id.localeCompare(b.id));
+  const escrituras = [];
+  let previo = base;
+  [...new Set(fase.values())].sort((a, b) => a - b).forEach((f) => {
+    const e = simularHasta(f);
+    Object.keys(e).sort((a, b) => ordenFila(a) - ordenFila(b) || a.localeCompare(b)).forEach((id) => {
+      if (igual(e[id], previo[id])) return;
+      escrituras.push({ id, fase: f, enc: filas[id].enc, version: filas[id].updated_at, valorAnterior: previo[id], valorNuevo: e[id],
+        ops: items.filter((it) => it.seAplica && it.fila === id && fase.get(it.i) === f).map((it) => it.clave) });
+    });
+    previo = e;
+  });
+  Object.keys(est).forEach((id) => { if (!igual(est[id], previo[id])) throw new Error(`Incoherencia interna: la fila ${id} por fases no coincide con la simulación completa.`); });
+  items.forEach((it) => { if (fase.has(it.i)) it.fase = fase.get(it.i); });
+
+  // Estados intermedios: tras CADA escritura, ¿aparece alguna inconsistencia
+  // nómina↔crédito que no existía antes? (si sí, no se aplica nada)
+  const invBase = new Set(invariantesNominaCredito(base));
+  const problemasIntermedios = [];
+  { const acum = { ...base };
+    escrituras.forEach((e, k) => {
+      acum[e.id] = e.valorNuevo;
+      invariantesNominaCredito(acum).filter((x) => !invBase.has(x)).forEach((x) => problemasIntermedios.push(`tras la escritura ${k + 1} (${e.id}): ${x}`));
+    }); }
+
+  // Sellos (protección contra sesiones con datos antiguos): uno por operación aplicada.
+  escrituras.forEach((e) => { e.sellos = e.ops.map((k) => selloDeOp(ops[claves.indexOf(k)], k, idConciliacion, e.id)).filter(Boolean); });
 
   const resumen = {};
   items.forEach((it) => { resumen[it.estado] = (resumen[it.estado] || 0) + 1; });
@@ -427,25 +500,93 @@ export function planificar(resultado, filas, { decisiones = null, modo = 'ensayo
       }));
     });
   }
-  return { items, escrituras, resumen, advertencias, diasRespaldo: dias, filasCambiadasDesdeRespaldo: filasCambiadas, posterioresAlRespaldo: posteriores };
+  return { items, escrituras, resumen, advertencias, diasRespaldo: dias, filasCambiadasDesdeRespaldo: filasCambiadas, posterioresAlRespaldo: posteriores,
+    problemasIntermedios, inconsistenciasPrevias: [...invBase] };
+}
+
+// Coherencia nómina ↔ crédito sobre un conjunto de filas decodificadas:
+//  · un pago VIGENTE con origen "nomina:<id>:<línea>" exige que esa línea esté
+//    vinculada al mismo crédito (y a la misma cuota, si el pago la indica);
+//  · una línea vinculada exige que el crédito exista.
+// Solo se revisan las nóminas presentes en `valores`.
+export function invariantesNominaCredito(valores) {
+  const F = valores.finanzas;
+  const problemas = [];
+  const nominas = {};
+  Object.keys(valores).filter((id) => /^nominas_/.test(id)).forEach((id) => ((valores[id] && valores[id].nominas) || []).forEach((n) => { if (n) nominas[n.id] = { fila: id, n }; }));
+  const conUid = VPDiff.conUids((F && F.creditos_data) || []).filter(Boolean);
+  const uids = new Set(conUid.map((x) => x.uid));
+  conUid.forEach(({ c, uid }) => (c.pagos || []).forEach((p) => {
+    if (!vigente(p) || !p.origen || !p.origen.clave) return;
+    const m = /^nomina:([^:]+):(.+)$/.exec(p.origen.clave);
+    if (!m || !nominas[m[1]]) return;
+    const it = (nominas[m[1]].n.items || []).find((x) => x && String(x.id) === m[2]);
+    const v = it && it.creditoVinculo;
+    if (!v || v.uid !== uid || (p.vencKey && v.vencKey !== p.vencKey)) problemas.push(`pago vigente ${p.id} de ${uid} con origen ${p.origen.clave} sin vínculo coincidente en la línea`);
+  }));
+  if (F) Object.values(nominas).forEach(({ fila, n }) => (n.items || []).forEach((it) => {
+    const v = it && it.creditoVinculo;
+    if (v && v.uid && !uids.has(v.uid)) problemas.push(`línea ${n.id}/${it.id} (${fila}) vinculada a un crédito inexistente (${v.uid})`);
+  }));
+  return problemas;
+}
+
+// ── Sellos ─────────────────────────────────────────────────────────────
+// Un sello describe, con una ruta SQL/JSON (jsonpath), el dato que dejó una
+// operación aplicada. El trigger de la base (propuesta-sellos.sql) rechaza
+// cualquier escritura que lo DESHAGA mientras el sello esté vigente: así una
+// pestaña con datos antiguos (que guarda la fila completa sin condición, como
+// hoy las nóminas) no puede borrar lo aplicado. Mientras la fila no tenga el
+// dato, el sello es inerte (por eso se crea antes de escribir).
+const jp = (x) => JSON.stringify(x);   // literal de cadena/número para jsonpath
+const rutaCredito = (uid) => `$.creditos_data[*] ? (@.uid == ${jp(uid)})`;
+export function selloDeOp(o, clave, idConciliacion, fila) {
+  if (!o) return null;
+  let ruta = null, modo = 'existe', valor = null;
+  const C = o.credito ? rutaCredito(o.credito) : null;
+  const campoArr = { pago: 'pagos', prepago: 'prepagos', conciliacion: 'conciliaciones' };
+  let m;
+  if (o.op === 'agregar_credito') ruta = C;
+  else if ((m = /^agregar_(pago|prepago|conciliacion)$/.exec(o.op))) ruta = `${C}.${campoArr[m[1]]}[*] ? (@.id == ${jp(o.id)})`;
+  else if ((m = /^anular_(pago|prepago|conciliacion)$/.exec(o.op))) { ruta = `${C}.${campoArr[m[1]]}[*] ? (@.id == ${jp(o.id)}).anulado`; modo = 'igual'; valor = true; }
+  else if (o.op === 'agregar_historial') { const h = o.registro || {}; if (h.ts) ruta = `${C}.historial[*] ? (@.ts == ${jp(h.ts)} && @.accion == ${jp(h.accion || '')})`; }
+  else if (o.op === 'cambiar_campo') { ruta = `${C}.${jp(o.campo)}`; if (o.despues === undefined) modo = 'ausente'; else { modo = 'igual'; valor = o.despues; } }
+  else if (o.op === 'agregar_saldo_informado') ruta = `$.creditos_saldos_informados[*] ? (@.id == ${jp(o.id)})`;
+  else if (o.op === 'anular_saldo_informado') { ruta = `$.creditos_saldos_informados[*] ? (@.id == ${jp(o.id)}).anulado`; modo = 'igual'; valor = true; }
+  else if (o.op === 'cambiar_config_creditos') { ruta = '$.creditos_config'; modo = 'igual'; valor = o.despues === undefined ? null : o.despues; }
+  else if (o.op === 'agregar_cobertura') ruta = `$.finanzas_real.${jp(o.empresa)}._coberturasManual[*] ? (@.id == ${jp(o.id)})`;
+  else if (o.op === 'anular_cobertura') { ruta = `$.finanzas_real.${jp(o.empresa)}._coberturasManual[*] ? (@.id == ${jp(o.id)}).anulado`; modo = 'igual'; valor = true; }
+  else if (o.op === 'agregar_resolucion_credito') { if (o.registro && o.registro.id) ruta = `$.finanzas_real.${jp(o.empresa)}._resolucionesCreditos[*] ? (@.id == ${jp(o.registro.id)})`; }
+  else if (o.op === 'cambiar_valor_manual' || o.op === 'retirar_valor_manual') { ruta = `$.finanzas_real.${jp(o.empresa)}._proyOverrides.${jp(o.clave)}.${jp(String(o.mes))}`; if (o.despues === undefined) modo = 'ausente'; else { modo = 'igual'; valor = o.despues; } }
+  else if (o.op === 'vincular_linea_nomina' || o.op === 'desvincular_linea_nomina') { ruta = `$.nominas[*] ? (@.id == ${jp(o.nomina)}).items[*] ? (@.id == ${jp(o.linea)}).creditoVinculo`; if (o.despues === undefined) modo = 'ausente'; else { modo = 'igual'; valor = o.despues; } }
+  else if (o.op === 'agregar_tc' || o.op === 'cambiar_tc') { ruta = `$.${jp(o.par)}[*] ? (@.fecha == ${jp(o.fecha)})`; modo = 'igual'; valor = o.despues; }
+  if (!ruta) return null;
+  return { id: sha256(idConciliacion + '|' + clave).slice(0, 32), fila, ruta, modo, valor, operacion: clave, conciliacion: idConciliacion };
 }
 
 // Verificación posterior: cada operación aplicada debe quedar "ya_aplicada" al
-// releer, y cada fila escrita debe ser exactamente el valor que se escribió
-// (si alguien escribió después, se informa: no es error del script, pero se revisa).
-export function verificar(resultado, filasDespues, aplicadas, escritas) {
+// releer; la ÚLTIMA escritura de cada fila debe ser exactamente lo que hay (si
+// alguien escribió después, se informa); y no puede aparecer ninguna
+// inconsistencia nómina↔crédito que no existiera antes de aplicar.
+export function verificar(resultado, filasDespues, aplicadas, escritas, filasAntes = null) {
   const plan = planificar(resultado, filasDespues, { modo: 'ensayo' });
   const porClave = Object.fromEntries(plan.items.map((it) => [it.clave, it]));
   const fallas = [];
   aplicadas.forEach((k) => { const it = porClave[k]; if (!it || it.clase !== 'ya_aplicada') fallas.push(`${k}: al releer quedó "${it ? it.clase : 'sin dato'}"`); });
-  const filas = escritas.map((e) => {
+  const ultima = {};
+  escritas.forEach((e) => { ultima[e.id] = e; });
+  const filas = Object.values(ultima).map((e) => {
     const f = filasDespues[e.id];
     const mismaVersion = f && f.updated_at === e.versionNueva;
     const mismoValor = f && igual(f.valor, e.valorNuevo);
     if (mismaVersion && !mismoValor) fallas.push(`${e.id}: misma versión pero distinto contenido`);
     return { id: e.id, versionEscrita: e.versionNueva, versionLeida: f && f.updated_at, mismoValor, escritaDespuesPorOtro: !!f && !mismaVersion };
   });
-  return { ok: fallas.length === 0, fallas, filas, resumenAlReleer: plan.resumen };
+  const val = (fs) => Object.fromEntries(Object.entries(fs || {}).filter(([, f]) => f.existe).map(([id, f]) => [id, f.valor]));
+  const antes = new Set(filasAntes ? invariantesNominaCredito(val(filasAntes)) : []);
+  const nuevas = invariantesNominaCredito(val(filasDespues)).filter((x) => !antes.has(x));
+  nuevas.forEach((x) => fallas.push(`inconsistencia nueva: ${x}`));
+  return { ok: fallas.length === 0, fallas, filas, inconsistenciasNuevas: nuevas, resumenAlReleer: plan.resumen };
 }
 
 // Diferencias entre el valor leído y el nuevo de una fila: deben ser SOLO las

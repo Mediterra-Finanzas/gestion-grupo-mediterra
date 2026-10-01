@@ -1,7 +1,8 @@
 # Aplicar la conciliación aprobada sin sobrescribir producción
 
 > **Estado: script asistido implementado y probado SOLO con datos de prueba**, en un
-> Postgres 16 + PostgREST 12 locales. **No se ha ejecutado contra producción.**
+> Postgres 16 + PostgREST 12 locales. **No se ha ejecutado contra producción.** El
+> trigger de versión y los sellos son **propuestas no aplicadas**.
 > - El script rechaza cualquier destino que no sea local (`127.0.0.1` / `localhost`) y, en particular, `*.supabase.co`.
 > - Habilitar producción requiere cambiar el código, con autorización explícita.
 > - El PR #43 sigue en borrador, sin autorización de merge ni de escritura en producción.
@@ -31,12 +32,15 @@ node scripts/conciliacion/aplicar.mjs ensayo --resultado conciliacion_creditos_X
 # 2) Revisar el informe y completar decisiones_plantilla.json (guardarlo como decisiones.json):
 #    · "aprobadas": dejar SOLO las operaciones aprobadas
 #    · "duplicados": cada posible duplicado → decision "aplicar" u "omitir" + motivo
-#    · firmar con aprobadoPor y fechaAprobacion
+#    · registrar la aprobación con aprobadoPor y fechaAprobacion (ver "Aprobación registrada")
 
 # 3) Aplicar lo aprobado (relee y reclasifica TODO de nuevo antes de escribir)
 node scripts/conciliacion/aplicar.mjs aplicar --resultado conciliacion_creditos_X.json \
   --decisiones decisiones.json --destino http://127.0.0.1:PUERTO --usuario "Nombre" --salida carpeta
 #    → auditoria_<sello>.json / .txt + línea en auditoria.jsonl
+#    Exige la tabla de sellos (ver más abajo); --sin-sellos si la desactiva a
+#    propósito (queda en la auditoría); --sello-dias N (30 por defecto).
+#    Con DESTINO_KEY = llave de servicio (los sellos no se pueden crear con la llave pública).
 ```
 
 Los archivos de salida contienen datos reales y están en `.gitignore`.
@@ -80,48 +84,127 @@ Los archivos de salida contienen datos reales y están en `.gitignore`.
 - Al aplicar se le fija el `uid` exportado, para que las claves de cuota coincidan.
 - Si en producción tiene **otro** `uid` → conflicto.
 
-## Control de concurrencia: ¿es atómico con la configuración actual?
+## Aprobación registrada (no es firma digital)
 
-**Sí, para todo lo que escribe la app; con un hueco para ediciones hechas fuera de la app.**
+El archivo de decisiones **no está firmado digitalmente**. Es una **aprobación registrada**:
 
-1. **[Seguro] La escritura es una sola sentencia condicionada, no "comprobar y luego guardar".**
-   - El script escribe con `PATCH …?id=eq.X&updated_at=eq.<versión leída>`, igual que el contrato de persistencia de la app.
-   - PostgREST lo ejecuta como **un único** `UPDATE … WHERE id = X AND updated_at = V`.
-   - Si otra transacción cambió la fila, Postgres vuelve a evaluar la condición sobre la versión nueva: actualiza **0 filas** y el script lo trata como conflicto.
-   - **Probado con servidor real** (escenario 7): otra transacción bloquea la fila y la cambia; el PATCH espera (~1,1 s), no actualiza nada y prevalece la otra transacción.
-2. **[Seguro, según el código del repositorio] Todos los escritores de la app cambian `updated_at` en cada guardado.** Se revisaron:
-   - persistContract (finanzas, main, pins, allegria…), friskuHelpers y Osiris;
-   - upsert de nóminas, auditoría, EEFF y "Restaurar".
-3. **Hueco [Seguro, probado en el escenario 8].** Una edición que no cambie `updated_at` **no se detecta**: por ejemplo, desde el editor de tablas o el SQL Editor de Supabase, o un script externo.
-   - Cierre propuesto (**no aplicado**): `scripts/conciliacion/propuesta-trigger-version.sql`, un trigger que fija `updated_at` en el servidor en todo UPDATE.
-   - Probado en local: detecta esa edición y la app sigue funcionando, porque toma la versión de la respuesta del servidor.
-4. **[Probable] No pude inspeccionar la base de producción** (sin acceso, 403). Para confirmar tipo de columna, triggers, reglas y RLS, ejecutar en el SQL Editor `scripts/conciliacion/verificar-supabase.sql` (**solo lectura**).
-5. **Límite que no resuelve la condición: escrituras posteriores de quien no condiciona.** Las filas `nominas_*` se guardan con upsert sin condición, y un navegador abierto con nóminas viejas puede pisar el vínculo **después** de aplicado.
-   - Recomendación: aplicar con la app cerrada en todas las sesiones.
-   - Repetir el **ensayo** unos minutos después: todo debe salir "ya aplicada".
+- `aprobadoPor` y `fechaAprobacion`, escritos en el archivo. No hay criptografía de identidad: cualquiera que edite el archivo puede escribir un nombre.
+- Está **amarrado por SHA-256** al resultado que aprueba (`resultadoSha256`). Si el resultado cambia en un byte, el script no aplica nada.
+- El SHA-256 del propio archivo de decisiones queda en la auditoría (`aprobacion.sha256`, con la nota "no es firma digital"). Cualquier cambio posterior al archivo se puede detectar comparando ese hash.
+- Para que valga como respaldo de quién aprobó, el archivo y su SHA-256 deben quedar también fuera del equipo que ejecuta: correo del CFO o comentario en el PR.
 
-**Varias filas:** no hay transacción entre filas.
-- Se escribe primero `finanzas`, después `maestro_tc` y al final `nominas_*`.
-- Si una fila sale en conflicto, el script se **detiene** y no escribe las siguientes.
-- Repetirlo relee, reclasifica y completa lo pendiente sin duplicar, porque las operaciones son idempotentes.
+## Control de concurrencia
+
+1. **[Seguro] La escritura es una sola sentencia condicionada**, no "comprobar y luego guardar": `UPDATE … WHERE id = X AND updated_at = V`.
+   - Probado con una carrera real: otra transacción bloquea y cambia la fila, nuestra escritura espera y actualiza 0 filas.
+2. **[Seguro, según el código] Todos los escritores de la app cambian `updated_at`.** El proxy `/api/db` está **retirado** (responde 410): la app escribe directo a Supabase.
+3. **Hueco** (probado): una edición que no cambie `updated_at` no se detecta. Por ejemplo, desde el editor de tablas o el SQL Editor de Supabase. Lo cierra el trigger de versión (siguiente sección).
+4. **[Probable]** No tengo acceso a la configuración real de producción: la confirma `verificar-supabase.sql` (solo lectura).
+
+## Trigger de versión (`propuesta-trigger-version.sql`, NO aplicado)
+
+**Qué hace.** La versión la genera la **base** y cambia en **cada** actualización:
+- `INSERT` → `clock_timestamp()`.
+- `UPDATE` → `greatest(clock_timestamp(), versión anterior + 1 µs)`. Cambia aunque dos escrituras caigan en el mismo microsegundo o el reloj retroceda.
+- Se ignora el `updated_at` que mande el navegador. Los upsert (`POST … merge-duplicates`) son `INSERT … ON CONFLICT DO UPDATE` y también pasan por el trigger.
+
+**Alcance.**
+- Solo la tabla `calendario_data`, todas sus filas.
+- No cambia permisos ni otras tablas.
+- No actúa ante un `DELETE`. La app no borra filas.
+- **Requisito:** `updated_at` debe ser `timestamp with time zone`, lo que confirma `verificar-supabase.sql`. Si es otro tipo, la propuesta hay que ajustarla.
+
+**Compatibilidad, probada con los módulos REALES de la app** (importados tal cual desde `src/`, con la red redirigida a la base local):
+
+| Guardado de la app | Con el trigger |
+|---|---|
+| `persistContract` (finanzas, main, pins, allegria, escenarios, tipos de documento de nóminas) | Dos guardados seguidos OK: toma la versión de la respuesta, con microsegundos. Una edición directa posterior hace que su próximo guardado se rechace sin pisar. Dos sesiones sobre una colección se fusionan |
+| `friskuHelpers` (maestros, Frisku, rendiciones) | Guardados seguidos OK. Ante una edición ajena, fusiona sin perderla |
+| Osiris | Mismo patrón que friskuHelpers (PATCH condicionado y versión de la respuesta). Revisado en el código, no ejecutado: es JSX |
+| Upsert sin condición (nóminas, auditoría, respaldo diario, "Restaurar", EEFF) | Se guarda. La versión queda la del servidor; ninguno la usa |
+| Tiempo real | Entrega la versión guardada, la del servidor |
+
+**Reversión** (probada): `drop trigger if exists calendario_data_version on public.calendario_data; drop function if exists public.calendario_data_version();`.
+- Después, la versión vuelve a ser la del navegador y el contrato de persistencia sigue funcionando.
+- Las versiones ya guardadas quedan como están y siguen sirviendo.
+
+## Sesiones con datos antiguos: sellos (`propuesta-sellos.sql`, NO aplicado)
+
+**El riesgo.** Una pestaña abierta antes de aplicar puede guardar después y deshacer lo aplicado.
+- Las **nóminas** se guardan hoy con upsert **sin condición**: se escribe la fila completa y gana el último.
+- Cerrar la app y repetir el ensayo reduce el riesgo, pero no lo impide.
+
+**La protección.**
+- Por cada operación aplicada, el script registra un **sello**: fila, ruta SQL/JSON y una condición: "existe", "igual a" o "ausente".
+- Un trigger **rechaza cualquier escritura que deshaga un sello vigente**, sea upsert o PATCH. Devuelve HTTP 400 `MEDITERRA_SELLO`.
+- Todo lo demás de la fila se guarda normal.
+- Funciona con la app **tal como está**, incluidas pestañas con código viejo: no requiere cambios en el navegador.
+
+**Cómo se usa en la aplicación.**
+1. Los sellos se crean **antes** de escribir. Son inertes hasta que la fila tiene el dato, así que no hay una ventana entre escribir y proteger.
+2. Si la aplicación se detiene, los sellos de lo no escrito se **levantan**.
+3. Un reintento los **reactiva**.
+4. Vigencia: 30 días, o hasta levantarlos con la consulta documentada, que registra quién y por qué.
+
+**Probado:**
+
+| Caso | Resultado |
+|---|---|
+| Pestaña antigua de nóminas guarda con una edición suya, con el mismo request que `dbSaveNominas` | **Rechazada** (400); los vínculos aplicados siguen |
+| Sesión al día (recargada) guarda en nóminas | Normal |
+| Pestaña antigua de Finanzas con el contrato real | Conflicto: no pisa (protección propia de la app) |
+| Upsert con datos antiguos de Finanzas (como "Restaurar") | **Rechazado** por sello |
+| Anular un pago aplicado por la conciliación, desde una sesión al día | **Permitido**: el sello exige que el pago exista, no que esté vigente |
+| La llave pública (anon) crea o levanta sellos | No puede (401). Solo la llave de servicio |
+| Sellos levantados | La pestaña antigua vuelve a pisar: el sello es la protección |
+
+**Límites.**
+- Mientras un sello está vigente, un cambio **legítimo** que deshaga ese dato también se rechaza. Por ejemplo, desvincular una línea vinculada por la conciliación: primero hay que levantar el sello.
+- **[Seguro]** El guardado de nóminas de la app hoy es "dispara y olvida": la pestaña antigua **no muestra** el error. Su edición no se guarda, pero el usuario no se entera hasta recargar. Es una limitación previa de la app; arreglarla requiere tocar `FinanzasModule.jsx`.
+- Con RLS desactivado en `calendario_data`, los sellos protegen contra **accidentes** (sesiones antiguas), no contra alguien que actúe de mala fe con la llave pública sobre la tabla de datos.
+
+## Varias filas: qué pasa si una escritura falla
+
+No hay transacción entre filas. El script escribe **por fases según las dependencias entre filas**: una operación va en la fase posterior a la última fase de aquello de lo que depende en otra fila.
+
+Ejemplo de la prueba: alta de crédito, vínculo de la línea L3 de nómina, pago que sale de L3, y anulación de un pago de nómina con desvínculo de L4. Orden resultante:
+
+1. **finanzas:** alta del crédito sin el pago de L3; anulación del pago de L4; resto.
+2. **nómina:** vínculo L1.
+3. **nómina:** vínculo L3 y desvínculo de L4.
+4. **finanzas:** pago de L3.
+
+- Cada escritura va condicionada a la versión que devolvió la anterior de esa fila.
+- Si un crédito nuevo trae dentro un pago con origen en nómina, el pago se separa del alta y se escribe después del vínculo.
+- Antes de escribir, el script comprueba que **tras cada escritura** no aparezca ninguna inconsistencia nómina↔crédito nueva. Si aparecería, no aplica nada.
+
+| Falla probada | Estado intermedio | Reintento |
+|---|---|---|
+| **Finanzas se guarda y la nómina falla** (503 simulado) | Crédito nuevo **sin** el pago de L3; pago de L4 anulado con L4 aún vinculada (válido: línea vinculada sin pago vigente). 0 inconsistencias. Sellos de lo no escrito, levantados | Relee y escribe nómina y luego el pago. Pago de L3 **una sola vez**, L3 vinculada, L4 desvinculada, 0 inconsistencias |
+| Falla la última escritura (pago de L3) | L3 vinculada sin pago (válido: vincular no paga). 0 inconsistencias | 1 escritura; un tercer intento no escribe nada |
+| Orden ingenuo (toda finanzas primero) y falla la nómina | **Inconsistente**: pago vigente de nómina sin vínculo en su línea | — |
+
+Inconsistencias que se verifican (`invariantesNominaCredito`):
+- un pago vigente con origen `nomina:<id>:<línea>` exige esa línea vinculada al mismo crédito y cuota;
+- una línea vinculada exige que el crédito exista.
+
+Las que ya existan en producción se informan aparte y no bloquean.
 
 ## Verificación posterior y auditoría
 
 - **Relectura:**
   - cada operación aplicada debe quedar "ya aplicada";
-  - cada fila escrita debe ser exactamente el valor escrito, o el informe indica que alguien escribió después.
-- **Defensa adicional:** antes de escribir se comprueba que en `finanzas` solo cambian rutas de Créditos:
-  - `creditos_*`;
-  - `_coberturasManual` y `_resolucionesCreditos`;
-  - valores manuales de Pago Préstamos y Renovaciones.
-- **Auditoría** (`auditoria_<sello>.json` + `auditoria.jsonl`):
+  - la última escritura de cada fila debe coincidir con lo que hay;
+  - no puede aparecer ninguna inconsistencia nómina↔crédito nueva.
+- **Antes de escribir** se comprueba que en `finanzas` solo cambian rutas de Créditos.
+- **Auditoría:**
   - SHA-256 del resultado, de las decisiones y del respaldo;
-  - firma de aprobación y usuario;
-  - versiones leídas y escritas;
-  - estado de cada operación con su motivo;
-  - decisiones de duplicados;
-  - resultado de la verificación;
-  - SHA-256 del propio registro.
+  - aprobación registrada;
+  - versiones leídas y escritas por fase;
+  - estado de cada operación;
+  - sellos creados y levantados;
+  - protección usada;
+  - verificación y SHA-256 del registro.
 
 ## Prueba (datos de prueba)
 
@@ -130,34 +213,20 @@ POSTGREST_BIN=/ruta/postgrest PG_BIN=/usr/lib/postgresql/16/bin OUT_DIR=/tmp/con
   node scripts/conciliacion/prueba.mjs
 ```
 
-La prueba levanta Postgres y PostgREST locales y un proxy con el prefijo `/rest/v1` de Supabase. Los movimientos de la sesión se generan con las funciones reales de `src/creditos.js` y la comparación de `scripts/vista-previa/diff.js`. Resultado: **53/53 OK**.
+La prueba levanta, **en local**, Postgres 16 y PostgREST 12 con roles como en Supabase (`anon`, `authenticated`, `service_role`, JWT) y un proxy con el prefijo `/rest/v1`. Las dos propuestas SQL se ejecutan **tal cual**. Resultado: **85/85 OK**, en dos corridas.
 
-- Rechazo de producción y de destinos no locales.
-- Ensayo:
-  - 0 escrituras;
-  - las 7 clases;
-  - bloqueo por dependencia, también entre filas (nómina → pago) y por grupo (valor manual → decisión);
-  - advertencia de 7 días;
-  - informe de lo registrado en producción después del respaldo.
-- Aplicación:
-  - sin firma, nada;
-  - solo lo aprobado;
-  - posibles duplicados sin decisión no se aplican;
-  - se conservan los cambios posteriores (pagos, desglose, cuota, valor manual, vínculo, TC manual y un dato ajeno a Créditos);
-  - la nómina sigue guardada como texto.
-- Decisión individual: sin motivo no cuenta; uno omitido (su bitácora queda bloqueada) y otro aplicado.
-- Reintento: 0 escrituras, misma versión, nada duplicado.
-- Concurrencia:
-  - otro guardado entre lectura y escritura → rechazado, sin escribir las filas siguientes;
-  - al repetir se aplica conservando el cambio ajeno;
-  - carrera real en Postgres → 0 filas.
-- Hueco sin `updated_at` y su cierre con el trigger.
-- Respaldo de prueba intacto (SHA-256).
+- **Ensayo, aplicación, duplicados, dependencias, reintento, concurrencia y carrera real:** igual que antes.
+- **T:** trigger de versión con `persistContract` y `friskuHelpers` reales, upsert, dos UPDATE en una transacción y 0 salidas a internet.
+- **S:** sellos frente a una pestaña antigua de nóminas y de Finanzas, upsert antiguo, cambio legítimo, permisos y levantamiento.
+- **P:** fallas entre filas y reintentos.
+- **R:** reversión de ambas propuestas.
+
+Hallazgo aparte, previo e independiente del trigger: la fusión por ítem de la app (`friskuPersistencia.fusionarPorId`) compara objetos **sensible al orden de las claves**, y jsonb las reordena. Ante una edición simultánea del mismo listado puede declarar un conflicto falso. Es seguro (no pisa nada, pide recargar), pero molesto. Queda como tarea separada.
 
 ## Antes de usarlo con datos reales (pendiente de tu autorización)
 
-1. Ejecutar `verificar-supabase.sql` (solo lectura) y decidir si se aplica el trigger.
-2. Habilitar el destino de producción en el código (hoy bloqueado). Requiere tu autorización.
-3. Respaldo nuevo del mismo día, como punto de retorno.
-4. Pedir al equipo que cierre la app durante la aplicación.
-5. Ensayo → revisión → decisiones firmadas → aplicar → ensayo de control.
+1. Resultado de `verificar-supabase.sql`, que es solo lectura.
+2. Decidir el trigger de versión y los sellos. Hoy no están autorizados.
+3. Habilitar el destino de producción en el código (hoy bloqueado) y usar la llave de servicio. Ambas cosas requieren tu autorización.
+4. Un respaldo nuevo del mismo día.
+5. Ensayo → revisión → aprobación registrada → aplicar → ensayo de control.

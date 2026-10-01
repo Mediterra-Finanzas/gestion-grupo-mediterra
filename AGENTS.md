@@ -244,6 +244,8 @@ Reglas que no hay que romper:
   PATCH condicionado por `updated_at` (atómico), dependencias bloqueantes, duplicados con
   decisión individual, verificación y auditoría. HOY solo acepta destinos locales (rechaza
   `*.supabase.co`); probado con `scripts/conciliacion/prueba.mjs` (Postgres+PostgREST locales).
+  Propuestas NO aplicadas: `propuesta-trigger-version.sql` (versión generada por la base) y
+  `propuesta-sellos.sql` (impide que una sesión con datos antiguos deshaga lo aplicado).
 - **Excel**: hoja "Servicio deuda" (individual y consolidado) con capital +
   intereses + cargos + sin desglosar = servicio; + ajuste manual = línea; control
   contra la hoja del flujo. Usa `line._compCred` (lo anota `aplicarCreditosAEmpresas`).
