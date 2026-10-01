@@ -18,6 +18,18 @@ import {
 } from "./osiris/informeAlcance";
 import { asuntoCorreoInforme, cuerpoCorreoInforme, vistaPreviaCorreo, validarDestinatarios } from "./osiris/correoInforme";
 import {
+  factorNeto as retFactorNeto, factorNetoFila as retFactorFila,
+  estadoRetencion as retEstadoDe, estadoDeFila as retEstadoFila,
+  celdaNeto as retCeldaNeto, resumenValidacion as retResumen, COLUMNA_NETO as RET_COLUMNA,
+  leyendaRetencion as retLeyenda, leyendaRetencionFilas as retLeyendaFilas,
+  proponerRetencion, validarRetencion, revertirValidacion, puedeValidarRetencion, faltantesValidacion,
+  configRetencion as retConfig, aplicarTransicion as retTransicion,
+  efectoCambioPais, registrarCambioPais, efectoRetirarValidacion, REGLA_VALIDACION,
+  validarRetencionConGuarda, registrarCambioPaisConGuarda, guardaValidacion, guardaCambioPais,
+  decisionCambioPais,
+  HEREDADO as RET_HEREDADO, VALIDADA as RET_VALIDADA, SIN_TRANSICION as RET_SIN_TRANSICION,
+} from "./osiris/retencion";
+import {
   TIPO_ANEXO_ELIMINACION, TIPO_CONTRATO_PRUEBAS,
   AVISO_ANEXO_SIN_EFECTO, AVISO_TIPO_PRUEBAS,
   catalogoConEliminacion, catalogoConPruebas,
@@ -242,16 +254,69 @@ function emojiEspecie(nombre){
 }
 const N = v => (v!=null&&!isNaN(v)) ? Number(v).toLocaleString("es-CL") : "—";
 
-// Porcentaje cobro según país
+// Aviso de netos sin validar. Va sobre cada tabla que muestra un neto y
+// acompana a la columna que llevan las exportaciones: "heredado" no es
+// "validado", y donde se presenta el neto tiene que decirse.
+// Aviso para las pantallas que muestran el importe bruto y no calculan
+// retencion. Describe lo que hace el codigo y deja la definicion abierta: si
+// ese cobro lleva retencion o no es materia tributaria, no una lectura del
+// codigo, y no se afirma por el hecho de que la pantalla no la muestre.
+function AvisoSinRetencionCalculada({texto}) {
+  return (
+    <div style={{fontSize:11,borderRadius:8,padding:"7px 10px",marginBottom:10,
+      background:"#eff6ff",border:"1px solid #93c5fd",color:"#1e3a5f"}}>
+      <strong>Importes brutos.</strong> {texto} <em>Definición pendiente.</em>
+    </div>
+  );
+}
+
+function AvisoNetos({filas}) {
+  const r = retResumen(filas||[]);
+  if(!r.haySinValidar) return null;
+  return (
+    <div style={{fontSize:11,borderRadius:8,padding:"7px 10px",marginBottom:10,
+      background:"#fef9c3",border:"1px solid #ca8a04",color:"#854d0e"}}>
+      <strong>⚠ Netos sin validar.</strong> {r.nota}
+    </div>
+  );
+}
+
+// LEGADO. El factor por país que aplicaba el motor antes de que la retención
+// fuera un dato del contrato. Ya no lo llama nadie: el cálculo vivo pasa por
+// retFactorNeto/retEstadoDe y la leyenda por retLeyenda. Se deja como
+// referencia del comportamiento anterior (es el oráculo de factorNetoLegado
+// en las pruebas). NO reconectar sin revisar docs/osiris-tech.
 function pct(pais="") {
   const p = pais.toLowerCase();
   if(p.includes("chile")) return 1.00;          // Sin WHT
   return 0.85;                                    // Peru/Mexico: WHT 15%
 }
-function whtLabel(pais="") {
-  const p = pais.toLowerCase();
-  if(p.includes("chile")) return null;           // Sin WHT
-  return "WHT 15%";
+// Etiqueta de retención. Ya NO escribe "15%" a mano: la tasa y su estado los
+// resuelve retencion.js, así que la leyenda no puede contradecir al motor.
+// Acepta un país suelto (firma antigua), un contrato o una fila sellada.
+// La procedencia ("por país", "heredado", "validado") va en CeldaWht, que es
+// donde se ve. Acá se devuelve solo la tasa, que es lo que la suite de
+// regresión de la Fase 0 tiene congelado: agregarle el sufijo cambiaba el
+// valor congelado sin que ninguna pantalla lo usara.
+function whtLabel(x="") {
+  const l = retLeyenda(x);
+  return l.pct > 0 ? l.tasa : null;
+}
+
+// Celda de retención de las tablas. Un solo sitio decide cómo se ve, para que
+// dos tablas no puedan rotular distinto el mismo estado: arriba la tasa que el
+// motor aplica de verdad, abajo si está validada o no.
+function CeldaWht({fila}) {
+  const l = retLeyenda(fila);
+  const hay = l.pct > 0;
+  return (
+    <div title={l.frase}>
+      <span style={{background:hay?C.dangerBg:C.successBg,color:hay?C.danger:C.success,
+        borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{l.tasa}</span>
+      <div style={{fontSize:9,marginTop:2,fontWeight:600,whiteSpace:"nowrap",
+        color:l.validado?C.success:C.warning}}>{l.marca}</div>
+    </div>
+  );
 }
 
 // Fecha de inicio de trimestre
@@ -1903,7 +1968,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
     // fracción por cuota legacy y monto por factura/OC). No recalcular desde
     // nPlantas×usdPlanta porque en legacy cada cuota lleva nPlantas=total → doble conteo.
     const mf = r._fromContract ? (Number(r.montoFact)||0) : (Number(r.nPlantas)||0)*(Number(r.usdPlanta)||0);
-    const mc = r._fromContract ? (Number(r.montoCobro)||0) : mf*pct(r.pais);
+    const mc = r._fromContract ? (Number(r.montoCobro)||0) : mf*retFactorFila(r);
     return{...r,montoFact:mf,montoCobro:mc};
   }),[dataConSync]);
 
@@ -1991,7 +2056,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
     <div>
       <div style={{background:C.successBg,border:`1px solid ${C.success}`,borderRadius:10,padding:"8px 14px",marginBottom:14,fontSize:12,color:C.success}}>
         💡 <strong>Monto a Facturar</strong> = N° Plantas × US$/Planta &nbsp;·&nbsp;
-        <strong>Monto a Cobrar</strong> = Facturar × (100% Chile sin WHT / 85% Perú y México WHT 15%)
+        {retLeyendaFilas(filtrado).frase}
       </div>
 
       <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
@@ -2028,19 +2093,21 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
               r.nPlantas,r.usdPlanta,r.montoFact.toFixed(2),r.montoCobro.toFixed(2),
               r.nFact||"",r.montoFacturado||"",pctFact,
               r.nFact&&r.nFact.trim()?"Facturado":"Pend. facturar",
-              ESTADOS_CF[resolveEstadoCF(r)]?.lbl||"Por cobrar",r.fechaPago||""];
+              ESTADOS_CF[resolveEstadoCF(r)]?.lbl||"Por cobrar",r.fechaPago||"",retCeldaNeto(r)];
           }),
           ["Cliente","País","Vivero","Año","N° Plantas","US$/Planta","Mto.Facturar","Mto.Cobrar",
-           "N° Factura","Mto.Facturado","% Cobrado","Est.Factura","Est.Cobro","Fecha Pago"],
+           "N° Factura","Mto.Facturado","% Cobrado","Est.Factura","Est.Cobro","Fecha Pago",RET_COLUMNA],
           "RoyaltyPlanta",
           {
             tituloDoc: "Royalty por Planta",
             subtituloDoc: "Osiris Plant Management · Grupo Mediterra",
-            filtros: `${filtrado.length} registros exportados`,
+            filtros: `${filtrado.length} registros exportados`
+              + (retResumen(filtrado).haySinValidar ? ` — ${retResumen(filtrado).nota}` : ""),
           }
         )}
       />
 
+      <AvisoNetos filas={filtrado}/>
       <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
@@ -2066,10 +2133,7 @@ function RoyaltyPlanta({data,setData,tpData,can,clientes=[]}) {
                   <td style={{padding:"7px 10px",textAlign:"center"}}><Cell val={r.usdPlanta||""} onChange={v=>upd(r.id,"usdPlanta",parseFloat(v)||0)} type="number" can={can&&!r._fromContract} ph="0.00"/></td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.azul}}>{$$(r.montoFact)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
-                    {whtLabel(r.pais)
-                      ? <span style={{background:C.dangerBg,color:C.danger,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>{whtLabel(r.pais)}</span>
-                      : <span style={{background:C.successBg,color:C.success,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>Sin WHT</span>
-                    }
+                    <CeldaWht fila={r}/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.verde}}>{$$(r.montoCobro)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
@@ -2352,8 +2416,8 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
         onExportar={async ()=>exportCSV(
           filtrado.map(r=>[r.cliente,r.pais,r.detalle||"",r.montoUSD||0,
             r.nFact||"",r.nFact&&r.nFact.trim()?"Facturado":"Pend. facturar",
-            ESTADOS_CF[resolveEstadoCF(r)]?.lbl||"Por cobrar",r.fechaPago||""]),
-          ["Cliente","País","Tipo Fee","Monto US$","N° Factura","Est. Factura","Est. Cobro","Fecha Pago"],
+            ESTADOS_CF[resolveEstadoCF(r)]?.lbl||"Por cobrar",r.fechaPago||"",retCeldaNeto(r)]),
+          ["Cliente","País","Tipo Fee","Monto US$","N° Factura","Est. Factura","Est. Cobro","Fecha Pago",RET_COLUMNA],
           "FeeEntrada",
           {
             tituloDoc: "Fee de Entrada (Contract Fee)",
@@ -2363,6 +2427,10 @@ function FeeEntrada({data,setData,ctData,can,clientes=[]}) {
         )}
       />
 
+      {/* Esta pantalla muestra el bruto. El modelo de filas calcula también un neto
+          (montoNeto) que ninguna pantalla lee, mientras el tablero suma el bruto.
+          Las dos cosas no pueden ser ciertas: cuál rige es una definición abierta. */}
+      <AvisoSinRetencionCalculada texto="Esta vista muestra el importe bruto del contract fee, sin descontar retención. El tratamiento tributario está pendiente de validación."/>
       <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
@@ -2460,7 +2528,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
       // Filas derivadas de contrato traen montoFact/montoCobro ya calculado (haTotal×valorPorHa).
       // No recalcular desde r.ha/r.usdHa porque esas filas no tienen esos campos → quedaría en $0.
       const mf = r._fromContract ? (Number(r.montoFact)||0) : (Number(r.ha)||0)*(Number(r.usdHa)||3000);
-      const mc = r._fromContract ? (Number(r.montoCobro)||0) : mf*pct(r.pais);
+      const mc = r._fromContract ? (Number(r.montoCobro)||0) : mf*retFactorFila(r);
       const fAviso=fechaAvisoTrim(r.añoCobro,r.trimCobro);
       const fInicio=fechaInicioTrim(r.añoCobro,r.trimCobro);
       const diasAviso=Math.ceil((fAviso-ahora)/(1000*60*60*24));
@@ -2599,18 +2667,20 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
             TRIM_LABELS[r.trimCobro],r.añoCobro,
             r.montoFact.toFixed(2),r.montoCobro.toFixed(2),
             r.nFact||"",r.nFact&&r.nFact.trim()?"Facturado":"Pend. facturar",
-            r.pagado?"Pagado":"Por cobrar"]),
+            r.pagado?"Pagado":"Por cobrar",retCeldaNeto(r)]),
           ["Cliente","País","Há","US$/Há","Trimestre","Año Cobro",
-           "Mto.Facturar","Mto.Cobrar","N° Factura","Est.Factura","Est.Cobro"],
+           "Mto.Facturar","Mto.Cobrar","N° Factura","Est.Factura","Est.Cobro",RET_COLUMNA],
           "RoyaltyComercial",
           {
             tituloDoc: "Royalty Comercial",
             subtituloDoc: "Osiris Plant Management · Grupo Mediterra · Royalty por hectárea",
-            filtros: `${filtrado.length} registros exportados`,
+            filtros: `${filtrado.length} registros exportados`
+              + (retResumen(filtrado).haySinValidar ? ` — ${retResumen(filtrado).nota}` : ""),
           }
         )}
       />
 
+      <AvisoNetos filas={filtrado}/>
       <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
@@ -2654,10 +2724,7 @@ function RoyaltyComercial({data,setData,tpData,can,clientes=[]}) {
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.text}}>{$$(r.montoFact)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
-                    {whtLabel(r.pais)
-                      ? <span style={{background:C.dangerBg,color:C.danger,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>{whtLabel(r.pais)}</span>
-                      : <span style={{background:C.successBg,color:C.success,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>Sin WHT</span>
-                    }
+                    <CeldaWht fila={r}/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.verde}}>{$$(r.montoCobro)}</td>
                   <td style={{padding:"7px 10px",textAlign:"center"}}>
@@ -2849,10 +2916,10 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
         ]}
         onExportar={async ()=>exportCSV(
           filtrado.map(r=>[r.vivero||"",r.empresa,r.pais,r.proforma||"",
-            r.nPlantas||0,r.regalia||0,`${(pct(r.pais)*100).toFixed(0)}%`,r.totalOsiris||0,r.tipoPago||"",
-            r.montoFact||0,r.fechaFact||"",r.nFact||"",r.pagado?"Pagado":"Por pagar"]),
+            r.nPlantas||0,r.regalia||0,`${(retFactorFila(r)*100).toFixed(0)}%`,r.totalOsiris||0,r.tipoPago||"",
+            r.montoFact||0,r.fechaFact||"",r.nFact||"",r.pagado?"Pagado":"Por pagar",retCeldaNeto(r)]),
           ["Vivero","Empresa","País","Proforma","N° Plantas","Regalía US$","% Cobro","Total Osiris",
-           "Tipo Pago","Mto.Facturar","Fecha Fact.","N° Factura","Estado Pago"],
+           "Tipo Pago","Mto.Facturar","Fecha Fact.","N° Factura","Estado Pago",RET_COLUMNA],
           "FeeViveros",
           {
             tituloDoc: "Fee de Viveros",
@@ -2862,6 +2929,8 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
         )}
       />
 
+      {/* Acá el código no modela retención en ninguna parte, ni siquiera un neto sin usar. */}
+      <AvisoSinRetencionCalculada texto="Esta vista muestra importes brutos, sin descontar retención. El tratamiento tributario de la regalía de viveros está pendiente de validación."/>
       <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:10,overflow:"hidden"}}>
           <Th cols={[
@@ -2888,10 +2957,10 @@ function FeeViveros({data,setData,tpData,can,clientes=[]}) {
                     <Cell val={r.regalia||""} onChange={v=>upd(r.id,"regalia",parseFloat(v)||0)} type="number" can={can&&!r._fromContract} ph="0.45"/>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
-                    <span style={{background:pct(r.pais)===1?C.verdeBg:C.dangerBg,
-                      color:pct(r.pais)===1?C.verde:C.danger,
+                    <span style={{background:retFactorFila(r)===1?C.verdeBg:C.dangerBg,
+                      color:retFactorFila(r)===1?C.verde:C.danger,
                       borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>
-                      {pct(r.pais)===1?"100%":"85%"}
+                      {(retFactorFila(r)*100).toFixed(0)+"%"}
                     </span>
                   </td>
                   <td style={{padding:"7px 10px",textAlign:"right",fontSize:12,color:C.gris}}>{$$(r.totalOsiris)}</td>
@@ -4443,8 +4512,8 @@ function Resumen({rpData,feData,rcData,fvData,tpData}) {
   const hoy=new Date();hoy.setHours(0,0,0,0);
   const [expandedMes,setExpandedMes]=useState(null);
 
-  const rpCalc=rpData.map(r=>{const mf=(Number(r.nPlantas)||0)*(Number(r.usdPlanta)||0);return{...r,montoFact:mf,montoCobro:mf*pct(r.pais)};});
-  const rcCalc=rcData.map(r=>{const mf=r._fromContract?(Number(r.montoFact)||0):(Number(r.ha??r.haTotal)||0)*(Number(r.usdHa??r.valorPorHa)||0);const mc=r._fromContract?(Number(r.montoCobro)||0):mf*pct(r.pais);const fA=fechaAvisoTrim(r.añoCobro,r.trimCobro);const fI=fechaInicioTrim(r.añoCobro,r.trimCobro);return{...r,montoFact:mf,montoCobro:mc,alertaActiva:hoy>=fA&&hoy<fI&&!r.nFact};});
+  const rpCalc=rpData.map(r=>{const mf=(Number(r.nPlantas)||0)*(Number(r.usdPlanta)||0);return{...r,montoFact:mf,montoCobro:mf*retFactorFila(r)};});
+  const rcCalc=rcData.map(r=>{const mf=r._fromContract?(Number(r.montoFact)||0):(Number(r.ha??r.haTotal)||0)*(Number(r.usdHa??r.valorPorHa)||0);const mc=r._fromContract?(Number(r.montoCobro)||0):mf*retFactorFila(r);const fA=fechaAvisoTrim(r.añoCobro,r.trimCobro);const fI=fechaInicioTrim(r.añoCobro,r.trimCobro);return{...r,montoFact:mf,montoCobro:mc,alertaActiva:hoy>=fA&&hoy<fI&&!r.nFact};});
 
   const totRP_pendFact = rpCalc.filter(r=>!r.nFact||r.nFact.trim()==="").reduce((s,r)=>s+r.montoFact,0);
   const totRP_facturado= rpCalc.filter(r=>r.nFact&&r.nFact.trim()!=="").reduce((s,r)=>s+r.montoFact,0);
@@ -6956,9 +7025,11 @@ function derivarContractFeeDesdeContratos(ctData) {
       // Fee de Entrada muestran y suman el importe bruto. Se deja como esta
       // -quitarlo seria resolver por codigo un tratamiento tributario que
       // esta pendiente de validacion- y queda anotado para que no se lea como
-      // si estuviera en uso.
-      montoNeto: (Number(ct.montoContractFee)||0) * pct(ct.pais),
-      whtPct: pct(ct.pais)===1 ? 0 : 15,
+      // si estuviera en uso. La tasa sale del contrato, no del pais.
+      montoNeto: (Number(ct.montoContractFee)||0) * retFactorNeto(ct),
+      whtPct: retEstadoDe(ct).pct,
+      retEstado: retEstadoDe(ct).estado, retPct: retEstadoDe(ct).pct,
+      netoValidado: retEstadoDe(ct).validado, retEtiqueta: retEstadoDe(ct).etiqueta,
       detalle: ct.tipoContractFee,
       fechaContrato: ct.fechaContrato || "",
       pagado: !!ct.contractFeePagado,
@@ -7006,8 +7077,10 @@ function derivarRoyaltyPlantaDesdeContratos(ctData, ocsByCt) {
             brutoTeorico,
             montoFacturado,
             montoFact: baseCobro,                  // base de cobro = facturado (o teórico si no hay factura)
-            montoCobro: baseCobro * pct(ct.pais),  // = monto facturado − WHT
-            whtPct: pct(ct.pais)===1 ? 0 : 15,
+            montoCobro: baseCobro * retFactorNeto(ct),  // = monto facturado − retención
+            whtPct: retEstadoDe(ct).pct,
+            retEstado: retEstadoDe(ct).estado, retPct: retEstadoDe(ct).pct,
+            netoValidado: retEstadoDe(ct).validado, retEtiqueta: retEstadoDe(ct).etiqueta,
             fechaEvento: ev.fecha,
             pagado: !!pago.pagado,
             fechaPago: pago.fechaPago || "",
@@ -7050,8 +7123,10 @@ function derivarRoyaltyPlantaDesdeContratos(ctData, ocsByCt) {
           descripcionCuota: (f.n_factura&&String(f.n_factura).trim()!=="") ? `Factura ${f.n_factura}` : `Factura RP ${idx+1}`,
           pctCuota: (totPlantas>0&&valorPorPlanta>0) ? (montoFact/(totPlantas*valorPorPlanta))*100 : 0,
           montoFact: montoFact,
-          montoCobro: montoFact * pct(ct.pais),
-          whtPct: pct(ct.pais)===1 ? 0 : 15,
+          montoCobro: montoFact * retFactorNeto(ct),
+          whtPct: retEstadoDe(ct).pct,
+          retEstado: retEstadoDe(ct).estado, retPct: retEstadoDe(ct).pct,
+          netoValidado: retEstadoDe(ct).validado, retEtiqueta: retEstadoDe(ct).etiqueta,
           fechaEvento: f.fecha || "",
           pagado: resolveEstadoCF(f)==="pagado",
           estadoCF: resolveEstadoCF(f),
@@ -7085,8 +7160,10 @@ function derivarRoyaltyPlantaDesdeContratos(ctData, ocsByCt) {
         descripcionCuota: cuo.descripcion||`Tanda ${idx+1}`,
         pctCuota: totPlantas>0 ? (plantasCuota/totPlantas)*100 : 0,
         montoFact: montoCuota,
-        montoCobro: montoCuota * pct(ct.pais), // = monto facturado − WHT
-        whtPct: pct(ct.pais)===1 ? 0 : 15,
+        montoCobro: montoCuota * retFactorNeto(ct), // = monto facturado − retención
+        whtPct: retEstadoDe(ct).pct,
+        retEstado: retEstadoDe(ct).estado, retPct: retEstadoDe(ct).pct,
+        netoValidado: retEstadoDe(ct).validado, retEtiqueta: retEstadoDe(ct).etiqueta,
         fechaEvento: cuo.fechaEvento || "",
         pagado: !!cuo.pagado,
         fechaPago: cuo.fechaPago || "",
@@ -7175,8 +7252,10 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
           factorInfl: vphInfl>0 ? vphInfl/valorPorHa : 1,
           valorPorHaInfl: vphInfl,
           montoFact: monto,
-          montoCobro: monto * pct(ct.pais),
-          whtPct: pct(ct.pais)===1 ? 0 : 15,
+          montoCobro: monto * retFactorNeto(ct),
+          whtPct: retEstadoDe(ct).pct,
+          retEstado: retEstadoDe(ct).estado, retPct: retEstadoDe(ct).pct,
+          netoValidado: retEstadoDe(ct).validado, retEtiqueta: retEstadoDe(ct).etiqueta,
           mesCobro,
           trimCobro: trimCobro0,
           añoCobro: parseInt(temp.split("/")[1]),
@@ -7204,7 +7283,7 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
     temps.forEach((temp, tempIdx) => {
       const factorInfl = Math.pow(1 + inflPct/100, tempIdx);
       const montoFact = haTotal * valorPorHa * factorInfl;
-      const montoCobro = montoFact * pct(ct.pais);
+      const montoCobro = montoFact * retFactorNeto(ct);
       // Pagos guardados por temporada en el contrato
       const pagosKey = ct.rcPagos || {};
       const pago = pagosKey[temp] || {};
@@ -7221,7 +7300,9 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
         valorPorHaInfl: valorPorHa * factorInfl,
         montoFact,
         montoCobro,
-        whtPct: pct(ct.pais)===1 ? 0 : 15,
+        whtPct: retEstadoDe(ct).pct,
+        retEstado: retEstadoDe(ct).estado, retPct: retEstadoDe(ct).pct,
+        netoValidado: retEstadoDe(ct).validado, retEtiqueta: retEstadoDe(ct).etiqueta,
         mesCobro,
         trimCobro,
         añoCobro: parseInt(temp.split("/")[1]),
@@ -7358,20 +7439,21 @@ async function exportarContratos(filtrado) {
   const rpRows=[];
   filtrado.forEach(r=>{ const vpp=parseFloat(r.valorRoyaltyPlanta)||1; const tot=(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0);
     (r.rpPlantaCuotas||[]).forEach(c=>{ const pl=(c.nPlantas!==undefined&&c.nPlantas!=="")?(parseFloat(c.nPlantas)||0):(tot*(parseFloat(c.pct)||0)/100); const m=pl*vpp;
-      rpRows.push([r.razonSocial||"", c.descripcion||"", pl, vpp, m, m*pct(r.pais), (c.estadoCF||(c.pagado?"pagado":"porCobrar")), c.fechaPago||"", c.nFact||""]); }); });
-  const sectionRP={ titulo:"Royalty Planta (tandas)", headers:["Contrato","Descripción","Plantas","US$/planta","Monto Fact.","Monto Cobro","Estado","Fecha Pago","N° Factura"], rows:rpRows };
+      rpRows.push([r.razonSocial||"", c.descripcion||"", pl, vpp, m, m*retFactorNeto(r), retCeldaNeto(r), (c.estadoCF||(c.pagado?"pagado":"porCobrar")), c.fechaPago||"", c.nFact||""]); }); });
+  const sectionRP={ titulo:"Royalty Planta (tandas)", headers:["Contrato","Descripción","Plantas","US$/planta","Monto Fact.","Monto Cobro",RET_COLUMNA,"Estado","Fecha Pago","N° Factura"], rows:rpRows };
   // Royalty Comercial por bloques
   const rcRows=[];
   filtrado.forEach(r=>(r.rcCohortes||[]).forEach(c=>rcRows.push([r.razonSocial||"", parseFloat(c.ha)||0, c.desde||"", parseFloat(r.valorRoyaltyComercial)||0, r.royaltyInflacion?(parseFloat(r.rcInflacionPct)||0):0])));
   const sectionRC={ titulo:"Royalty Comercial (bloques)", headers:["Contrato","Há","Desde Temporada","US$/há","Inflación %"], rows:rcRows };
   // Contract Fee estado
   const cfRows=filtrado.filter(r=>r.tipoContractFee!=="Sin Contract Fee").map(r=>[
-    r.razonSocial||"", parseFloat(r.montoContractFee)||0, r.contractFeeNFact||"", (r.contractFeeEstado||(r.contractFeePagado?"pagado":"porCobrar")), r.contractFeeFechaPago||""]);
-  const sectionCF={ titulo:"Contract Fee", headers:["Contrato","Monto US$","N° Factura","Estado","Fecha Pago"], rows:cfRows };
+    r.razonSocial||"", parseFloat(r.montoContractFee)||0, retCeldaNeto(r), r.contractFeeNFact||"", (r.contractFeeEstado||(r.contractFeePagado?"pagado":"porCobrar")), r.contractFeeFechaPago||""]);
+  const sectionCF={ titulo:"Contract Fee", headers:["Contrato","Monto US$",RET_COLUMNA,"N° Factura","Estado","Fecha Pago"], rows:cfRows };
   await exportCSV([sectionContratos, sectionPlant, sectionRP, sectionRC, sectionCF], null, "Contratos_Osiris", {
     tituloDoc: "Contratos Productores-Exportadores",
     subtituloDoc: "Osiris Plant Management · Grupo Mediterra",
-    filtros: `${filtrado.length} contratos · ${pltRows.length} plantaciones · ${rpRows.length} tandas RP · ${rcRows.length} bloques RC`,
+    filtros: `${filtrado.length} contratos · ${pltRows.length} plantaciones · ${rpRows.length} tandas RP · ${rcRows.length} bloques RC`
+      + (retResumen(filtrado).haySinValidar ? ` — ${retResumen(filtrado).nota}` : ""),
   });
 }
 
@@ -7401,13 +7483,14 @@ function OrdenesCompraSec({r, upd, can, ocsVivero=[]}) {
   const ordenes = r.ordenesCompra || [];
   const facturas = r.facturasRP || [];
   const valorPP = Number(r.valorRoyaltyPlanta) || 1;
-  const whtPct = pct(r.pais)===1 ? 0 : 15;
+  // La leyenda de retención de esta pestaña sale de retLeyenda(r): tasa
+  // aplicada + estado de validación, sin números escritos a mano.
 
   // ── MODO OC VIVERO: esta pestaña es ESPEJO de solo lectura de las OC del vivero ──
   // Las OC reales se gestionan en Contratos Viveros; acá solo se visualizan + su royalty derivado.
   if(r.modeloIngresos==="oc") {
     const valorHa = Number(r.valorRoyaltyComercial)||0;
-    const factorNeto = pct(r.pais); // 1 = sin WHT, 0.85 = WHT 15%
+    const factorNeto = retFactorNeto(r); // 1 = sin retención
     let totPlantasDesp = 0, totHaPlant = 0, totRP = 0, totRC1 = 0;
     ocsVivero.forEach(oc=>(oc.despachos||[]).forEach(d=>{
       totPlantasDesp += Number(d.cantidad_despachada)||0;
@@ -7431,7 +7514,7 @@ function OrdenesCompraSec({r, upd, can, ocsVivero=[]}) {
               [`${N(totPlantasDesp)}`,"Plantas despachadas","#7c3aed","#f3e8ff"],
               [`${N(totHaPlant.toFixed(2))}`,"Há plantadas","#7c3aed","#f3e8ff"],
               [$$(totRP),"Royalty/Planta (bruto)","#1d4ed8","#dbeafe"],
-              [$$(totRP*factorNeto),"RP neto"+(factorNeto<1?" (WHT 15%)":""),"#15803d","#dcfce7"],
+              [$$(totRP*factorNeto),"RP neto"+retLeyenda(r).sufijo,"#15803d","#dcfce7"],
               [$$(totRC1),"RC 1ª temporada (bruto)","#d97706","#fef9c3"],
             ].map(([v,l,c,bg])=>(
               <div key={l} style={{background:bg,borderRadius:10,padding:"10px 16px",flex:1,minWidth:120}}>
@@ -7676,7 +7759,7 @@ function OrdenesCompraSec({r, upd, can, ocsVivero=[]}) {
             {facturas.map(f=>{
               const montoAuto = (f.ocIds||[]).reduce((s,ocId)=>{const oc=ordenes.find(o=>o.id===ocId);return s+(oc?montoDeOC(oc):0);},0);
               const montoFinal = montoDeFactura(f);
-              const montoCobro = montoFinal * pct(r.pais);
+              const montoCobro = montoFinal * retFactorNeto(r);
               return(
                 <div key={f.id} style={{border:`1px solid #bbf7d0`,borderRadius:10,padding:12,background:"#fff"}}>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,alignItems:"end",marginBottom:10}}>
@@ -7700,7 +7783,7 @@ function OrdenesCompraSec({r, upd, can, ocsVivero=[]}) {
                       )}
                     </div>
                     <div>
-                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Neto cobro {whtPct>0?`(WHT ${whtPct}%)`:""}</div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}} title={retLeyenda(r).frase}>Neto cobro{retLeyenda(r).sufijo}</div>
                       <div style={{padding:"6px 8px",background:C.successBg,borderRadius:6,fontSize:13,fontWeight:700,color:C.success}}>{$$(montoCobro)}</div>
                     </div>
                     <div>
@@ -8084,12 +8167,55 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
   }
 
   function Campo({label,campo,tipo="text",opts=null,r,fullWidth=false}){
+    // El país no se cambia en silencio: mientras el contrato no pase por la
+    // transición, la retención la sigue decidiendo el país, así que cambiarlo
+    // mueve el neto. Se avisa con los números antes de aplicarlo y queda
+    // registrado quién lo hizo.
+    const cambiar = (v)=>{
+      if(campo!=="pais"){ upd(r.id,campo,v); return; }
+      const e = efectoCambioPais(r, v);
+      // La compuerta y el registro corren siempre. Que el neto no se mueva hoy
+      // no vuelve inocuo el cambio: si se vuelve al código anterior, que
+      // calcula por país, un país cambiado después de la transición sí mueve
+      // importes. Lo único condicional es preguntar.
+      const d = decisionCambioPais(r, v);
+      if(d.bloqueada){
+        window.alert((d.motivo||"No se puede cambiar el país de este contrato.") + (d.comoDesbloquear?"\n\n"+d.comoDesbloquear:""));
+        return;
+      }
+      if(!d.preguntar){
+        const res0 = registrarCambioPaisConGuarda(r, v, usuarioActual, new Date().toISOString().slice(0,10));
+        if(!res0.ok) return;
+        upd(r.id,"historialPais", res0.contrato.historialPais);
+        upd(r.id,"pais", v);
+        return;
+      }
+      const ok = window.confirm(
+        `${e.detalle}
+
+Retención: ${e.pctAntes} % → ${e.pctDespues} %.
+
+`+
+        `Para que el país deje de mover el neto hay que aplicar la transición, que se autoriza aparte.
+
+`+
+        `¿Confirmas el cambio de país con ese efecto?`);
+      if(!ok) return;
+      const res = registrarCambioPaisConGuarda(r, v, usuarioActual, new Date().toISOString().slice(0,10));
+      if(!res.ok){
+        const b = res.bloqueo || {};
+        window.alert((b.motivo||"No se puede cambiar el país de este contrato.") + (b.comoDesbloquear?"\n\n"+b.comoDesbloquear:""));
+        return;
+      }
+      upd(r.id,"historialPais", res.contrato.historialPais);
+      upd(r.id,"pais", v);
+    };
     return(
       <div style={fullWidth?{gridColumn:"1/-1"}:{}}>
         <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>{label}</div>
         {opts
-          ? <Cell val={r[campo]} onChange={v=>upd(r.id,campo,v)} opts={opts} can={can}/>
-          : <Cell val={r[campo]} onChange={v=>upd(r.id,campo,v)} type={tipo} can={can}/>
+          ? <Cell val={r[campo]} onChange={cambiar} opts={opts} can={can}/>
+          : <Cell val={r[campo]} onChange={cambiar} type={tipo} can={can}/>
         }
       </div>
     );
@@ -8132,9 +8258,101 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
               <Campo label="Razón Social" campo="razonSocial" r={r}/>
               <Campo label="Nombre Comercial" campo="nombreComercial" r={r}/>
               <Campo label="Tax ID / RUC" campo="taxID" r={r}/>
-              <Campo label="País" campo="pais" opts={Array.from(new Set([...PAISES,...clientes.map(c=>c.pais).filter(Boolean),r.pais].filter(Boolean)))} r={r}/>
+              <Campo label="País del cliente" campo="pais" opts={Array.from(new Set([...PAISES,...clientes.map(c=>c.pais).filter(Boolean),r.pais].filter(Boolean)))} r={r}/>
               <Campo label="Dirección" campo="direccion" r={r}/>
               <Campo label="Ciudad" campo="ciudad" r={r}/>
+              {(()=>{
+                const ret = retEstadoDe(r);
+                const cfg = retConfig(r);
+                const puedeValidar = puedeValidarRetencion(usuarioActual);
+                const faltan = faltantesValidacion(r);
+                const upProp = (campo,val)=>{
+                  const prop = {...(cfg.propuesta||{}), [campo]:val};
+                  upd(r.id,"retencionTributaria",
+                    proponerRetencion(r,{pct:prop.pct, respaldo:prop.respaldo, propuestaPor:usuarioActual?.nombre||usuarioActual?.email||""}).retencionTributaria);
+                };
+                const colorEstado = ret.validado ? C.success : (C.am||"#854d0e");
+                const fondo = ret.validado ? C.successBg : (C.amBg||"#fef9c3");
+                const borde = ret.validado ? C.success : (C.am||"#ca8a04");
+                const inp3 = {padding:"3px 6px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11};
+                return (
+                  <div style={{gridColumn:"1/-1",display:"flex",flexDirection:"column",gap:6}}>
+                    <div style={{fontSize:11,color:C.muted,background:C.cardAlt,borderRadius:8,padding:"8px 10px"}}>
+                      <strong>El país del cliente y la retención son dos cosas distintas.</strong> El país dice dónde está constituido el cliente; la retención es el tratamiento tributario del contrato. Hasta ahora el sistema deducía la segunda del primero, así que corregir una identificación movía el neto.
+                    </div>
+                    <div style={{fontSize:11,borderRadius:8,padding:"8px 10px",background:fondo,border:`1px solid ${borde}`,color:colorEstado}}>
+                      <strong>Retención: {ret.etiqueta.toUpperCase()} · {ret.pct} %.</strong> {ret.detalle}
+                      {ret.estado===RET_SIN_TRANSICION&&(
+                        <div style={{marginTop:6,fontSize:10,lineHeight:1.5,color:C.text}}>
+                          Este contrato todavía calcula por país, así que <strong>cambiar el país le mueve el neto</strong>. La transición que congela el valor actual está preparada y probada, y su aplicación a los contratos reales se autoriza aparte.
+                        </div>
+                      )}
+                      {ret.estado===RET_HEREDADO&&(
+                        <div style={{marginTop:6,fontSize:10,lineHeight:1.5,color:C.text}}>
+                          El país ya <strong>no</strong> mueve este neto. Pero <strong>heredado no es validado</strong>: el porcentaje es el que se venía aplicando, sin respaldo tributario, y así se marca en las tablas y en los archivos que se descargan.
+                        </div>
+                      )}
+                      {cfg.propuesta&&(
+                        <div style={{marginTop:6,fontSize:10,lineHeight:1.5,color:C.text,background:C.card,borderRadius:6,padding:"6px 8px",border:`1px dashed ${C.border}`}}>
+                          <strong>Propuesta sin validar: {cfg.propuesta.pct} %</strong>{cfg.propuesta.propuestaPor?<> · propuesta por {cfg.propuesta.propuestaPor}</>:null}{cfg.propuesta.propuestaEl?<> el {cfg.propuesta.propuestaEl}</>:null}. Respaldo: {cfg.propuesta.respaldo||"—"}. <strong>No entra al cálculo</strong> mientras no la valide un usuario autorizado.
+                        </div>
+                      )}
+                      {can&&(
+                        <div style={{marginTop:8,display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+                          <div><div style={{fontSize:10,color:C.gris}}>Tasa propuesta (%)</div>
+                            <input type="number" disabled={!can} value={cfg.propuesta&&cfg.propuesta.pct!==null?cfg.propuesta.pct:""} placeholder="sin proponer"
+                              onChange={e=>upProp("pct", e.target.value===""?"":(parseFloat(e.target.value)||0))} style={{...inp3,width:120}}/></div>
+                          <div style={{flex:1,minWidth:220}}><div style={{fontSize:10,color:C.gris}}>Respaldo documental</div>
+                            <input disabled={!can} value={(cfg.propuesta&&cfg.propuesta.respaldo)||""} placeholder="p. ej. CDI Perú-Reino Unido, art. 12"
+                              onChange={e=>upProp("respaldo", e.target.value)} style={{...inp3,width:"100%",boxSizing:"border-box"}}/></div>
+                          {puedeValidar ? (
+                            ret.validado ? (
+                              <button onClick={()=>{
+                                  const ef=efectoRetirarValidacion(r);
+                                  if(ef.aplica && !window.confirm(`${ef.detalle}
+
+¿Quitar la validación?`)) return;
+                                  const v=revertirValidacion(r, usuarioActual); if(v) upd(r.id,"retencionTributaria", v.retencionTributaria); }}
+                                style={{padding:"5px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:C.card,fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                                Quitar validación
+                              </button>
+                            ) : (
+                              <button disabled={faltan.length>0||guardaValidacion(r, usuarioActual).bloqueada}
+                                onClick={()=>{
+                                  const res = validarRetencionConGuarda(r, usuarioActual);
+                                  if(!res.ok){
+                                    const b = res.bloqueo || {};
+                                    window.alert((b.motivo||"No se puede validar la tasa.") + (b.comoDesbloquear?"\n\n"+b.comoDesbloquear:""));
+                                    return;
+                                  }
+                                  upd(r.id,"retencionTributaria", res.contrato.retencionTributaria);
+                                }}
+                                style={{padding:"5px 10px",borderRadius:7,border:"none",background:(faltan.length>0||guardaValidacion(r, usuarioActual).bloqueada)?C.border:C.success,color:"#fff",fontSize:11,fontWeight:700,cursor:(faltan.length>0||guardaValidacion(r, usuarioActual).bloqueada)?"default":"pointer"}}>
+                                Validar tributariamente
+                              </button>
+                            )
+                          ) : (
+                            <span style={{fontSize:10,color:C.muted}}>Validar la tasa requiere un usuario autorizado (administrador o CFO). Registrar el respaldo no la valida.</span>
+                          )}
+                          {puedeValidar&&!ret.validado&&guardaValidacion(r, usuarioActual).bloqueada&&(
+                            <div style={{width:"100%",fontSize:10,color:(C.am||"#854d0e"),marginTop:4}}>
+                              <strong>Validar está bloqueado.</strong> {guardaValidacion(r, usuarioActual).motivo} {guardaValidacion(r, usuarioActual).comoDesbloquear}
+                            </div>
+                          )}
+                          {puedeValidar&&!ret.validado&&faltan.length>0&&(
+                            <span style={{fontSize:10,color:(C.am||"#854d0e")}}>Falta: {faltan.join(", ")}.</span>
+                          )}
+                          {!REGLA_VALIDACION.aprobada&&(
+                            <div style={{width:"100%",fontSize:10,color:C.muted,marginTop:4}}>
+                              {REGLA_VALIDACION.descripcion} <strong>{REGLA_VALIDACION.nota}</strong>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
           {sec==="contrato"&&(
@@ -8497,7 +8715,7 @@ Motivo del retiro:`, "");
           {sec==="factura"&&(
             <>
               <div style={{padding:"10px 14px",background:C.warningBg,borderRadius:8,border:`1px solid ${C.warning}`,marginBottom:14,fontSize:11,color:C.text}}>
-                💡 <strong>Recordatorio fiscal:</strong> Contract Fee no lleva WHT. Royalty Planta y Royalty Comercial sí están sujetos a WHT 15% en Perú/México (en Chile, sin WHT).
+                💡 <strong>Recordatorio fiscal:</strong> Contract Fee no lleva retención. Royalty Planta y Royalty Comercial de este contrato van con <strong>{retLeyenda(r).tasa}</strong> ({retLeyenda(r).etiqueta}). {retLeyenda(r).frase}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:16}}>
                 <div>
@@ -8512,12 +8730,12 @@ Motivo del retiro:`, "");
                 <div>
                   <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Valor Royalty/Planta (USD)</div>
                   <Cell val={r.valorRoyaltyPlanta} onChange={v=>upd(r.id,"valorRoyaltyPlanta",parseFloat(v)||0)} type="number" can={can}/>
-                  <div style={{fontSize:9,color:pct(r.pais)===1?C.muted2:C.danger,marginTop:3}}>{pct(r.pais)===1?"Sin WHT (Chile)":"WHT 15% — neto = "+(((Number(r.valorRoyaltyPlanta)||0)*0.85).toFixed(2))+" USD/planta"}</div>
+                  <div style={{fontSize:9,color:retFactorNeto(r)===1?C.muted2:C.danger,marginTop:3}}>{retFactorNeto(r)===1?"Sin retención":"Retención "+retEstadoDe(r).pct+"% ("+retEstadoDe(r).etiqueta+") — neto = "+(((Number(r.valorRoyaltyPlanta)||0)*retFactorNeto(r)).toFixed(2))+" USD/planta"}</div>
                 </div>
                 <div>
                   <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Valor Royalty Comercial (USD/Há)</div>
                   <Cell val={r.valorRoyaltyComercial} onChange={v=>upd(r.id,"valorRoyaltyComercial",parseFloat(v)||0)} type="number" can={can}/>
-                  <div style={{fontSize:9,color:pct(r.pais)===1?C.muted2:C.danger,marginTop:3}}>{pct(r.pais)===1?"Sin WHT (Chile)":"WHT 15% — neto = $"+(((Number(r.valorRoyaltyComercial)||0)*0.85).toFixed(0))+"/há"}</div>
+                  <div style={{fontSize:9,color:retFactorNeto(r)===1?C.muted2:C.danger,marginTop:3}}>{retFactorNeto(r)===1?"Sin retención":"Retención "+retEstadoDe(r).pct+"% ("+retEstadoDe(r).etiqueta+") — neto = $"+(((Number(r.valorRoyaltyComercial)||0)*retFactorNeto(r)).toFixed(0))+"/há"}</div>
                 </div>
                 <div style={{display:"flex",alignItems:"flex-end",paddingBottom:4,gap:10}}>
                   <label style={{display:"flex",alignItems:"center",gap:8,cursor:can?"pointer":"default",
@@ -8938,7 +9156,7 @@ Motivo del retiro:`, "");
                 );
               })()}
               <div style={{marginTop:12,padding:12,background:C.successBg,borderRadius:10,fontSize:11,color:C.success,borderLeft:"4px solid #16a34a"}}>
-                💡 <strong>Royalty Planta estimado:</strong> {(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)} plantas × ${r.valorRoyaltyPlanta||1}/planta = <strong>${N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)*(r.valorRoyaltyPlanta||1)).toFixed(2))}</strong> (100% facturado, {pct(r.pais)===1?"sin WHT":"15% WHT"})
+                💡 <strong>Royalty Planta estimado:</strong> {(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)} plantas × ${r.valorRoyaltyPlanta||1}/planta = <strong>${N(((r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0)*(r.valorRoyaltyPlanta||1)).toFixed(2))}</strong> (100% facturado, {retFactorNeto(r)===1?"sin retención":"retención "+retEstadoDe(r).pct+"%"})
                 <br/>
                 💡 <strong>Royalty Comercial anual:</strong> {N((r.plantaciones||[]).reduce((s,p)=>s+(p.tipoPlantacion==="Prueba"?0:(parseFloat(p.hectareas)||0)),0).toFixed(2))} há comerciales × ${N(r.valorRoyaltyComercial||0)}/há = <strong>${N(((r.plantaciones||[]).reduce((s,p)=>s+(p.tipoPlantacion==="Prueba"?0:(parseFloat(p.hectareas)||0)),0)*(r.valorRoyaltyComercial||0)).toFixed(2))}</strong>/temporada (las plantaciones de prueba no pagan RC)
                 {(r.plantaciones||[]).some(p=>p.vivero_id)&&<><br/>💸 <strong style={{color:C.danger}}>Egreso por viveros:</strong> ${N((r.plantaciones||[]).reduce((s,p)=>s+((parseFloat(p.nPlantas)||0)*(parseFloat(p.vivero_fee_usd)||0)),0).toFixed(0))} (one-time, USD)</>}
@@ -9052,8 +9270,13 @@ Motivo del retiro:`, "");
           {/* ── SECCIÓN: COBROS DERIVADOS ── */}
           {sec==="cobros"&&(<>
             <div style={{fontSize:13,color:C.muted,marginBottom:12}}>
-              💵 Configuración de cobros derivada de plantaciones. Contract Fee: <strong>esta vista muestra el importe bruto, sin descontar retención</strong>. El tratamiento tributario está pendiente de validación. Royalty Planta/Comercial: <strong>{pct(r.pais)===1?"100% sin WHT":"85% (WHT 15%)"}</strong> en {r.pais}.
+              💵 Configuración de cobros derivada de plantaciones. Contract Fee: <strong>esta vista muestra el importe bruto, sin descontar retención</strong>. El tratamiento tributario está pendiente de validación. Royalty Planta/Comercial: <strong>{(retFactorNeto(r)*100).toFixed(0)}% (retención {retEstadoDe(r).pct}%)</strong> · {retEstadoDe(r).etiqueta}.
             </div>
+            {(()=>{ const e=retEstadoDe(r); if(e.validado) return null; return (
+              <div style={{fontSize:11,borderRadius:8,padding:"8px 10px",marginBottom:12,
+                background:(C.amBg||"#fef9c3"),border:`1px solid ${C.am||"#ca8a04"}`,color:(C.am||"#854d0e")}}>
+                <strong>⚠ Los netos de esta pantalla NO están validados</strong> ({e.etiqueta}). {e.detalle} Lo mismo se marca en las tablas de Ingresos y en los archivos que se descargan.
+              </div>); })()}
 
             {/* Sub-sección 1: Contract Fee — SIN WHT */}
             <div style={{background:C.card,border:`1px solid ${C.warning}`,borderRadius:10,padding:14,marginBottom:14}}>
@@ -9202,7 +9425,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
               const filaRC=(x,editable)=>{
                 const parciales=parcialesDe(x.temporada);
                 const sumParc=parciales.reduce((s,p)=>s+(Number(p.monto)||0),0);
-                const factorWht=pct(x.pais);
+                const factorWht=retFactorFila(x);
                 return (<React.Fragment key={x.id}>
                 <tr style={{borderBottom:parciales.length?"none":"1px solid #fef3c7",background:x.pagado?C.successBg:""}}>
                   <td style={{padding:"5px 8px",fontWeight:700,color:C.text}}>{x.temporada}</td>
@@ -9350,7 +9573,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                               <td style={{padding:"5px 8px"}}><input disabled={!can} value={c.descripcion||""} onChange={e=>updCuoRP(c.id,"descripcion",e.target.value)} style={{width:"100%",padding:"4px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11,boxSizing:"border-box"}}/></td>
                               <td style={{padding:"5px 8px"}}><input type="number" disabled={!can} value={c.nPlantas!==undefined&&c.nPlantas!==""?c.nPlantas:(c.pct?Math.round(plc):"")} placeholder="0" onChange={e=>updTandaPlantas(c.id,e.target.value)} style={{width:90,padding:"4px 6px",borderRadius:4,border:`1px solid ${excedeRP?C.danger:C.border}`,fontSize:11,textAlign:"right"}}/></td>
                               <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(monto.toFixed(2))}</td>
-                              <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N((monto*pct(r.pais)).toFixed(2))}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N((monto*retFactorNeto(r)).toFixed(2))}</td>
                               <td style={{padding:"5px 8px"}}><input type="date" disabled={!can} value={c.fechaEvento||""} onChange={e=>updCuoRP(c.id,"fechaEvento",e.target.value)} style={inp}/></td>
                               <td style={{padding:"5px 8px",textAlign:"center"}}><BadgeEstadoCF estado={c.estadoCF&&ESTADOS_CF[c.estadoCF]?c.estadoCF:(c.pagado?"pagado":"porCobrar")} onChange={v=>updCuoEstadoRP(c.id,v)} can={can}/>{incRP&&<div title={incRP.mensaje} style={{fontSize:9,color:C.am||"#854d0e",fontWeight:700,marginTop:2}}>revisar</div>}</td>
                               <td style={{padding:"5px 8px"}}><input type="date" disabled={!can} value={c.fechaPago||""} onChange={e=>updCuoRP(c.id,"fechaPago",e.target.value)} style={inp}/></td>
@@ -11138,7 +11361,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const can = canIngresos;
 
   const totPend=
-    rpData.map(r=>(Number(r.nPlantas)||0)*(Number(r.usdPlanta)||0)*pct(r.pais)*(r.pagado?0:1)).reduce((a,b)=>a+b,0)+
+    rpData.map(r=>(Number(r.nPlantas)||0)*(Number(r.usdPlanta)||0)*retFactorFila(r)*(r.pagado?0:1)).reduce((a,b)=>a+b,0)+
     feData.filter(r=>!r.pagado).reduce((s,r)=>s+(Number(r.montoUSD)||0),0)+
     fvData.filter(r=>!r.pagado).reduce((s,r)=>s+(Number(r.montoFact)||0),0);
 
