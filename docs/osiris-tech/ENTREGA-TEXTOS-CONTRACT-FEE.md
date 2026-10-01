@@ -4,7 +4,7 @@ Paquete de **solo texto**: no cambia ningún cálculo. Independiente del modelo 
 resto del paquete tributario.
 
 - **Rama:** `osiris/textos-contract-fee`
-- **Base:** `3c490b5` (`origin/main` al 2026-10-01)
+- **Base:** `cf26841` (`origin/main` después de publicar el alcance por variedad, 2026-10-01)
 - **Archivo:** `src/OsirisModule.jsx`, 12 líneas agregadas, 3 modificadas
 
 ---
@@ -70,7 +70,7 @@ solo vuelve a afirmar en pantalla algo que no está acreditado.
 ## 6 · Autorización que se necesita
 
 > `AUTORIZO MERGE osiris/textos-contract-fee → main`, push y despliegue del paquete exacto
-> <SHA de la punta de la rama, indicado al pedir la ventana> sobre la base exacta `3c490b5`.
+> <SHA de la punta de la rama, indicado al pedir la ventana> sobre la base exacta `cf26841`.
 
 Es la entrega de menor riesgo de todas las que hay en curso. Si preferís no gastar una ventana en
 un cambio de texto, puede esperar y publicarse junto a T2, donde el resto de las leyendas se
