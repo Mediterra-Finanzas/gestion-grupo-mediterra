@@ -7334,8 +7334,10 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
           </div>)}
           {avisoCreditos.porConciliar.length>0&&(<div style={{marginTop:4}}>
             <strong>🔎 {avisoCreditos.porConciliar.length} cuota(s) histórica(s) por conciliar: {$$(avisoCreditos.porConciliar.reduce((a,v)=>a+v.usd,0))}</strong> — NO están
-            incluidas en el flujo confirmado (vencieron sin pago registrado en la app, lo que no prueba que sigan impagas). Dos escenarios:
-            <strong> confirmado</strong> (fila SALDO ACUM.) y <strong>incluyendo por conciliar</strong> (fila morada, {$$(escPC.impacto)} menos desde el mes en curso).
+            incluidas en el flujo confirmado (vencieron sin pago registrado en la app, lo que no prueba que sigan impagas).
+            {escPC.impacto>0.5
+              ? <> Dos escenarios: <strong>confirmado</strong> (fila SALDO ACUM.) e <strong>incluyendo por conciliar</strong> (fila morada, {$$(escPC.impacto)} menos desde el mes en curso).</>
+              : <> El escenario "incluyendo por conciliar" no agrega montos a esta empresa.</>}
             {escPC.excluidoUSD>0.5&&<> No se suman {$$(escPC.excluidoUSD)} porque la línea ya tiene un valor manual vigente en el mes en curso que podría cubrirlas (concílialo primero).</>}
             {escPC.sinTC.length>0&&<> Hay cuotas por conciliar en otra moneda sin TC: el escenario está incompleto.</>}
             Concílialas en Créditos → Conciliación.

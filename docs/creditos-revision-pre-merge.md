@@ -3,7 +3,7 @@
 Rama: `claude/laughing-dijkstra-8665xz`. Todo lo verificado aquí usa **datos simulados**
 (tests y un Supabase falso en memoria). **Nada de esto concilia los datos reales**:
 producción respondió 403 desde el entorno de trabajo, así que la conciliación real
-se hace desde la app con el procedimiento de la sección 5.
+se hace desde la app con el procedimiento de la sección 6.
 
 ---
 
@@ -131,49 +131,147 @@ prepago total el 20-10-2026, con devengado 100.000 × 8% × 10/360 = 222,22 y co
 
 ---
 
-## 4. Qué se verificó y cómo
+## 4. Ajustes de la segunda revisión (01-10-2026)
+
+### 4.1 Conciliación de deuda: capital contra capital
+
+El procedimiento anterior estaba mal: sumaba las cuotas sin desglose al capital para
+compararlo con el saldo del acreedor. Ahora:
+
+- La tabla **"Conciliación con cada acreedor"** (Créditos → 🔎 Conciliación) agrupa por empresa, acreedor y **moneda original**. No convierte nada.
+- **Capital app** = capital pendiente identificado **a la fecha de corte** del certificado. Solo cuentan los pagos con fecha ≤ corte: un pago posterior no reduce lo adeudado al corte.
+- **Capital informado** = el capital insoluto que informa el acreedor (con respaldo obligatorio).
+- **Diferencia** = informado − app. Es la única comparación.
+- Se presentan por separado, sin sumarse al capital: intereses vencidos impagos, cargos vencidos, intereses futuros del calendario, **cuotas sin clasificar** y cuotas por conciliar.
+- **Estado de la conciliación:**
+
+  | Estado | Cuándo |
+  |---|---|
+  | **Cuadra** | Solo si no hay cuotas sin clasificar, ni por conciliar, ni cuotas antiguas marcadas pagadas sin registro, y la diferencia es ≤ 1 unidad de la moneda. |
+  | **Conciliación incompleta** | Si falta cualquiera de esas informaciones, aunque el capital coincida. Indica el motivo. |
+  | **Diferencia de capital** | La información está completa y la diferencia es mayor a 1 unidad de la moneda. |
+  | **Sin dato del acreedor** | No hay saldo informado. |
+
+- El saldo informado no se borra: se anula con motivo.
+
+Ejemplo (vista previa con datos simulados): Privado Particular informa 550.000. La app tiene
+capital identificado 0 y 550.000 sin clasificar. El estado es **incompleta**, no "cuadra".
+
+### 4.2 Dos escenarios de caja
+
+- **Confirmado** (fila SALDO ACUM.): no incluye las cuotas por conciliar.
+- **Incluyendo por conciliar** (fila morada, "SALDO ACUM. incl. por conciliar"): las paga en el mes en curso. La diferencia se ve mes a mes y semana a semana.
+- **Sin duplicar:** si la línea Pago Préstamos o Renovaciones de esa empresa tiene un **valor manual vigente en el mes en curso**, esas cuotas **no se suman** al escenario, porque el valor manual podría estar cubriéndolas. Se listan aparte con el motivo.
+- Tabla por empresa en Créditos → Conciliación, con: diferencia de caja, cuotas no sumadas y cuotas sin TC (escenario incompleto).
+
+### 4.3 Excel: hoja "Servicio deuda"
+
+Está en el export individual y en el consolidado. No se agregaron filas dentro de la hoja
+del flujo: su subtotal suma un rango de filas y los componentes se habrían contado dos veces.
+Filas por empresa (y total grupo en el consolidado):
+
+| Fila | Contenido |
+|---|---|
+| Capital / Intereses / Otros cargos / Cuotas sin desglosar | valores del calendario |
+| `= Servicio de deuda según Créditos` | fórmula `SUM(capital:sin desglosar)`: cada componente se suma una vez |
+| `Ajuste: valor manual vigente` | flujo − Créditos (≠ 0 solo donde rige un valor manual antiguo) |
+| `= Pago Préstamos + Renovaciones en el flujo` | servicio + ajuste |
+| `Control vs hoja del flujo` | fórmula contra las celdas de la hoja del flujo; debe dar 0 |
+| `Escenario: cuotas por conciliar` | informativa, NO incluida en el flujo |
+
+En pantalla, el desglose de Pago Préstamos muestra la misma fila de ajuste cuando corresponde.
+
+Verificado con el archivo descargado desde la app y **recalculado por LibreOffice** (vista previa):
+
+| Archivo | Identidades verificadas | Desvío máximo | Control |
+|---|---|---|---|
+| Osiris | 63 meses | 0,00 | 0 |
+| Consolidado | 441 celdas (63 meses × 7 bloques: empresas + total grupo) | 0,00 | 0 |
+
+Ejemplo, Osiris en el mes en curso:
+
+| Concepto | Monto |
+|---|---|
+| Servicio según Créditos (vencida 10-07 por 56.066,67 + cuota 10-10 por 104.088,89) | 160.155,56 |
+| Ajuste por valor manual vigente | −10.155,56 |
+| Línea del flujo (valor manual vigente) | 150.000,00 |
+
+### 4.4 Nóminas y pagos
+
+Al anular una **nómina** o una **línea** que tiene un pago vigente en Créditos:
+
+1. Se muestra el vínculo (acreedor, cuota, fecha y monto del pago).
+2. Hay que decidir pago por pago:
+   - **Conservar:** el pago sigue vigente y se le agrega una anotación con el motivo. No cambian ni montos ni fecha.
+   - **Anular en Créditos:** con motivo; la cuota vuelve a quedar pendiente.
+3. El motivo es obligatorio y la decisión queda en el historial del crédito y en el de la nómina o línea.
+4. Si Créditos no confirma el guardado, la nómina o línea **no** se anula.
+
+### 4.5 Monedas
+
+- Los saldos se conservan y se muestran en su **moneda original**.
+- **Valorización a la fecha de corte** (hoy), en este orden:
+  1. Último TC del histórico de **Maestros → Tipo de Cambio** con fecha ≤ corte. Un valor **manual** del CFO prevalece sobre las APIs. Pares `USD-<moneda>`, su inverso, o triangulación vía CLP (por ejemplo, UF).
+  2. Si Maestros no tiene el par: el **TC declarado en el crédito**, con su fecha, rotulado "hipótesis".
+  3. Si no hay ninguno: **no se convierte**. Análisis CFO muestra el importe no convertido en su moneda y advierte "Total consolidado en USD **INCOMPLETO**".
+- Se muestran TC, fecha y fuente en Análisis CFO (tabla por moneda original) y en el detalle de cada crédito.
+- Si el TC tiene más de 7 días de antigüedad respecto del corte, se avisa.
+- La lectura del histórico de TC es solo lectura: si falla, se avisa y no se escribe nada.
+
+---
+
+## 5. Qué se verificó y cómo
 
 | Nivel | Qué | Resultado |
 |---|---|---|
 | Compilación | `CI=true npx react-scripts build` | sin errores |
-| Modelo (Node) | `node src/creditos.test.mjs`: 6 casos pedidos + conciliación + nómina + tasa variable, también con TZ=America/Santiago | todo OK |
-| Suite jest | `CI=true npx react-scripts test --watchAll=false` | 43 suites OK |
-| Navegador (datos simulados) | `scripts/e2e/creditos.mjs`: alta de contrato, pago parcial con servidor que rechaza y luego acepta, conciliación de valores manuales, flujo en pantalla = modelo, prepago | OK |
-| Navegador (datos simulados) | `scripts/e2e/nomina-credito.mjs`: vincular no paga; confirmar con rechazo y reintento → un solo pago; anulación con motivo | OK |
-| Navegador (datos simulados) | `scripts/e2e/regresion-empresas.mjs`: pantalla vs Excel recalculado por LibreOffice, 8 empresas | 12.056 celdas, 0 diferencias; 0 peticiones a producción |
-| **Datos reales** | — | **NO verificado** (producción 403) |
+| Modelo (Node) | `node src/creditos.test.mjs`: 6 casos pedidos, conciliación, nómina, tasa variable, TC de Maestros y conciliación por acreedor; también con TZ=America/Santiago | todo OK |
+| Suite jest | `CI=true npx react-scripts test --watchAll=false` (incluye hoja "Servicio deuda") | todo OK |
+| Navegador (datos simulados) | `scripts/e2e/vista-previa-creditos.mjs`: puntos 1–5 de esta revisión, Excel recalculado por LibreOffice | 20/20 OK |
+| Navegador (datos simulados) | `scripts/e2e/creditos.mjs`, `scripts/e2e/nomina-credito.mjs` | OK / OK |
+| Navegador (datos simulados) | `scripts/e2e/regresion-empresas.mjs`: pantalla vs Excel recalculado, 8 empresas | 12.032 celdas, 0 diferencias; 0 peticiones a producción |
+| **Datos reales** | — | **NO verificado** |
 
 ---
 
-## 5. Procedimiento de conciliación con datos reales (desde la app)
+## 6. Procedimiento de conciliación con datos reales (desde la app)
 
 1. **Respaldo.** Antes de desplegar, descarga el "💾 Respaldo" de la app.
-2. **Revisar lo pendiente.** Con la rama desplegada en un entorno de revisión (o ya en producción), entra a Créditos → 🔎 Conciliación.
-   Revisa el total "Cuotas históricas por conciliar" y el "impacto potencial" por empresa.
-3. **Cotejar.** "📥 Exportar a Excel para cotejar" genera dos hojas:
-   - *Cuotas por conciliar*: tiene columnas en blanco (estado según banco, fecha y monto pagado, documento).
-     Complétalas con la cartola o con el certificado de deuda de cada acreedor.
-   - *Valores manuales vs Créditos*: una fila por empresa, línea y mes, con la diferencia.
-4. **Resolver cada cuota:**
-   - Si está pagada: 📅 → "💵 Pagar", con la fecha y el monto de la cartola.
-   - Si está impaga: "Confirmar impaga", con el respaldo.
-5. **Resolver cada valor manual:**
-   - "Usar Créditos", si el calendario es el correcto.
-   - "Mantener manual" con motivo, si falta registrar esa deuda en Créditos. En ese caso hay que registrarla después y volver a conciliar.
-6. **Completar desgloses.** Desglosa las cuotas sin desglose con su respaldo (📅 → "Desglosar cuota").
-7. **Cuadre final.** En Análisis CFO → agrupar por **Acreedor**, compara "Saldo capital identificado" + "Cuota sin desglosar" con el saldo que informa cada acreedor a la fecha de corte.
-   El flujo del mes en curso debe cambiar exactamente en las cuotas que se confirmaron impagas.
+2. **Tipo de cambio.** En Maestros → Tipo de Cambio, confirma que existan los pares de cada moneda de crédito a la fecha de corte (USD-CLP, USD-PEN manual, UF-CLP si hay créditos en UF). Lo que falte aparecerá como "no convertido".
+3. **Revisar lo pendiente.** Abre Créditos → 🔎 Conciliación.
+4. **Cotejar.** Con "📥 Exportar a Excel para cotejar", contrasta las cuotas por conciliar con las cartolas.
+5. **Resolver cada cuota por conciliar:**
+   - Si se pagó: 📅 → "💵 Pagar", con la fecha y el monto reales.
+   - Si sigue impaga: "Confirmar impaga", con el respaldo.
+6. **Desglosar.** Desglosa las cuotas sin clasificar con respaldo contractual (tabla de desarrollo, pagaré).
+7. **Valores manuales antiguos.** Decide mes a mes: "Usar Créditos" o "Mantener" con motivo.
+8. **Saldos de los acreedores.** Por cada acreedor, en "Conciliación con cada acreedor", registra el **capital insoluto** que informa el certificado, a su fecha de corte, con el respaldo.
+   Opcionalmente registra intereses y cargos; se muestran al lado, sin mezclarse.
+9. **Leer el estado.**
+   - **Cuadra:** solo capital contra capital, con la información completa.
+   - **Conciliación incompleta:** resuelve lo que indica el motivo y vuelve a revisar.
+   - **Diferencia de capital:** falta registrar un pago, hay un pago mal imputado entre capital e interés, o el calendario está mal cargado.
+10. **Caja.** Revisa en cada empresa la diferencia entre los dos escenarios (fila morada) y las cuotas no sumadas por un posible duplicado con un valor manual.
 
 ---
 
-## 6. Limitaciones pendientes
+## 7. Pendientes que requieren información contractual o tu validación
 
-1. **Datos reales no conciliados.** Todo lo anterior se probó con datos simulados.
-2. **Registros legacy casi sin desglose.** Con los datos por defecto del código, prácticamente toda la deuda figura como "cuota sin desglosar". Mientras no se desglose, el costo financiero y el saldo de capital son parciales.
-3. **Monedas distintas de USD.** El flujo usa el `tc_flujo` que se declara en cada crédito, un tipo de cambio fijo. No está conectado con el TC histórico de Maestros.
-4. **Documentos de respaldo.** Se guardan como enlaces (nombre + URL). No hay subida a Supabase Storage.
-5. **Prepago parcial en registros legacy o de socio.** Solo se simula; aplicarlo requiere pasar el crédito a "con calendario". En esos tipos, el prepago total sí se aplica.
-6. **Renovaciones legacy.** Siguen con su modelo anterior: interés mensual simple y cuotas por mes/año, sin día.
-7. **Nómina anulada o línea inactivada.** No anula por sí sola el pago que ya se registró en Créditos: hay que anularlo desde la línea. Además, la tabla de la nómina tiene una columna nueva, "Crédito", y en pantallas angostas puede necesitar desplazamiento horizontal.
-8. **Flujo real.** Los pagos registrados no se trasladan al flujo real, por decisión: evita duplicar lo que se ingresa a mano. Queda pendiente definir esa conciliación.
-9. **Excel del flujo.** Pago Préstamos sale como una sola línea. El detalle de capital, intereses y cargos solo se ve en pantalla y en Análisis CFO.
+1. **Datos reales no conciliados.** Requiere seguir el procedimiento de la sección 6 en la app.
+2. **Desglose de cada cuota antigua** (capital / intereses / cargos): requiere las tablas de desarrollo o los pagarés.
+3. **Condiciones de prepago** de cada crédito (comisión, aviso, mínimos): requieren los contratos. Hoy el ejemplo usa "1 mes de interés" solo como hipótesis de prueba.
+4. **Tasas variables:** confirmar la referencia y el margen de cada contrato, y quién actualiza la hipótesis de la referencia y cada cuánto.
+5. **Tolerancia de cuadre:** hoy es 1 unidad de la moneda. Confirma si te sirve o prefieres otra, en monto o en %.
+6. **Escenario "incluyendo por conciliar":** confirma que el criterio de no sumar cuando hay un valor manual vigente en el mes en curso es el que quieres. La alternativa es sumarlas igual y mostrar el posible duplicado.
+7. **Antigüedad máxima aceptable del TC** para la valorización (hoy se avisa sobre 7 días).
+8. **UF:** si hay créditos en UF, confirma la fuente del par UF-CLP en Maestros (mindicador no se descarga hoy automáticamente para UF).
+
+## 8. Limitaciones técnicas pendientes
+
+1. **Documentos de respaldo.** Se guardan como enlaces. No hay subida a Supabase Storage.
+2. **Prepago parcial en registros legacy o de socio.** Solo se simula; el prepago total sí se aplica.
+3. **Renovaciones legacy.** Siguen con su modelo anterior: mensual, sin día.
+4. **Flujo real.** Sigue siendo de ingreso manual; los pagos registrados no se trasladan. Falta definir esa conciliación.
+5. **Saldo por Mes.** La vista "Saldo por Mes" sigue con su tipo de cambio manual para mostrar en CLP; no usa Maestros.
+6. **Fila de ajuste en vista semanal.** En la vista semanal, la fila de ajuste por valor manual aparece solo en la columna Σ del mes.
+7. **Prepagos anteriores al corte.** La conciliación por acreedor recalcula el calendario de un contrato con todos sus prepagos, aunque tengan fecha posterior al corte. Es poco frecuente, pero puede descuadrar un corte antiguo.

@@ -205,6 +205,21 @@ Reglas que no hay que romper:
   vía `registrarPagoIdempotente` (reintentar no duplica). Anular desde la línea
   = `anularPago` con motivo. El estado de la línea se LEE de Créditos.
 - Registrar un pago NO escribe en el flujo real (ingreso manual, sin conciliación).
+- **Conciliación con el acreedor** (`conciliacionAcreedores`): por empresa+acreedor+
+  moneda ORIGINAL, capital app al corte (pagos con fecha ≤ corte) vs capital
+  informado (`creditos_saldos_informados` en el blob finanzas, con respaldo,
+  anulables). Intereses/cargos/sin clasificar/por conciliar van APARTE y nunca se
+  suman al capital; si existen → "conciliación incompleta".
+- **Escenario "incl. por conciliar"** (`escenarioPorConciliar`): fila morada en el
+  flujo; no suma cuotas si la línea tiene un valor manual vigente en el mes en curso.
+- **Excel**: hoja "Servicio deuda" (individual y consolidado) con capital +
+  intereses + cargos + sin desglosar = servicio; + ajuste manual = línea; control
+  contra la hoja del flujo. Usa `line._compCred` (lo anota `aplicarCreditosAEmpresas`).
+- **Monedas**: `valorizarCreditos` anota `_tc` (Maestros `maestro_tc` a la fecha de
+  corte, manual prevalece; si no, `tc_flujo` declarado = hipótesis; si no, sin TC).
+  `_tc` NO se persiste (`handleSaveCreditos` aplica `sinValorizacion`).
+- **Anular nómina/línea con pago vigente** → `ResolverPagosVinculados`: conservar
+  (`anotarPago`) o anular el pago, con motivo; si Créditos no confirma, no se anula.
 - Revisión previa al merge y verificación del prepago: `docs/creditos-revision-pre-merge.md`.
 
 #### Bug histórico arreglado (no volver a romper)
