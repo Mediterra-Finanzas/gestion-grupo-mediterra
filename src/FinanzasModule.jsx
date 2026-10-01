@@ -15140,42 +15140,62 @@ async function dbLoadNominas(empresasPermitidas) {
 // keepalive + saveConfirmed por fila nominas_<slug>).
 // Guarda nóminas: si migrado → upsert por empresa;
 // si no migrado → sobreescribe blob legacy.
-// Devuelve true si TODOS los upserts respondieron ok; false si alguno falló.
+// Devuelve el RESULTADO REAL (no un booleano), para que la pantalla nunca muestre
+// éxito sin confirmación del servidor:
+//   { ok, motivo, filas:[{fila, empresa, ok, motivo, status, detalle}], empresasFallidas, empresasGuardadas }
+//   motivo: "sello" (la base rechazó deshacer un dato protegido: datos desactualizados),
+//           "http"  (el servidor respondió error; status trae el código),
+//           "red"   (no hubo respuesta: sin conexión / timeout).
 // opts.keepalive=true permite que el request sobreviva a un beforeunload (flush en recarga/cierre).
+async function _resultadoEscrituraNomina(res, fila, empresa) {
+  if (res.ok) return { fila, empresa, ok:true };
+  let texto = "";
+  try { texto = await res.text(); } catch(e) {}
+  const sello = /MEDITERRA_SELLO/.test(texto);
+  return { fila, empresa, ok:false, motivo: sello ? "sello" : "http", status: res.status, detalle: texto.slice(0,300) };
+}
+function _resumenEscriturasNomina(filas) {
+  const fallidas = filas.filter(f=>!f.ok);
+  const prioridad = ["sello","http","red"];
+  const motivo = fallidas.length ? prioridad.find(m=>fallidas.some(f=>f.motivo===m)) : null;
+  const conStatus = fallidas.find(f=>f.motivo===motivo && f.status);
+  return { ok: fallidas.length===0, motivo, status: conStatus ? conStatus.status : null, filas,
+    empresasFallidas: fallidas.map(f=>f.empresa).filter(Boolean), empresasGuardadas: filas.filter(f=>f.ok).map(f=>f.empresa).filter(Boolean) };
+}
 async function dbSaveNominas(nominas, opts={}) {
   const keepalive = !!opts.keepalive;
-  try {
-    const migrado = await dbNominasMigrado();
-    if (!migrado) {
+  let migrado;
+  try { migrado = await dbNominasMigrado(); }
+  catch(e) { console.error("[Nominas] ❌ NO SE GUARDÓ — no se pudo consultar el servidor:", e); return _resumenEscriturasNomina([{ fila:"nominas", ok:false, motivo:"red", detalle:String(e&&e.message||e) }]); }
+  const escribir = async (fila, empresa, value) => {
+    try {
       const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
         method:"POST", keepalive,
         headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
           "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-        body:JSON.stringify({id:"nominas",value:JSON.stringify({nominas}),updated_at:new Date().toISOString()})
+        body:JSON.stringify({id:fila, value, updated_at:new Date().toISOString()})
       });
-      return res.ok;
+      return await _resultadoEscrituraNomina(res, fila, empresa);
+    } catch(e) {
+      return { fila, empresa, ok:false, motivo:"red", detalle:String(e&&e.message||e) };
     }
+  };
+  let filas;
+  if (!migrado) {
+    filas = [await escribir("nominas", null, JSON.stringify({nominas}))];
+  } else {
     // v2: agrupar por empresa y upsert cada fila
     const grupos = {};
     for (const n of nominas) {
       const emp = n.empresa;
       if (emp) { if (!grupos[emp]) grupos[emp]=[]; grupos[emp].push(n); }
     }
-    const resultados = await Promise.all(Object.entries(grupos).map(([emp, noms]) => {
-      const slug = slugEmpresaNom(emp);
-      return fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-        method:"POST", keepalive,
-        headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
-          "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-        body:JSON.stringify({
-          id:`nominas_${slug}`,
-          value:JSON.stringify({nominas:noms, empresa:emp}),
-          updated_at:new Date().toISOString()
-        })
-      });
-    }));
-    return resultados.every(r=>r.ok);
-  } catch(e){console.error(e);return false;}
+    filas = await Promise.all(Object.entries(grupos).map(([emp, noms]) =>
+      escribir(`nominas_${slugEmpresaNom(emp)}`, emp, JSON.stringify({nominas:noms, empresa:emp}))));
+  }
+  const r = _resumenEscriturasNomina(filas);
+  if (!r.ok) console.error(`[Nominas] ❌ NO SE GUARDÓ — ${r.motivo}${r.status?" HTTP "+r.status:""} · empresas: ${r.empresasFallidas.join(", ")||"(blob)"}`);
+  return r;
 }
 
 // ─── Catálogo GLOBAL de tipos de documento (persistente) ───────────
@@ -16203,6 +16223,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
   const nom = nomina;
   const esCFO = usuario?.rol==="admin" || usuario?.esCFO;
   const [soloVer, setSoloVer] = useState(false);
+  const [transicionando, setTransicionando] = useState(false); // guardando un cambio de estado
   const [showAudit, setShowAudit] = useState(false);   // Vista Auditoría (Fase 3)
   const [descExpediente, setDescExpediente] = useState(false); // Descargar Expediente ZIP (Fase 6)
   const [genPdf, setGenPdf] = useState(false);          // Expediente PDF consolidado
@@ -16693,7 +16714,22 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
       descripcion:`Exportó ${nombreFormal} a Excel`,registroId:nom.id});
   }
 
-  function avanzarEstado() {
+  // Transiciones: se GUARDAN primero (esperando la confirmación del servidor) y
+  // recién entonces se notifica por correo y se audita. Si el servidor no
+  // confirma, la nómina vuelve en pantalla a su estado anterior, no se envía
+  // ningún correo y el aviso de Nóminas explica qué pasó y qué hacer.
+  async function confirmarTransicion(patch, detalle, notifs, auditar) {
+    if(transicionando) return false;
+    setTransicionando(true);
+    const r = await onUpdate({...nom,...patch}, {inmediato:true, contexto:"transicion", detalleContexto:detalle});
+    setTransicionando(false);
+    if(!r || !r.ok){ await onUpdate(nom, {soloLocal:true}); return false; }
+    notifs.forEach(n=>{ if(window._enviarNotificacion) window._enviarNotificacion(...n).catch(()=>{}); });
+    auditar();
+    return true;
+  }
+
+  async function avanzarEstado() {
     const flujo = ["borrador","preparada","revision","aprobada1","aprobada"];
     const idx = flujo.indexOf(nom.estado);
     if(idx >= flujo.length-1) return;
@@ -16708,6 +16744,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
         return;
       }
     }
+    const notifs = [];
     const ahora = new Date().toISOString().slice(0,10);
     let patch = {estado: next};
     if(next==="preparada")  patch.preparadoPor  = usuario?.nombre||"";
@@ -16722,8 +16759,8 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
       patch.revisorAsignado = destNombre;
       if(window._enviarNotificacion) {
         const notifMsg = `${usuario?.nombre||"Un usuario"} ha enviado a revisión la ${nombreFormal} (${nom.empresa}).\n\nPor favor ingresa al sistema para revisar y dar tu V°B°.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
-        window._enviarNotificacion(destEmail, destNombre,
-          `📋 Nómina pendiente de revisión — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
+        notifs.push([destEmail, destNombre,
+          `📋 Nómina pendiente de revisión — ${nom.empresa} S${nom.semana}`, notifMsg]);
       }
     }
     if(next==="aprobada1") {
@@ -16732,8 +16769,8 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
       // Carol/Michelle envían a CFO para aprobación final
       if(window._enviarNotificacion) {
         const notifMsg = `${usuario?.nombre||"Un autorizador"} ha dado V°B° a la ${nombreFormal} (${nom.empresa}).\n\nEstá lista para tu aprobación final.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
-        window._enviarNotificacion("ahuerta@grupomediterra.cl","Angelo Huerta",
-          `✅ Nómina lista para aprobación CFO — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
+        notifs.push(["ahuerta@grupomediterra.cl","Angelo Huerta",
+          `✅ Nómina lista para aprobación CFO — ${nom.empresa} S${nom.semana}`, notifMsg]);
       }
     }
     if(next==="aprobada") {
@@ -16742,33 +16779,35 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
       // CFO aprueba → notificar a Carol y Milagros
       if(window._enviarNotificacion) {
         const notifMsg = `${usuario?.nombre||"CFO"} ha aprobado la ${nombreFormal} (${nom.empresa}).\n\nLa nómina está lista para cargar a banco.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
-        window._enviarNotificacion("cmachuca@grupomediterra.cl","Carol Machuca",
-          `🏆 Nómina APROBADA — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
-        window._enviarNotificacion("Mbecerra@grupomediterra.cl","Milagros Becerra",
-          `🏆 Nómina APROBADA — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
+        notifs.push(["cmachuca@grupomediterra.cl","Carol Machuca",
+          `🏆 Nómina APROBADA — ${nom.empresa} S${nom.semana}`, notifMsg]);
+        notifs.push(["Mbecerra@grupomediterra.cl","Milagros Becerra",
+          `🏆 Nómina APROBADA — ${nom.empresa} S${nom.semana}`, notifMsg]);
       }
     }
     // Trazabilidad (Fase 2): historial de la nómina + log de auditoría central.
     patch.historial = [...(nom.historial||[]), entradaHistorialNom("avance", usuario, {estadoDesde: nom.estado, estadoHacia: next})];
-    window.auditLog && window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
-      descripcion:`${nombreFormal}: ${nom.estado} → ${next}`, registroId:nom.id,
-      campo:"estado", valorAnterior:nom.estado, valorNuevo:next});
-    onUpdate({...nom,...patch});
+    await confirmarTransicion(patch, `${nom.estado} → ${next}`, notifs, ()=>{
+      window.auditLog && window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
+        descripcion:`${nombreFormal}: ${nom.estado} → ${next}`, registroId:nom.id,
+        campo:"estado", valorAnterior:nom.estado, valorNuevo:next});
+    });
   }
 
-  function retrocederEstado() {
+  async function retrocederEstado() {
     const flujo = ["borrador","preparada","revision","aprobada1","aprobada"];
     const idx = flujo.indexOf(nom.estado);
     if(idx <= 0) return;
     const comentario = window.prompt("Motivo de la devolución (obligatorio):");
     if(!comentario || !comentario.trim()) { alert("Debe ingresar un motivo para devolver la nómina."); return; }
     const prev = flujo[idx-1];
+    const notifs = [];
     const patch = {estado: prev, ultimaDevolucion: {por: usuario?.nombre||"", fecha: new Date().toISOString(), motivo: comentario.trim(), desdeEstado: nom.estado}};
     // Trazabilidad (Fase 2): historial de la nómina + log de auditoría central.
     patch.historial = [...(nom.historial||[]), entradaHistorialNom("devolucion", usuario, {estadoDesde: nom.estado, estadoHacia: prev, motivo: comentario.trim()})];
-    window.auditLog && window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
+    const auditar = ()=>{ window.auditLog && window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
       descripcion:`${nombreFormal}: devuelta ${nom.estado} → ${prev}. Motivo: ${comentario.trim()}`, registroId:nom.id,
-      campo:"estado", valorAnterior:nom.estado, valorNuevo:prev});
+      campo:"estado", valorAnterior:nom.estado, valorNuevo:prev}); };
 
     // Notificaciones según quién devuelve
     if(window._enviarNotificacion) {
@@ -16779,26 +16818,26 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
         const preparador = nom.preparadoPor || "el preparador";
         const notifMsg = `${usuario?.nombre} ha devuelto la ${nombreFormal} (${nom.empresa}) con comentarios.\n\n${motivoTxt}\n\nPor favor revisa y corrige.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
         // Notificar a Milagros y Pablo
-        window._enviarNotificacion("Mbecerra@grupomediterra.cl","Milagros Becerra",
-          `🔄 Nómina devuelta — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
-        window._enviarNotificacion("pduran@grupomediterra.cl","Pablo Duran",
-          `🔄 Nómina devuelta — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
+        notifs.push(["Mbecerra@grupomediterra.cl","Milagros Becerra",
+          `🔄 Nómina devuelta — ${nom.empresa} S${nom.semana}`, notifMsg]);
+        notifs.push(["pduran@grupomediterra.cl","Pablo Duran",
+          `🔄 Nómina devuelta — ${nom.empresa} S${nom.semana}`, notifMsg]);
       }
       
       if(nom.estado === "aprobada" || nom.estado === "aprobada1") {
         // CFO devuelve → notificar a Carol/Michelle + CC Milagros
         if(esAdmin) {
           const notifMsg = `${usuario?.nombre} (CFO) ha devuelto la ${nombreFormal} (${nom.empresa}) con comentarios.\n\n${motivoTxt}\n\nPor favor revisa y corrige.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
-          window._enviarNotificacion("cmachuca@grupomediterra.cl","Carol Machuca",
-            `🔄 Nómina devuelta por CFO — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
-          window._enviarNotificacion("mgarcia@grupomediterra.cl","Michelle Garcia",
-            `🔄 Nómina devuelta por CFO — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
-          window._enviarNotificacion("Mbecerra@grupomediterra.cl","Milagros Becerra",
-            `🔄 Nómina devuelta por CFO — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
+          notifs.push(["cmachuca@grupomediterra.cl","Carol Machuca",
+            `🔄 Nómina devuelta por CFO — ${nom.empresa} S${nom.semana}`, notifMsg]);
+          notifs.push(["mgarcia@grupomediterra.cl","Michelle Garcia",
+            `🔄 Nómina devuelta por CFO — ${nom.empresa} S${nom.semana}`, notifMsg]);
+          notifs.push(["Mbecerra@grupomediterra.cl","Milagros Becerra",
+            `🔄 Nómina devuelta por CFO — ${nom.empresa} S${nom.semana}`, notifMsg]);
         }
       }
     }
-    onUpdate({...nom,...patch});
+    await confirmarTransicion(patch, `devolución ${nom.estado} → ${prev}`, notifs, auditar);
   }
 
   // Totales
@@ -16962,14 +17001,14 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
           </span>
         )}
         {puedeAvanzar&&(
-          <button onClick={avanzarEstado}
+          <button onClick={avanzarEstado} disabled={transicionando}
             style={{background:nom.estado==="aprobada1"?"#16a34a":"#3b82f6",border:"none",color:"#fff",borderRadius:8,
-              padding:"7px 16px",cursor:"pointer",fontWeight:700,fontSize:12}}>
-            {textoAvanzar}
+              padding:"7px 16px",cursor:transicionando?"wait":"pointer",fontWeight:700,fontSize:12,opacity:transicionando?0.6:1}}>
+            {transicionando ? "Guardando…" : textoAvanzar}
           </button>
         )}
         {nom.estado!=="borrador"&&puedeRetroceder&&!soloVer&&(
-          <button onClick={retrocederEstado}
+          <button onClick={retrocederEstado} disabled={transicionando}
             style={{background:"#fef3c7",border:`1px solid #fde68a`,color:"#92400e",
               borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11,fontWeight:600}}>
             {textoRetroceder}
@@ -17748,6 +17787,91 @@ function MigracionNominasPanel({usuario}) {
   );
 }
 
+// ─── Nóminas: cambios no guardados ──────────────────────────────────
+// Si el servidor no confirma un guardado, la edición queda en pantalla y una
+// COPIA de las nóminas cambiadas se guarda en este navegador (localStorage),
+// para revisarla o recuperarla aunque se cierre la pestaña. No se re-aplica
+// sola: re-aplicar datos viejos es justamente lo que puede pisar a otros.
+const CLAVE_BORRADOR_NOMINAS = "mediterra_nominas_sin_guardar";
+const SESION_NOMINAS = Math.random().toString(36).slice(2);   // para no borrar la copia de OTRA sesión
+function nominasConCambiosLocales(locales, servidor) {
+  const S = new Map((servidor||[]).map(n=>[n.id, JSON.stringify(n)]));
+  return (locales||[]).filter(n=>S.get(n.id) !== JSON.stringify(n));
+}
+function guardarBorradorNominas(locales, servidor, r, usuario) {
+  const cambiadas = nominasConCambiosLocales(locales, servidor);
+  if(!cambiadas.length) return { ok:true, n:0 };
+  const borrador = { sesion:SESION_NOMINAS, ts:new Date().toISOString(), usuario:usuario?.nombre||"", motivo:r?.motivo||"", status:r?.status||null,
+    empresasFallidas:r?.empresasFallidas||[], nominas:cambiadas };
+  try { localStorage.setItem(CLAVE_BORRADOR_NOMINAS, JSON.stringify(borrador)); return { ok:true, n:cambiadas.length }; }
+  catch(e) { return { ok:false, n:cambiadas.length, error:String(e&&e.message||e) }; }
+}
+function leerBorradorNominas() {
+  try { const t = localStorage.getItem(CLAVE_BORRADOR_NOMINAS); return t ? JSON.parse(t) : null; } catch(e) { return null; }
+}
+function borrarBorradorNominas(soloDeEstaSesion=false) {
+  try { if(!soloDeEstaSesion || (leerBorradorNominas()||{}).sesion === SESION_NOMINAS) localStorage.removeItem(CLAVE_BORRADOR_NOMINAS); } catch(e) {}
+}
+function descargarCambiosNominas(nominas, extra={}) {
+  const contenido = JSON.stringify({ tipo:"nominas-cambios-no-guardados", generado:new Date().toISOString(), ...extra, nominas }, null, 2);
+  const url = URL.createObjectURL(new Blob([contenido], { type:"application/json" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = `nominas_cambios_no_guardados_${new Date().toISOString().slice(0,16).replace(/[:T]/g,"-")}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+// Qué pasó y qué hacer, según el motivo. `recargar`: si hace falta recargar los
+// datos del servidor (con datos desactualizados, reintentar no sirve).
+function explicarFalloNominas(r, o={}) {
+  const queda = o.transicion ? `El cambio de estado NO se hizo${o.detalle ? ` (${o.detalle})` : ""}: la nómina sigue en su estado anterior y no se envió ninguna notificación. Para reintentar, vuelve a usar el botón del cambio de estado.`
+    : o.revertido ? "El cambio se revirtió en pantalla (no quedó a medias)."
+    : "Tu edición sigue en pantalla y hay una copia en este navegador.";
+  const parcial = r && r.empresasGuardadas && r.empresasGuardadas.length && r.empresasFallidas && r.empresasFallidas.length
+    ? ` Sí se guardaron: ${r.empresasGuardadas.join(", ")}. No se guardaron: ${r.empresasFallidas.join(", ")}.` : (r?.empresasFallidas?.length ? ` Empresa(s): ${r.empresasFallidas.join(", ")}.` : "");
+  if(r?.motivo === "sello") return { recargar:true, reintentar:false,
+    titulo:"No se guardó: tus datos de nóminas están desactualizados",
+    texto:`Después de que abriste esta pantalla, otra persona (o la conciliación de créditos) cambió estas nóminas, y el servidor rechazó tu guardado para no deshacer ese cambio.${parcial} ${queda} Hace falta RECARGAR: descarga tus cambios, recarga los datos del servidor y vuelve a aplicarlos sobre la versión actual.` };
+  if(r?.motivo === "red") return { recargar:false, reintentar:true,
+    titulo:"No se guardó: sin conexión con el servidor",
+    texto:`El servidor no respondió.${parcial} ${queda} NO recargues ni cierres la pestaña: reintenta cuando vuelva la conexión.` };
+  if(r?.motivo === "http" && (r.status === 401 || r.status === 403)) return { recargar:true, reintentar:true,
+    titulo:`No se guardó: el servidor rechazó el permiso (HTTP ${r.status})`,
+    texto:`Puede que tu sesión haya vencido.${parcial} Descarga tus cambios antes de recargar o volver a ingresar.` };
+  return { recargar:false, reintentar:true,
+    titulo:`No se guardó: el servidor respondió con error${r?.status ? ` (HTTP ${r.status})` : ""}`,
+    texto:`${parcial} ${queda} Reintenta en unos minutos; no hace falta recargar. Si el error persiste, descarga tus cambios y avisa.` };
+}
+function AvisoGuardadoNominas({aviso, onReintentar, onDescargar, onRecargar, onCerrar, onEliminarCopia, reintentando}) {
+  if(!aviso) return null;
+  const btn = (color, solido)=>({padding:"5px 12px",borderRadius:7,border:`1px solid ${color}`,background:solido?color:"transparent",color:solido?"#fff":color,cursor:"pointer",fontSize:12,fontWeight:700});
+  if(aviso.tipo === "borrador"){
+    const b = aviso.borrador || {};
+    return (
+      <div role="alert" data-aviso-nominas="borrador" style={{border:`1px solid ${C.yellow}`,background:C.yellow+"18",borderRadius:10,padding:"10px 14px",margin:"8px 0",fontSize:12,color:C.text}}>
+        <div style={{fontWeight:800,marginBottom:4}}>Hay cambios de nóminas que NO se guardaron en el servidor</div>
+        <div style={{lineHeight:1.6}}>Copia en este navegador del {b.ts ? new Date(b.ts).toLocaleString("es-CL") : "—"} ({(b.nominas||[]).length} nómina(s){b.usuario?`, ${b.usuario}`:""}). No se aplicó automáticamente: lo que hay en pantalla es lo que está en el servidor. Descárgala para revisarla y vuelve a cargar a mano lo que corresponda.</div>
+        <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+          <button onClick={onDescargar} style={btn(C.blue,true)}>Descargar mis cambios (JSON)</button>
+          <button onClick={onEliminarCopia} style={btn(C.muted)}>Eliminar la copia</button>
+        </div>
+      </div>);
+  }
+  const ex = explicarFalloNominas(aviso.r, { revertido: aviso.contexto === "aplazar", transicion: aviso.contexto === "transicion", detalle: aviso.detalleContexto });
+  return (
+    <div role="alert" data-aviso-nominas="error" data-motivo={aviso.r?.motivo||""} style={{border:`2px solid ${C.red}`,background:C.red+"14",borderRadius:10,padding:"10px 14px",margin:"8px 0",fontSize:12,color:C.text}}>
+      <div style={{fontWeight:800,fontSize:13,color:C.red,marginBottom:4}}>{ex.titulo}</div>
+      <div style={{lineHeight:1.6}}>{ex.texto}</div>
+      {aviso.copiaLocal && !aviso.copiaLocal.ok && <div style={{marginTop:4,color:C.red,fontWeight:700}}>No se pudo guardar la copia en este navegador ({aviso.copiaLocal.error}): descarga tus cambios ahora.</div>}
+      <div style={{color:C.muted,marginTop:4}}>Mientras haya cambios sin guardar, la lista no se actualiza con el servidor y cerrar la pestaña pedirá confirmación.</div>
+      <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+        {ex.reintentar && aviso.contexto !== "transicion" && <button disabled={reintentando} onClick={onReintentar} style={btn(C.green,true)}>{reintentando?"Guardando…":"Reintentar guardar"}</button>}
+        <button onClick={onDescargar} style={btn(C.blue,!ex.reintentar)}>Descargar mis cambios (JSON)</button>
+        <button onClick={onRecargar} style={btn(ex.recargar?C.red:C.muted)}>Recargar datos del servidor…</button>
+        <button onClick={onCerrar} style={btn(C.muted)}>Ocultar</button>
+      </div>
+    </div>);
+}
+
 function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermitidas, creditosData=[], puedePagarCredito=false, onPagoCredito}) {
   const [nominas, setNominas] = useState([]);
   const [cargando, setCargando] = useState(true);
@@ -17770,8 +17894,11 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   useEffect(()=>{
     dbLoadNominas(empresasPermitidas).then(d=>{
       if(d?.nominas) setNominas(d.nominas);
+      servidorRef.current = d?.nominas || [];
       cargaOkRef.current = true;
       setCargando(false);
+      const previo = leerBorradorNominas();
+      if(previo) setAvisoGuardado({ tipo:"borrador", borrador:previo });
     }).catch(e=>{
       console.error("[Nominas] Carga falló — GUARDADO DESHABILITADO esta sesión:", e);
       setCargando(false);
@@ -17790,14 +17917,18 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   // Auto-refresh nóminas cada 30s para sincronizar cambios de otros usuarios
   useEffect(()=>{
     const interval = setInterval(()=>{
+      // Con cambios locales sin confirmar por el servidor NO se refresca: el
+      // refresco reemplazaría la lista y se perdería la edición (ver aviso).
+      if(sinGuardarRef.current || saveTimer.current) return;
       dbLoadNominas(empresasPermitidas).then(d=>{
+        if(sinGuardarRef.current || saveTimer.current) return;
         if(d?.nominas) {
           const fresh = d.nominas;
           setNominas(prev=>{
             // Solo actualizar si hay cambios reales (evitar re-render innecesario)
             const prevJSON = JSON.stringify(prev.map(n=>({id:n.id,estado:n.estado,aprobado1Por:n.aprobado1Por,aprobadoPor:n.aprobadoPor})));
             const newJSON = JSON.stringify(fresh.map(n=>({id:n.id,estado:n.estado,aprobado1Por:n.aprobado1Por,aprobadoPor:n.aprobadoPor})));
-            if(prevJSON !== newJSON) return fresh;
+            if(prevJSON !== newJSON) { servidorRef.current = fresh; return fresh; }
             return prev;
           });
         }
@@ -17810,8 +17941,10 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   useEffect(()=>{
     function onVisibility(){
       if(document.visibilityState === "visible"){
+        if(sinGuardarRef.current || saveTimer.current) return;   // no pisar cambios sin guardar
         dbLoadNominas(empresasPermitidas).then(d=>{
-          if(d?.nominas) setNominas(d.nominas);
+          if(sinGuardarRef.current || saveTimer.current) return;
+          if(d?.nominas) { setNominas(d.nominas); servidorRef.current = d.nominas; }
         }).catch(()=>{});
       }
     }
@@ -17819,17 +17952,49 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
     return ()=>document.removeEventListener("visibilitychange", onVisibility);
   },[]);
 
-  // Save (debounce 800ms) — dbSaveNominas agrupa por empresa en v2
+  // ── Guardado (debounce 800ms) con resultado REAL ─────────────────────
+  // dbSaveNominas agrupa por empresa en v2 y devuelve {ok, motivo, …}. Si el
+  // servidor no confirma: la edición se CONSERVA en pantalla, se guarda una copia
+  // en este navegador (localStorage) y se muestra el aviso con el motivo y qué
+  // hacer. Mientras haya cambios sin confirmar, los refrescos automáticos no
+  // reemplazan la lista y cerrar la pestaña pide confirmación.
   const saveTimer = useRef(null);
   const pendingSaveRef = useRef(null); // última lista pendiente de guardar (para flush en recarga/cierre)
+  const sinGuardarRef = useRef(false); // hay cambios locales que el servidor aún no confirmó
+  const genRef = useRef(0);            // generación de la edición local (para saber si lo guardado es lo último)
+  const colaGuardadoRef = useRef(Promise.resolve());
+  const servidorRef = useRef([]);      // última lista recibida/confirmada por el servidor
+  const [avisoGuardado, setAvisoGuardado] = useState(null);
+  function ejecutarGuardado(list, opts={}) {
+    const gen = genRef.current;
+    const corrida = colaGuardadoRef.current.then(async ()=>{
+      const r = await dbSaveNominas(list, opts);
+      if(r.ok){
+        servidorRef.current = list;
+        if(genRef.current === gen && !saveTimer.current){
+          sinGuardarRef.current = false;
+          borrarBorradorNominas(true);
+          setAvisoGuardado(a => (a && a.tipo === "error") ? null : a);
+        }
+      } else {
+        sinGuardarRef.current = true;
+        const copia = guardarBorradorNominas(list, servidorRef.current, r, usuario);
+        setAvisoGuardado({ tipo:"error", r, copiaLocal: copia, ts: new Date().toISOString() });
+      }
+      return r;
+    });
+    colaGuardadoRef.current = corrida.catch(()=>{});
+    return corrida;
+  }
   function saveNominas(list) {
     if(!cargaOkRef.current){ console.warn("[Nominas] save bloqueado — la carga inicial falló."); return; }
+    sinGuardarRef.current = true; genRef.current += 1;
     clearTimeout(saveTimer.current);
     pendingSaveRef.current = list;
     saveTimer.current = setTimeout(()=>{
       saveTimer.current = null;
       pendingSaveRef.current = null;
-      dbSaveNominas(list);
+      ejecutarGuardado(list);
     }, 800);
   }
   // Fuerza el guardado pendiente del debounce (si lo hay) antes de recargar/cerrar/desmontar.
@@ -17841,12 +18006,36 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
       saveTimer.current = null;
       const list = pendingSaveRef.current;
       pendingSaveRef.current = null;
-      if(list) dbSaveNominas(list, {keepalive});
+      if(list) ejecutarGuardado(list, {keepalive});
+    }
+  }
+  // Recargar desde el servidor descartando lo local (siempre con confirmación explícita).
+  async function recargarDesdeServidor() {
+    const n = nominasConCambiosLocales(nominasRef.current, servidorRef.current).length;
+    if(!window.confirm(`Recargar las nóminas desde el servidor.\n\n${n ? `Se perderán de esta pantalla los cambios NO guardados de ${n} nómina(s). Quedan en la copia de este navegador (botón "Descargar mis cambios").` : "No hay cambios sin guardar en pantalla."}\n\n¿Recargar?`)) return;
+    clearTimeout(saveTimer.current); saveTimer.current = null; pendingSaveRef.current = null;
+    try {
+      const d = await dbLoadNominas(empresasPermitidas);
+      const fresh = d?.nominas || [];
+      setNominas(fresh); nominasRef.current = fresh; servidorRef.current = fresh;
+      sinGuardarRef.current = false; genRef.current += 1;
+      const previo = leerBorradorNominas();
+      setAvisoGuardado(previo ? { tipo:"borrador", borrador:previo } : null);
+    } catch(e) {
+      alert("No se pudo recargar desde el servidor (sin conexión). Tus cambios siguen en pantalla.");
     }
   }
   // Flush ante recarga/cierre de pestaña (beforeunload) y ante desmontaje del módulo.
+  // Con cambios sin confirmar, el navegador pide confirmación antes de salir.
   useEffect(()=>{
-    const onBeforeUnload = ()=>flushNominas(true);
+    const onBeforeUnload = (e)=>{
+      flushNominas(true);
+      if(sinGuardarRef.current){
+        guardarBorradorNominas(nominasRef.current, servidorRef.current, {motivo:"cierre"}, usuario);
+        e.preventDefault(); e.returnValue = "";
+        return "";
+      }
+    };
     window.addEventListener("beforeunload", onBeforeUnload);
     return ()=>{
       window.removeEventListener("beforeunload", onBeforeUnload);
@@ -17855,7 +18044,28 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   // eslint-disable-next-line
   },[]);
 
-  function updNomina(nom) {
+  // opts.inmediato: guarda YA y devuelve la promesa del resultado (lo usan las
+  //   transiciones de estado: no se notifica ni se audita hasta que el servidor confirma).
+  // opts.soloLocal: cambia solo la pantalla (revertir una transición no guardada).
+  function updNomina(nom, opts={}) {
+    if(opts.inmediato || opts.soloLocal){
+      const prev = nominasRef.current;
+      const next = prev.some(n=>n.id===nom.id) ? prev.map(n=>n.id===nom.id?nom:n) : [...prev, nom];
+      nominasRef.current = next; setNominas(next);
+      if(opts.soloLocal){
+        sinGuardarRef.current = nominasConCambiosLocales(next, servidorRef.current).length > 0 || !!saveTimer.current;
+        if(sinGuardarRef.current) guardarBorradorNominas(next, servidorRef.current, { motivo:"revertido" }, usuario);
+        else borrarBorradorNominas(true);
+        return Promise.resolve({ ok:true, soloLocal:true });
+      }
+      if(!cargaOkRef.current) return Promise.resolve({ ok:false, motivo:"sin_carga" });
+      clearTimeout(saveTimer.current); saveTimer.current = null; pendingSaveRef.current = null;
+      sinGuardarRef.current = true; genRef.current += 1;
+      return ejecutarGuardado(next).then(r=>{
+        if(!r.ok && opts.contexto) setAvisoGuardado(a=>a && a.tipo==="error" ? {...a, contexto:opts.contexto, detalleContexto:opts.detalleContexto} : a);
+        return r;
+      });
+    }
     setNominas(prev=>{
       const anterior = prev.find(n=>n.id===nom.id);
       const next = prev.some(n=>n.id===nom.id)
@@ -18004,6 +18214,19 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
     return()=>{document.getElementById('nominas-print-css')?.remove();};
   },[]);
 
+  const [reintentando, setReintentando] = useState(false);
+  const avisoNominas = (
+    <AvisoGuardadoNominas aviso={avisoGuardado} reintentando={reintentando}
+      onReintentar={async ()=>{ setReintentando(true); clearTimeout(saveTimer.current); saveTimer.current=null; pendingSaveRef.current=null; await ejecutarGuardado(nominasRef.current); setReintentando(false); }}
+      onDescargar={()=>{
+        if(avisoGuardado?.tipo === "borrador") descargarCambiosNominas(avisoGuardado.borrador?.nominas||[], { copiaDel: avisoGuardado.borrador?.ts, motivo: avisoGuardado.borrador?.motivo });
+        else descargarCambiosNominas(nominasConCambiosLocales(nominasRef.current, servidorRef.current), { motivo: avisoGuardado?.r?.motivo, status: avisoGuardado?.r?.status });
+      }}
+      onRecargar={recargarDesdeServidor}
+      onCerrar={()=>setAvisoGuardado(null)}
+      onEliminarCopia={()=>{ if(window.confirm("¿Eliminar la copia local de los cambios no guardados? No se puede recuperar después.")){ borrarBorradorNominas(); setAvisoGuardado(null); } }}
+    />);
+
   if(cargando) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",
       height:"40vh",color:C.muted,fontFamily:"sans-serif"}}>
@@ -18018,7 +18241,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
     ? nominas.filter(n=>n.semana===nominaAbierta.semana && n.año===nominaAbierta.año)
         .sort((a,b)=>EMPRESAS_NOM.indexOf(a.empresa)-EMPRESAS_NOM.indexOf(b.empresa))
     : [];
-  if(nominaAbierta) return (
+  if(nominaAbierta) return (<>
+    {avisoNominas}
     <NominaDetalle
       nomina={nominaAbierta}
       onUpdate={updNomina}
@@ -18083,19 +18307,21 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
         // Cancelar cualquier guardado debounced pendiente para que no pise este guardado.
         clearTimeout(saveTimer.current); saveTimer.current=null; pendingSaveRef.current=null;
         setNominas(base);
-        const ok = await dbSaveNominas(base);
-        if(!ok) {
-          // Revertir el cambio local: el guardado no se confirmó.
+        const r = await new Promise(res=>{ colaGuardadoRef.current = colaGuardadoRef.current.then(()=>dbSaveNominas(base)).then(x=>{ res(x); }, e=>{ res({ok:false, motivo:"red"}); }); });
+        if(!r.ok) {
+          // Revertir el movimiento: el guardado no se confirmó (no puede quedar a medias).
           setNominas(prevList);
+          setAvisoGuardado({ tipo:"error", r, copiaLocal:{ ok:true, n:0 }, ts:new Date().toISOString(), contexto:"aplazar" });
           return false;
         }
+        servidorRef.current = base;
         window.auditLog&&window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
           descripcion:`Aplazó item "${itemNuevo.proveedor||itemNuevo.tipoDoc||"s/n"}" de ${empresa} S${nomOrigen.semana} → S${semDest}/${añoDest}`,
           registroId:nomOrigen.id});
         return true;
       }}
     />
-  );
+  </>);
 
   // Filtrar
   const nominasFiltradas = nominas.filter(n=>{
@@ -18121,6 +18347,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
 
   return (
     <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",color:C.text,padding:"20px 24px"}}>
+      {avisoNominas}
 
       {resolverNomina&&<ResolverPagosVinculados vinculos={resolverNomina.vinculos} contexto="nómina" onPagoCredito={onPagoCredito}
         onCancel={()=>setResolverNomina(null)}

@@ -18,15 +18,22 @@
 --       los crea ANTES de escribir; si la escritura no ocurre, los levanta.
 --     · Funciona con la app tal como está hoy (y con pestañas que tengan una
 --       versión vieja del código cargada): no requiere cambios en el navegador.
---     · La pestaña antigua recibe un error HTTP 400 "MEDITERRA_SELLO…". El
---       guardado de nóminas hoy no muestra ese error al usuario (es "dispara y
---       olvida", limitación previa de la app): su edición NO se guarda. Una
---       sesión al día (recargada) guarda normal.
+--     · La pestaña antigua recibe un error HTTP 400 "MEDITERRA_SELLO…". La app
+--       (rama del PR) lo muestra: "No se guardó: tus datos están
+--       desactualizados", conserva la edición y pide recargar. Una sesión al
+--       día (recargada) guarda normal. Con el código de producción ACTUAL el
+--       error no se muestra (guardado "dispara y olvida").
 --     · Un cambio LEGÍTIMO que deshaga un dato sellado (p. ej. desvincular una
 --       línea vinculada por la conciliación) también se rechaza mientras el
 --       sello esté vigente. Anular un pago aplicado SÍ se puede (el sello de un
 --       pago agregado exige que el pago exista, no que esté vigente).
 --     · Vigencia: hasta vence_en (el script usa 30 días) o hasta levantarlo.
+--       EL VENCIMIENTO NO ES UNA SOLUCIÓN PERMANENTE: al vencer o levantarse un
+--       sello, una pestaña que siga abierta con datos anteriores a la
+--       conciliación puede volver a sobrescribir lo conciliado, porque las
+--       nóminas se siguen guardando sin condición. Lo permanente sería que la
+--       escritura de nóminas sea condicionada a la versión leída (cambio en la
+--       app, no hecho ni autorizado).
 --
 -- PERMISOS
 --   La tabla de sellos queda SIN acceso para anon/authenticated (la llave

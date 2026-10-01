@@ -71,6 +71,15 @@ export async function instalarFake(context, store, log = () => {}) {
       return json(f ? [{ id, value: f.value, updated_at: f.updated_at }] : []);
     }
 
+    // Interceptor opcional por prueba: (metodo, id, body) → null (seguir) |
+    // 'red' (sin respuesta) | { status, body } (respuesta de error simulada).
+    if (store.__interceptar && metodo !== 'GET') {
+      const x = store.__interceptar(metodo, id || (body && body.id), body);
+      if (x === 'red') { log(`${metodo} ${id} → SIN RED (simulado)`); return route.abort('failed'); }
+      if (x) { log(`${metodo} ${id} → HTTP ${x.status} (simulado)`); return route.fulfill({ status: x.status, contentType: 'application/json',
+        headers: { 'access-control-allow-origin': '*' }, body: typeof x.body === 'string' ? x.body : JSON.stringify(x.body || {}) }); }
+    }
+
     // Interruptor de prueba: simular que el servidor rechaza las escrituras
     // (para verificar que un guardado fallido no pierde ni marca nada).
     if (store.__fallarEscrituras && metodo !== 'GET') {

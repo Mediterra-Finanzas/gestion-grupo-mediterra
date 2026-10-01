@@ -145,6 +145,7 @@ El archivo de decisiones **no está firmado digitalmente**. Es una **aprobación
 2. Si la aplicación se detiene, los sellos de lo no escrito se **levantan**.
 3. Un reintento los **reactiva**.
 4. Vigencia: 30 días, o hasta levantarlos con la consulta documentada, que registra quién y por qué.
+   **El vencimiento NO resuelve la concurrencia.** Cuando un sello vence o se levanta, una pestaña que siga abierta con datos anteriores a la conciliación **puede volver a sobrescribir lo conciliado**, porque las nóminas se siguen guardando sin condición. Los 30 días solo acotan cuánto tiempo se bloquean los cambios legítimos; no garantizan que ya no queden sesiones antiguas. Cerrar ese riesgo de forma permanente requiere que la propia escritura de nóminas sea condicionada a la versión leída, como ya lo es la de Finanzas. Es un cambio en la app que **no** está hecho ni autorizado. Los sellos quedan en evaluación; la decisión depende del resultado de `verificar-supabase.sql`.
 
 **Probado:**
 
@@ -160,8 +161,46 @@ El archivo de decisiones **no está firmado digitalmente**. Es una **aprobación
 
 **Límites.**
 - Mientras un sello está vigente, un cambio **legítimo** que deshaga ese dato también se rechaza. Por ejemplo, desvincular una línea vinculada por la conciliación: primero hay que levantar el sello.
-- **[Seguro]** El guardado de nóminas de la app hoy es "dispara y olvida": la pestaña antigua **no muestra** el error. Su edición no se guarda, pero el usuario no se entera hasta recargar. Es una limitación previa de la app; arreglarla requiere tocar `FinanzasModule.jsx`.
+- **Corregido en la app (ver "Guardado de Nóminas" abajo):** antes el guardado de nóminas era "dispara y olvida" y una pestaña rechazada no se enteraba. Ahora comprueba la respuesta: muestra que no se guardó, conserva la edición y explica que hace falta recargar.
 - Con RLS desactivado en `calendario_data`, los sellos protegen contra **accidentes** (sesiones antiguas), no contra alguien que actúe de mala fe con la llave pública sobre la tabla de datos.
+
+## Guardado de Nóminas: la app comprueba la respuesta del servidor
+
+Corregido en `src/FinanzasModule.jsx`, en la rama del PR y sin merge:
+
+- **`dbSaveNominas`** devuelve el resultado real de cada fila (`ok`, `motivo`, `status`, empresas guardadas y fallidas), no un `true/false` que antes se ignoraba. Motivos:
+  - `sello`: la base rechazó deshacer un dato protegido; los datos están desactualizados;
+  - `http`: código de error del servidor;
+  - `red`: sin respuesta.
+- **Si el servidor no confirma:**
+  - aviso rojo arriba de Nóminas, en la lista y en la nómina abierta, con qué pasó y qué hacer;
+  - la edición **se conserva** en pantalla;
+  - una **copia** de las nóminas cambiadas queda en este navegador;
+  - **"Descargar mis cambios (JSON)"** para revisarlas o recuperarlas.
+- **Cuándo recargar**, según el motivo:
+
+  | Motivo | ¿Recargar? | Qué hacer |
+  |---|---|---|
+  | Sello | **Sí** | Reintentar no sirve: descargar, recargar y volver a aplicar sobre la versión actual |
+  | Red | **No** | Reintentar cuando vuelva la conexión |
+  | 5xx | **No** | Reintentar |
+  | 401/403 | Sí | Descargar antes de volver a ingresar |
+
+- **Antes de perder cambios:**
+  - "Recargar datos del servidor…" pide confirmación y dice cuántas nóminas se pierden de la pantalla (la copia sigue disponible);
+  - cerrar la pestaña con cambios sin guardar pide confirmación del navegador;
+  - los refrescos automáticos (cada 30 s y al volver a la pestaña) **no reemplazan** la lista mientras haya cambios sin confirmar. Antes la reemplazaban y la edición se perdía.
+- **La copia no se re-aplica sola**: re-aplicar datos viejos es lo que pisa a otros. Al abrir Nóminas, si existe, se avisa con "Descargar" y "Eliminar la copia".
+- **Transiciones** (marcar preparada, enviar a revisión, V°B°, aprobar, devolver):
+  - se guardan **antes** de notificar;
+  - si el servidor no confirma, la nómina vuelve en pantalla a su estado anterior, **no se envía ningún correo** ni se audita el cambio, y el aviso lo dice;
+  - el botón queda deshabilitado mientras guarda.
+  - Antes, los correos de "APROBADA" se enviaban aunque el guardado fallara.
+- **"Aplazar"** ya esperaba el guardado y revertía; ahora además muestra el motivo.
+
+Prueba en navegador (app real, Supabase falso aislado, datos de prueba): `OUT_DIR=/tmp/ng node scripts/e2e/nomina-guardado.mjs` → **27/27 OK**.
+- Casos: rechazo por sello, error de red, HTTP 500, y aprobación CFO con red caída y con 500.
+- Para cada caso comprueba: aviso, edición conservada, servidor sin cambio, copia local, confirmación al cerrar, refrescos que no pisan, descarga, recarga con advertencia, reintento exitoso y que los 2 correos de aprobación salen solo cuando el servidor confirmó.
 
 ## Varias filas: qué pasa si una escritura falla
 

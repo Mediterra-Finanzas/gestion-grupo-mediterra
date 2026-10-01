@@ -252,6 +252,12 @@ Reglas que no hay que romper:
 - **Monedas**: `valorizarCreditos` anota `_tc` (Maestros `maestro_tc` a la fecha de
   corte, manual prevalece; si no, `tc_flujo` declarado = hipótesis; si no, sin TC).
   `_tc` NO se persiste (`handleSaveCreditos` aplica `sinValorizacion`).
+- **Guardado de Nóminas comprueba la respuesta** (`dbSaveNominas` devuelve `{ok, motivo: sello|http|red, status, empresas…}`):
+  si falla, aviso `AvisoGuardadoNominas` (qué pasó, si hay que recargar), la edición se conserva, copia en
+  localStorage (`mediterra_nominas_sin_guardar`, no se re-aplica sola), los refrescos de 30 s / visibilidad
+  no pisan cambios sin confirmar y cerrar la pestaña pide confirmación. Las transiciones de estado guardan
+  ANTES de notificar/auditar (`confirmarTransicion`); si falla, vuelve al estado anterior sin correos.
+  Test: `scripts/e2e/nomina-guardado.mjs`.
 - **Anular nómina/línea con pago vigente** → `ResolverPagosVinculados`: conservar
   (`anotarPago`) o anular el pago, con motivo; si Créditos no confirma, no se anula.
 - Revisión previa al merge y verificación del prepago: `docs/creditos-revision-pre-merge.md`.

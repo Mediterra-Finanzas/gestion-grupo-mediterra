@@ -254,6 +254,12 @@ Reglas que no hay que romper:
 - **Monedas**: `valorizarCreditos` anota `_tc` (Maestros `maestro_tc` a la fecha de
   corte, manual prevalece; si no, `tc_flujo` declarado = hipótesis; si no, sin TC).
   `_tc` NO se persiste (`handleSaveCreditos` aplica `sinValorizacion`).
+- **Guardado de Nóminas comprueba la respuesta** (`dbSaveNominas` devuelve `{ok, motivo: sello|http|red, status, empresas…}`):
+  si falla, aviso `AvisoGuardadoNominas` (qué pasó, si hay que recargar), la edición se conserva, copia en
+  localStorage (`mediterra_nominas_sin_guardar`, no se re-aplica sola), los refrescos de 30 s / visibilidad
+  no pisan cambios sin confirmar y cerrar la pestaña pide confirmación. Las transiciones de estado guardan
+  ANTES de notificar/auditar (`confirmarTransicion`); si falla, vuelve al estado anterior sin correos.
+  Test: `scripts/e2e/nomina-guardado.mjs`.
 - **Anular nómina/línea con pago vigente** → `ResolverPagosVinculados`: conservar
   (`anotarPago`) o anular el pago, con motivo; si Créditos no confirma, no se anula.
 - Revisión previa al merge y verificación del prepago: `docs/creditos-revision-pre-merge.md`.
@@ -472,6 +478,7 @@ node src/anticipos.test.mjs                 # modelo de anticipos (puro)
 node src/creditos.test.mjs                  # modelo de créditos (puro)
 OUT_DIR=/tmp/e2e node scripts/e2e/creditos.mjs   # Créditos en navegador (Supabase falso)
 OUT_DIR=/tmp/e2e node scripts/e2e/nomina-credito.mjs   # Nómina ↔ crédito en navegador
+OUT_DIR=/tmp/ng node scripts/e2e/nomina-guardado.mjs   # Nóminas: guardado rechazado (sello / red / 500) y transiciones
 OUT_DIR=/tmp/vp node scripts/e2e/vista-previa-creditos.mjs   # vista previa de Créditos con datos simulados (Excel recalculado)
 OUT_DIR=/tmp/e2e node scripts/e2e/apertura-sin-cambios.mjs   # abrir con registros antiguos no los modifica
 node scripts/vista-previa/armar.mjs --build && node scripts/vista-previa/servir.mjs   # vista previa funcional en http://localhost:4180
