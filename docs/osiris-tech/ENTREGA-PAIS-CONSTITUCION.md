@@ -81,7 +81,7 @@ conviene mirar, pero no es la que yo describí.
 
 ## 5 · Pruebas
 
-`paisConstitucion.test.js`, **36 pruebas**:
+`paisConstitucion.test.js`, **37 pruebas**:
 
 | Grupo | Qué fija |
 |---|---|
@@ -113,6 +113,20 @@ contratos reales), servido en `127.0.0.1:3070`. Producción no se tocó.
 | Agroberries | **No se tocó**: sin país de constitución y `pais: "Peru"` |
 | Ningún contrato guardó copia | 0 de 23 |
 | Los importes | Idénticos: hub *$5.578.534 · 142 · 53*, y los 41 importes de Reportes/BI uno a uno |
+| El aviso se achica al declarar | Declarado AGV, el aviso pasa de 5 clientes a 4. No queda pegado |
+
+### Solo lectura y concurrencia
+
+| | |
+|---|---|
+| **Solo lectura no escribe** | Con `OT Ver` el botón **“▾ Clientes” ni siquiera existe**: el maestro, y con él el campo nuevo, es inalcanzable. En la ficha de un contrato hay **0 controles**. `updated_at` del servidor, idéntico antes y después de navegar. Es más fuerte que en T3: acá los controles no se renderizan, no es que estén deshabilitados |
+| **Sesión desactualizada** | Con la pantalla abierta, otra sesión escribe la fila; la sesión abierta declara un país de constitución y guarda → **“⚠️ NO se guardó · conflicto”**. En el servidor queda la escritura de la otra sesión intacta y el país declarado **no** se escribió |
+
+**Un detalle del primer intento, que conviene dejar escrito.** La primera vez construí mal la
+prueba: hice la escritura externa **antes** de entrar al módulo, y al entrar el módulo releyó la
+fila, así que la sesión nunca estuvo desactualizada. El guardado dijo “Guardado”, y correctamente:
+las dos escrituras quedaron, ninguna se perdió. Rehecha con la pantalla ya abierta, la compuerta
+disparó. No era un defecto de la aplicación, era un defecto de mi prueba.
 
 Los datos de prueba se restauraron: la copia aislada volvió a su línea base (`b8aa3eb9…`).
 
@@ -132,6 +146,9 @@ volver, porque ninguno cambió al publicar.
 | Mostrarlo en la ficha del contrato | No en esta entrega: ahí trabaja T3 y no quiero cruzar los dos paquetes. Se agrega después, cuando uno de los dos esté publicado |
 | Usarlo para decidir una retención | No. Eso requiere la decisión tributaria y la compuerta, que siguen pendientes |
 
-## 9 · Estado
+## 9 · Estado y secuencia
 
-Local, sin push ni despliegue. A la espera de tu revisión antes de pedir ventana.
+Local, sin push ni despliegue. **Se publica después de T3**, según tu indicación: cuando T3 esté
+en `main`, integro este candidato sobre la nueva base y entrego el SHA completo y el diff final
+antes de pedir ventana. La integración no debería tener conflicto: T3 toca la ficha del contrato
+y este paquete el Maestro de Clientes, en zonas distintas del archivo.
