@@ -45,12 +45,23 @@ revisión de la entrega anterior, con el bundle que lo contenía:
 
 Es la misma edición, reaplicada sobre `2a3af93`. Build `CI=true`: `Compiled successfully`.
 
-## 5 · Recuperación
+## 5 · Cómo se evita que vuelva a pasar
+
+No alcanza con "commitear antes": basta una edición posterior para perderla igual. **No se vuelve
+a usar `git checkout -- src/` para retirar los ajustes de aislamiento.** El bundle de revisión se
+arma en una copia aparte del commit exacto, que se descarta después, así que el árbol del
+candidato nunca se ensucia y no hay nada que revertir. Si alguna vez hiciera falta retirar un
+ajuste dentro del árbol, se hace con un cambio específico y revisado, mirando el diff, nunca con
+un descarte masivo.
+
+Este paquete ya se verificó con ese método.
+
+## 6 · Recuperación
 
 Tres cadenas de texto en un archivo. Revertir el commit devuelve el texto actual, que tampoco es
 incorrecto: dice que la propuesta no entra al cálculo. No hay datos involucrados.
 
-## 6 · Autorización que se necesita
+## 7 · Autorización que se necesita
 
 > `AUTORIZO MERGE osiris/propuesta-no-operativa → main`, push y despliegue del paquete exacto
 > <SHA de la punta de la rama, indicado al pedir la ventana> sobre la base exacta `2a3af93`.

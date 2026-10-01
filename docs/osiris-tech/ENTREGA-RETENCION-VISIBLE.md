@@ -173,9 +173,19 @@ transición y los importes no se movieron. Es una diferencia de énfasis en el t
 comportamiento. Se corrige en el paquete `osiris/propuesta-no-operativa`, que solo cambia esos
 tres textos y este apartado.
 
-**Lección operativa, para que no se repita:** commitear el cambio **antes** de armar el bundle de
-revisión. El `git checkout -- src/` que restaura las URLs se lleva por delante cualquier edición
-sin commitear.
+**Qué cambia para que no se repita.** Commitear antes de armar el bundle ayuda, pero no alcanza
+como única prevención: basta una edición posterior para volver a perderla. La regla es otra:
+
+**No se vuelve a usar `git checkout -- src/` para retirar los ajustes de aislamiento.** Ese comando
+no distingue entre la configuración de prueba y el trabajo real, y por eso se lleva lo que
+encuentre. En su lugar:
+
+- La configuración de prueba se mantiene **fuera del árbol del candidato**: el bundle de revisión
+  se arma en una copia aparte del commit exacto, que se descarta después. El worktree del
+  candidato nunca se ensucia, así que no hay nada que revertir.
+- Si por alguna razón hubiera que retirar un ajuste dentro del árbol, se hace con un cambio
+  específico y revisado —revirtiendo exactamente esas líneas y mirando el diff— nunca con un
+  descarte masivo.
 
 ## 8 · Autorización que se necesita
 
