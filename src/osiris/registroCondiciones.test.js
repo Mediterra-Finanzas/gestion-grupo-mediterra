@@ -165,8 +165,10 @@ describe("5 · preservación: registrar no pisa lo que ya estaba", () => {
 
 // ══════════════════════════════════════════════════════════════════
 describe("6 · permisos: solo lectura no escribe", () => {
-  // La pantalla no ofrece controles cuando `can` es falso, y además las
-  // funciones del modelo son puras: leerlas nunca escribe.
+  // El resto de la ficha usa <Cell>, que en solo lectura no renderiza input.
+  // Este bloque sí los renderiza, deshabilitados, así que la comprobación del
+  // permiso tiene que estar en la función que escribe: un `disabled` deja el
+  // onChange conectado y un evento sintético lo alcanza igual.
   test("las funciones de lectura no mutan el contrato", () => {
     const ct = CT({ beneficioFee: { declarado: true, plantasCubiertas: 30000 }, territorio: "Perú" });
     const copia = JSON.parse(JSON.stringify(ct));
@@ -175,6 +177,33 @@ describe("6 · permisos: solo lectura no escribe", () => {
     estadoReajuste(ct); previsualizarReajuste(ct, 3000, 3); territorioDe(ct);
     resolverRetencion(ct); netoNoDefinitivo(ct);
     expect(ct).toEqual(copia);
+  });
+
+  test("las dos funciones que escriben el registro comprueban el permiso", () => {
+    // Guarda de regresión: sin el `if(!can) return` alcanzaba con un evento
+    // sintético sobre el input deshabilitado para escribir y auto-guardar.
+    const fs = require("fs");
+    const src = fs.readFileSync(require("path").join(__dirname, "..", "OsirisModule.jsx"), "utf8");
+    const upB = src.match(/const upB = \(campo,val\)=>\{([^}]*)/);
+    const upR = src.match(/const upR = \(campo,val\)=>\{([^}]*)/);
+    expect(upB).not.toBeNull();
+    expect(upR).not.toBeNull();
+    expect(upB[1]).toMatch(/if\(!can\) return;/);
+    expect(upR[1]).toMatch(/if\(!can\) return;/);
+  });
+
+  test("todo control del registro escribe por esas dos funciones", () => {
+    // Si alguna vez un control del bloque llama a `upd` directo, se salta la
+    // guarda: esta prueba lo caza.
+    const fs = require("fs");
+    const src = fs.readFileSync(require("path").join(__dirname, "..", "OsirisModule.jsx"), "utf8");
+    const ini = src.indexOf("const upB = (campo,val)=>");
+    const fin = src.indexOf("Recordatorio fiscal", ini);   // fin del bloque del registro
+    expect(ini).toBeGreaterThan(0);
+    expect(fin).toBeGreaterThan(ini);
+    const bloque = src.slice(ini, fin);
+    const directos = bloque.split("\n").filter((l) => /upd\(r\.id/.test(l) && !/const up[BR] =/.test(l));
+    expect(directos).toEqual([]);
   });
 
   test("el modelo no tiene ninguna función que escriba el registro", () => {

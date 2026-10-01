@@ -8749,8 +8749,12 @@ Motivo del retiro:`, "");
                 const cupo = consumoCupo(r, data, plantasPorContrato);
                 const rj = configReajuste(r), estR = estadoReajuste(r), faltaR = faltantesReajuste(r);
                 const prev = previsualizarReajuste(r, Number(r.valorRoyaltyComercial)||0, 4);
-                const upB = (campo,val)=>upd(r.id,"beneficioFee",{...(r.beneficioFee||{}),[campo]:val});
-                const upR = (campo,val)=>upd(r.id,"reajuste",{...(r.reajuste||{}),[campo]:val});
+                // El permiso se comprueba en la funcion que escribe, no solo en el
+                // control: un `disabled` deja el onChange conectado y basta un evento
+                // sintetico para escribir. El resto de la ficha usa <Cell>, que en
+                // solo lectura no renderiza ningun input.
+                const upB = (campo,val)=>{ if(!can) return; upd(r.id,"beneficioFee",{...(r.beneficioFee||{}),[campo]:val}); };
+                const upR = (campo,val)=>{ if(!can) return; upd(r.id,"reajuste",{...(r.reajuste||{}),[campo]:val}); };
                 const inp2 = {padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11};
                 const marco = (ok)=>({background: ok?C.successBg:(C.amBg||"#fef9c3"), border:`1px solid ${ok?C.success:(C.am||"#ca8a04")}`, borderRadius:10, padding:12, marginBottom:14});
                 return (<>
