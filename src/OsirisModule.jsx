@@ -35,6 +35,10 @@ import {
   ACCION, netoNoDefinitivo, territorioDe,
 } from "./osiris/condicionesConfigurables";
 import {
+  PAISES_CONSTITUCION, paisConstitucionDe, declararPaisConstitucion,
+  indicioDesdeDocumentos, divergenciaConPaisIdentificacion, clientesPorRevisar,
+} from "./osiris/paisConstitucion";
+import {
   TIPO_ANEXO_ELIMINACION, TIPO_CONTRATO_PRUEBAS,
   AVISO_ANEXO_SIN_EFECTO, AVISO_TIPO_PRUEBAS,
   catalogoConEliminacion, catalogoConPruebas,
@@ -739,7 +743,10 @@ function CobrosParcialesCell({ total, info, can, onChange }) {
 
 // ── Datos base ────────────────────────────────────────────
 
-const PAISES = ["Peru","Mexico","Chile","Corea","España"];
+// Lista del campo "Pais" (identificacion). El motor deduce de aca la retencion,
+// asi que agregar un pais mueve importes. Se exporta para que una prueba pueda
+// congelarla: el pais de constitucion tiene su propio catalogo, aparte.
+export const PAISES = ["Peru","Mexico","Chile","Corea","España"];
 const VIVEROS = ["Synergia Chile","Synergia Mexico","Agromillora Pe","Agromillora"];
 const TIPOS   = ["Anticipo","Entrega","Anticipo/Entrega"];
 
@@ -5072,14 +5079,26 @@ function CampoNuevo({label,campo,tipo="text",opts=null,fullWidth=false,form,setF
 function MaestroClientes({clientes,setClientes,can}){
   const [editId,setEditId]=useState(null);
   const [form,setForm]=useState({razonSocial:"",nombreComercial:"",taxID:"",pais:"Peru",direccion:"",ciudad:"",repLegal:"",rucRep:"",contactoCobranza:"",ubicaciones:[]});
+  // Pais de constitucion: dato aparte, con su propio respaldo. No viaja dentro
+  // de `form` para que el spread `{...c,...form}` no pise el objeto guardado.
+  const [pcValor,setPcValor]=useState("");
+  const [pcRespaldo,setPcRespaldo]=useState("");
   const [showForm,setShowForm]=useState(false);
   const [busq,setBusq]=useState("");
 
   function guardar(){
     if(!form.razonSocial.trim()){alert("Razón Social es obligatoria.");return;}
+    const aplicarPC = (c)=>declararPaisConstitucion(c, pcValor, {respaldo:pcRespaldo, usuario:(window.__usuarioOsiris||"")});
     if(editId){
       const anterior = clientes.find(c=>c.id===editId);
-      setClientes(prev=>prev.map(c=>c.id===editId?{...c,...form}:c));
+      setClientes(prev=>prev.map(c=>c.id===editId?aplicarPC({...c,...form}):c));
+      const pcAntes = paisConstitucionDe(anterior).valor||"";
+      if(pcAntes !== (pcValor||"")){
+        window.auditLog&&window.auditLog("editar", {modulo:"osiris", seccion:"Maestro Clientes",
+          descripcion:`Declaro pais de constitucion de "${form.razonSocial||(anterior&&anterior.razonSocial)||""}"`,
+          registroId:editId, campo:"paisConstitucion",
+          valorAnterior:pcAntes, valorNuevo:pcValor||""});
+      }
       // Auditar cambios campo a campo
       if(anterior) {
         Object.keys(form).forEach(k=>{
@@ -5094,16 +5113,19 @@ function MaestroClientes({clientes,setClientes,can}){
       setEditId(null);
     } else {
       const id = `cli_${Date.now()}`;
-      setClientes(prev=>[...prev,{...form,id}]);
+      setClientes(prev=>[...prev,aplicarPC({...form,id})]);
       window.auditLog&&window.auditLog("crear", {modulo:"osiris", seccion:"Maestro Clientes",
         descripcion:`Creó cliente "${form.razonSocial}" · ${form.pais||""}`,
         registroId:id});
     }
     setForm({razonSocial:"",nombreComercial:"",taxID:"",pais:"Peru",direccion:"",ciudad:"",repLegal:"",rucRep:"",contactoCobranza:""});
+    setPcValor("");setPcRespaldo("");
     setShowForm(false);
   }
   function iniciarEdicion(c){
     setForm({razonSocial:c.razonSocial||"",nombreComercial:c.nombreComercial||"",taxID:c.taxID||"",pais:c.pais||"Peru",direccion:c.direccion||"",ciudad:c.ciudad||"",repLegal:c.repLegal||"",rucRep:c.rucRep||"",contactoCobranza:c.contactoCobranza||"",ubicaciones:c.ubicaciones||[]});
+    const pc = paisConstitucionDe(c);
+    setPcValor(pc.valor||"");setPcRespaldo(pc.respaldo||"");
     setEditId(c.id);setShowForm(true);
   }
 
@@ -5118,7 +5140,7 @@ function MaestroClientes({clientes,setClientes,can}){
         <div style={{display:"flex",gap:8}}>
           <input value={busq} onChange={e=>setBusq(e.target.value)} placeholder="Buscar..."
             style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.accent2}`,fontSize:12,outline:"none"}}/>
-          {can&&<button onClick={()=>{setShowForm(v=>!v);setEditId(null);setForm({razonSocial:"",nombreComercial:"",taxID:"",pais:"Peru",direccion:"",ciudad:"",repLegal:"",rucRep:"",contactoCobranza:""}); }}
+          {can&&<button onClick={()=>{setShowForm(v=>!v);setEditId(null);setPcValor("");setPcRespaldo("");setForm({razonSocial:"",nombreComercial:"",taxID:"",pais:"Peru",direccion:"",ciudad:"",repLegal:"",rucRep:"",contactoCobranza:""}); }}
             style={{padding:"6px 14px",borderRadius:6,background:C.accent2,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>
             {showForm&&!editId?"✕":"+ Nuevo cliente"}
           </button>}
@@ -5152,6 +5174,42 @@ function MaestroClientes({clientes,setClientes,can}){
               </div>
             ))}
           </div>
+          {/* Pais de constitucion: campo nuevo, con su propio catalogo (incluye
+              Reino Unido) y su propio respaldo. El campo "Pais" de arriba no se
+              toca: sigue siendo el de identificacion y el que usa el motor. */}
+          {(()=>{
+            const clienteEnEdicion = editId ? Object.assign({}, clientes.find(c=>c.id===editId)||{}, form) : form;
+            const ind = indicioDesdeDocumentos(clienteEnEdicion);
+            const div = divergenciaConPaisIdentificacion(declararPaisConstitucion(clienteEnEdicion, pcValor, {respaldo:pcRespaldo}));
+            return (
+              <div style={{background:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",marginBottom:12}}>
+                <div style={{fontSize:12,fontWeight:800,color:C.text,marginBottom:2}}>Pais de constitucion <span style={{fontWeight:700,fontSize:10,color:C.muted}}>· antecedente</span></div>
+                <div style={{fontSize:10,color:C.muted,lineHeight:1.6,marginBottom:10}}>
+                  Donde esta constituida la sociedad, segun su documentacion. <strong>Es otro dato que el campo &quot;Pais&quot;</strong> de
+                  arriba, que es el de identificacion y el que el motor usa hoy para la retencion. Declararlo aca
+                  <strong> no cambia ningun importe</strong>, no valida ninguna tasa y no toca el campo Pais.
+                  Dejarlo sin declarar significa que nadie lo cargo, no que no exista.
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10}}>
+                  <div>
+                    <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Pais de constitucion</div>
+                    <select value={pcValor} onChange={e=>setPcValor(e.target.value)}
+                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
+                      <option value="">— Sin declarar —</option>
+                      {PAISES_CONSTITUCION.map(o=><option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Respaldo documental</div>
+                    <input value={pcRespaldo} onChange={e=>setPcRespaldo(e.target.value)} placeholder="p. ej. Certificate of Incorporation 13571937"
+                      style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+                  </div>
+                </div>
+                {ind.hay&&!pcValor&&<div style={{fontSize:10,color:C.am||"#854d0e",background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,borderRadius:8,padding:"6px 10px",marginTop:10,lineHeight:1.6}}>{ind.texto}</div>}
+                {div.hay&&<div style={{fontSize:10,color:C.muted,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",marginTop:10,lineHeight:1.6}}>{div.nota}</div>}
+              </div>
+            );
+          })()}
           {/* Ubicaciones múltiples */}
           <div style={{marginBottom:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
@@ -5182,10 +5240,22 @@ function MaestroClientes({clientes,setClientes,can}){
         </div>
       )}
 
+      {(()=>{
+        const rev = clientesPorRevisar(clientes);
+        if(!rev.length) return null;
+        return (
+          <div style={{fontSize:10,color:C.am||"#854d0e",background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,borderRadius:8,padding:"8px 12px",marginBottom:10,lineHeight:1.6}}>
+            <strong>{rev.length===1?"Un cliente tiene":`${rev.length} clientes tienen`} un domicilio que menciona otro pais que el cargado</strong>, y
+            su pais de constitucion esta sin declarar: {rev.map(c=>c.razonSocial).join(" · ")}.
+            Es un indicio documental para revisar, no una conclusion. Nada se completa solo y ningun importe cambia.
+          </div>
+        );
+      })()}
+
       <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 40px)"}}>
         <table style={{borderCollapse:"collapse",width:"100%",background:C.card,borderRadius:8,overflow:"hidden",fontSize:12}}>
           <thead><tr style={{background:C.primary,color:C.primaryText}}>
-            {["Razón Social","Nombre Comercial","TAX ID","País","Ciudad","Rep. Legal","Contacto Cobranza",""].map(h=>(
+            {["Razón Social","Nombre Comercial","TAX ID","País","País constitución","Ciudad","Rep. Legal","Contacto Cobranza",""].map(h=>(
               <th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600,fontSize:11,whiteSpace:"nowrap"}}>{h}</th>
             ))}
           </tr></thead>
@@ -5196,6 +5266,11 @@ function MaestroClientes({clientes,setClientes,can}){
                 <td style={{padding:"6px 10px",color:C.muted}}>{c.nombreComercial||"—"}</td>
                 <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{c.taxID||"—"}</td>
                 <td style={{padding:"6px 10px",color:C.muted}}>{c.pais}</td>
+                <td style={{padding:"6px 10px",fontSize:11}}>
+                  {paisConstitucionDe(c).declarado
+                    ? <span style={{color:C.text,fontWeight:600}}>{paisConstitucionDe(c).valor}</span>
+                    : <span style={{color:C.muted2}}>sin declarar</span>}
+                </td>
                 <td style={{padding:"6px 10px",color:C.muted}}>{c.ciudad||"—"}</td>
                 <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{c.repLegal||"—"}</td>
                 <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{c.contactoCobranza||"—"}</td>
@@ -5214,7 +5289,7 @@ function MaestroClientes({clientes,setClientes,can}){
                 </td>
               </tr>
             ))}
-            {filtrado.length===0&&<tr><td colSpan={8} style={{textAlign:"center",padding:20,color:C.muted2}}>Sin clientes</td></tr>}
+            {filtrado.length===0&&<tr><td colSpan={9} style={{textAlign:"center",padding:20,color:C.muted2}}>Sin clientes</td></tr>}
           </tbody>
         </table>
       </div>
