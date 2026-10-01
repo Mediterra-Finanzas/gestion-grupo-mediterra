@@ -11,7 +11,7 @@ que quede registrada **como excepción, nunca como consentimiento**.
 
 ---
 
-## Las seis ventanas
+## Las siete ventanas
 
 | # | Fecha | Paquete | Base → candidato | Confirmaron | Avisados sin respuesta antes del push | No consultados |
 |---|---|---|---|---|---|---|
@@ -21,6 +21,7 @@ que quede registrada **como excepción, nunca como consentimiento**.
 | 4 | 2026-10-01 | Retención visible | `aa40f07` → `2a3af93` | Allegria Service | Mediterra One (respondió después del push) | Rendición de gastos (ver nota), **Frisku** (sin sesión) |
 | 5 | 2026-10-01 | Propuestas no operativas | `2a3af93` → `8a16055` | Allegria Service | Mediterra One, Rendición de gastos | **Frisku** (sin sesión) |
 | 6 | 2026-10-01 | Registro de condiciones | `8a16055` → `70c2903` | **Allegria Service, Mediterra One** (las dos antes del push) | — | Rendición de gastos (acuerdo vigente, avisada), **Frisku** (excepción concedida por el CFO) |
+| 7 | 2026-10-01 | País de constitución | `70c2903` → `9ddd063` | **Allegria Service, Mediterra One** (las dos antes del push) | — | Rendición de gastos (acuerdo vigente, avisada), **Frisku** (excepción concedida por el CFO) |
 
 **La ventana 5 se publicó sin las confirmaciones requeridas.** Ver el apartado siguiente.
 
@@ -81,6 +82,31 @@ entre Production y el commit se comprobó por las marcas del bundle. Acá, adem�
 sirve** para eso: un compilado local de `8a16055` da `main.7123b5d7.js` y Vercel sirve
 `main.933069fe.js` para el mismo commit, porque el entorno de build no es el mismo.
 
+
+### Ventana 7 — la espera, puesta a prueba
+
+| | |
+|---|---|
+| Candidato | `9ddd063e4f8af6e4ec40b22fbfe841c5738970dd` |
+| Base | `70c29032cb3d6fc07fe55315a25ab5f427c1ce89`, revalidada contra `origin/main` justo antes del push |
+| Deployment anterior (= recuperación) | `dpl_8MpD89YZwaaiidy2RVBDyRS8Z1d8`, commit `70c29032` por metadatos |
+| Deployment publicado | `dpl_EbXsJEp7uzPdXUS23MwK91npgmdX`, commit `9ddd063e`, rama `main`, READY, con los aliases de producción |
+| Despliegues en curso o en cola al pedir la ventana | 0 |
+
+**Confirmaciones recibidas:**
+
+- **Allegria Service** — *"SÍ, podés mergear y desplegar ahora. No tengo nada en vuelo contra
+  producción: AUTHZ sigue 100% local."*
+- **Mediterra One** — *"Ventana libre. No tengo nada en vuelo contra producción. Puedes mergear
+  y desplegar."* Tardó unos quince minutos y hubo que pedirla dos veces.
+- **Rendición de gastos** — avisada, sin pedirle respuesta, por el acuerdo de la ventana 3.
+- **Frisku** — excepción concedida por el CFO por anticipado.
+
+**Lo que esta ventana demuestra.** En la 4 y la 5 publiqué sin tener todas las confirmaciones.
+Acá una tardó quince minutos y **no se publicó hasta tenerla**: se esperó, se reiteró el pedido,
+y se le avisó al CFO que si no llegaba se le pediría la excepción. Llegó antes, así que no hizo
+falta. Esperar cuesta minutos; publicar sin confirmar cuesta un incidente.
+
 ### Protocolo para las próximas ventanas
 
 Se fija **antes** de pedir la autorización, no sobre la marcha:
@@ -99,7 +125,7 @@ Se fija **antes** de pedir la autorización, no sobre la marcha:
 
 ### Frisku
 
-No fue consultada en ninguna de las seis ventanas. En la 6 el CFO concedió la excepción por
+No fue consultada en ninguna de las siete ventanas. En la 6 y la 7 el CFO concedió la excepción por
 anticipado y por escrito, nombrándola; en las cinco anteriores no. No hay sesión de Frisku activa en el equipo, y
 no existe otro canal por el que esta sesión pueda pedirle confirmación. Su último commit en `main`
 es `7f2f747`, del 29 de septiembre, anterior a las cinco ventanas; entre `5c0da41` y `8a16055` no
