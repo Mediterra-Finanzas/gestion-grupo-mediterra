@@ -393,7 +393,7 @@ Ahora el Supabase falso (`scripts/e2e/fake.mjs`) y la vista previa reemplazan es
 | Navegador (datos simulados) | `scripts/e2e/creditos.mjs`, `scripts/e2e/nomina-credito.mjs` | OK / OK |
 | Navegador (datos simulados) | `scripts/e2e/apertura-sin-cambios.mjs`: abrir con registros antiguos sin acción | falla antes de la corrección; OK después |
 | Navegador (vista previa) | `scripts/e2e/vista-previa-funcional.mjs`: pauta completa sobre la vista previa armada, sin interceptar nada desde fuera. Incluye, en modo Artifact, el cuadro de motivo con Cancelar (no registra nada) y Aceptar (registra con lo escrito), y la descarga del Excel local y vía la capacidad del visor | 26/26 OK; 0 HTTP y 0 WebSocket a producción |
-| Pantalla vs Excel sobre el commit integrado `02d4dcb` (incluye `main`) | `scripts/e2e/regresion-empresas.mjs`, build nuevo desde ese commit con el árbol limpio | 12.032 celdas, 0 diferencias; 0 peticiones a producción |
+| Pantalla vs Excel sobre el commit integrado `ce63484` (incluye `main` al 01-10-2026, último commit `aa40f07`) | `scripts/e2e/regresion-empresas.mjs`, build nuevo desde ese commit con el árbol limpio. También se repitieron sobre ese build: jest, creditos.test, creditos, nomina-credito, apertura-sin-cambios, vista-previa-creditos y vista-previa-funcional | 12.032 celdas, 0 diferencias; 0 peticiones a producción. Antes también sobre `02d4dcb`, con el mismo resultado |
 | Navegador (datos simulados) | `scripts/e2e/regresion-empresas.mjs`: pantalla vs Excel recalculado, 8 empresas | 12.032 celdas, 0 diferencias; 0 peticiones a producción |
 | **Datos reales** | — | **NO verificado** |
 
