@@ -54,3 +54,10 @@ docs/osiris-fase0/snapshots/osiris-snapshot-*.json
 backup_mediterra_*.json
 conciliacion_creditos_*.json
 detalle_cambios_*.csv
+# Salidas del script de conciliación (contienen datos reales)
+ensayo_*.json
+ensayo_*.txt
+auditoria_*.json
+auditoria_*.txt
+auditoria.jsonl
+decisiones*.json

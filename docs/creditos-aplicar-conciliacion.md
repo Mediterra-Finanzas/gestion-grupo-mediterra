@@ -1,76 +1,163 @@
-# Aplicar en producción la conciliación aprobada: propuesta para decidir antes del merge
+# Aplicar la conciliación aprobada sin sobrescribir producción
 
-> **Estado: PROPUESTA, no implementada.** No hay autorización de escritura en producción.
-> Este documento define cómo se aplicaría el resultado exportado desde la vista previa
-> local (`conciliacion_creditos_<fecha>.json`) **sin sobrescribir** pagos ni otros
-> cambios registrados en producción después de descargar el respaldo.
+> **Estado: script asistido implementado y probado SOLO con datos de prueba**, en un
+> Postgres 16 + PostgREST 12 locales. **No se ha ejecutado contra producción.**
+> - El script rechaza cualquier destino que no sea local (`127.0.0.1` / `localhost`) y, en particular, `*.supabase.co`.
+> - Habilitar producción requiere cambiar el código, con autorización explícita.
+> - El PR #43 sigue en borrador, sin autorización de merge ni de escritura en producción.
 
-## El riesgo que hay que evitar
+## El riesgo que se evita
 
-Entre la descarga del respaldo y la aplicación pasan días: en producción se siguen registrando pagos, nóminas y valores manuales.
+Entre la descarga del respaldo y la aplicación, en producción se siguen registrando pagos, nóminas y valores manuales.
 
-- Si se restaura el respaldo conciliado, aunque sea solo la fila `finanzas`, **se borra todo lo ocurrido después**.
-- La app ya tiene un botón **"📤 Restaurar"** que hace exactamente eso, reemplazando todas las filas. **No debe usarse para esto.**
+- Restaurar el respaldo conciliado, aunque sea solo la fila `finanzas`, **borraría todo lo ocurrido después**.
+- El botón **"📤 Restaurar"** de la app hace exactamente eso. **No se usa para esto.**
 
 ## Principio
 
-Aplicar **operaciones**, no filas. Cada operación del archivo exportado se reaplica sobre los datos **vigentes** de producción, leídos en el momento de aplicar. Antes de aplicar se comprueba que el dato que toca siga igual que en el respaldo (su valor "antes").
+Se aplican **operaciones**, no filas. Cada operación del archivo exportado se comprueba contra el estado **vigente**, leído en el momento.
 
-## Procedimiento propuesto
+- Se aplica solo si el dato que toca sigue como en el respaldo (su "antes").
+- Todo lo demás de la fila se conserva tal como está en producción.
 
-1. **Requisitos:**
-   - merge aprobado;
-   - resultado JSON revisado y aprobado por el CFO;
-   - un **💾 Respaldo nuevo** de producción del mismo día, como punto de retorno.
-2. **Lectura fresca** de las filas involucradas (`finanzas`, `nominas_*`, `maestro_tc`), con su `updated_at`.
-3. **Ensayo (no escribe nada).** Cada operación se clasifica en:
+## Cómo se usa (`scripts/conciliacion/aplicar.mjs`)
 
-   | Clase | Significado | Qué se hace |
-   |---|---|---|
-   | **Aplicable** | el dato está igual que en el respaldo | se aplica |
-   | **Ya aplicada** | el id ya existe igual en producción, por ejemplo un reintento | se omite (idempotente) |
-   | **Conflicto** | el dato cambió en producción después del respaldo, o hay un posible duplicado | **no** se aplica; se informa con ambos valores para que decidas |
-   | **No encontrada** | el crédito, pago o línea ya no existe o la huella no es única | no se aplica; se informa |
+```bash
+# 1) Ensayo: lee el estado actual, clasifica cada operación. NO escribe.
+node scripts/conciliacion/aplicar.mjs ensayo --resultado conciliacion_creditos_X.json \
+  --destino http://127.0.0.1:PUERTO --salida carpeta
+#    → ensayo_<sello>.txt (informe), ensayo_<sello>.json, decisiones_plantilla.json
 
-4. **Informe del ensayo:** operaciones por clase, más **todo lo registrado en producción después de la fecha del respaldo** en los créditos afectados (pagos, conciliaciones, valores manuales). Lo aprueba el CFO.
-5. **Aplicación:**
-   - Solo las operaciones aplicables y aprobadas, en **una escritura por fila**, condicionada a que el `updated_at` siga siendo el leído en el paso 2. Es el contrato de persistencia que ya usa la app.
-   - Si alguien guardó entretanto, la escritura se rechaza y se vuelve al paso 2.
-   - Nada queda a medias.
-6. **Verificación posterior:**
-   - re-lectura de producción;
-   - la conciliación por acreedor debe dar el mismo estado que en la vista previa local, salvo lo informado como conflicto;
-   - comparación pantalla–Excel.
-7. **Registro de auditoría:** archivo aplicado, SHA-256, operaciones aplicadas, omitidas y en conflicto, usuario y fecha.
+# 2) Revisar el informe y completar decisiones_plantilla.json (guardarlo como decisiones.json):
+#    · "aprobadas": dejar SOLO las operaciones aprobadas
+#    · "duplicados": cada posible duplicado → decision "aplicar" u "omitir" + motivo
+#    · firmar con aprobadoPor y fechaAprobacion
 
-## Reglas por operación
+# 3) Aplicar lo aprobado (relee y reclasifica TODO de nuevo antes de escribir)
+node scripts/conciliacion/aplicar.mjs aplicar --resultado conciliacion_creditos_X.json \
+  --decisiones decisiones.json --destino http://127.0.0.1:PUERTO --usuario "Nombre" --salida carpeta
+#    → auditoria_<sello>.json / .txt + línea en auditoria.jsonl
+```
 
-| Operación | Aplicable si… | Conflicto si… |
+Los archivos de salida contienen datos reales y están en `.gitignore`.
+
+## Clases del ensayo
+
+| Clase | Significado | Qué pasa |
 |---|---|---|
-| `agregar_pago` | el crédito se identifica y no existe un pago con ese id | en producción, desde el respaldo, ya hay un pago **vigente** en la **misma cuota** (`vencKey`) que pueda ser el mismo abono (posible duplicado). Hay que decidir |
-| `anular_pago` | el pago existe y sigue **vigente** | el pago fue modificado o tiene anotaciones nuevas (si ya está anulado: ya aplicada) |
-| `agregar_conciliacion` (impaga) | la cuota sigue sin pagos vigentes | en producción se registró un pago para esa cuota después del respaldo |
-| `agregar_saldo_informado`, `agregar_cobertura`, `agregar_resolucion_credito` | no existe ese id | se registró otra decisión para la misma empresa, línea y mes |
-| `cambiar_campo` (desglose, condiciones, `control_desde`…) | el valor actual es **igual** al "antes" | el valor actual difiere del "antes" |
-| `cambiar_valor_manual` / `retirar_valor_manual` | el valor manual actual es igual al "antes" | cambió |
-| `cambiar_config_creditos` | la configuración actual es igual a la del respaldo | cambió |
-| `agregar_tc` | no existe ese par y fecha, o es igual | existe con otro valor (un valor **manual** en producción prevalece) |
-| `QUITADO_*` | **nunca** | siempre se informa: la app no borra, es una alerta |
-| `agregar_historial` | junto con las operaciones de su crédito | — |
+| **aplicable** | el dato está como en el respaldo | se aplica si está en "aprobadas" |
+| **ya aplicada** | producción ya tiene exactamente ese resultado (por ejemplo, un reintento) | se omite |
+| **conflicto** | el dato cambió en producción después del respaldo | no se aplica; el informe muestra el valor de producción |
+| **posible duplicado** | en producción hay algo posterior que puede ser lo mismo | **decisión individual** obligatoria |
+| **no encontrada** | no se ubica el crédito, pago, línea o fila | no se aplica |
+| **bloqueada** | depende de una operación que no se aplica | no se aplica; el informe dice de cuál depende |
+| **no aplicable** | `QUITADO_*` / `modificar_*` | solo alerta; se revisa a mano |
 
-## Identidad del crédito
+**Posibles duplicados.** Se aplica uno solo con decisión `"aplicar"` + motivo y si además está en "aprobadas". Con `"omitir"` + motivo queda omitido.
+- Una decisión **sin motivo no cuenta**: el duplicado queda pendiente.
+- Nada se descarta ni se aplica solo.
+- Casos detectados:
+  - pago vigente posterior en la misma cuota, o con la misma fecha y monto;
+  - saldo informado posterior del mismo acreedor, moneda y fecha;
+  - crédito nuevo con la misma huella;
+  - cuota ya confirmada impaga con otro registro.
 
-- Si en producción el crédito tiene `uid`, se usa ese.
-- Si no lo tiene (registros antiguos), se busca por la **huella**: n, empresa, acreedor, moneda, monto, vencimiento, cuota y tipo. Debe haber **un solo** crédito que calce; si hay cero o varios, es "no encontrada".
-- Al aplicar la primera operación sobre un crédito antiguo, se le fija el **uid exportado** (`cr-<n>-<posición>`). Así las claves de cuota de los pagos (`uid@fecha`) coinciden, aunque la posición en la lista haya cambiado.
+**Dependencias.** Una operación bloqueada arrastra a las que dependen de ella, aunque estén en otra fila.
+- Movimientos de un crédito nuevo → su alta.
+- Anular un pago → agregarlo, si el alta está en el mismo archivo.
+- Prepago → su pago.
+- Pago con origen nómina → vínculo de esa línea (otra fila).
+- Entrada de bitácora → la operación que describe.
+- Anular un crédito → anular sus pagos.
+- Se guardan juntos, todo o nada:
+  - decisión sobre valor manual + retiro o cambio del valor del mismo mes;
+  - cobertura reemplazada + cobertura nueva.
 
-## Decisiones pendientes
+**Antigüedad del respaldo.** Más de 7 días genera una **advertencia**, no un bloqueo. Aunque el respaldo sea del mismo día, se relee el estado y se comprueba **cada** operación.
 
-1. **Quién y cómo aplica:**
-   - Opción A: una pantalla "Aplicar conciliación" en Créditos, que se activa con el merge y solo puede usar el CFO.
-   - Opción B: un script asistido que se ejecuta con tu supervisión.
-   - Ambas usarían el mismo motor de ensayo y aplicación.
-2. **Plazo máximo** entre el respaldo y la aplicación. Propuesta: 7 días. Si se excede, se recomienda volver a descargar el respaldo y repetir la conciliación, porque crecen los conflictos.
-3. **Conflictos de posible duplicado:** ¿los resuelves uno a uno (propuesto) o con un criterio general?
+**Identidad del crédito.**
+- Se busca por `uid`. Si no lo tiene, por la huella entre los créditos sin `uid`, que debe ser única.
+- Al aplicar se le fija el `uid` exportado, para que las claves de cuota coincidan.
+- Si en producción tiene **otro** `uid` → conflicto.
 
-Nada de esto se implementa ni se ejecuta sin tu aprobación explícita.
+## Control de concurrencia: ¿es atómico con la configuración actual?
+
+**Sí, para todo lo que escribe la app; con un hueco para ediciones hechas fuera de la app.**
+
+1. **[Seguro] La escritura es una sola sentencia condicionada, no "comprobar y luego guardar".**
+   - El script escribe con `PATCH …?id=eq.X&updated_at=eq.<versión leída>`, igual que el contrato de persistencia de la app.
+   - PostgREST lo ejecuta como **un único** `UPDATE … WHERE id = X AND updated_at = V`.
+   - Si otra transacción cambió la fila, Postgres vuelve a evaluar la condición sobre la versión nueva: actualiza **0 filas** y el script lo trata como conflicto.
+   - **Probado con servidor real** (escenario 7): otra transacción bloquea la fila y la cambia; el PATCH espera (~1,1 s), no actualiza nada y prevalece la otra transacción.
+2. **[Seguro, según el código del repositorio] Todos los escritores de la app cambian `updated_at` en cada guardado.** Se revisaron:
+   - persistContract (finanzas, main, pins, allegria…), friskuHelpers y Osiris;
+   - upsert de nóminas, auditoría, EEFF y "Restaurar".
+3. **Hueco [Seguro, probado en el escenario 8].** Una edición que no cambie `updated_at` **no se detecta**: por ejemplo, desde el editor de tablas o el SQL Editor de Supabase, o un script externo.
+   - Cierre propuesto (**no aplicado**): `scripts/conciliacion/propuesta-trigger-version.sql`, un trigger que fija `updated_at` en el servidor en todo UPDATE.
+   - Probado en local: detecta esa edición y la app sigue funcionando, porque toma la versión de la respuesta del servidor.
+4. **[Probable] No pude inspeccionar la base de producción** (sin acceso, 403). Para confirmar tipo de columna, triggers, reglas y RLS, ejecutar en el SQL Editor `scripts/conciliacion/verificar-supabase.sql` (**solo lectura**).
+5. **Límite que no resuelve la condición: escrituras posteriores de quien no condiciona.** Las filas `nominas_*` se guardan con upsert sin condición, y un navegador abierto con nóminas viejas puede pisar el vínculo **después** de aplicado.
+   - Recomendación: aplicar con la app cerrada en todas las sesiones.
+   - Repetir el **ensayo** unos minutos después: todo debe salir "ya aplicada".
+
+**Varias filas:** no hay transacción entre filas.
+- Se escribe primero `finanzas`, después `maestro_tc` y al final `nominas_*`.
+- Si una fila sale en conflicto, el script se **detiene** y no escribe las siguientes.
+- Repetirlo relee, reclasifica y completa lo pendiente sin duplicar, porque las operaciones son idempotentes.
+
+## Verificación posterior y auditoría
+
+- **Relectura:**
+  - cada operación aplicada debe quedar "ya aplicada";
+  - cada fila escrita debe ser exactamente el valor escrito, o el informe indica que alguien escribió después.
+- **Defensa adicional:** antes de escribir se comprueba que en `finanzas` solo cambian rutas de Créditos:
+  - `creditos_*`;
+  - `_coberturasManual` y `_resolucionesCreditos`;
+  - valores manuales de Pago Préstamos y Renovaciones.
+- **Auditoría** (`auditoria_<sello>.json` + `auditoria.jsonl`):
+  - SHA-256 del resultado, de las decisiones y del respaldo;
+  - firma de aprobación y usuario;
+  - versiones leídas y escritas;
+  - estado de cada operación con su motivo;
+  - decisiones de duplicados;
+  - resultado de la verificación;
+  - SHA-256 del propio registro.
+
+## Prueba (datos de prueba)
+
+```bash
+POSTGREST_BIN=/ruta/postgrest PG_BIN=/usr/lib/postgresql/16/bin OUT_DIR=/tmp/conc \
+  node scripts/conciliacion/prueba.mjs
+```
+
+La prueba levanta Postgres y PostgREST locales y un proxy con el prefijo `/rest/v1` de Supabase. Los movimientos de la sesión se generan con las funciones reales de `src/creditos.js` y la comparación de `scripts/vista-previa/diff.js`. Resultado: **53/53 OK**.
+
+- Rechazo de producción y de destinos no locales.
+- Ensayo:
+  - 0 escrituras;
+  - las 7 clases;
+  - bloqueo por dependencia, también entre filas (nómina → pago) y por grupo (valor manual → decisión);
+  - advertencia de 7 días;
+  - informe de lo registrado en producción después del respaldo.
+- Aplicación:
+  - sin firma, nada;
+  - solo lo aprobado;
+  - posibles duplicados sin decisión no se aplican;
+  - se conservan los cambios posteriores (pagos, desglose, cuota, valor manual, vínculo, TC manual y un dato ajeno a Créditos);
+  - la nómina sigue guardada como texto.
+- Decisión individual: sin motivo no cuenta; uno omitido (su bitácora queda bloqueada) y otro aplicado.
+- Reintento: 0 escrituras, misma versión, nada duplicado.
+- Concurrencia:
+  - otro guardado entre lectura y escritura → rechazado, sin escribir las filas siguientes;
+  - al repetir se aplica conservando el cambio ajeno;
+  - carrera real en Postgres → 0 filas.
+- Hueco sin `updated_at` y su cierre con el trigger.
+- Respaldo de prueba intacto (SHA-256).
+
+## Antes de usarlo con datos reales (pendiente de tu autorización)
+
+1. Ejecutar `verificar-supabase.sql` (solo lectura) y decidir si se aplica el trigger.
+2. Habilitar el destino de producción en el código (hoy bloqueado). Requiere tu autorización.
+3. Respaldo nuevo del mismo día, como punto de retorno.
+4. Pedir al equipo que cierre la app durante la aplicación.
+5. Ensayo → revisión → decisiones firmadas → aplicar → ensayo de control.

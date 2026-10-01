@@ -239,8 +239,11 @@ Reglas que no hay que romper:
   respaldo real…" guarda en IndexedDB una copia ORIGINAL intacta (texto + SHA-256) y una de
   TRABAJO; PIN reales no se cargan; exporta operaciones (`scripts/vista-previa/diff.js`) y
   detalle CSV. El Artifact no lo ofrece. Aplicar en producción = operaciones con
-  verificación de "antes", nunca restaurar filas: `docs/creditos-aplicar-conciliacion.md`
-  (propuesta, no implementada).
+  verificación de "antes", nunca restaurar filas: `docs/creditos-aplicar-conciliacion.md`.
+  Script asistido `scripts/conciliacion/aplicar.mjs` (ensayo → decisiones firmadas → aplicar):
+  PATCH condicionado por `updated_at` (atómico), dependencias bloqueantes, duplicados con
+  decisión individual, verificación y auditoría. HOY solo acepta destinos locales (rechaza
+  `*.supabase.co`); probado con `scripts/conciliacion/prueba.mjs` (Postgres+PostgREST locales).
 - **Excel**: hoja "Servicio deuda" (individual y consolidado) con capital +
   intereses + cargos + sin desglosar = servicio; + ajuste manual = línea; control
   contra la hoja del flujo. Usa `line._compCred` (lo anota `aplicarCreditosAEmpresas`).
