@@ -235,6 +235,12 @@ Reglas que no hay que romper:
 - **Vista previa** con datos simulados: `scripts/vista-previa/` (armar.mjs + servir.mjs;
   Supabase simulado en el navegador, tiempo real bloqueado). La vista previa de Vercel
   apunta a PRODUCCIÓN: no usarla para probar acciones. Pauta: `docs/creditos-pauta-revision.md`.
+- **Respaldo real en la vista previa LOCAL** (`docs/creditos-respaldo-local.md`): "Cargar
+  respaldo real…" guarda en IndexedDB una copia ORIGINAL intacta (texto + SHA-256) y una de
+  TRABAJO; PIN reales no se cargan; exporta operaciones (`scripts/vista-previa/diff.js`) y
+  detalle CSV. El Artifact no lo ofrece. Aplicar en producción = operaciones con
+  verificación de "antes", nunca restaurar filas: `docs/creditos-aplicar-conciliacion.md`
+  (propuesta, no implementada).
 - **Excel**: hoja "Servicio deuda" (individual y consolidado) con capital +
   intereses + cargos + sin desglosar = servicio; + ajuste manual = línea; control
   contra la hoja del flujo. Usa `line._compCred` (lo anota `aplicarCreditosAEmpresas`).

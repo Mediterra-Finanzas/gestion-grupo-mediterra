@@ -24,9 +24,44 @@
 
   function leerLS() { try { var t = localStorage.getItem(CLAVE); return t ? JSON.parse(t) : null; } catch (e) { return null; } }
   function guardarLS(s) { try { localStorage.setItem(CLAVE, JSON.stringify(s)); } catch (e) { /* sin almacenamiento: queda en memoria */ } }
-  var store = leerLS() || window.__VP_SEMILLA();
-  guardarLS(store);
-  window.__VP_STORE = store;
+
+  // ── Modo RESPALDO REAL (solo versión local) ───────────────────────────
+  // El respaldo descargado de la app ("💾 Respaldo") se carga en IndexedDB de
+  // ESTE navegador: una copia ORIGINAL que nunca se modifica (texto exacto +
+  // SHA-256) y una COPIA DE TRABAJO sobre la que opera la app. El archivo del
+  // disco solo se lee. Nada sale del equipo.
+  var MODO_LS = 'mediterra_vista_previa_modo';
+  var modoRespaldo = false;
+  try { modoRespaldo = localStorage.getItem(MODO_LS) === 'respaldo' && !!window.__VP_PERMITIR_RESPALDO; } catch (e) {}
+  function idb() {
+    return new Promise(function (ok, mal) {
+      var r = indexedDB.open('mediterra_vista_previa', 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore('kv'); };
+      r.onsuccess = function () { ok(r.result); }; r.onerror = function () { mal(r.error); };
+    });
+  }
+  function idbGet(k) { return idb().then(function (db) { return new Promise(function (ok, mal) {
+    var q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = function () { ok(q.result); }; q.onerror = function () { mal(q.error); }; }); }); }
+  function idbPut(k, v) { return idb().then(function (db) { return new Promise(function (ok, mal) {
+    var t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = function () { ok(); }; t.onerror = function () { mal(t.error); }; }); }); }
+  function idbDel(k) { return idb().then(function (db) { return new Promise(function (ok) {
+    var t = db.transaction('kv', 'readwrite'); t.objectStore('kv').delete(k); t.oncomplete = function () { ok(); }; t.onerror = function () { ok(); }; }); }); }
+  var colaGuardado = Promise.resolve();
+
+  var store = null;
+  function guardar() {
+    if (modoRespaldo) { var copia = JSON.parse(JSON.stringify(store)); colaGuardado = colaGuardado.then(function () { return idbPut('trabajo', copia); }); return; }
+    guardarLS(store);
+  }
+  var listo = modoRespaldo
+    ? idbGet('trabajo').then(function (t) {
+        if (!t) { try { localStorage.removeItem(MODO_LS); } catch (e) {} modoRespaldo = false; store = leerLS() || window.__VP_SEMILLA(); }
+        else store = t;
+        window.__VP_STORE = store;
+      })
+    : Promise.resolve().then(function () { store = leerLS() || window.__VP_SEMILLA(); guardarLS(store); window.__VP_STORE = store; });
+  window.__VP_LISTO = listo;
+  window.__VP_MODO = function () { return modoRespaldo ? 'respaldo' : 'simulado'; };
   window.__VP_REINICIAR = function () { try { localStorage.removeItem(CLAVE); } catch (e) {} location.reload(); };
 
   function resp(body, status) {
@@ -37,7 +72,16 @@
   window.fetch = function (input, init) {
     var url = typeof input === 'string' ? input : (input && input.url) || String(input);
     var metodo = ((init && init.method) || (input && input.method) || 'GET').toUpperCase();
-    if (url.indexOf(HOST) >= 0) {
+    if (url.indexOf(HOST) >= 0) return listo.then(function () { return manejarSupabase(url, metodo, init); });
+    if (url.indexOf('api.emailjs.com') >= 0) return resp('OK');
+    // Detector de versión de producción: en la vista previa no aplica (evita recargas).
+    if (url.indexOf('gestion-grupo-mediterra.vercel.app') >= 0) return resp('', 404);
+    try { var uu = new URL(url, location.href); if (uu.origin === location.origin && uu.pathname.indexOf('/api/') === 0) return resp({}); } catch (e) {}
+    return fetchReal(input, init);
+  };
+
+  function manejarSupabase(url, metodo, init) {
+    {
       var u = new URL(url);
       if (u.pathname.indexOf('/rest/v1/calendario_data') !== 0) return resp({});
       var q = decodeURIComponent(u.search);
@@ -56,7 +100,7 @@
         if (version && fp.updated_at !== version) return resp([]);
         fp.value = body && body.value !== undefined ? body.value : fp.value;
         fp.updated_at = (body && body.updated_at) || new Date().toISOString();
-        guardarLS(store);
+        guardar();
         return resp([{ id: id, value: fp.value, updated_at: fp.updated_at }]);
       }
       if (metodo === 'POST' || metodo === 'PUT') {
@@ -66,17 +110,12 @@
           store[rid] = { value: fl.value, updated_at: ua };
           return { id: rid, value: fl.value, updated_at: ua };
         });
-        guardarLS(store);
+        guardar();
         return resp(out, 201);
       }
       return resp([]);
     }
-    if (url.indexOf('api.emailjs.com') >= 0) return resp('OK');
-    // Detector de versión de producción: en la vista previa no aplica (evita recargas).
-    if (url.indexOf('gestion-grupo-mediterra.vercel.app') >= 0) return resp('', 404);
-    try { var uu = new URL(url, location.href); if (uu.origin === location.origin && uu.pathname.indexOf('/api/') === 0) return resp({}); } catch (e) {}
-    return fetchReal(input, init);
-  };
+  }
 
   // El tiempo real de Supabase (WebSocket) apunta a PRODUCCIÓN: traería cambios
   // reales a esta sesión. Se reemplaza por un socket inerte que nunca conecta.
@@ -211,18 +250,141 @@
     }); });
   }).observe(document.documentElement, { childList: true, subtree: true });
 
+  // ── Respaldo real: cargar, exportar, salir ───────────────────────────
+  function sha256(texto) {
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(texto)).then(function (b) {
+      return Array.prototype.map.call(new Uint8Array(b), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+    });
+  }
+  function descargar(nombre, contenido, tipo) {
+    var url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
+    var a = document.createElement('a'); a.href = url; a.download = nombre; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 2000);
+  }
+  // Store de trabajo a partir del respaldo: igual que "📤 Restaurar" de la app
+  // (cada fila como texto JSON), salvo los PIN: se reemplazan por la credencial
+  // de prueba (los PIN reales no se cargan en el navegador).
+  function storeDesdeRespaldo(r) {
+    var semilla = window.__VP_SEMILLA();
+    var st = {};
+    Object.keys(r.tablas).forEach(function (id) {
+      if (/^backup_/.test(id)) return;
+      var t = r.tablas[id] || {};
+      st[id] = { value: typeof t.data === 'string' ? t.data : JSON.stringify(t.data), updated_at: t.updated_at || r.fecha };
+    });
+    st.pins = semilla.pins;
+    return st;
+  }
+  function cargarRespaldo(archivo) {
+    var lector = new FileReader();
+    lector.onload = function () {
+      var texto = String(lector.result), r;
+      try { r = JSON.parse(texto); } catch (e) { alert('El archivo no es un JSON válido.'); return; }
+      if (!r || !r.tablas || !/Mediterra Hub Backup/.test(r.version || '') || !r.tablas.finanzas) {
+        alert('El archivo no es un respaldo de la app (falta "version: Mediterra Hub Backup" o la fila "finanzas").'); return;
+      }
+      sha256(texto).then(function (h) {
+        var n = Object.keys(r.tablas).length;
+        if (!confirm('Cargar el respaldo REAL en esta vista previa local\n\nArchivo: ' + archivo.name + ' (' + Math.round(archivo.size / 1024) + ' KB, ' + n + ' filas)\n' +
+          'Fecha del respaldo: ' + (r.fecha || 's/f') + ' · ' + (r.usuario || '') + '\nSHA-256: ' + h.slice(0, 16) + '…\n\n' +
+          '· El archivo solo se lee; se guarda una copia ORIGINAL intacta y una copia de TRABAJO en este navegador.\n' +
+          '· No se conecta a producción ni envía correos.\n· Ingresas con el usuario de prueba (PIN 482913); los PIN reales no se cargan.\n\n¿Continuar?')) return;
+        var original = { archivo: archivo.name, tamano: archivo.size, sha256: h, texto: texto, fechaRespaldo: r.fecha || null, usuario: r.usuario || null,
+          cargado: new Date().toISOString() };
+        idbPut('original', original).then(function () { return idbPut('trabajo', storeDesdeRespaldo(r)); }).then(function () {
+          try { localStorage.setItem(MODO_LS, 'respaldo'); sessionStorage.clear(); } catch (e) {}
+          location.reload();
+        }, function (e) { alert('No se pudo guardar el respaldo en el navegador: ' + e.message); });
+      });
+    };
+    lector.readAsText(archivo);
+  }
+  function comparacion() {
+    return Promise.all([idbGet('original'), colaGuardado]).then(function (x) {
+      var o = x[0]; if (!o) throw new Error('No hay respaldo original cargado.');
+      return sha256(o.texto).then(function (h) {
+        if (h !== o.sha256) throw new Error('El respaldo original guardado no coincide con su SHA-256. No se exporta.');
+        var r = JSON.parse(o.texto);
+        return { o: o, r: r, c: window.VPDiff.comparar(r, store) };
+      });
+    });
+  }
+  function sello() { return new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-'); }
+  function exportarResultado() {
+    comparacion().then(function (x) {
+      var fv = store.finanzas ? store.finanzas.value : null;
+      while (typeof fv === 'string') { try { fv = JSON.parse(fv); } catch (e) { fv = null; } }
+      var out = {
+        formato: 'mediterra-conciliacion-creditos-v1',
+        advertencia: 'Resultado de una conciliación hecha en la VISTA PREVIA LOCAL. No aplicar a producción sin revisión y sin el procedimiento acordado (operaciones con verificación de "antes", nunca reemplazando la fila completa).',
+        generado: new Date().toISOString(),
+        respaldo: { archivo: x.o.archivo, tamano: x.o.tamano, sha256: x.o.sha256, verificacionSha256: 'coincide', fecha: x.o.fechaRespaldo, usuario: x.o.usuario,
+          versionesFilas: Object.keys(x.r.tablas).reduce(function (a, k) { if (!/^backup_|^pins$/.test(k)) a[k] = x.r.tablas[k].updated_at || null; return a; }, {}) },
+        resumen: x.c.resumen, alertas: x.c.alertas, operaciones: x.c.operaciones, filasConCambios: x.c.filas,
+        referencia: fv ? { creditos_data: fv.creditos_data, creditos_saldos_informados: fv.creditos_saldos_informados, creditos_config: fv.creditos_config } : null,
+      };
+      descargar('conciliacion_creditos_' + sello() + '.json', JSON.stringify(out, null, 2), 'application/json');
+      toast('Resultado exportado: ' + x.c.operaciones.length + ' operación(es)' + (x.c.alertas ? ' · ' + x.c.alertas + ' ALERTA(S) a revisar' : '') + '.');
+    }, function (e) { alert(e.message); });
+  }
+  function exportarDetalle() {
+    comparacion().then(function (x) {
+      descargar('detalle_cambios_' + sello() + '.csv', window.VPDiff.csv(x.c.detalle, x.c.operaciones), 'text/csv;charset=utf-8');
+      toast('Detalle exportado: ' + x.c.operaciones.length + ' operación(es) y ' + x.c.detalle.length + ' diferencia(s).');
+    }, function (e) { alert(e.message); });
+  }
+  function verResumen() {
+    comparacion().then(function (x) {
+      var l = Object.keys(x.c.resumen).map(function (k) { return k + ': ' + x.c.resumen[k]; });
+      alert('Cambios respecto del respaldo original (' + x.o.archivo + ')\n\n' + (l.length ? l.join('\n') : 'Sin cambios de Créditos.') +
+        '\n\nDiferencias totales (incluye auto-guardado de la app): ' + x.c.detalle.length + (x.c.alertas ? '\nALERTAS: ' + x.c.alertas : ''));
+    }, function (e) { alert(e.message); });
+  }
+  function salirRespaldo() {
+    if (!confirm('Salir del modo respaldo real.\n\nSe BORRAN de este navegador la copia original y la copia de trabajo (el archivo de tu disco no se toca).\n¿Ya exportaste el resultado y el detalle?')) return;
+    Promise.all([idbDel('original'), idbDel('trabajo')]).then(function () {
+      try { localStorage.removeItem(MODO_LS); sessionStorage.clear(); } catch (e) {}
+      location.reload();
+    });
+  }
+
   // ── Barra de la vista previa ─────────────────────────────────────────
+  var BTN = 'margin:2px 4px 0 0;padding:2px 8px;border-radius:6px;border:1px solid #b45309;background:#fff;color:#78350f;cursor:pointer;font:inherit';
   function barra() {
     var b = document.createElement('div');
     b.id = 'vp-barra';
-    b.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:99998;background:#fef3c7;color:#78350f;border:1px solid #f59e0b;border-radius:10px;padding:8px 12px;font:12px/1.45 Inter,system-ui,sans-serif;max-width:min(560px,calc(100vw - 24px));box-shadow:0 4px 14px rgba(0,0,0,.18)';
-    b.innerHTML = '<strong>VISTA PREVIA · DATOS SIMULADOS</strong> · nada se lee ni se escribe en producción; no se envían correos.<br>' +
-      'Ingreso: <code>ahuerta@grupomediterra.cl</code> · PIN <code>482913</code> → Flujo de Caja → Créditos. ' +
-      (window.__VP_DIALOGOS_EN_PAGINA ? 'Los motivos y confirmaciones se piden en un cuadro de esta página; las descargas piden tu confirmación. ' : '') +
-      '<button id="vp-reset" style="margin-left:4px;padding:2px 8px;border-radius:6px;border:1px solid #b45309;background:#fff;color:#78350f;cursor:pointer;font:inherit">Reiniciar datos</button> ' +
-      '<button id="vp-min" style="padding:2px 8px;border-radius:6px;border:1px solid #b45309;background:#fff;color:#78350f;cursor:pointer;font:inherit">Ocultar</button>';
-    document.body.appendChild(b);
-    document.getElementById('vp-reset').onclick = function () { window.__VP_REINICIAR(); };
+    var real = modoRespaldo;
+    b.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:99998;background:' + (real ? '#fee2e2' : '#fef3c7') + ';color:' + (real ? '#7f1d1d' : '#78350f') +
+      ';border:1px solid ' + (real ? '#dc2626' : '#f59e0b') + ';border-radius:10px;padding:8px 12px;font:12px/1.45 Inter,system-ui,sans-serif;max-width:min(600px,calc(100vw - 24px));box-shadow:0 4px 14px rgba(0,0,0,.18)';
+    if (real) {
+      b.innerHTML = '<strong>VISTA PREVIA LOCAL · RESPALDO REAL</strong> <span id="vp-info"></span><br>' +
+        'Los cambios quedan solo en este navegador. Producción no se lee ni se escribe; no se envían correos. Ingreso: <code>ahuerta@grupomediterra.cl</code> · PIN <code>482913</code>.<br>' +
+        '<button id="vp-resumen" style="' + BTN + '">Ver resumen de cambios</button>' +
+        '<button id="vp-exp-json" style="' + BTN + '">Exportar resultado (JSON)</button>' +
+        '<button id="vp-exp-csv" style="' + BTN + '">Exportar detalle (CSV)</button>' +
+        '<button id="vp-salir" style="' + BTN + '">Salir del modo respaldo</button>' +
+        '<button id="vp-min" style="' + BTN + '">Ocultar</button>';
+      document.body.appendChild(b);
+      idbGet('original').then(function (o) { if (o) document.getElementById('vp-info').textContent = '· ' + o.archivo + ' · respaldo del ' + (o.fechaRespaldo || 's/f').slice(0, 16).replace('T', ' ') + ' · SHA-256 ' + o.sha256.slice(0, 12) + '…'; });
+      document.getElementById('vp-resumen').onclick = verResumen;
+      document.getElementById('vp-exp-json').onclick = exportarResultado;
+      document.getElementById('vp-exp-csv').onclick = exportarDetalle;
+      document.getElementById('vp-salir').onclick = salirRespaldo;
+    } else {
+      b.innerHTML = '<strong>VISTA PREVIA · DATOS SIMULADOS</strong> · nada se lee ni se escribe en producción; no se envían correos.<br>' +
+        'Ingreso: <code>ahuerta@grupomediterra.cl</code> · PIN <code>482913</code> → Flujo de Caja → Créditos. ' +
+        (window.__VP_DIALOGOS_EN_PAGINA ? 'Los motivos y confirmaciones se piden en un cuadro de esta página; las descargas piden tu confirmación. ' : '') +
+        '<button id="vp-reset" style="' + BTN + '">Reiniciar datos</button>' +
+        (window.__VP_PERMITIR_RESPALDO ? '<button id="vp-cargar" style="' + BTN + '">Cargar respaldo real…</button><input id="vp-archivo" type="file" accept=".json,application/json" style="display:none">' : '') +
+        '<button id="vp-min" style="' + BTN + '">Ocultar</button>';
+      document.body.appendChild(b);
+      document.getElementById('vp-reset').onclick = function () { window.__VP_REINICIAR(); };
+      if (window.__VP_PERMITIR_RESPALDO) {
+        var inp = document.getElementById('vp-archivo');
+        document.getElementById('vp-cargar').onclick = function () { inp.click(); };
+        inp.onchange = function () { if (inp.files && inp.files[0]) cargarRespaldo(inp.files[0]); inp.value = ''; };
+      }
+    }
     document.getElementById('vp-min').onclick = function () { b.style.display = 'none'; toast('Barra oculta. Recarga la página para verla de nuevo.'); };
   }
   if (document.body) barra(); else document.addEventListener('DOMContentLoaded', barra);

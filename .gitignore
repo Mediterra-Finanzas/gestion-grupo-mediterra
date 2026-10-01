@@ -49,3 +49,8 @@ docs/osiris-fase0/snapshots/osiris-snapshot-*.json
 
 # vista previa armada (scripts/vista-previa/armar.mjs)
 /scripts/vista-previa/dist
+
+# Respaldos reales y resultados de conciliación: NUNCA al repositorio
+backup_mediterra_*.json
+conciliacion_creditos_*.json
+detalle_cambios_*.csv

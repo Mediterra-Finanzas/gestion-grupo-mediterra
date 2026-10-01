@@ -142,6 +142,7 @@ const copiar = (de, a) => {
 };
 copiar(BUILD, OUT);
 fs.copyFileSync(path.join(AQUI, 'shim.js'), path.join(OUT, 'shim.js'));
+fs.copyFileSync(path.join(AQUI, 'diff.js'), path.join(OUT, 'diff.js'));
 fs.writeFileSync(path.join(OUT, 'semilla.js'), semilla);
 
 const idx = fs.readFileSync(path.join(BUILD, 'index.html'), 'utf8');
@@ -152,8 +153,9 @@ const cuerpo = (auto) => `<title>Vista previa Créditos</title>
 ${fuentes}
 <link href="${css}" rel="stylesheet"/>
 <div id="root"></div>
-<script>window.__VP_DIALOGOS_EN_PAGINA = ${auto};</script>
+<script>window.__VP_DIALOGOS_EN_PAGINA = ${auto}; window.__VP_PERMITIR_RESPALDO = ${!auto};</script>
 <script src="semilla.js"></script>
+<script src="diff.js"></script>
 <script src="shim.js"></script>
 <script src="${js}"></script>
 `;

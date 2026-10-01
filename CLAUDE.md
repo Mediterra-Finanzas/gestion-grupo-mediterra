@@ -237,6 +237,12 @@ Reglas que no hay que romper:
 - **Vista previa** con datos simulados: `scripts/vista-previa/` (armar.mjs + servir.mjs;
   Supabase simulado en el navegador, tiempo real bloqueado). La vista previa de Vercel
   apunta a PRODUCCIÓN: no usarla para probar acciones. Pauta: `docs/creditos-pauta-revision.md`.
+- **Respaldo real en la vista previa LOCAL** (`docs/creditos-respaldo-local.md`): "Cargar
+  respaldo real…" guarda en IndexedDB una copia ORIGINAL intacta (texto + SHA-256) y una de
+  TRABAJO; PIN reales no se cargan; exporta operaciones (`scripts/vista-previa/diff.js`) y
+  detalle CSV. El Artifact no lo ofrece. Aplicar en producción = operaciones con
+  verificación de "antes", nunca restaurar filas: `docs/creditos-aplicar-conciliacion.md`
+  (propuesta, no implementada).
 - **Excel**: hoja "Servicio deuda" (individual y consolidado) con capital +
   intereses + cargos + sin desglosar = servicio; + ajuste manual = línea; control
   contra la hoja del flujo. Usa `line._compCred` (lo anota `aplicarCreditosAEmpresas`).
@@ -465,6 +471,8 @@ OUT_DIR=/tmp/vp node scripts/e2e/vista-previa-creditos.mjs   # vista previa de C
 OUT_DIR=/tmp/e2e node scripts/e2e/apertura-sin-cambios.mjs   # abrir con registros antiguos no los modifica
 node scripts/vista-previa/armar.mjs --build && node scripts/vista-previa/servir.mjs   # vista previa funcional en http://localhost:4180
 VP_URL=http://127.0.0.1:4180 OUT_DIR=/tmp/vpf node scripts/e2e/vista-previa-funcional.mjs   # prueba la vista previa (pauta)
+node scripts/vista-previa/respaldo-prueba.mjs /tmp/rp.json && VP_URL=http://127.0.0.1:4180 RESPALDO=/tmp/rp.json OUT_DIR=/tmp/vpr node scripts/e2e/vista-previa-respaldo.mjs   # modo respaldo real (con respaldo de PRUEBA)
+VP_URL=http://127.0.0.1:4180 OUT_DIR=/tmp/vpu node scripts/e2e/vista-previa-uf.mjs   # mecanismo de descarga de UF (respuesta simulada)
 CI=true npx react-scripts test --watchAll=false     # suite completa (jest)
 CI=true npx react-scripts test --testPathPattern Anticipos --watchAll=false
 node scripts/verif-excel-recalc.mjs         # recálculo REAL del Excel (requiere LibreOffice Calc)
