@@ -417,6 +417,70 @@ export function alcancePorVariedad(informe) {
   return variedadesDe(informe).map((v) => alcanceDeVariedad(informe, v));
 }
 
+// El alcance se guarda por NOMBRE de variedad. Si la variedad deja de estar en
+// el informe —se corrige su grafía en el maestro, o se desmarca— su alcance
+// seguía guardado y dejaba de verse en todas partes. No se perdía en disco,
+// pero se perdía para quien usa la aplicación, que es igual de malo.
+//
+// Preservarlo es un requisito técnico, no una decisión de campo: acá se lista
+// para mostrarlo, y moverlo a otra variedad lo pide una persona. Nunca se
+// adivina a cuál corresponde ni se mueve solo.
+export function alcancesDeVariedadesAusentes(informe) {
+  const inf = informe || {};
+  const mapa = (inf.alcanceVariedades && typeof inf.alcanceVariedades === "object") ? inf.alcanceVariedades : {};
+  const vigentes = variedadesDe(inf).map((v) => String(v).trim().toLowerCase());
+  return Object.keys(mapa)
+    .filter((v) => vigentes.indexOf(String(v).trim().toLowerCase()) === -1)
+    .map((v) => ({
+      variedad: v,
+      alcance: mapa[v],
+      etiqueta: alcanceDeVariedad(inf, v).etiqueta || "",
+      motivo: 'La variedad "' + v + '" ya no está en el informe. Su alcance se conserva tal cual; ' +
+        "para que vuelva a verse hay que reasignarlo a una variedad del informe.",
+    }))
+    .filter((x) => x.alcance && String(x.alcance.valor === undefined ? "" : x.alcance.valor).trim() !== "");
+}
+
+/**
+ * Mueve el alcance de una variedad a otra.
+ *
+ * Si la variedad de destino YA tiene un valor cargado, no se pisa: se devuelve
+ * `conflicto: true` y el informe sin tocar. Reemplazar exige confirmación
+ * explícita (`reemplazar: true`), y en ese caso se informa qué se reemplazó
+ * para poder decirlo en pantalla.
+ */
+export function reasignarAlcanceVariedad(informe, origen, destino, opciones) {
+  const opt = opciones || {};
+  const inf = informe || {};
+  const o = String(origen || "").trim();
+  const d = String(destino || "").trim();
+  if (o === "" || d === "" || o.toLowerCase() === d.toLowerCase())
+    return { informe: inf, movido: false, conflicto: false, motivo: "origen y destino tienen que ser dos variedades distintas" };
+
+  const mapa = Object.assign({}, (inf.alcanceVariedades && typeof inf.alcanceVariedades === "object") ? inf.alcanceVariedades : {});
+  if (!mapa[o])
+    return { informe: inf, movido: false, conflicto: false, motivo: "la variedad de origen no tiene alcance guardado" };
+
+  const previo = mapa[d];
+  const destinoTiene = !!previo && String(previo.valor === undefined ? "" : previo.valor).trim() !== "";
+  if (destinoTiene && !opt.reemplazar)
+    return {
+      informe: inf, movido: false, conflicto: true,
+      actualDestino: alcanceDeVariedad(inf, d).etiqueta || "",
+      motivo: 'La variedad "' + d + '" ya tiene alcance cargado. Confirmar lo reemplaza.',
+    };
+
+  mapa[d] = mapa[o];
+  delete mapa[o];
+  return {
+    informe: Object.assign({}, inf, { alcanceVariedades: mapa }),
+    movido: true,
+    conflicto: false,
+    reemplazo: destinoTiene ? (alcanceDeVariedad(inf, d).etiqueta || "") : "",
+    motivo: "",
+  };
+}
+
 export function conAlcanceVariedad(informe, variedad, valor, unidad) {
   const inf = informe || {};
   const mapa = Object.assign({}, (inf.alcanceVariedades && typeof inf.alcanceVariedades === "object") ? inf.alcanceVariedades : {});

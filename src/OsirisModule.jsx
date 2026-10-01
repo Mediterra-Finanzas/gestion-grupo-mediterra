@@ -13,6 +13,7 @@ import {
   ETIQUETA_ESTADO_FENOLOGICO, etiquetaSeccionFenologia, alcanceEvaluado, conAlcance,
   densidadDeclarada, variedadesDe, conVariedades, etiquetaVariedades, UNIDADES_ALCANCE,
   cambioDeSignificado, alcanceDeVariedad, alcancePorVariedad, conAlcanceVariedad,
+  alcancesDeVariedadesAusentes, reasignarAlcanceVariedad,
   resumenAlcance, NOTA_ESTADO_FENOLOGICO,
 } from "./osiris/informeAlcance";
 import { asuntoCorreoInforme, cuerpoCorreoInforme, vistaPreviaCorreo, validarDestinatarios } from "./osiris/correoInforme";
@@ -277,6 +278,54 @@ function Th({cols}) {
         ))}
       </tr>
     </thead>
+  );
+}
+
+// Alcances de variedades que ya no están en el informe. Se listan con su
+// valor; moverlos a otra variedad lo pide quien está mirando, y si el destino
+// ya tiene un valor cargado hace falta confirmar antes de reemplazarlo.
+function AlcancesPreservados({inf, puedeEditar, onCambio}) {
+  const [destino, setDestino] = useState({});
+  const ausentes = alcancesDeVariedadesAusentes(inf);
+  const vigentes = variedadesDe(inf);
+  if (!ausentes.length) return null;
+
+  return (
+    <div>
+      {ausentes.map(a=>(
+        <div key={a.variedad} style={{fontSize:10,marginTop:5,background:(C.amBg||"#fef9c3"),
+          border:`1px solid ${C.am||"#ca8a04"}`,borderRadius:5,padding:"5px 7px",color:(C.am||"#854d0e")}}>
+          <strong>&quot;{a.variedad}&quot; ya no está en el informe, y tenía alcance cargado:
+          {" "}{a.etiqueta}.</strong> Se conserva tal cual.
+          {vigentes.length>0&&puedeEditar&&(
+            <span style={{display:"inline-flex",alignItems:"center",gap:4,marginLeft:6}}>
+              <span>Reasignar a:</span>
+              <select value={destino[a.variedad]||""} onChange={e=>setDestino(p=>({...p,[a.variedad]:e.target.value}))}
+                style={{padding:"3px 5px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}>
+                <option value="">— elegir —</option>
+                {vigentes.map(v=><option key={v} value={v}>{v}</option>)}
+              </select>
+              <button disabled={!destino[a.variedad]} onClick={()=>{
+                  const d=destino[a.variedad];
+                  let r=reasignarAlcanceVariedad(inf, a.variedad, d);
+                  if(r.conflicto){
+                    if(!window.confirm('"'+d+'" ya tiene alcance cargado ('+(r.actualDestino||"")+').\n\n¿Reemplazarlo por el de "'+a.variedad+'" ('+a.etiqueta+')?')) return;
+                    r=reasignarAlcanceVariedad(inf, a.variedad, d, {reemplazar:true});
+                  }
+                  if(!r.movido) return;
+                  onCambio(r.informe.alcanceVariedades);
+                  setDestino(p=>({...p,[a.variedad]:""}));
+                }}
+                style={{fontSize:9,padding:"2px 7px",borderRadius:4,border:"none",
+                  background:destino[a.variedad]?C.primary:C.border,color:"#fff",
+                  cursor:destino[a.variedad]?"pointer":"default"}}>
+                Reasignar
+              </button>
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -5245,16 +5294,27 @@ function OperacionTecnica({data, setData, ctData=[], clientes=[], especiesMaestr
   const [emailsEnvio, setEmailsEnvio] = useState("");
 
   // CRUD helpers
+  // El permiso se valida acá, no solo deshabilitando controles: así un guardado
+  // que llegue por cualquier otra vía tampoco escribe.
+  function bloqueadoPorPermiso(accion) {
+    if (can) return false;
+    // eslint-disable-next-line no-console
+    console.warn("[Osiris] " + accion + " ignorado: el usuario no tiene permiso de edición en Operación Técnica.");
+    return true;
+  }
   function addItem(key, item) {
+    if (bloqueadoPorPermiso("alta")) return null;
     const id = `${key.slice(0,3)}_${Date.now()}`;
     upd(key, [...(data?.[key]||[]), {...item, id}]);
     window.auditLog&&window.auditLog("crear",{modulo:"osiris",seccion:`Op. Técnica · ${key}`,descripcion:`Creó ${key}: ${item.titulo||item.nombre||item.tipo||""}`});
     return id;
   }
   function updItem(key, id, changes) {
+    if (bloqueadoPorPermiso("edición")) return;
     upd(key, (data?.[key]||[]).map(x=>x.id===id?{...x,...changes}:x));
   }
   function delItem(key, id, label) {
+    if (bloqueadoPorPermiso("borrado")) return;
     if(!window.confirm(`¿Eliminar "${label}"?`)) return;
     upd(key, (data?.[key]||[]).filter(x=>x.id!==id));
     window.auditLog&&window.auditLog("eliminar",{modulo:"osiris",seccion:`Op. Técnica · ${key}`,descripcion:`Eliminó: ${label}`,registroId:id});
@@ -5853,6 +5913,11 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                             ))}
                           </div>
                         )}
+                        {/* Un alcance cargado para una variedad que ya no está en el
+                            informe no desaparece: se muestra y se puede devolver a una
+                            variedad del informe, eligiéndola a mano. */}
+                        <AlcancesPreservados inf={inf} puedeEditar={puedeEditar}
+                          onCambio={m=>updInf("alcanceVariedades", m)}/>
                         {(()=>{ const r=resumenAlcance(inf);
                           if(r.modo==="historico") return (
                             <div style={{fontSize:10,color:C.muted,marginTop:5,background:C.cardAlt,borderRadius:5,padding:"4px 6px"}}>
@@ -11040,10 +11105,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const permRoyalties   = tabPermisos?.royalties || "editar";
   const permObtentores  = tabPermisos?.obtentores || tabPermisos?.contratos || "editar"; // hereda de contratos si no está definido
   const permViveros     = tabPermisos?.viveros    || tabPermisos?.contratos || "editar"; // hereda de contratos si no está definido
+  const permOpTecnica   = tabPermisos?.opTecnica  || tabPermisos?.contratos || "editar"; // hereda de contratos si no está definido
   const canVerContratos  = permContratos  !== "sin_acceso";
   const canVerRoyalties  = permRoyalties  !== "sin_acceso";
   const canVerObtentores = permObtentores !== "sin_acceso";
   const canVerViveros    = permViveros    !== "sin_acceso";
+  const canVerOpTecnica  = permOpTecnica  !== "sin_acceso";
   // Solo puede editar si: no es consulta AND rol editor/admin AND permiso = "editar"
   const canContratos = !esConsulta && esEditorOAdmin &&
     (rolActual === "admin" || permContratos === "editar");
@@ -11053,6 +11120,10 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     (rolActual === "admin" || permObtentores === "editar");
   const canViveros    = !esConsulta && esEditorOAdmin &&
     (rolActual === "admin" || permViveros === "editar");
+  // Operación Técnica leía solo el rol base e ignoraba su propio permiso: un
+  // usuario con la pestaña en "ver" podía editar informes en borrador.
+  const canOpTecnica  = !esConsulta && esEditorOAdmin &&
+    (rolActual === "admin" || permOpTecnica === "editar");
   const can = canIngresos;
 
   const totPend=
@@ -12622,7 +12693,16 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // ── OPERACIÓN TÉCNICA ─────────────────────────────────────
   if(subApp==="opTecnica") {
     const opData = osirisData?.opTecnica || {};
-    const canOp = esEditorOAdmin; // usar mismos permisos base
+    const canOp = canOpTecnica; // respeta tab_permisos.osiris.opTecnica, como las demás pestañas
+    if(!canVerOpTecnica) return (
+      <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:24}}>
+        <div style={{maxWidth:520,margin:"60px auto",background:C.card,borderRadius:12,padding:24,textAlign:"center"}}>
+          <div style={{fontSize:14,fontWeight:800,color:C.text,marginBottom:6}}>Sin acceso a Operación Técnica</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:14}}>Tu usuario no tiene esta pestaña habilitada.</div>
+          <button onClick={onBack} style={{padding:"7px 16px",borderRadius:8,border:"none",background:C.primary,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Volver</button>
+        </div>
+      </div>
+    );
     return (
       <div className="osiris-root" style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px",maxWidth:"100%",overflowX:"hidden"}}>
         {guardadoChip}
