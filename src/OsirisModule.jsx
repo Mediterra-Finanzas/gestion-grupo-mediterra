@@ -4139,8 +4139,13 @@ function DashboardAnalitico({ctData,feData,rpData,rcData,tpData,especiesMaestro=
   const cantContratos = new Set(tpFilt.map(p=>p.ctId)).size;
 
   const cfFact = sumNum(feFilt, r=>r.montoUSD);
-  const cfNeto = sumNum(feFilt, r=>parseFloat(r.montoUSD)||0); // Contract Fee: 100% sin WHT
-  const cfPagado = sumNum(feFilt.filter(r=>r.pagado), r=>parseFloat(r.montoUSD)||0); // Contract Fee: 100% sin WHT
+  // Estas dos sumas toman el BRUTO del contract fee. No se cambia el calculo:
+  // solo se deja dicho que eso es lo que hacen, no que este acreditado que el
+  // fee no lleve retencion. Ojo que derivarContractFeeDesdeContratos calcula
+  // ademas un `montoNeto` con retencion que ninguna pantalla lee: cual de los
+  // dos rige es una definicion tributaria pendiente, no una lectura del codigo.
+  const cfNeto = sumNum(feFilt, r=>parseFloat(r.montoUSD)||0); // suma el bruto
+  const cfPagado = sumNum(feFilt.filter(r=>r.pagado), r=>parseFloat(r.montoUSD)||0); // suma el bruto
 
   const rpFact = sumNum(rpFilt, r=>r.montoFact);
   const rpNeto = sumNum(rpFilt, r=>r.montoCobro);
@@ -6946,6 +6951,10 @@ function derivarContractFeeDesdeContratos(ctData) {
       cliente: ct.razonSocial,
       pais: ct.pais,
       montoUSD: Number(ct.montoContractFee)||0,
+      // Calculado pero NO leido por ninguna pantalla: el tablero y la tabla de
+      // Fee de Entrada muestran y suman el bruto. Se deja como esta -quitarlo
+      // seria decidir que el fee no lleva retencion, y eso no esta acreditado-
+      // y queda anotado para que no se lea como si estuviera en uso.
       montoNeto: (Number(ct.montoContractFee)||0) * pct(ct.pais),
       whtPct: pct(ct.pais)===1 ? 0 : 15,
       detalle: ct.tipoContractFee,
@@ -9041,7 +9050,7 @@ Motivo del retiro:`, "");
           {/* ── SECCIÓN: COBROS DERIVADOS ── */}
           {sec==="cobros"&&(<>
             <div style={{fontSize:13,color:C.muted,marginBottom:12}}>
-              💵 Configuración de cobros derivada de plantaciones. Contract Fee: <strong>100% sin WHT</strong>. Royalty Planta/Comercial: <strong>{pct(r.pais)===1?"100% sin WHT":"85% (WHT 15%)"}</strong> en {r.pais}.
+              💵 Configuración de cobros derivada de plantaciones. Contract Fee: <strong>se factura y se cobra en bruto</strong> (el sistema no le calcula retención; si corresponde o no es una definición pendiente). Royalty Planta/Comercial: <strong>{pct(r.pais)===1?"100% sin WHT":"85% (WHT 15%)"}</strong> en {r.pais}.
             </div>
 
             {/* Sub-sección 1: Contract Fee — SIN WHT */}
