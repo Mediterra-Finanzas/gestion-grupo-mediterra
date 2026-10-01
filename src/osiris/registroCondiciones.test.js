@@ -67,9 +67,27 @@ describe("2 · un consumo desconocido no es cero", () => {
   test("en un cupo compartido, si a un contrato del grupo le falta el historial, no se suma", () => {
     const a = CT({ id: "a", beneficioFee: { declarado: true, plantasCubiertas: 30000, referencia: "x", confirmado: true, alcance: "grupo", contratosDelGrupo: ["b"], consumoPrevioConocido: true, consumoPrevio: 5000 } });
     const b = CT({ id: "b", beneficioFee: { declarado: true, plantasCubiertas: 30000, referencia: "x", confirmado: true, alcance: "grupo", contratosDelGrupo: ["a"] } });
-    const c = consumoCupo(a, [a, b], { a: 0, b: 0 });
+    const c = consumoCupo(a, [a, b], { a: 1000, b: 2000 });
     expect(c.consumoPrevio).toBeNull();                 // no se suma 5000 + "no sé"
+    expect(c.consumido).toBeNull();                     // indeterminado, no 3000
+    expect(c.disponible).toBeNull();                    // ni 0 ni el cupo entero
+    expect(c.disponible).not.toBe(0);
+    expect(c.disponible).not.toBe(30000);
+    expect(c.indeterminado).toBe(true);
+    expect(c.motivoIndeterminado).toMatch(/historial/i);
+    expect(c.entregadasRegistradas).toBe(3000);         // lo que SÍ se puede contar, aparte
     expect(gruposSinHistorial(a, [a, b]).length).toBeGreaterThan(0);
+  });
+
+  test("el indeterminado es una propiedad del cálculo, no una confianza en el llamador", () => {
+    // Aunque el beneficio estuviera confirmado, sin el historial completo el
+    // consumo no se completa con cero.
+    const a = CT({ id: "a", beneficioFee: { declarado: true, plantasCubiertas: 30000, referencia: "x", confirmado: true, alcance: "grupo", contratosDelGrupo: ["b"], consumoPrevioConocido: true, consumoPrevio: 5000 } });
+    const b = CT({ id: "b", beneficioFee: { declarado: true, plantasCubiertas: 30000, referencia: "x", confirmado: true, alcance: "grupo", contratosDelGrupo: ["a"] } });
+    const c = consumoCupo(a, [a, b], { a: 1000, b: 2000 });
+    expect(c.aplica).toBe(false);
+    expect(c.consumido).toBeNull();
+    expect(c.disponible).toBeNull();
   });
 });
 

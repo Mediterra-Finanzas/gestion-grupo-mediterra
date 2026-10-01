@@ -8813,7 +8813,9 @@ Motivo del retiro:`, "");
                               <div style={{marginTop:5,fontWeight:700,color:(C.am||"#854d0e")}}>
                                 Configuración confirmada, <strong>todavía no aplicada</strong>: el motor sigue cobrando el royalty por planta completo. Descontar el cupo del cálculo real es una decisión aparte, que no está tomada.
                               </div></>
-                          : <><strong>El beneficio no se esta aplicando.</strong> Falta: {faltaB.join(", ")}. Entregas registradas hoy: {N(cupo.entregadasRegistradas)} plantas{cupo.compartidoCon.length>0&&<> (del grupo completo)</>}. El saldo disponible queda <strong>pendiente</strong>, no en cero.</>}
+                          : <><strong>El beneficio no se está aplicando.</strong> Falta: {faltaB.join(", ")}. Entregas registradas hoy: {N(cupo.entregadasRegistradas)} plantas{cupo.compartidoCon.length>0&&<> (del grupo completo)</>}.
+                              {" "}El consumo y el saldo disponible quedan <strong>indeterminados</strong>: ni cero ni el cupo íntegro.
+                              {cupo.indeterminado&&cupo.motivoIndeterminado&&<> {cupo.motivoIndeterminado}</>}</>}
                       </div>
                     </>)}
                   </div>

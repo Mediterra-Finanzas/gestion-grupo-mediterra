@@ -149,13 +149,37 @@ export function consumoCupo(ct, contratos, plantasPorContrato) {
       entregadasRegistradas: entregadas, // lo que sí se puede contar hoy
       consumoPrevio: previo,
       consumido: null,
-      disponible: null,                  // nunca 0 por defecto
+      disponible: null,                  // nunca 0 ni el cupo entero
+      indeterminado: previo === null,
+      motivoIndeterminado: previo === null
+        ? "Falta declarar el historial de entregas: el consumo y el disponible quedan indeterminados."
+        : "",
       compartidoCon: grupo.filter((id) => id !== txt(ct.id)),
       detalle,
       aplica: false,
     };
   }
-  const consumido = entregadas + (previo || 0);
+  // Si por cualquier via se llegara acá sin el historial completo del grupo,
+  // NO se completa con cero: el consumo y el disponible quedan indeterminados.
+  // Hoy `faltantesBeneficio` ya lo exige para confirmar; esto lo vuelve una
+  // propiedad del cálculo y no una confianza en el llamador.
+  if (previo === null) {
+    return {
+      estado,
+      faltan: faltantesBeneficio(ct, contratos),
+      cupo: b.plantasCubiertas,
+      entregadasRegistradas: entregadas,
+      consumoPrevio: null,
+      consumido: null,
+      disponible: null,
+      indeterminado: true,
+      motivoIndeterminado: "Falta el historial de entregas de al menos un contrato del cupo compartido: el consumo no se puede sumar sin inventar un cero.",
+      compartidoCon: grupo.filter((id) => id !== txt(ct.id)),
+      detalle,
+      aplica: false,
+    };
+  }
+  const consumido = entregadas + previo;
   return {
     estado,
     faltan: [],
