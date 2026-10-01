@@ -74,6 +74,20 @@ describe("2 · Reino Unido entra acá y NO en el campo país", () => {
     expect(PAISES).not.toContain("Reino Unido");
   });
 
+  test("qué pasaría si alguien escribiera Reino Unido en el campo país", () => {
+    // Medido, no supuesto. La regla de hoy es binaria: 0 % si el texto dice
+    // "chile", 15 % en cualquier otro caso. Así que el efecto DEPENDE de la
+    // tasa anterior, y desde Perú no hay efecto.
+    const desdePeru = { id: "a", pais: "Peru" };
+    const desdeChile = { id: "b", pais: "Chile" };
+    expect(estadoRetencion(desdePeru).pct).toBe(15);
+    expect(estadoRetencion({ ...desdePeru, pais: "Reino Unido" }).pct).toBe(15);   // no se mueve
+    expect(estadoRetencion(desdeChile).pct).toBe(0);
+    expect(estadoRetencion({ ...desdeChile, pais: "Reino Unido" }).pct).toBe(15);  // sí se mueve
+    // Y en todos los casos, declarar el país de constitución no interviene.
+    expect(estadoRetencion(declararPaisConstitucion(desdePeru, "Reino Unido"))).toEqual(estadoRetencion(desdePeru));
+  });
+
   test("los dos catálogos son independientes", () => {
     expect(PAISES_CONSTITUCION).not.toBe(PAISES);
     expect(PAISES_CONSTITUCION.length).toBeGreaterThan(PAISES.length);

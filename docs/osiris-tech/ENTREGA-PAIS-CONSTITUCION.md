@@ -57,12 +57,27 @@ cargado y todavía no declararon su constitución. Sobre los datos reales de hoy
 | **Identificación clara de cada campo** | Son dos bloques distintos, con el texto en pantalla: *"Es otro dato que el campo País de arriba, que es el de identificación y el que el motor usa hoy para la retención. Declararlo acá no cambia ningún importe, no valida ninguna tasa y no toca el campo País."* Si los dos difieren, se informa y se dice explícitamente que no cambia importes |
 | **Fuente canónica del cliente, sin copias contradictorias por contrato** | El campo vive en el **cliente**. Un contrato lo resuelve por `clienteId` y **no guarda copia**. Declararlo una vez alcanza a todos los contratos de esa sociedad. Si el contrato no tiene cliente, el estado es "sin cliente asociado": **no** se cae al país del contrato |
 
-## 4 · Un hallazgo que conviene saber
+## 4 · Un hallazgo, dicho con precisión
 
 El selector del campo "País" del Maestro de Clientes **ya tiene hoy** una opción *"➕ Agregar
-país…"*: cualquiera con permiso de edición puede escribir "Reino Unido" ahí a mano, y eso sí
-cambiaría el cálculo de retención de los contratos de ese cliente. Este paquete no agrega esa
-puerta ni la cierra; la deja como está. Si querés cerrarla, es una decisión aparte.
+país…"*: cualquiera con permiso de edición puede escribir "Reino Unido" ahí a mano. Este paquete
+no agrega esa puerta ni la cierra; la deja como está.
+
+**Corrección de una afirmación anterior.** Dije que hacerlo "cambiaría el cálculo de retención de
+los contratos de ese cliente". Eso es más fuerte de lo que el código sostiene. Lo que sí se puede
+afirmar, leído del código:
+
+| | |
+|---|---|
+| **El motor lee el país del CONTRATO, no el del cliente** | `estadoRetencion(ct)` usa `ct.pais`. El país del cliente se copia al contrato **solo al seleccionarlo** al crear o cargar el registro (`onSelect`). Editar el maestro después **no** reescribe los contratos existentes |
+| **La regla de hoy es binaria** | `pctPorPaisLegado` devuelve 0 % si el texto contiene "chile", y 15 % en cualquier otro caso. De Perú a Reino Unido el porcentaje **no se mueve**: 15 % → 15 %. De Chile a Reino Unido sí: 0 % → 15 % |
+| **Depende también del estado del contrato** | Para un contrato ya migrado y con tasa validada, cambiar el país no mueve el neto: lo frena la compuerta publicada. Hoy hay **0 contratos migrados**, así que todos calculan por país |
+| **En la ficha del contrato no se puede escribir un país nuevo** | Ese campo usa la lista cerrada `PAISES`, sin opción de agregar |
+
+Resumiendo sin exagerar: escribir "Reino Unido" en el maestro de clientes **no mueve ningún
+importe de los contratos que ya existen**. Podría afectar a un registro **nuevo** creado después
+seleccionando ese cliente, y solo cuando el país anterior era Chile. Sigue siendo una puerta que
+conviene mirar, pero no es la que yo describí.
 
 ## 5 · Pruebas
 
