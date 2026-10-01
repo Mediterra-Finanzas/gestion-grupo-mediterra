@@ -13,6 +13,7 @@ import {
   ETIQUETA_ESTADO_FENOLOGICO, etiquetaSeccionFenologia, alcanceEvaluado, conAlcance,
   densidadDeclarada, variedadesDe, conVariedades, etiquetaVariedades, UNIDADES_ALCANCE,
   cambioDeSignificado, alcanceDeVariedad, alcancePorVariedad, conAlcanceVariedad,
+  alcancesDeVariedadesAusentes, reasignarAlcanceVariedad,
   resumenAlcance, NOTA_ESTADO_FENOLOGICO,
 } from "./osiris/informeAlcance";
 import { asuntoCorreoInforme, cuerpoCorreoInforme, vistaPreviaCorreo, validarDestinatarios } from "./osiris/correoInforme";
@@ -277,6 +278,54 @@ function Th({cols}) {
         ))}
       </tr>
     </thead>
+  );
+}
+
+// Alcances de variedades que ya no están en el informe. Se listan con su
+// valor; moverlos a otra variedad lo pide quien está mirando, y si el destino
+// ya tiene un valor cargado hace falta confirmar antes de reemplazarlo.
+function AlcancesPreservados({inf, puedeEditar, onCambio}) {
+  const [destino, setDestino] = useState({});
+  const ausentes = alcancesDeVariedadesAusentes(inf);
+  const vigentes = variedadesDe(inf);
+  if (!ausentes.length) return null;
+
+  return (
+    <div>
+      {ausentes.map(a=>(
+        <div key={a.variedad} style={{fontSize:10,marginTop:5,background:(C.amBg||"#fef9c3"),
+          border:`1px solid ${C.am||"#ca8a04"}`,borderRadius:5,padding:"5px 7px",color:(C.am||"#854d0e")}}>
+          <strong>&quot;{a.variedad}&quot; ya no está en el informe, y tenía alcance cargado:
+          {" "}{a.etiqueta}.</strong> Se conserva tal cual.
+          {vigentes.length>0&&puedeEditar&&(
+            <span style={{display:"inline-flex",alignItems:"center",gap:4,marginLeft:6}}>
+              <span>Reasignar a:</span>
+              <select value={destino[a.variedad]||""} onChange={e=>setDestino(p=>({...p,[a.variedad]:e.target.value}))}
+                style={{padding:"3px 5px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:10}}>
+                <option value="">— elegir —</option>
+                {vigentes.map(v=><option key={v} value={v}>{v}</option>)}
+              </select>
+              <button disabled={!destino[a.variedad]} onClick={()=>{
+                  const d=destino[a.variedad];
+                  let r=reasignarAlcanceVariedad(inf, a.variedad, d);
+                  if(r.conflicto){
+                    if(!window.confirm('"'+d+'" ya tiene alcance cargado ('+(r.actualDestino||"")+').\n\n¿Reemplazarlo por el de "'+a.variedad+'" ('+a.etiqueta+')?')) return;
+                    r=reasignarAlcanceVariedad(inf, a.variedad, d, {reemplazar:true});
+                  }
+                  if(!r.movido) return;
+                  onCambio(r.informe.alcanceVariedades);
+                  setDestino(p=>({...p,[a.variedad]:""}));
+                }}
+                style={{fontSize:9,padding:"2px 7px",borderRadius:4,border:"none",
+                  background:destino[a.variedad]?C.primary:C.border,color:"#fff",
+                  cursor:destino[a.variedad]?"pointer":"default"}}>
+                Reasignar
+              </button>
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -5864,6 +5913,11 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                             ))}
                           </div>
                         )}
+                        {/* Un alcance cargado para una variedad que ya no está en el
+                            informe no desaparece: se muestra y se puede devolver a una
+                            variedad del informe, eligiéndola a mano. */}
+                        <AlcancesPreservados inf={inf} puedeEditar={puedeEditar}
+                          onCambio={m=>updInf("alcanceVariedades", m)}/>
                         {(()=>{ const r=resumenAlcance(inf);
                           if(r.modo==="historico") return (
                             <div style={{fontSize:10,color:C.muted,marginTop:5,background:C.cardAlt,borderRadius:5,padding:"4px 6px"}}>
