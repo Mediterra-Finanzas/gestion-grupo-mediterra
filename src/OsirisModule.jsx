@@ -30,6 +30,11 @@ import {
   HEREDADO as RET_HEREDADO, VALIDADA as RET_VALIDADA, SIN_TRANSICION as RET_SIN_TRANSICION,
 } from "./osiris/retencion";
 import {
+  estadoBeneficio, faltantesBeneficio, consumoCupo, configBeneficio,
+  estadoReajuste, faltantesReajuste, configReajuste, previsualizarReajuste,
+  ACCION, netoNoDefinitivo, territorioDe,
+} from "./osiris/condicionesConfigurables";
+import {
   TIPO_ANEXO_ELIMINACION, TIPO_CONTRATO_PRUEBAS,
   AVISO_ANEXO_SIN_EFECTO, AVISO_TIPO_PRUEBAS,
   catalogoConEliminacion, catalogoConPruebas,
@@ -8258,6 +8263,9 @@ Retención: ${e.pctAntes} % → ${e.pctDespues} %.
               <Campo label="Razón Social" campo="razonSocial" r={r}/>
               <Campo label="Nombre Comercial" campo="nombreComercial" r={r}/>
               <Campo label="Tax ID / RUC" campo="taxID" r={r}/>
+              {/* El territorio contractual es un dato propio. No se copia del país,
+                  no lo reemplaza y no interviene en ningún cálculo. */}
+              <Campo label="Territorio contractual" campo="territorio" r={r}/>
               <Campo label="País del cliente" campo="pais" opts={Array.from(new Set([...PAISES,...clientes.map(c=>c.pais).filter(Boolean),r.pais].filter(Boolean)))} r={r}/>
               <Campo label="Dirección" campo="direccion" r={r}/>
               <Campo label="Ciudad" campo="ciudad" r={r}/>
@@ -8278,7 +8286,8 @@ Retención: ${e.pctAntes} % → ${e.pctDespues} %.
                 return (
                   <div style={{gridColumn:"1/-1",display:"flex",flexDirection:"column",gap:6}}>
                     <div style={{fontSize:11,color:C.muted,background:C.cardAlt,borderRadius:8,padding:"8px 10px"}}>
-                      <strong>El país del cliente y la retención son dos cosas distintas.</strong> El país dice dónde está constituido el cliente; la retención es el tratamiento tributario del contrato. Hasta ahora el sistema deducía la segunda del primero, así que corregir una identificación movía el neto.
+                      <strong>País, territorio y retención son tres cosas distintas.</strong> El país es el dato de identificación del cliente tal como está hoy; el territorio contractual es dónde rige el contrato y {ACCION.configura.toLowerCase()}, sin entrar al cálculo; la retención es el tratamiento tributario. Hasta ahora el sistema deducía la retención del país, así que corregir una identificación movía el neto.
+                      {territorioDe(r).estado === "pendiente" && <> El territorio contractual está <strong>sin declarar</strong>: eso no significa que no exista, significa que nadie lo cargó.</>}
                     </div>
                     <div style={{fontSize:11,borderRadius:8,padding:"8px 10px",background:fondo,border:`1px solid ${borde}`,color:colorEstado}}>
                       <strong>Retención: {ret.etiqueta.toUpperCase()} · {ret.pct} %.</strong> {ret.detalle}
@@ -8719,6 +8728,153 @@ Motivo del retiro:`, "");
           )}
           {sec==="factura"&&(
             <>
+              {/* Registro de condiciones. Guarda lo que el contrato pacto y nombra lo
+                  que falta. No aplica ningun efecto economico. */}
+              <div style={{fontSize:10,lineHeight:1.6,background:C.cardAlt,border:`1px solid ${C.border}`,
+                borderRadius:8,padding:"8px 10px",marginBottom:12,color:C.text}}>
+                <div style={{fontWeight:800,marginBottom:4}}>Esto es un registro de antecedentes. No aplica nada.</div>
+                <div>· <strong>&quot;Sin declarar&quot; no significa &quot;no existe&quot;</strong>: significa que nadie lo cargó todavía.</div>
+                <div>· <strong>Un consumo desconocido no es cero.</strong> Si no se sabe cuánto se consumió, se marca desconocido y el saldo queda pendiente.</div>
+                <div>· <strong>Registrar o confirmar un antecedente no habilita su aplicación</strong> ni constituye validación tributaria.</div>
+                <div>· <strong>La simulación no modifica ningún valor</strong> y solo calcula cuando tiene todos los parámetros: no inventa índices, fechas ni periodicidades.</div>
+              </div>
+              {(()=>{
+                const bf = configBeneficio(r), estB = estadoBeneficio(r, data), faltaB = faltantesBeneficio(r, data);
+                const plantasPorContrato = {};
+                (data||[]).forEach(ct=>{
+                  let n=0;
+                  (viverosData||[]).forEach(v=>(v.ordenesCompra||[]).forEach(oc=>{ if(ocLigadaAContrato(oc,ct,data)) n+=Number(oc.cantidad_plantas)||0; }));
+                  plantasPorContrato[ct.id]=n;
+                });
+                const cupo = consumoCupo(r, data, plantasPorContrato);
+                const rj = configReajuste(r), estR = estadoReajuste(r), faltaR = faltantesReajuste(r);
+                const prev = previsualizarReajuste(r, Number(r.valorRoyaltyComercial)||0, 4);
+                const upB = (campo,val)=>upd(r.id,"beneficioFee",{...(r.beneficioFee||{}),[campo]:val});
+                const upR = (campo,val)=>upd(r.id,"reajuste",{...(r.reajuste||{}),[campo]:val});
+                const inp2 = {padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11};
+                const marco = (ok)=>({background: ok?C.successBg:(C.amBg||"#fef9c3"), border:`1px solid ${ok?C.success:(C.am||"#ca8a04")}`, borderRadius:10, padding:12, marginBottom:14});
+                return (<>
+                  <div style={marco(estB==="confirmado")}>
+                    <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,fontWeight:800,color:C.text,cursor:can?"pointer":"default"}}>
+                      <input type="checkbox" disabled={!can} checked={bf.declarado} onChange={()=>upB("declarado",!bf.declarado)}/>
+                      El contract fee cubre royalty por planta (cupo)
+                      <span style={{fontSize:10,fontWeight:700,color:estB==="confirmado"?C.success:(C.am||"#854d0e")}}>
+                        {estB==="sinBeneficio"?" \u00b7 no declarado":(estB==="confirmado"?" \u00b7 confirmado":" \u00b7 PENDIENTE")}
+                      </span>
+                      <span style={{fontSize:9,fontWeight:700,padding:"1px 6px",borderRadius:99,background:C.cardAlt,color:C.muted,border:`1px solid ${C.border}`}}>
+                        {ACCION.configura} · no aplica al cálculo real
+                      </span>
+                    </label>
+                    {bf.declarado&&(<>
+                      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end",marginTop:8}}>
+                        <div><div style={{fontSize:10,color:C.gris}}>Cupo (plantas)</div>
+                          <input type="number" disabled={!can} value={bf.plantasCubiertas===null?"":bf.plantasCubiertas} placeholder="sin definir"
+                            onChange={e=>upB("plantasCubiertas",e.target.value===""?"":(parseFloat(e.target.value)||0))} style={{...inp2,width:120}}/></div>
+                        <div><div style={{fontSize:10,color:C.gris}}>Alcance</div>
+                          <select disabled={!can} value={bf.alcance} onChange={e=>upB("alcance",e.target.value)} style={inp2}>
+                            <option value="solo_este">Solo este contrato</option>
+                            <option value="grupo">Compartido con otros contratos</option>
+                          </select></div>
+                        {bf.alcance==="grupo"&&(
+                          <div style={{flex:1,minWidth:220}}><div style={{fontSize:10,color:C.gris}}>Contratos que comparten el cupo</div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:5,maxHeight:80,overflowY:"auto"}}>
+                              {(data||[]).filter(c=>c.id!==r.id).map(c=>{
+                                const m=(bf.contratosDelGrupo||[]).includes(c.id);
+                                return <label key={c.id} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,padding:"2px 6px",borderRadius:5,border:`1px solid ${m?C.purple:C.border}`,cursor:can?"pointer":"default"}}>
+                                  <input type="checkbox" disabled={!can} checked={m}
+                                    onChange={()=>upB("contratosDelGrupo", m?bf.contratosDelGrupo.filter(x=>x!==c.id):[...bf.contratosDelGrupo,c.id])}/>
+                                  {c.razonSocial}</label>;
+                              })}
+                            </div></div>
+                        )}
+                        <div style={{flex:1,minWidth:200}}><div style={{fontSize:10,color:C.gris}}>Clausula que lo respalda</div>
+                          <input disabled={!can} value={bf.referencia} placeholder="p. ej. Annex 1 b), p.12"
+                            onChange={e=>upB("referencia",e.target.value)} style={{...inp2,width:"100%",boxSizing:"border-box"}}/></div>
+                      </div>
+                      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginTop:8}}>
+                        <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,cursor:can?"pointer":"default"}}>
+                          <input type="checkbox" disabled={!can} checked={bf.consumoPrevioConocido} onChange={()=>upB("consumoPrevioConocido",!bf.consumoPrevioConocido)}/>
+                          Conozco el historial de entregas anteriores
+                        </label>
+                        {bf.consumoPrevioConocido&&(
+                          <input type="number" disabled={!can} value={bf.consumoPrevio===null?"":bf.consumoPrevio} placeholder="plantas ya entregadas"
+                            onChange={e=>upB("consumoPrevio",e.target.value===""?"":(parseFloat(e.target.value)||0))} style={{...inp2,width:170}}/>
+                        )}
+                        <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:700,cursor:can?"pointer":"default"}}>
+                          <input type="checkbox" disabled={!can} checked={bf.confirmado} onChange={()=>upB("confirmado",!bf.confirmado)}/>
+                          Condiciones confirmadas
+                        </label>
+                      </div>
+                      <div style={{marginTop:8,fontSize:11}}>
+                        {cupo.aplica
+                          ? <>Cupo {N(cupo.cupo)} plantas. Consumido {N(cupo.consumido)} = {N(cupo.consumoPrevio||0)} anteriores al sistema + {N(cupo.entregadasRegistradas)} registradas en órdenes de compra (cada una se cuenta una sola vez). <strong>Disponible {N(cupo.disponible)}</strong>
+                              {cupo.excedido&&<strong style={{color:C.danger}}> (cupo excedido)</strong>}
+                              {cupo.compartidoCon.length>0&&<> . Compartido con {cupo.compartidoCon.length} contrato(s): el cupo y el historial de cada uno se cuentan una sola vez para todo el grupo.</>}
+                              <div style={{marginTop:5,fontWeight:700,color:(C.am||"#854d0e")}}>
+                                Configuración confirmada, <strong>todavía no aplicada</strong>: el motor sigue cobrando el royalty por planta completo. Descontar el cupo del cálculo real es una decisión aparte, que no está tomada.
+                              </div></>
+                          : <><strong>El beneficio no se esta aplicando.</strong> Falta: {faltaB.join(", ")}. Entregas registradas hoy: {N(cupo.entregadasRegistradas)} plantas{cupo.compartidoCon.length>0&&<> (del grupo completo)</>}. El saldo disponible queda <strong>pendiente</strong>, no en cero.</>}
+                      </div>
+                    </>)}
+                  </div>
+                  <div style={marco(estR==="confirmado"||estR==="sinReajuste")}>
+                    <div style={{fontSize:12,fontWeight:800,color:C.text,marginBottom:6}}>
+                      Reajuste del royalty comercial
+                      <span style={{fontSize:10,fontWeight:700,marginLeft:6,color:(estR==="confirmado"||estR==="sinReajuste")?C.success:(C.am||"#854d0e")}}>
+                        {estR==="noDeclarado"?" \u00b7 no declarado":(estR==="sinReajuste"?" \u00b7 sin reajuste":(estR==="confirmado"?" \u00b7 confirmado":" \u00b7 PENDIENTE"))}
+                      </span>
+                      <span style={{fontSize:9,fontWeight:700,marginLeft:6,padding:"1px 6px",borderRadius:99,background:C.cardAlt,color:C.muted,border:`1px solid ${C.border}`}}>
+                        {ACCION.configura} · la comprobación {ACCION.simula.toLowerCase()} · no aplica al cálculo real
+                      </span>
+                    </div>
+                    <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+                      <div><div style={{fontSize:10,color:C.gris}}>Tipo</div>
+                        <select disabled={!can} value={rj.tipo} onChange={e=>upR("tipo",e.target.value)} style={inp2}>
+                          <option value="">sin definir</option>
+                          <option value="sin_reajuste">Sin reajuste</option>
+                          <option value="porcentaje">Porcentaje fijo</option>
+                          <option value="indice">Indice</option>
+                        </select></div>
+                      {rj.tipo==="porcentaje"&&(
+                        <div><div style={{fontSize:10,color:C.gris}}>Porcentaje anual</div>
+                          <input type="number" disabled={!can} value={rj.pct===null?"":rj.pct} placeholder="sin definir"
+                            onChange={e=>upR("pct",e.target.value===""?"":(parseFloat(e.target.value)||0))} style={{...inp2,width:110}}/></div>
+                      )}
+                      {rj.tipo==="indice"&&(<>
+                        <div><div style={{fontSize:10,color:C.gris}}>Indice</div>
+                          <input disabled={!can} value={rj.indice} placeholder="sin definir" onChange={e=>upR("indice",e.target.value)} style={{...inp2,width:120}}/></div>
+                        <div><div style={{fontSize:10,color:C.gris}}>Fuente</div>
+                          <input disabled={!can} value={rj.fuente} placeholder="sin definir" onChange={e=>upR("fuente",e.target.value)} style={{...inp2,width:130}}/></div>
+                        <div><div style={{fontSize:10,color:C.gris}}>Fecha base</div>
+                          <input type="date" disabled={!can} value={rj.fechaBase} onChange={e=>upR("fechaBase",e.target.value)} style={inp2}/></div>
+                      </>)}
+                      {rj.tipo&&rj.tipo!=="sin_reajuste"&&(
+                        <div><div style={{fontSize:10,color:C.gris}}>Se aplica desde</div>
+                          <input type="date" disabled={!can} value={rj.desde} onChange={e=>upR("desde",e.target.value)} style={inp2}/></div>
+                      )}
+                      {rj.tipo&&(
+                        <div style={{flex:1,minWidth:200}}><div style={{fontSize:10,color:C.gris}}>Clausula que lo respalda</div>
+                          <input disabled={!can} value={rj.referencia} placeholder="p. ej. Annexure D 1.2.5, p.24"
+                            onChange={e=>upR("referencia",e.target.value)} style={{...inp2,width:"100%",boxSizing:"border-box"}}/></div>
+                      )}
+                      {rj.tipo&&(
+                        <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:700,cursor:can?"pointer":"default"}}>
+                          <input type="checkbox" disabled={!can} checked={rj.confirmado} onChange={()=>upR("confirmado",!rj.confirmado)}/>
+                          Confirmado
+                        </label>
+                      )}
+                    </div>
+                    <div style={{marginTop:8,fontSize:11}}>
+                      {estR==="pendiente"&&<><strong>No se esta aplicando ningun reajuste.</strong> Falta: {faltaR.join(", ")}. Queda <strong>pendiente</strong>, no en cero.</>}
+                      {estR==="noDeclarado"&&<>Este contrato no declara reajuste. Si el contrato lo pacta, se configura aca.</>}
+                      {estR==="sinReajuste"&&<>Declarado y confirmado: este contrato <strong>no</strong> lleva reajuste.</>}
+                      {estR==="confirmado"&&(prev.filas.length>0
+                        ? <><strong>Simulación</strong> sobre US$ {N(r.valorRoyaltyComercial||0)} por hectarea: {prev.filas.map(f=>`ano ${f.periodo}: ${N(f.valor)}`).join(" | ")}. No recalcula ninguna factura emitida ni el valor guardado del contrato, que sigue en US$ {N(r.valorRoyaltyComercial||0)}: el motor aún cobra con ese valor.</>
+                        : <>{prev.motivo}</>)}
+                    </div>
+                  </div>
+                </>);
+              })()}
               <div style={{padding:"10px 14px",background:C.warningBg,borderRadius:8,border:`1px solid ${C.warning}`,marginBottom:14,fontSize:11,color:C.text}}>
                 💡 <strong>Recordatorio fiscal:</strong> Contract Fee no lleva retención. Royalty Planta y Royalty Comercial de este contrato van con <strong>{retLeyenda(r).tasa}</strong> ({retLeyenda(r).etiqueta}). {retLeyenda(r).frase}
               </div>
