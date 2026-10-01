@@ -4,7 +4,10 @@ Guarda lo que cada contrato pactó y nombra lo que falta. **No aplica ningún ef
 ninguna tasa, ningún beneficio, ningún reajuste. Ningún importe cambia.
 
 - **Rama:** `osiris/registro-condiciones`
-- **Candidato:** `cf5d2b4a17467a5f40d75b807d9440805bff3d81`
+- **Candidato:** la punta de la rama `osiris/registro-condiciones` (el SHA va en el mensaje al pedir la ventana; esta acta no se cita a sí misma)
+- **Código de aplicación:** `cf5d2b4a17467a5f40d75b807d9440805bff3d81` — lo que vino después son
+  el acta y una prueba de impacto; `src/OsirisModule.jsx` y `src/osiris/condicionesConfigurables.js`
+  no cambiaron desde ahí
 - **Base:** `8a1605502a3880451333d3aaa244e519c7ddc3ed`
 - **Diff:** 9 archivos, 1.594 inserciones, 1 supresión. `condicionesConfigurables.js`
   (nuevo, +367), `OsirisModule.jsx` (+164, −1), cinco de prueba, y dos actas
@@ -102,9 +105,12 @@ pantalla, no lo lee nada después de consolidar, y **no existe en ningún contra
 | **Concurrencia** | Dos campos del mismo bloque conviven; escribir el reajuste no toca el beneficio; la fusión por campo conserva lo que escribió la otra edición; escribir el registro no pisa una propuesta de retención |
 | **Impacto económico** | La tasa y el factor del motor son **idénticos** con y sin registro; declarar un beneficio no cambia el valor por planta ni por hectárea; confirmar el reajuste no modifica el valor base |
 
-Más `consolidacionRetencion.test.js` (7), y las suites que ya existían y siguen verdes:
-`condicionesConfigurables` (25), `acoplamiento`, `impactoCondiciones`, `retencion` (80) y la
-regresión del motor de la Fase 0 (23).
+Más `consolidacionRetencion.test.js` (7), `condicionesConfigurables` (25), `acoplamiento`,
+`retencion` (80) y la regresión del motor de la Fase 0 (23).
+
+**Corrección.** Una versión anterior de esta acta listó `impactoCondiciones` entre las suites
+“verdes”. No lo estaba: es una de las cuatro suites que **solo corren con una copia de datos
+reales** (`OSIRIS_SNAPSHOT`) y en la corrida normal aparecen como saltadas. Ver §5 ter.
 
 **Suite completa sobre el candidato: 1.349 pasan, 24 saltadas, 1 falla** (`paramsFrutaAnticipos`,
 atada a la fecha del carril de anticipos, que falla igual en la base sin este cambio). Build `CI=true` del commit exacto `cf5d2b4`:
@@ -130,6 +136,48 @@ deshabilitado— y no afecta a ningún campo preexistente, que siguen protegidos
 era más débil que el patrón de la ficha, y el paquete no debía publicarse así. **Esto no cierra
 ni toca el P0 conocido**: la base sigue aceptando escrituras de cualquiera que tenga la anon key,
 y eso se resuelve en el carril de seguridad, no acá.
+
+
+## 5 ter · Las 24 pruebas saltadas: cuáles son y cuáles corresponden a este paquete
+
+Las 24 son exactamente las de las cuatro suites de impacto, que no corren sin una copia de datos
+reales (`OSIRIS_SNAPSHOT`). No son pruebas rotas ni deshabilitadas: son las que miden el efecto
+sobre la cartera real.
+
+| Suite | Pruebas | ¿Es el impacto de ESTE paquete? | Estado |
+|---|---|---|---|
+| `impactoCondiciones.test.js` | 6 | **Sí** — beneficio del fee, reajuste y territorio | **Ejecutada contra la copia real: 6/6 verdes** |
+| `impactoRetencion.test.js` | 9 | No — mide el paquete de retención ya publicado (`2a3af93`) | Evidencia vigente. `retencion.js` **no está en el diff** de este candidato, así que la medición anterior sigue valiendo. No se repite |
+| `impactoNicolas.test.js` | 6 | No — carril de labores, sin publicar | Fuera de alcance |
+| `impacto.test.js` | 3 | No — carril de preservación P1–P5 | Fuera de alcance |
+
+### Lo que encontró ejecutar las 6
+
+Una de ellas **falló la primera vez**, y vale decir por qué: afirmaba que al cambiar un contrato
+a Reino Unido la retención quedaba `pendiente` con `pct: null`. Eso era el diseño **anterior** de
+`resolverRetencion`, con su tabla de países propia. Al consolidar contra el modelo publicado
+(§4) la semántica cambió, y la nueva es la correcta: devolver `null` diría “pendiente” mientras
+el motor cobra 15 %. Ahora dice **el número que se aplica y que no está validado**
+(`estado: "heredada"`, `pct: 15`, `validado: false`). Se actualizó la prueba, no el código, y el
+comentario deja escrito el porqué.
+
+Esta prueba estaba desalineada **desde la consolidación** y no se veía porque la suite se salta
+sin la copia de datos. Es justamente lo que esta revisión tenía que destapar.
+
+### El impacto medido sobre los 23 contratos reales
+
+| | Hoy | Con beneficio declarado | Con reajuste confirmado | Con territorio |
+|---|---|---|---|---|
+| Royalty planta facturado | US$ 5.751.215 | 5.751.215 | 5.751.215 | 5.751.215 |
+| Royalty planta neto | US$ 4.888.532,75 | 4.888.532,75 | 4.888.532,75 | 4.888.532,75 |
+| Royalty comercial facturado | US$ 13.504.590 | 13.504.590 | 13.504.590 | 13.504.590 |
+| Royalty comercial neto | US$ 11.478.901,50 | 11.478.901,50 | 11.478.901,50 | 11.478.901,50 |
+| Filas | 110 | 110 | 110 | 110 |
+
+**Delta cero en las cuatro columnas.** Y el estado de partida de la cartera: 0 contratos con
+beneficio declarado, 0 con retención pendiente, 23 con territorio sin declarar, y 18 con el
+reajuste en **pendiente** (marcados sujetos a inflación sin reajuste declarado) contra 5 que no
+lo declaran. Esos 18 son un dato para vos, no algo que este paquete resuelva.
 
 ## 6 · Recuperación
 
@@ -159,19 +207,66 @@ toca (`0 cambios`).
 Los datos de prueba escritos en la copia aislada se restauraron al terminar. **Producción no se
 tocó en ningún momento de esta revisión**: ni lectura ni escritura.
 
-## 8 · Autorización que se necesita
+## 8 · La ventana de publicación
+
+### Estado verificado al pedirla (solo lectura)
+
+| | |
+|---|---|
+| Candidato | Punta de `osiris/registro-condiciones`. **Reemplaza a `5323738`**: medir las 6 pruebas de impacto obligó a alinear una de ellas (§5 ter). El código de pantalla y de modelo no cambió |
+| Base | `8a1605502a3880451333d3aaa244e519c7ddc3ed`, ancestro directo del candidato (5 commits por delante) |
+| `origin/main` ahora | `8a1605502a3880451333d3aaa244e519c7ddc3ed` — **no se movió**: la base sigue siendo el main publicado |
+| Producción en vivo | `gestion-grupo-mediterra.vercel.app` sirve `main.933069fe.js`, el mismo bundle que el deployment vigente |
+| ¿Producción corresponde a `8a16055`? | Sí, por contenido. El bundle en vivo **tiene** lo ya publicado (“NO OPERATIVA”, “Registrar una tasa”, “sin validar”) y **no tiene** nada de T3 (0 coincidencias de “Esto es un registro de antecedentes”, “Territorio contractual”, “El contract fee cubre royalty”, “indeterminados”) |
+| Despliegues en curso | Ninguno. Sin `Building`, `Queued`, `Error` ni `Canceled` pendientes |
+
+Un compilado local de `8a16055` da `main.7123b5d7.js`, distinto del hash en vivo. **Eso no
+significa que produccción tenga otro commit**: el hash de CRA depende del entorno de build
+(variables, versión de Node, sourcemaps) y Vercel no compila con el mismo. Por eso la
+correspondencia se comprueba por contenido, como arriba, y no por el nombre del archivo.
+
+### Deployment de recuperación
+
+Si algo sale mal, se vuelve promoviendo este deployment, que es el que está sirviendo producción
+ahora mismo:
+
+| | |
+|---|---|
+| **ID** | `dpl_5nzrn9EzMdoLKf1rdrRQ6c8ZFdCT` |
+| URL | `https://gestion-grupo-mediterra-pn5s5eztk-mediterra-finanzas-projects.vercel.app` |
+| Creado | 2026-10-01 14:29 (hora de Chile) |
+| Estado | ● Ready · Production |
+| Aliases que tiene hoy | `gestion-grupo-mediterra.vercel.app`, `calendario-mediterra-2026.vercel.app`, `gestion-grupo-mediterra-git-main-…` |
+
+Volver atrás no necesita revertir el commit: alcanza con promover ese deployment. El commit se
+revierte después, con calma. **Ningún dato se pierde al volver**, porque lo registrado vive en
+campos propios del contrato que el código anterior no lee pero tampoco borra, y **ningún importe
+cambia**, porque ninguno cambió al publicar.
+
+### Quiénes deben confirmar
+
+Las sesiones activas al preparar este candidato: **Allegria Service**, **Mediterra One** y
+**Rendición de gastos**. Acuerdo vigente a declarar: Rendición de gastos pidió no ser consultada
+paquete por paquete. **Frisku no tiene sesión activa.**
+
+Avisar no es tener confirmación. Si al momento de publicar falta alguna respuesta requerida,
+pido la excepción **antes** del push, nunca después.
+
+### Secuencia
+
+1. Pedir la ventana a las tres sesiones y esperar respuesta.
+2. Revalidar que `origin/main` sigue en `8a16055` y que no entró ningún despliegue.
+3. Merge de `osiris/registro-condiciones` → `main` y push.
+4. Esperar el deployment y comprobar que el bundle servido contiene el bloque del registro.
+5. Registrar el nuevo deployment ID junto al de recuperación.
+
+## 9 · Autorización que se necesita
 
 > `AUTORIZO MERGE osiris/registro-condiciones → main`, push y despliegue del paquete exacto
-> <punta de la rama, el SHA indicado al pedir la ventana> sobre la base exacta
+> <SHA de la punta, el del mensaje que pide la ventana> sobre la base exacta
 > `8a1605502a3880451333d3aaa244e519c7ddc3ed`.
-
-El **código** del candidato es exactamente `cf5d2b4a17467a5f40d75b807d9440805bff3d81`; la punta
-de la rama añade encima solo esta acta, sin tocar `src/`.
 
 El registro de ventanas ya quedó **incorporado** a esta rama (commit `95af8b5`), así que no
 necesita una ventana propia.
 
-**Quiénes deben confirmar la ventana**, según las sesiones activas al preparar este candidato:
-Allegria Service, Mediterra One y Rendición de gastos. Acuerdo vigente a declarar: Rendición de
-gastos pidió no ser consultada paquete por paquete. Frisku no tiene sesión activa. Si al momento
-de publicar falta alguna respuesta requerida, pido la excepción antes del push.
+La ventana, el deployment de recuperación y quiénes deben confirmar están en §8.

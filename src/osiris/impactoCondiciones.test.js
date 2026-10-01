@@ -79,15 +79,22 @@ d("impacto de las condiciones configurables", () => {
     expect(informe.conTerritorio).toEqual(base);
   });
 
-  test("cambiar un cliente a Reino Unido no asigna retención: queda pendiente y el neto deja de ser definitivo", () => {
+  test("cambiar un cliente a Reino Unido no valida ninguna tasa: dice lo que el motor aplica, sin respaldo", () => {
+    // Esta prueba afirmaba `estado:"pendiente"` y `pct:null`, que era el diseño
+    // ANTERIOR de `resolverRetencion`, con su propia tabla de países. Al
+    // consolidar contra el modelo publicado cambió la semántica, y es la
+    // correcta: ocultar el 15 % como `null` diría "pendiente" mientras el motor
+    // cobra 15 %. Ahora se dice el número que se aplica Y que no está validado.
     const primero = contratos[0];
     const cambiado = cambiarPais(primero, REINO_UNIDO);
-    const r = resolverRetencion(cambiado, pctPorPais);
-    expect(r.estado).toBe("pendiente");
-    expect(r.pct).toBeNull();
-    expect(r.definitivo).toBe(false);
-    expect(cambiado.retencionPct).toBeUndefined();
-    informe.reinoUnido = { contrato: primero.razonSocial, estadoRetencion: r.estado, pctVigenteDelMotor: r.pctVigente, definitivo: r.definitivo };
+    const r = resolverRetencion(cambiado);
+    expect(r.estado).toBe("heredada");
+    expect(r.pct).toBe(15);                 // lo que el motor cobra hoy, dicho
+    expect(r.definitivo).toBe(false);       // y sin validar
+    expect(r.validado).toBe(false);
+    expect(r.etiqueta).toMatch(/sin validar/);
+    expect(cambiado.retencionPct).toBeUndefined();   // no se escribe ninguna tasa
+    informe.reinoUnido = { contrato: primero.razonSocial, estadoRetencion: r.estado, pctQueAplicaElMotor: r.pct, validado: r.validado };
   });
 
   afterAll(() => {
