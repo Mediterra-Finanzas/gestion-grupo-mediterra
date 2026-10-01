@@ -332,7 +332,7 @@ check('Banco Demo vs 300.000 informados: diferencia exacta 43.933,33 (= capital 
   coDemo.estado === 'diferencia' && aprox(coDemo.diferenciaExacta, 43933.33));
 
 // ═══ Tolerancias por moneda ════════════════════════════════════════
-check('Tolerancias iniciales: CLP 1 · USD/EUR/PEN 0,01', toleranciaDe('CLP') === 1 && toleranciaDe('USD') === 0.01 && toleranciaDe('EUR') === 0.01 && toleranciaDe('PEN') === 0.01);
+check('Tolerancias iniciales: CLP 1 · USD/EUR/PEN 0,01 · UF 0,0001', toleranciaDe('CLP') === 1 && toleranciaDe('USD') === 0.01 && toleranciaDe('EUR') === 0.01 && toleranciaDe('PEN') === 0.01 && toleranciaDe('UF') === 0.0001);
 const inf0 = (cap, extra = {}) => [{ id: 'i', empresa: 'Osiris', acreedor: 'Banco B', moneda: 'USD', fecha: '2026-05-20', capital: cap, respaldo: 'cert', ...extra }];
 check('USD: diferencia 0,01 → cuadra (redondeo)', conciliacionAcreedores([c2pag], inf0(300000.01), HOY)[0].estado === 'cuadra');
 check('USD: diferencia 0,02 → diferencia (se muestra exacta 0,02)', (() => { const r = conciliacionAcreedores([c2pag], inf0(300000.02), HOY)[0]; return r.estado === 'diferencia' && aprox(r.diferenciaExacta, 0.02, 1e-6); })());
@@ -355,12 +355,39 @@ const TCU = { 'USD-CLP': [{ fecha: '2026-05-18', valor: 955, fuente: 'manual' }]
   'UF-CLP': [{ fecha: '2026-05-20', valor: 39500, fuente: 'mindicador' }, { fecha: '2026-06-09', valor: 39600, fuente: 'mindicador' }] };
 const uf = ufPorFecha(TCU, '2026-05-20');
 // 09-jun publicado (Banco Central publica hasta el 9 del mes siguiente): factor = 39.600 / 955
-check('UF del 09-jun ya publicada → valor exacto 39.600, no hipótesis', uf('2026-06-09').tipo === 'publicado' && aprox(1 / uf('2026-06-09').factor, 955 / 39600, 1e-12));
+check('UF del 09-jun (FUTURA respecto del corte, pero ya publicada) → valor exacto 39.600, NO hipótesis; solo el USD-CLP futuro es hipótesis',
+  uf('2026-06-09').tipo === 'publicado' && uf('2026-06-09').hipotesis === false && uf('2026-06-09').usdHipotesis === true && uf('2026-06-09').ufFecha === '2026-06-09' && aprox(1 / uf('2026-06-09').factor, 955 / 39600, 1e-12));
 check('UF de 10-dic (no publicada) → último ≤ corte (39.500 del 20-may) como HIPÓTESIS', uf('2026-12-10').hipotesis === true && uf('2026-12-10').ufCLP === 39500);
 const credUF = valorizarCreditos([{ uid: 'U', tipo_credito: 'contrato', empresa: 'Osiris', acreedor: 'Banco UF', moneda: 'UF', monto: 1000, fecha_desembolso: '2026-03-09',
   vencimiento_final: '2026-06-09', modalidad: 'bullet_total', tasa_tipo: 'fija', tasa_anual: 0, base: 'act360', control_desde: '2026-03-09' }], TCU, '2026-05-20')[0];
 // 1.000 UF × 39.600 CLP/UF / 955 CLP/US$ = 41.465,97 US$ en Jun-26
 check('Flujo UF: 1.000 UF al 09-jun × 39.600 / 955 = 41.465,97 USD', aprox(flujoCreditosEmpresa('Osiris', [credUF], { hoy: HOY, ubicar }).prestamos.total[iM(2026, 6)], 41465.97, 0.02));
+
+// Saldo con UF publicada para la fecha exacta del vencimiento: no se marca "UF hipótesis"
+check('saldosAlCorte: vencimiento futuro con UF publicada de esa fecha → sin aviso de UF hipótesis', saldosAlCorte([credUF], HOY, HOY).ufHipotesis === false);
+const credUF2 = valorizarCreditos([{ uid: 'U2', tipo_credito: 'contrato', empresa: 'Osiris', acreedor: 'Banco UF', moneda: 'UF', monto: 1000, fecha_desembolso: '2026-03-09',
+  vencimiento_final: '2026-12-10', modalidad: 'bullet_total', tasa_tipo: 'fija', tasa_anual: 0, base: 'act360', control_desde: '2026-03-09' }], TCU, '2026-05-20')[0];
+check('saldosAlCorte: vencimiento futuro SIN UF publicada → aviso de UF hipótesis', saldosAlCorte([credUF2], HOY, HOY).ufHipotesis === true);
+
+// ═══ UF: precisión de 4 decimales y tolerancia 0,0001 UF ═══════════
+// 1.000 UF al 4 % Act/360 del 01-06 al 01-12-2026 (183 días):
+// interés = 1.000 × 4 % × 183 / 360 = 20,333333… → 20,3333 UF (antes 20,33)
+const cUF = { uid: 'UFP', tipo_credito: 'contrato', empresa: 'Osiris', acreedor: 'Banco UF', moneda: 'UF', monto: 1000, fecha_desembolso: '2026-06-01',
+  vencimiento_final: '2026-12-01', modalidad: 'bullet_total', tasa_tipo: 'fija', tasa_anual: 4, base: 'act360', control_desde: '2026-06-01' };
+check('UF: interés 1.000 × 4 % × 183/360 = 20,3333 UF (4 decimales)', vencimientosCredito(cUF)[0].interes === 20.3333, String(vencimientosCredito(cUF)[0].interes));
+check('USD: el mismo crédito en USD sigue al centavo (20,33)', vencimientosCredito({ ...cUF, moneda: 'USD' })[0].interes === 20.33);
+// Pago parcial en UF con 4 decimales: 10,1234 UF de interés quedan registrados tal cual
+const cUFp = registrarPago(cUF, { vencKey: 'UFP@2026-12-01', fecha: '2026-09-01', interes: 10.1234 }, 't');
+check('UF: pago 10,1234 UF se registra con 4 decimales; pendiente de interés 20,3333 − 10,1234 = 10,2099',
+  cUFp.pagos[0].interes === 10.1234 && estadoCredito(cUFp, '2026-09-30').interesPend === 10.2099);
+const infUF = (cap) => [{ id: 'u', empresa: 'Osiris', acreedor: 'Banco UF', moneda: 'UF', fecha: '2026-09-30', capital: cap, respaldo: 'cert' }];
+const cUo = conciliacionAcreedores([cUF], infUF(1000.0001), '2026-09-30')[0];
+check('UF: informado 1.000,0001 vs app 1.000 → diferencia exacta 0,0001 ≤ 0,0001 → cuadra', cUo.estado === 'cuadra' && aprox(cUo.diferenciaExacta, 0.0001, 1e-9) && cUo.tolerancia === 0.0001);
+const cUd = conciliacionAcreedores([cUF], infUF(1000.0002), '2026-09-30')[0];
+check('UF: informado 1.000,0002 → diferencia 0,0002 > 0,0001 → diferencia (antes, con 0,01, habría cuadrado)', cUd.estado === 'diferencia' && cUd.diferencia === 0.0002);
+check('UF: tolerancia configurable (0,001 → 0,0002 cuadra)', conciliacionAcreedores([cUF], infUF(1000.0002), '2026-09-30', { tolerancias: { UF: 0.001 } })[0].estado === 'cuadra');
+check('UF: diferencia 0 pero SIN respaldo → incompleta (la tolerancia no oculta datos faltantes)',
+  conciliacionAcreedores([cUF], [{ ...infUF(1000)[0], respaldo: '' }], '2026-09-30')[0].estado === 'incompleta');
 
 // ═══ Misma fecha de corte = mismos números entre vistas ════════════
 const cartV = valorizarCreditos([c2pag, clpC, { ...clpC, uid: 'PEN', moneda: 'PEN' }, legGrupo[0]], TCD, HOY);

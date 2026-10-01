@@ -14,7 +14,7 @@ import {
   calendarioContrato, datosFaltantesContrato, tasaCredito, factorUSD, totalPago, pagosVigentes,
   confirmarImpaga, anularConciliacion, conciliacionesVigentes, porConciliarCartera, registrarPagoIdempotente, pagoPorOrigen,
   valorizarCreditos, sinValorizacion, infoTC, conciliacionAcreedores, claveAcreedor, anotarPago,
-  movimientosCapitalAlCorte, saldosAlCorte, TOLERANCIAS_DEFAULT, toleranciaDe, TC_ANTIGUEDAD_AVISO_DIAS,
+  movimientosCapitalAlCorte, saldosAlCorte, TOLERANCIAS_DEFAULT, toleranciaDe, TC_ANTIGUEDAD_AVISO_DIAS, decimalesMoneda,
   TIPOS_ACREEDOR, TIPOS_CREDITO, MONEDAS as MONEDAS_CREDITO, MODALIDADES, BASES,
 } from './creditos.js';
 import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
@@ -7596,7 +7596,8 @@ function Dashboard({empresas, empresasConOverrides, saldosBancos}) {
 const $c = (n, mon) => {
   if(n==null||n==="") return "—";
   const v = Number(n)||0;
-  return `${v<0?"-":""}${mon&&mon!=="USD"?mon+" ":"$"}${Math.abs(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const d = mon==="UF" ? 4 : 2;   // la UF se expresa con 4 decimales
+  return `${v<0?"-":""}${mon&&mon!=="USD"?mon+" ":"$"}${Math.abs(v).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d})}`;
 };
 // Número con decimales fijos (sin símbolo), para diferencias exactas y TC.
 const fmtN = (n, dec=2) => (n==null||n===""||isNaN(Number(n))) ? "—" : Number(n).toLocaleString("en-US",{minimumFractionDigits:dec,maximumFractionDigits:dec});
@@ -7970,7 +7971,7 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
             {desgloseLegacy&&(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 2fr auto auto",gap:8,marginTop:8,alignItems:"end"}}>
                 {[["capital","Capital"],["interes","Intereses"],["cargos","Otros cargos"]].map(([k,l])=>(
-                  <CampoCr key={k} label={`${l} por cuota`}><InputNumero formato="monto" value={desgloseLegacy[k]||""} onChange={n=>setDesgloseLegacy(p=>({...p,[k]:n}))} style={CR_INP}/></CampoCr>
+                  <CampoCr key={k} label={`${l} por cuota`}><InputNumero formato="monto" decimales={decimalesMoneda(mon)} value={desgloseLegacy[k]||""} onChange={n=>setDesgloseLegacy(p=>({...p,[k]:n}))} style={CR_INP}/></CampoCr>
                 ))}
                 <CampoCr label="Respaldo contractual (obligatorio)"><input value={desgloseLegacy.respaldo||""} placeholder="Tabla de desarrollo BCI op. 123, pagaré…" onChange={e=>setDesgloseLegacy(p=>({...p,respaldo:e.target.value}))} style={CR_INP}/></CampoCr>
                 <button onClick={guardarDesglose} style={{padding:"7px 14px",borderRadius:8,border:"none",background:C.blue,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Guardar</button>
@@ -8019,7 +8020,7 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr 2fr",gap:8}}>
               <CampoCr label="Fecha efectiva"><input type="date" value={pagoForm.fecha} onChange={ev=>setPagoForm(p=>({...p,fecha:ev.target.value}))} style={CR_INP}/></CampoCr>
               {[["capital","Capital"],["interes","Intereses"],["cargos","Otros cargos"],["sinDesglose","Sin desglose"]].map(([k,l])=>(
-                <CampoCr key={k} label={l}><InputNumero formato="monto" value={pagoForm[k]||""} onChange={n=>setPagoForm(p=>({...p,[k]:n}))} style={CR_INP}/></CampoCr>
+                <CampoCr key={k} label={l}><InputNumero formato="monto" decimales={decimalesMoneda(mon)} value={pagoForm[k]||""} onChange={n=>setPagoForm(p=>({...p,[k]:n}))} style={CR_INP}/></CampoCr>
               ))}
               <CampoCr label="Nota (banco, N° operación…)"><input value={pagoForm.nota} onChange={ev=>setPagoForm(p=>({...p,nota:ev.target.value}))} style={CR_INP}/></CampoCr>
             </div>
@@ -8345,7 +8346,7 @@ function SimuladorPrepago({creditos, onSaveOne, canEdit, usuario}){
               <option value="total">Total</option><option value="parcial">Parcial</option>
             </select>
           </CampoCr>
-          {!sim.total&&<CampoCr label={`Capital a prepagar (${mon})`}><InputNumero formato="monto" value={sim.capital} onChange={n=>set("capital",n)} style={CR_INP}/></CampoCr>}
+          {!sim.total&&<CampoCr label={`Capital a prepagar (${mon})`}><InputNumero formato="monto" decimales={decimalesMoneda(mon)} value={sim.capital} onChange={n=>set("capital",n)} style={CR_INP}/></CampoCr>}
           {!sim.total&&<CampoCr label="Efecto">
             <select value={sim.modo} onChange={e=>set("modo",e.target.value)} style={CR_INP}>
               <option value="plazo">Reduce plazo (misma cuota)</option><option value="cuota">Reduce cuota (mismo plazo)</option>
@@ -8518,7 +8519,7 @@ function ConciliacionAcreedores({creditos, saldosInformados=[], onSaveSaldosInfo
         La tolerancia solo absorbe redondeo: <strong>nunca</strong> da "Cuadra" si faltan desgloses, respaldos o datos. {Object.entries(cont).map(([k,n])=>`${ESTADO_CONC[k]?.lbl}: ${n}`).join(" · ")}
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",fontSize:10,color:C.muted,marginBottom:8}}>
-        <span>Tolerancia de redondeo: {Object.keys(TOLERANCIAS_DEFAULT).map(m=>`${m} ${fmtN(toleranciaDe(m,tolerancias),m==="CLP"?0:2)}`).join(" · ")}
+        <span>Tolerancia de redondeo: {Object.keys(TOLERANCIAS_DEFAULT).map(m=>`${m} ${fmtN(toleranciaDe(m,tolerancias),decimalesMoneda(m))}`).join(" · ")}
           {creditosConfig?.toleranciasPor?` (definida por ${creditosConfig.toleranciasPor} el ${fmtDate((creditosConfig.toleranciasTs||"").slice(0,10))})`:" (valores iniciales)"}</span>
         {canEdit&&onSaveCreditosConfig&&<button onClick={()=>setTolForm(Object.fromEntries(Object.keys(TOLERANCIAS_DEFAULT).map(m=>[m,String(toleranciaDe(m,tolerancias))])))}
           style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.blue}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700}}>Editar tolerancias</button>}
@@ -8538,8 +8539,8 @@ function ConciliacionAcreedores({creditos, saldosInformados=[], onSaveSaldosInfo
                 <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(f.app.capital,f.moneda)}</td>
                 <td style={{...CR_TD,textAlign:"right"}}>{f.informado?<span title={`Respaldo: ${f.informado.respaldo} · ${f.informado.usuario}`}>{$c(f.capitalInformado,f.moneda)}</span>:"—"}</td>
                 <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:f.diferenciaExacta==null?C.muted2:Math.abs(f.diferenciaExacta)<=f.tolerancia+1e-9?C.green:C.red}}
-                  title={f.diferenciaExacta==null?"":`Diferencia sin redondear: ${f.diferenciaExacta}`}>{f.diferenciaExacta==null?"—":`${fmtN(f.diferenciaExacta,f.moneda==="CLP"?0:2)} ${f.moneda}`}</td>
-                <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{fmtN(f.tolerancia,f.moneda==="CLP"?0:2)}</td>
+                  title={f.diferenciaExacta==null?"":`Diferencia sin redondear: ${f.diferenciaExacta}`}>{f.diferenciaExacta==null?"—":`${fmtN(f.diferenciaExacta,decimalesMoneda(f.moneda))} ${f.moneda}`}</td>
+                <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{fmtN(f.tolerancia,decimalesMoneda(f.moneda))}</td>
                 <td style={{...CR_TD,textAlign:"right"}}>{f.capitalUSD==null?<span style={{color:C.red}}>sin TC al corte</span>:<>{$$(f.capitalUSD)}
                   {f.moneda!=="USD"&&<div style={{fontSize:9,color:f.tcCorte?.estimado?C.red:C.muted,maxWidth:200}}>{textoTC(f.tcCorte)}</div>}</>}</td>
                 <td style={{...CR_TD,textAlign:"right"}}>{$c(f.app.interesVencido,f.moneda)}{f.informado?.intereses!=null&&<div style={{fontSize:9,color:C.muted}}>informado {$c(f.informado.intereses,f.moneda)}</div>}</td>
@@ -8566,19 +8567,19 @@ function ConciliacionAcreedores({creditos, saldosInformados=[], onSaveSaldosInfo
                       ["− Cuotas marcadas pagadas sin registro",-mv.capitalSinRegistro],
                       ["− Capital de cuotas por conciliar (no confirmado)",-mv.capitalPorConciliar],
                       ["= Capital app",mv.calculado]].map(([l,v],i)=>(
-                      <tr key={i} style={{fontWeight:i===2||i===6?800:400}}><td style={{padding:"2px 10px 2px 0"}}>{l}</td><td style={{textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtN(v,2)}</td></tr>))}
+                      <tr key={i} style={{fontWeight:i===2||i===6?800:400}}><td style={{padding:"2px 10px 2px 0"}}>{l}</td><td style={{textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtN(v,decimalesMoneda(f.moneda))}</td></tr>))}
                   </tbody></table>
                   <div style={{fontSize:10,color:mv.cuadra?C.green:C.red,marginBottom:6}}>
-                    {mv.cuadra?`Control: el cálculo paso a paso (${fmtN(mv.calculado,2)}) es igual al capital app (${fmtN(mv.capitalApp,2)}).`
-                      :`Control: el cálculo paso a paso (${fmtN(mv.calculado,2)}) NO coincide con el capital app (${fmtN(mv.capitalApp,2)}). Revisar.`}
-                    {" "}Intereses pagados {fmtN(mv.interesPagado,2)} y cargos pagados {fmtN(mv.cargosPagados,2)}: <strong>no se descuentan del capital</strong>.
+                    {mv.cuadra?`Control: el cálculo paso a paso (${fmtN(mv.calculado,decimalesMoneda(f.moneda))}) es igual al capital app (${fmtN(mv.capitalApp,decimalesMoneda(f.moneda))}).`
+                      :`Control: el cálculo paso a paso (${fmtN(mv.calculado,decimalesMoneda(f.moneda))}) NO coincide con el capital app (${fmtN(mv.capitalApp,decimalesMoneda(f.moneda))}). Revisar.`}
+                    {" "}Intereses pagados {fmtN(mv.interesPagado,decimalesMoneda(f.moneda))} y cargos pagados {fmtN(mv.cargosPagados,decimalesMoneda(f.moneda))}: <strong>no se descuentan del capital</strong>.
                   </div>
                   <table style={{borderCollapse:"collapse",fontSize:10,width:"100%"}}>
                     <thead><tr>{["Fecha","Movimiento","Capital","Interés","Cargos","Sin desglose","¿Cuenta al corte?"].map((h,i)=><th key={i} style={{textAlign:i<2||i===6?"left":"right",padding:"2px 6px",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
                     <tbody>{mv.movimientos.map((m,i)=>(
                       <tr key={i} style={{color:m.cuenta?C.text:C.muted}}>
                         <td style={{padding:"2px 6px",whiteSpace:"nowrap"}}>{m.fecha?fmtDate(m.fecha):"—"}</td><td style={{padding:"2px 6px"}}>{m.tipo}</td>
-                        {[m.capital,m.interes,m.cargos,m.sinDesglose].map((x,j)=><td key={j} style={{padding:"2px 6px",textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{x?fmtN(x,2):"—"}</td>)}
+                        {[m.capital,m.interes,m.cargos,m.sinDesglose].map((x,j)=><td key={j} style={{padding:"2px 6px",textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{x?fmtN(x,decimalesMoneda(f.moneda)):"—"}</td>)}
                         <td style={{padding:"2px 6px"}}>{m.cuenta?"sí":"no"}</td>
                       </tr>))}
                       {!mv.movimientos.length&&<tr><td colSpan={7} style={{padding:"2px 6px",color:C.muted}}>Sin pagos, prepagos ni anulaciones registrados.</td></tr>}
@@ -8614,9 +8615,9 @@ function ConciliacionAcreedores({creditos, saldosInformados=[], onSaveSaldosInfo
             <div style={{fontWeight:800,marginBottom:8,fontSize:12}}>Saldo informado por {form.acreedor} · {form.empresa} · {form.moneda}</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
               <CampoCr label="Fecha de corte del certificado"><input type="date" value={form.fecha} onChange={e=>setForm(p=>({...p,fecha:e.target.value}))} style={CR_INP}/></CampoCr>
-              <CampoCr label={`Capital insoluto informado (${form.moneda})`}><InputNumero formato="monto" value={form.capital} onChange={n=>setForm(p=>({...p,capital:n}))} style={CR_INP}/></CampoCr>
-              <CampoCr label="Intereses informados (opcional)"><InputNumero formato="monto" value={form.intereses} onChange={n=>setForm(p=>({...p,intereses:n}))} style={CR_INP}/></CampoCr>
-              <CampoCr label="Cargos informados (opcional)"><InputNumero formato="monto" value={form.cargos} onChange={n=>setForm(p=>({...p,cargos:n}))} style={CR_INP}/></CampoCr>
+              <CampoCr label={`Capital insoluto informado (${form.moneda})`}><InputNumero formato="monto" decimales={decimalesMoneda(form.moneda)} value={form.capital} onChange={n=>setForm(p=>({...p,capital:n}))} style={CR_INP}/></CampoCr>
+              <CampoCr label="Intereses informados (opcional)"><InputNumero formato="monto" decimales={decimalesMoneda(form.moneda)} value={form.intereses} onChange={n=>setForm(p=>({...p,intereses:n}))} style={CR_INP}/></CampoCr>
+              <CampoCr label="Cargos informados (opcional)"><InputNumero formato="monto" decimales={decimalesMoneda(form.moneda)} value={form.cargos} onChange={n=>setForm(p=>({...p,cargos:n}))} style={CR_INP}/></CampoCr>
               <CampoCr label="Respaldo (obligatorio)" span={2}><input value={form.respaldo} placeholder="Certificado de deuda BCI al 30-09-2026, enlace…" onChange={e=>setForm(p=>({...p,respaldo:e.target.value}))} style={CR_INP}/></CampoCr>
             </div>
             <div style={{fontSize:10,color:C.muted,marginTop:6}}>Se compara solo el capital. Intereses y cargos informados se muestran al lado, sin mezclarse.</div>
@@ -8667,6 +8668,66 @@ function EscenariosCajaCreditos({creditos, empresas, realData={}}){
           </tbody>
         </table>
       </div>
+    </Card>
+  );
+}
+
+// ── Contraste de la UF usada (valor, fecha y fuente) ─────────────────
+// La descarga automática de UF (mindicador.cl, que la toma del Banco Central)
+// está PENDIENTE DE PRUEBA EN VIVO: este panel permite comparar lo guardado en
+// Maestros con la fuente oficial antes de confiar en ella.
+function ContrasteUF({tcData, creditos=[]}){
+  const serie = [...((tcData&&tcData["UF-CLP"])||[])].filter(p=>p&&p.fecha).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  const hoy = hoyISO();
+  const ddmm = (iso)=>{ const [y,m,d]=iso.split("-"); return `${d}-${m}-${y}`; };
+  const usos = [];
+  creditos.filter(c=>!c.anulado && c.moneda==="UF").forEach(c=>{
+    const pf = c._tc && c._tc.porFecha;
+    aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.filter(v=>v.pendienteTotal>0).forEach(v=>{
+      const f = v.fecha<hoy?hoy:v.fecha; const x = pf?pf(f):null;
+      usos.push({acreedor:c.acreedor, empresa:c.empresa, venc:v.fecha, fecha:f, monto:v.pendienteTotal, x});
+    });
+  });
+  const tipoLbl = (x)=>!x?"sin UF":x.tipo==="publicado"?`valor de esa fecha${x.ufFuente==="manual"?" (manual)":""}`:x.tipo==="ultimo_publicado"?"último publicado anterior":"HIPÓTESIS (última UF disponible)";
+  return (
+    <Card>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6}}>
+        <SectionTitle>UF utilizada: contrastar valor, fecha y fuente</SectionTitle>
+        <Pill def={{lbl:"Descarga automática de UF: pendiente de prueba en vivo",bg:"#fef3c7",fg:"#92400e"}}/>
+      </div>
+      <div style={{fontSize:11,color:C.text,lineHeight:1.6,marginBottom:8}}>
+        Fuente oficial: Banco Central de Chile (publica a más tardar el día 9 los valores del 10 de ese mes al 9 del siguiente). La app guarda la UF en
+        Maestros → Tipo de Cambio, par <strong>UF-CLP</strong>; un valor manual prevalece sobre la descarga. Compara el valor de cada fecha con
+        {" "}<a href="https://www.bcentral.cl" target="_blank" rel="noreferrer">bcentral.cl</a> (indicadores diarios) o con
+        {" "}<a href={`https://mindicador.cl/api/uf/${ddmm(hoy)}`} target="_blank" rel="noreferrer">mindicador.cl/api/uf/{ddmm(hoy)}</a>.
+        Si no coincide, corrígelo como valor manual en Maestros.
+      </div>
+      {serie.length===0
+        ? <div style={{fontSize:11,color:C.red,fontWeight:700}}>Maestros no tiene valores UF-CLP: los créditos en UF quedan sin convertir a US$ (total incompleto).</div>
+        : <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+            <div style={{overflowX:"auto"}}>
+              <table style={{borderCollapse:"collapse"}}>
+                <thead><tr style={{background:C.primary}}>{["Fecha","UF (CLP)","Fuente"].map((h,i)=><th key={i} style={{...CR_TH,textAlign:i===1?"right":"left"}}>{h}</th>)}</tr></thead>
+                <tbody>{serie.slice(0,8).map(p=>(
+                  <tr key={p.fecha}><td style={CR_TD}>{fmtDate(p.fecha)}{p.fecha>hoy?" (futura)":""}</td><td style={{...CR_TD,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtN(p.valor,2)}</td><td style={CR_TD}>{p.fuente||"s/f"}</td></tr>))}
+                </tbody>
+              </table>
+            </div>
+            {usos.length>0&&<div style={{overflowX:"auto",flex:1,minWidth:0}}>
+              <table style={{borderCollapse:"collapse",width:"100%"}}>
+                <thead><tr style={{background:C.primary}}>{["Crédito","Vencimiento","Pendiente","UF usada","Fecha UF","Fuente","Tipo"].map((h,i)=><th key={i} style={{...CR_TH,textAlign:i===2||i===3?"right":"left"}}>{h}</th>)}</tr></thead>
+                <tbody>{usos.map((u,i)=>(
+                  <tr key={i}>
+                    <td style={CR_TD}>{u.empresa} · {u.acreedor}</td><td style={CR_TD}>{fmtDate(u.venc)}{u.venc<hoy?" (vencida: UF de hoy)":""}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{$c(u.monto,"UF")}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{u.x?fmtN(u.x.ufCLP,2):"—"}</td>
+                    <td style={CR_TD}>{u.x?fmtDate(u.x.ufFecha):"—"}</td><td style={CR_TD}>{u.x?u.x.ufFuente:"—"}</td>
+                    <td style={{...CR_TD,color:!u.x||u.x.hipotesis?C.red:C.text,fontWeight:!u.x||u.x.hipotesis?700:400}}>{tipoLbl(u.x)}</td>
+                  </tr>))}
+                </tbody>
+              </table>
+            </div>}
+          </div>}
     </Card>
   );
 }
@@ -8750,6 +8811,7 @@ function ConciliacionCreditos({creditos, creditosTodos, empresas, realData={}, o
             contra capital identificado. Intereses, cargos, cuotas sin clasificar y por conciliar van aparte; si existen, la conciliación queda "incompleta".</li>
         </ol>
       </Card>
+      <ContrasteUF tcData={tcData} creditos={creditos}/>
       <ConciliacionAcreedores creditos={creditos} saldosInformados={saldosInformados} onSaveSaldosInformados={onSaveSaldosInformados} canEdit={canEdit} usuario={usuario}
         creditosConfig={creditosConfig} onSaveCreditosConfig={onSaveCreditosConfig} tcData={tcData}/>
       <EscenariosCajaCreditos creditos={creditos} empresas={empresas} realData={realData}/>
@@ -9829,7 +9891,10 @@ function AvisosValorizacion({s}){
   if(s.incompleto) out.push(caja(C.warningBg||"#fef3c7",`${C.warning}66`,<>⚠ <strong>Total en US$ INCOMPLETO</strong>: sin tipo de cambio al {fmtDate(s.corte)} — {s.sinTC.map(x=>`${x.empresa} · ${x.acreedor}: capital ${$c(x.capital,x.moneda)}${x.sinClasificar?`, sin clasificar ${$c(x.sinClasificar,x.moneda)}`:""}${x.porConciliar?`, por conciliar ${$c(x.porConciliar,x.moneda)}`:""}`).join(" · ")}. No están en ninguna cifra en US$.</>,"inc"));
   if(s.estimado) out.push(caja("#fee2e2","#fca5a5",<>⚠ <strong>Total ESTIMADO</strong>: al menos un crédito se valoriza con el TC declarado en el propio crédito (hipótesis), porque Maestros no tiene el par a esa fecha.</>,"est"));
   if(s.desactualizado) out.push(caja(`${C.yellow}14`,`${C.yellow}55`,<>⚠ TC con más de {TC_ANTIGUEDAD_AVISO_DIAS} días de antigüedad respecto del corte (o sin fecha): {s.valorizacion.filter(v=>v.desactualizado).map(v=>`${valorTC(v)} · ${v.fecha?fmtDate(v.fecha):"sin fecha"} · ${v.fuente}`).join(" | ")}. Actualízalo en Maestros → Tipo de Cambio.</>,"des"));
-  if(s.ufHipotesis) out.push(caja("#e0f2fe","#7dd3fc",<>Los vencimientos futuros en UF se valorizan con la última UF publicada al {fmtDate(s.corte)} como <strong>hipótesis de proyección</strong> (no se proyecta el reajuste por IPC).</>,"uf"));
+  if(s.ufHipotesis){ const u=s.valorizacion.find(v=>v.ufCLP!=null);
+    out.push(caja("#e0f2fe","#7dd3fc",<>Los vencimientos en UF que aún no tienen valor publicado para su fecha se valorizan con la última UF disponible
+      {u?<> (<strong>UF {fmtN(u.ufCLP,2)} CLP del {fmtDate(u.ufFecha)}</strong>, fuente {u.ufFuente})</>:""} como <strong>hipótesis de proyección</strong>, sin reajuste por IPC.
+      Si ya existe la UF publicada para la fecha exacta del vencimiento, se usa ese valor.</>,"uf")); }
   if(s.valorizacion.length) out.push(<div key="tcs" style={{fontSize:10,color:C.muted}}>TC usados al {fmtDate(s.corte)}: {s.valorizacion.map(v=>`${valorTC(v)} · ${v.fecha?fmtDate(v.fecha):"sin fecha"} · ${v.fuente}${v.estimado?" (estimado)":""}`).join(" | ")}</div>);
   return out.length?<div style={{display:"flex",flexDirection:"column",gap:6}}>{out}</div>:null;
 }
@@ -13443,6 +13508,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   // ── Carga inicial de datos ────────────────────────────────────────
   function applyData(d) {
+    // Créditos tal como vinieron del servidor: hasta que el usuario haga una
+    // acción explícita sobre Créditos, el auto-guardado los reescribe IGUAL
+    // (sin los uid agregados al cargar ni claves nuevas vacías).
+    credCargadoRef.current = { creditos: d?.creditos_data, saldos: d?.creditos_saldos_informados, config: d?.creditos_config, tocados: new Set() };
     if(!d) return;
     if(d?.finanzas_real) setRealData(d.finanzas_real);
     else if(d?.calendario_data) setRealData(d.calendario_data);
@@ -13632,6 +13701,23 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const intercompanyRef  = React.useRef(intercompany);
   const saldosInformadosRef = React.useRef(saldosInformados);
   const creditosConfigRef = React.useRef(creditosConfig);
+  const credCargadoRef = React.useRef({ creditos: undefined, saldos: undefined, config: undefined, tocados: new Set() });
+  // Valores de Créditos que van al blob. Abrir la app NO modifica registros
+  // antiguos: mientras no haya una acción explícita (registrar pago, editar,
+  // conciliar, guardar tolerancias…) se escribe lo cargado, byte a byte.
+  const valoresCreditosBlob = (overrides={}) => {
+    const k = credCargadoRef.current;
+    const pick = (clave, ov, ref, cargado) => {
+      if(ov !== undefined){ k.tocados.add(clave); return ov; }
+      if(k.tocados.has(clave)) return ref;
+      return cargado !== undefined ? cargado : (clave==="creditos" ? ref : undefined);
+    };
+    return {
+      creditos_data: pick("creditos", overrides.creditos_data, creditosRef.current, k.creditos),
+      creditos_saldos_informados: pick("saldos", overrides.creditos_saldos_informados, saldosInformadosRef.current, k.saldos),
+      creditos_config: pick("config", overrides.creditos_config, creditosConfigRef.current, k.config),
+    };
+  };
   // GUARD anti-borrado: solo se permite guardar tras una carga EXITOSA desde
   // Supabase. Si dbLoad() falla (red/timeout), queda en false y persistAll no
   // escribe nada → un parpadeo de conexión no puede sobrescribir Finanzas con
@@ -13728,7 +13814,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       allegria_comision_arandanos: overrides.allegria_comision_arandanos !== undefined ? overrides.allegria_comision_arandanos : allegraComisionArandanosRef.current,
       // saldos_bancos ya NO va en el blob (fila dedicada compartida finanzas_bancos)
       params_emp:      overrides.params_emp      !== undefined ? overrides.params_emp      : paramsEmpRef.current,
-      creditos_data:   overrides.creditos_data !== undefined ? overrides.creditos_data : creditosRef.current,
+
       params_as:       overrides.params_as       !== undefined ? overrides.params_as       : paramsASRef.current,
       params_frisku:   overrides.params_frisku !== undefined ? overrides.params_frisku : paramsFriskuRef.current,
       params_if:       overrides.params_if       !== undefined ? overrides.params_if       : paramsIFRef.current,
@@ -13739,8 +13825,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       sub_lines:       overrides.sub_lines       !== undefined ? overrides.sub_lines       : subLinesRef.current,
       added_lines:     overrides.added_lines     !== undefined ? overrides.added_lines     : addedLinesRef.current,
       intercompany:    overrides.intercompany    !== undefined ? overrides.intercompany    : intercompanyRef.current,
-      creditos_saldos_informados: overrides.creditos_saldos_informados !== undefined ? overrides.creditos_saldos_informados : saldosInformadosRef.current,
-      creditos_config: overrides.creditos_config !== undefined ? overrides.creditos_config : creditosConfigRef.current,
+      ...valoresCreditosBlob(overrides),
     };
     // Base: guarda el blob completo y actualiza el cache del base vivo.
     const rowId = activeRowRef.current;
@@ -13772,7 +13857,6 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     allegria_params: paramsRef.current,
     allegria_comision_arandanos: allegraComisionArandanosRef.current,
     params_emp: paramsEmpRef.current,
-    creditos_data: creditosRef.current,
     params_as: paramsASRef.current,
     params_frisku: paramsFriskuRef.current,
     params_if: paramsIFRef.current,
@@ -13783,8 +13867,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     sub_lines: subLinesRef.current,
     added_lines: addedLinesRef.current,
     intercompany: intercompanyRef.current,
-    creditos_saldos_informados: saldosInformadosRef.current,
-    creditos_config: creditosConfigRef.current,
+    ...valoresCreditosBlob(),
   }),[]); // eslint-disable-line
 
   // Cambiar de escenario (id=null → Base).

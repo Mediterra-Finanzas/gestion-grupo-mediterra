@@ -31,6 +31,12 @@ import { calcularAmortizacionSocio } from './creditoSocio.js';
 
 const EPS = 0.005;
 const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
+const r4 = (x) => Math.round((Number(x) || 0) * 10000) / 10000;
+// Precisión de los montos de un crédito en su moneda original: la UF se
+// expresa con 4 decimales (0,0001 UF ≈ CLP 4); el resto, al centavo. Para
+// montos que ya vienen al centavo, redondear a 4 decimales no los cambia.
+export const decimalesMoneda = (moneda) => (moneda === 'UF' ? 4 : 2);
+const rMon = (moneda) => (moneda === 'UF' ? r4 : r2);
 const num = (x) => {
   if (x === null || x === undefined || x === '') return 0;
   if (typeof x === 'number') return isFinite(x) ? x : 0;
@@ -248,6 +254,7 @@ const prepagosVigentes = (c, extra) => [...(c.prepagos || []), ...(extra ? [extr
 // Genera las filas {fecha, capital, interes, cargos, saldoInicial, saldoFinal,
 // capitalizado, dias}. `prepagoExtra` permite simular sin tocar el crédito.
 export function calendarioContrato(c, prepagoExtra = null) {
+  const R = rMon(c && c.moneda);
   const falt = datosFaltantesContrato(c);
   const avisos = [];
   if (falt.length) return { filas: [], faltantes: falt, avisos };
@@ -279,10 +286,10 @@ export function calendarioContrato(c, prepagoExtra = null) {
     filas = man.map(r => {
       while (j < prepagos.length && prepagos[j].fecha < r.fecha) saldo -= num(prepagos[j++].capital);
       const si = saldo; saldo = saldo - r.capital;
-      return { ...r, capital: r2(r.capital), interes: r2(r.interes), cargos: r2(r.cargos), saldoInicial: r2(si), saldoFinal: r2(saldo) };
+      return { ...r, capital: R(r.capital), interes: R(r.interes), cargos: R(r.cargos), saldoInicial: R(si), saldoFinal: R(saldo) };
     }).filter(r => r.capital > EPS || r.interes > EPS || r.cargos > EPS);
     const capTot = man.reduce((s, r) => s + r.capital, 0) + prepagos.reduce((s, p) => s + num(p.capital), 0);
-    if (Math.abs(capTot - C0) > 0.01) avisos.push(`El capital del calendario manual (${r2(capTot)}) no suma el capital original (${r2(C0)}).`);
+    if (Math.abs(capTot - C0) > 0.01) avisos.push(`El capital del calendario manual (${R(capTot)}) no suma el capital original (${R(C0)}).`);
   } else {
     const t = tasaCredito(c).tasa / 100;
     const base = c.base;
@@ -328,10 +335,10 @@ export function calendarioContrato(c, prepagoExtra = null) {
       }
       // Montos redondeados al centavo ANTES de bajar el saldo: Σ capital de
       // las cuotas = capital original exacto (la última absorbe la diferencia).
-      capital = esUltima ? r2(saldo) : r2(capital);
-      saldo = r2(saldo - capital);
-      filas.push({ fecha: f, dias, capital: r2(capital), interes: r2(intPagado), cargos: r2(cargosPer), capitalizado: r2(capitalizado),
-        saldoInicial: r2(si), saldoFinal: r2(saldo) });
+      capital = esUltima ? R(saldo) : R(capital);
+      saldo = R(saldo - capital);
+      filas.push({ fecha: f, dias, capital: R(capital), interes: R(intPagado), cargos: R(cargosPer), capitalizado: R(capitalizado),
+        saldoInicial: R(si), saldoFinal: R(saldo) });
       prev = f;
     }
   }
@@ -339,8 +346,8 @@ export function calendarioContrato(c, prepagoExtra = null) {
   // de esa fecha o en uno propio.
   (c.cargos_unicos || []).filter(x => isoValida(x.fecha) && num(x.monto)).forEach(x => {
     const f = filas.find(r => r.fecha === x.fecha);
-    if (f) f.cargos = r2(f.cargos + num(x.monto));
-    else filas.push({ fecha: x.fecha, capital: 0, interes: 0, cargos: r2(num(x.monto)), soloCargo: true, concepto: x.concepto || 'Cargo' });
+    if (f) f.cargos = R(f.cargos + num(x.monto));
+    else filas.push({ fecha: x.fecha, capital: 0, interes: 0, cargos: R(num(x.monto)), soloCargo: true, concepto: x.concepto || 'Cargo' });
   });
   filas.sort((a, b) => a.fecha.localeCompare(b.fecha));
   return { filas, faltantes: [], avisos };
@@ -350,6 +357,7 @@ export function calendarioContrato(c, prepagoExtra = null) {
 // VENCIMIENTOS (antes de pagos) — cualquier tipo de registro
 // ═══════════════════════════════════════════════════════════════════
 const V = (c, key, fecha, comp, extra = {}) => {
+  const r2 = rMon(c && c.moneda);
   const capital = r2(comp.capital), interes = r2(comp.interes), cargos = r2(comp.cargos), sinDesglose = r2(comp.sinDesglose);
   return {
     key, uid: uidCredito(c), n: c.n, empresa: c.empresa, acreedor: c.acreedor || '', moneda: c.moneda || 'USD',
@@ -418,7 +426,7 @@ export function vencimientosCredito(c) {
 // pago = { id, vencKey, fecha, capital, interes, cargos, sinDesglose, tipo:"pago"|"prepago"|"refinanciamiento",
 //          nota, usuario, ts, anulado?, motivoAnulacion?, anuladoPor?, anuladoTs? }
 export const pagosVigentes = (c) => (c && Array.isArray(c.pagos) ? c.pagos : []).filter(p => p && !p.anulado);
-export const totalPago = (p) => r2(num(p.capital) + num(p.interes) + num(p.cargos) + num(p.sinDesglose));
+export const totalPago = (p) => r4(num(p.capital) + num(p.interes) + num(p.cargos) + num(p.sinDesglose));
 
 const COMP = ['capital', 'interes', 'cargos', 'sinDesglose'];
 
@@ -427,6 +435,7 @@ const COMP = ['capital', 'interes', 'cargos', 'sinDesglose'];
 // (orden de imputación del art. 1595 del Código Civil). Vencimientos con
 // fecha < hoy y saldo por pagar quedan como vencidos.
 export function aplicarPagos(c, vencs, hoy = hoyISO()) {
+  const r2 = rMon(c && c.moneda);
   const pagos = pagosVigentes(c);
   const confirmadas = new Set(conciliacionesVigentes(c).filter(x => x.resultado === 'impaga').map(x => x.vencKey));
   const ctrl = controlDesde(c);
@@ -474,6 +483,7 @@ export function aplicarPagos(c, vencs, hoy = hoyISO()) {
 
 // Estado completo de un crédito.
 export function estadoCredito(c, hoy = hoyISO()) {
+  const r2 = rMon(c && c.moneda);
   const vencs = vencimientosCredito(c);
   const { vencimientos, huerfanos } = aplicarPagos(c, vencs, hoy);
   const suma = (arr, f) => r2(arr.reduce((s, v) => s + f(v), 0));
@@ -511,6 +521,7 @@ export function estadoCredito(c, hoy = hoyISO()) {
 
 // Registrar / anular pagos (devuelven un crédito NUEVO; no mutan).
 export function registrarPago(c, pago, usuario = '') {
+  const r2 = rMon(c && c.moneda);
   const comp = {};
   COMP.forEach(k => { comp[k] = r2(num(pago[k])); if (comp[k] < 0) comp[k] = 0; });
   const tot = COMP.reduce((s, k) => s + comp[k], 0);
@@ -698,7 +709,9 @@ export function ufPorFecha(tcData, corte) {
     const tcUFporUSD = Number(usd.valor) / Number(uf.valor);   // UF por 1 US$
     return { factor: 1 / tcUFporUSD, ufCLP: Number(uf.valor), ufFecha: uf.fecha, ufFuente: uf.fuente || 's/f',
       usdCLP: Number(usd.valor), usdFecha: usd.fecha, usdFuente: usd.fuente || 's/f',
-      hipotesis: tipo === 'hipotesis' || iso > corte, tipo };
+      // La UF es hipótesis SOLO si no existe el valor publicado de esa fecha.
+      // El USD-CLP de una fecha futura sí es siempre el último conocido.
+      hipotesis: tipo === 'hipotesis', usdHipotesis: iso > corte, tipo };
   };
 }
 // Factor USD de un vencimiento: UF usa el valor de su fecha (o hipótesis);
@@ -875,6 +888,7 @@ export function informadoVigente(informados, clave) {
     .sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '') || (b.ts || '').localeCompare(a.ts || ''))[0] || null;
 }
 export function posicionAlCorte(creditosGrupo, corte) {
+  const r2 = rMon(creditosGrupo[0] && creditosGrupo[0].moneda);
   const z = { capital: 0, interesVencido: 0, cargosVencidos: 0, interesFuturo: 0, cargosFuturos: 0, sinClasificar: 0, sinClasificarCuotas: 0,
     porConciliar: 0, porConciliarCuotas: 0, pagadoSinRegistro: 0, creditos: 0 };
   creditosGrupo.forEach(c => {
@@ -896,7 +910,7 @@ export function posicionAlCorte(creditosGrupo, corte) {
 }
 // Tolerancia de REDONDEO por moneda (configurable). Nunca reemplaza datos
 // faltantes: con cualquier motivo pendiente el estado es "incompleta".
-export const TOLERANCIAS_DEFAULT = { CLP: 1, USD: 0.01, EUR: 0.01, PEN: 0.01, UF: 0.01 };
+export const TOLERANCIAS_DEFAULT = { CLP: 1, USD: 0.01, EUR: 0.01, PEN: 0.01, UF: 0.0001 };
 export const toleranciaDe = (moneda, tolerancias) => {
   const t = tolerancias && tolerancias[moneda];
   if (t !== undefined && t !== null && t !== '' && isFinite(Number(t)) && Number(t) >= 0) return Number(t);
@@ -908,6 +922,7 @@ export const toleranciaDe = (moneda, tolerancias) => {
 //   − capital de cuotas por conciliar (excluido, no confirmado)
 //   = capital app.  Los intereses y cargos pagados NO tocan el capital; se listan aparte.
 export function movimientosCapitalAlCorte(creditosGrupo, corte) {
+  const r2 = rMon(creditosGrupo[0] && creditosGrupo[0].moneda);
   const movs = [];
   let original = 0, prepCap = 0, capCal = 0, capPag = 0, capSinReg = 0, capPC = 0, exceso = 0, intPag = 0, carPag = 0;
   creditosGrupo.forEach(c => {
@@ -937,7 +952,7 @@ export function movimientosCapitalAlCorte(creditosGrupo, corte) {
   const calculado = r2(capCal - (capPag - exceso) - capSinReg - capPC);
   return { original: r2(original), prepagosCapital: r2(prepCap), capitalCalendario: r2(capCal), capitalPagado: r2(capPag), excesoCapital: r2(exceso),
     capitalSinRegistro: r2(capSinReg), capitalPorConciliar: r2(capPC), interesPagado: r2(intPag), cargosPagados: r2(carPag),
-    capitalApp: app, calculado, cuadra: Math.abs(calculado - app) <= 0.01, movimientos: movs };
+    capitalApp: app, calculado, cuadra: Math.abs(calculado - app) <= (creditosGrupo[0] && creditosGrupo[0].moneda === 'UF' ? 0.0001 : 0.01), movimientos: movs };
 }
 
 export function conciliacionAcreedores(creditos, informados, hoy = hoyISO(), opciones = {}) {
@@ -967,7 +982,7 @@ export function conciliacionAcreedores(creditos, informados, hoy = hoyISO(), opc
     if (huerf) motivos.push(`${huerf} pago(s) sin vencimiento asociado`);
     const capInf = inf ? num(inf.capital) : null;
     const difExacta = inf ? capInf - app.capital : null;          // sin redondear
-    const dif = inf ? r2(difExacta) : null;
+    const dif = inf ? rMon(g.moneda)(difExacta) : null;
     const tol = toleranciaDe(g.moneda, tolerancias);
     let estado;
     if (!inf) estado = 'sin_dato';
@@ -1004,7 +1019,7 @@ export function saldosAlCorte(creditos, corte, hoy = hoyISO()) {
       const f = fBase === null ? null : factorVencimiento(c, v.fecha < hoy ? hoy : v.fecha);
       cap += v.pendiente.capital; sd += v.pendiente.sinDesglose;
       if (f !== null) { capUSD += v.pendiente.capital * f; sdUSD += v.pendiente.sinDesglose * f;
-        if (c._tc && c._tc.porFecha && v.fecha > hoy) ufHipotesis = true; }
+        if (c._tc && c._tc.porFecha && v.fecha > hoy) { const u = c._tc.porFecha(v.fecha); if (!u || u.hipotesis) ufHipotesis = true; } }
     });
     if (fBase === null) { if (cap + sd + pc > EPS) sinTC.push({ empresa: c.empresa, acreedor: c.acreedor, moneda: c.moneda || 'USD', capital: r2(cap), sinClasificar: r2(sd), porConciliar: r2(pc) }); return; }
     e.capital += capUSD; e.sinClasificar += sdUSD; e.porConciliar += pcUSD;

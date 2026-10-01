@@ -103,6 +103,20 @@ export async function instalarFake(context, store, log = () => {}) {
     return json([]);
   });
 
+  // El tiempo real de Supabase (WebSocket) apunta a PRODUCCIÓN y context.route
+  // no intercepta WebSockets: se reemplaza por un socket inerte en la página.
+  await context.addInitScript(() => {
+    const WSReal = window.WebSocket;
+    window.WebSocket = function (url, prot) {
+      if (String(url).includes('bywovqayuzodbzwsriet.supabase.co')) {
+        window.__WS_BLOQUEADOS = (window.__WS_BLOQUEADOS || 0) + 1;
+        return { readyState: 0, url: String(url), send() {}, close() { this.readyState = 3; }, addEventListener() {}, removeEventListener() {} };
+      }
+      return prot !== undefined ? new WSReal(url, prot) : new WSReal(url);
+    };
+    ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach((k, i) => { window.WebSocket[k] = i; });
+  });
+
   // Endpoints propios (/api/*) y correo: fuera del alcance de esta prueba.
   await context.route('**/api/**', r => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
 }

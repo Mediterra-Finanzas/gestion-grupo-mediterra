@@ -248,7 +248,7 @@ cuota por conciliar de Banco Security por 9.178.
 
 ### 4b.2 Tolerancia por moneda y diferencia exacta
 
-- Tolerancias iniciales: **CLP 1 · USD 0,01 · EUR 0,01 · PEN 0,01 · UF 0,01**. Se editan en "Editar tolerancias" y se guardan en `creditos_config.tolerancias`, con usuario y fecha.
+- Tolerancias iniciales: **CLP 1 · USD 0,01 · EUR 0,01 · PEN 0,01 · UF 0,01** (en el cierre de etapa la UF pasó a 0,0001; ver 4c.1). Se editan en "Editar tolerancias" y se guardan en `creditos_config.tolerancias`, con usuario y fecha.
 - Siempre se muestra la **diferencia exacta** (informado − app, sin redondear; el valor completo aparece al pasar el cursor) y la tolerancia aplicada.
 - La tolerancia **solo absorbe redondeo**. El estado es "Conciliación incompleta", cualquiera sea la diferencia, si se cumple al menos una de estas condiciones:
   - hay cuotas sin desglosar;
@@ -327,6 +327,56 @@ tasa 8 %, base Act/360, desembolso el 10-01-2026. Corte: 01-10-2026.
 
 ---
 
+## 4c. Cierre de etapa (01-10-2026)
+
+### 4c.1 UF: precisión, tolerancia y valor publicado
+
+- **Precisión:** los montos de un crédito en UF se calculan y guardan con **4 decimales**. Esto aplica a cuotas, pagos, pendientes y capital al corte (`decimalesMoneda`).
+  - Ejemplo: 1.000 UF × 3,5 % × 183/360 = 17,7917 UF. Antes se redondeaba a 17,79.
+  - USD, CLP, EUR y PEN siguen al centavo. Para montos que ya vienen al centavo, el resultado es idéntico; los tests existentes no cambiaron.
+- **Tolerancia UF inicial: 0,0001**, configurable.
+  - La diferencia se calcula sin redondear y se muestra con 4 decimales.
+  - Prueba: 1.000,0001 → cuadra; 1.000,0002 → diferencia. Con la tolerancia anterior de 0,01 habría cuadrado.
+  - Sin respaldo, el estado es "incompleta" con cualquier tolerancia.
+- **Valor publicado para la fecha exacta:** si Maestros ya tiene la UF publicada para la fecha del vencimiento, se usa ese valor aunque la fecha sea futura, y **no** se rotula hipótesis.
+  - Solo cuando todavía no existe se usa la última UF disponible, como hipótesis de proyección, sin IPC.
+  - La fecha de la UF usada se muestra en cada caso: detalle del crédito, aviso y panel de contraste.
+- **Contraste en la app:** Créditos → 🔎 Conciliación → "UF utilizada: contrastar valor, fecha y fuente".
+  - Muestra las últimas UF de Maestros y, por cada cuota en UF, la UF usada, su fecha, su fuente y si es valor publicado o hipótesis.
+  - Incluye enlaces a bcentral.cl y a mindicador.cl para la misma fecha.
+  - Marca la descarga automática como **pendiente de prueba en vivo**.
+- **Corrección en Maestros:** el alta manual exigía pares de 3 letras y rechazaba `UF-CLP`. Ahora se acepta.
+
+### 4c.2 Abrir la nueva versión con registros antiguos
+
+**Problema encontrado y corregido.** Al cargar, la app asigna un `uid` a cada crédito antiguo. El auto-guardado que corre tras la carga, ya existente en `main`, reescribía la fila con esos `uid` y con dos claves nuevas vacías (`creditos_config`, `creditos_saldos_informados`). No cambiaba importes ni estados, pero sí modificaba los registros sin una acción del usuario.
+
+**Corrección:** mientras no haya una acción explícita en Créditos (registrar o anular un pago, editar, conciliar, guardar tolerancias o un saldo informado), el auto-guardado escribe los créditos **tal como se cargaron, byte a byte**, y no agrega claves nuevas (`valoresCreditosBlob`). Los `uid` se guardan junto con la primera acción explícita.
+
+**Verificación** (`scripts/e2e/apertura-sin-cambios.mjs`):
+- Datos sembrados: los 57 créditos históricos de `CREDITOS_DEFAULT` (sin `uid`, con `n` repetidos), más uno con `pagado:true` antiguo, cuotas mensuales, una renovación, un crédito de socio y un valor manual antiguo con la clave vieja.
+- Recorrido sin ninguna acción: las 5 pestañas de Créditos, el flujo de 3 empresas, el consolidado y Nóminas.
+- Antes de la corrección: **falla**, con 61 créditos reescritos con `uid` y las 2 claves nuevas.
+- Después: créditos idénticos byte a byte, sin claves nuevas, el valor manual antiguo y las nóminas intactos, y ningún pago, conciliación ni cobertura creados.
+- El auto-guardado histórico de `main` sigue agregando `allegria_comision_arandanos` y `params_frisku`. Es ajeno a Créditos y no se tocó.
+
+### 4c.3 Tiempo real de Supabase hacia producción
+
+La app abre un WebSocket de tiempo real (`wss://…supabase.co/realtime`) contra producción, en `App.jsx` y en `FinanzasModule.jsx`. El Supabase falso de las pruebas E2E solo interceptaba HTTP. En este entorno ese WebSocket quedó bloqueado por la red, así que ningún dato real entró a las pruebas, pero la afirmación anterior de "0 peticiones a producción" se refería solo a HTTP.
+
+Ahora el Supabase falso (`scripts/e2e/fake.mjs`) y la vista previa reemplazan ese WebSocket por uno inerte. La prueba funcional comprueba **0** conexiones HTTP y **0** WebSocket hacia producción.
+
+### 4c.4 Vista previa funcional
+
+- `scripts/vista-previa/`: la app real compilada con un Supabase simulado **dentro del navegador** (`shim.js`) y datos de ejemplo (`semilla.js`).
+- Cubre la pauta `docs/creditos-pauta-revision.md`: cuotas, bullet, pago parcial, prepago, UF, nómina → crédito y conciliación.
+- No lee ni escribe producción, no envía correos (EmailJS y `/api/*` se responden en vacío) y no abre el tiempo real.
+- **Local:** `node scripts/vista-previa/armar.mjs --build` y luego `node scripts/vista-previa/servir.mjs` → http://localhost:4180. Diálogos y descargas Excel funcionan. La descarga de UF sale a internet, así que ahí se puede probar en vivo.
+- **Artifact:** el mismo contenido como enlace privado. Los diálogos se responden solos con aviso en pantalla y las descargas no funcionan dentro del visor.
+- **No usar la vista previa de Vercel del PR para probar acciones:** apunta a la base de **producción**. Solo sirve para mirar.
+
+---
+
 ---
 
 ## 5. Qué se verificó y cómo
@@ -338,6 +388,8 @@ tasa 8 %, base Act/360, desembolso el 10-01-2026. Corte: 01-10-2026.
 | Suite jest | `CI=true npx react-scripts test --watchAll=false` (incluye hoja "Servicio deuda" y escenario con cobertura explícita) | todo OK |
 | Navegador (datos simulados) | `scripts/e2e/vista-previa-creditos.mjs`: puntos 1–8 (cobertura, tolerancia, movimientos, Saldo por Mes, estimado, UF), Excel recalculado por LibreOffice | 36/36 OK |
 | Navegador (datos simulados) | `scripts/e2e/creditos.mjs`, `scripts/e2e/nomina-credito.mjs` | OK / OK |
+| Navegador (datos simulados) | `scripts/e2e/apertura-sin-cambios.mjs`: abrir con registros antiguos sin acción | falla antes de la corrección; OK después |
+| Navegador (vista previa) | `scripts/e2e/vista-previa-funcional.mjs`: pauta completa sobre la vista previa armada, sin interceptar nada desde fuera | 19/19 OK; 0 HTTP y 0 WebSocket a producción |
 | Navegador (datos simulados) | `scripts/e2e/regresion-empresas.mjs`: pantalla vs Excel recalculado, 8 empresas | 12.032 celdas, 0 diferencias; 0 peticiones a producción |
 | **Datos reales** | — | **NO verificado** |
 
@@ -354,7 +406,7 @@ tasa 8 %, base Act/360, desembolso el 10-01-2026. Corte: 01-10-2026.
 
 1. Descarga el **💾 Respaldo** antes de empezar.
 2. **Tipo de cambio:** en Maestros → Tipo de Cambio, presiona actualizar. Ahora descarga USD-CLP, EUR y **UF**. Carga a mano **USD-PEN** (las APIs no lo cubren) y cualquier valor que quieras fijar: lo manual prevalece. Debe haber un dato con fecha ≤ a cada fecha de corte que vayas a conciliar.
-3. **Tolerancias:** en Créditos → 🔎 Conciliación → "Editar tolerancias", confirma o ajusta los valores iniciales (CLP 1 · USD/EUR/PEN/UF 0,01).
+3. **Tolerancias:** en Créditos → 🔎 Conciliación → "Editar tolerancias", confirma o ajusta los valores iniciales (CLP 1 · USD/EUR/PEN 0,01 · UF 0,0001).
 
 **Cargar cada crédito** (Créditos → ➕)
 
@@ -384,10 +436,11 @@ tasa 8 %, base Act/360, desembolso el 10-01-2026. Corte: 01-10-2026.
 2. **Desglose de cada cuota antigua** (capital / intereses / cargos): requiere las tablas de desarrollo o los pagarés.
 3. **Condiciones de prepago** de cada crédito (comisión, aviso, mínimos): requieren los contratos. Hoy el ejemplo usa "1 mes de interés" solo como hipótesis de prueba.
 4. **Tasas variables:** confirmar la referencia y el margen de cada contrato, y quién actualiza la hipótesis de la referencia y cada cuánto.
-5. **Tolerancia UF:** el valor inicial es 0,01 UF (≈ CLP 395). Confirma si para la UF prefieres otra, por ejemplo 0,0001 UF.
+5. **Tolerancia UF:** decidido, 0,0001 UF inicial y configurable.
 6. **Cobertura de los valores manuales reales** del mes en curso: solo tú o tu equipo pueden decir qué cuotas incluye cada valor manual.
 7. **UF en Maestros:** la descarga automática de UF se probó solo con datos simulados; la llamada real a mindicador.cl no se pudo ejecutar desde este entorno. Verifica el primer valor descargado contra el publicado por el Banco Central.
-8. **Reajuste de la UF futura:** hoy la hipótesis es la UF vigente (sin IPC). Si quieres proyectar inflación, indica qué supuesto usar.
+8. **Reajuste de la UF futura:** decidido, UF vigente como hipótesis sin IPC, con la fecha del valor visible.
+9. **Conciliación real:** pendiente de validación con los datos reales, en la app (sección 6).
 
 ## 8. Limitaciones técnicas pendientes
 

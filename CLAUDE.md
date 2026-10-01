@@ -212,8 +212,8 @@ Reglas que no hay que romper:
   informado (`creditos_saldos_informados` en el blob finanzas, con respaldo,
   anulables). Intereses/cargos/sin clasificar/por conciliar van APARTE y nunca se
   suman al capital; si existen → "conciliación incompleta". Diferencia EXACTA y
-  tolerancia por moneda (`creditos_config.tolerancias`, inicial CLP 1, USD/EUR/PEN/UF
-  0,01) que SOLO absorbe redondeo: con cualquier dato/respaldo/desglose faltante el
+  tolerancia por moneda (`creditos_config.tolerancias`, inicial CLP 1, USD/EUR/PEN
+  0,01, UF 0,0001) que SOLO absorbe redondeo: con cualquier dato/respaldo/desglose faltante el
   estado es "incompleta". US$ con el TC DE LA FECHA DE CORTE (nunca posterior).
   "Ver movimientos" = `movimientosCapitalAlCorte` (los intereses no tocan el capital).
 - **Escenario "incl. por conciliar"** (`escenarioPorConciliar`): fila morada en el
@@ -226,8 +226,17 @@ Reglas que no hay que romper:
   clasificar separados; avisos compartidos (`AvisosValorizacion`): incompleto (sin
   TC), ESTIMADO (TC declarado), TC > 7 días, UF futura = hipótesis.
 - **UF**: par `UF-CLP` en Maestros (mindicador `uf`, Banco Central; manual prevalece).
-  `ufPorFecha` valoriza cada pago/vencimiento con la UF de su fecha; fecha futura sin
-  valor publicado = última UF al corte, rotulada hipótesis (sin IPC).
+  `ufPorFecha` valoriza cada pago/vencimiento con la UF de su fecha (si ya está
+  publicada para esa fecha exacta, aunque sea futura, se usa y NO es hipótesis); sin
+  valor publicado = última UF al corte, rotulada hipótesis (sin IPC). Montos en UF con
+  4 decimales (`decimalesMoneda`); el resto al centavo. Panel `ContrasteUF` en
+  Conciliación (descarga automática de UF: pendiente de prueba en vivo).
+- **Abrir no modifica**: hasta una acción explícita en Créditos, el auto-guardado
+  escribe los créditos tal como se cargaron (sin los `uid` agregados en memoria) y sin
+  claves nuevas (`valoresCreditosBlob`). Test: `scripts/e2e/apertura-sin-cambios.mjs`.
+- **Vista previa** con datos simulados: `scripts/vista-previa/` (armar.mjs + servir.mjs;
+  Supabase simulado en el navegador, tiempo real bloqueado). La vista previa de Vercel
+  apunta a PRODUCCIÓN: no usarla para probar acciones. Pauta: `docs/creditos-pauta-revision.md`.
 - **Excel**: hoja "Servicio deuda" (individual y consolidado) con capital +
   intereses + cargos + sin desglosar = servicio; + ajuste manual = línea; control
   contra la hoja del flujo. Usa `line._compCred` (lo anota `aplicarCreditosAEmpresas`).
@@ -453,6 +462,9 @@ node src/creditos.test.mjs                  # modelo de créditos (puro)
 OUT_DIR=/tmp/e2e node scripts/e2e/creditos.mjs   # Créditos en navegador (Supabase falso)
 OUT_DIR=/tmp/e2e node scripts/e2e/nomina-credito.mjs   # Nómina ↔ crédito en navegador
 OUT_DIR=/tmp/vp node scripts/e2e/vista-previa-creditos.mjs   # vista previa de Créditos con datos simulados (Excel recalculado)
+OUT_DIR=/tmp/e2e node scripts/e2e/apertura-sin-cambios.mjs   # abrir con registros antiguos no los modifica
+node scripts/vista-previa/armar.mjs --build && node scripts/vista-previa/servir.mjs   # vista previa funcional en http://localhost:4180
+VP_URL=http://127.0.0.1:4180 OUT_DIR=/tmp/vpf node scripts/e2e/vista-previa-funcional.mjs   # prueba la vista previa (pauta)
 CI=true npx react-scripts test --watchAll=false     # suite completa (jest)
 CI=true npx react-scripts test --testPathPattern Anticipos --watchAll=false
 node scripts/verif-excel-recalc.mjs         # recálculo REAL del Excel (requiere LibreOffice Calc)
