@@ -11,6 +11,13 @@
      4. Anular una nómina con un pago vigente en Créditos exige resolverlo.
      5. Monedas: TC de Maestros (manual prevalece), fecha y fuente; sin TC →
         importe no convertido y total incompleto.
+   Ronda 4:
+     6. Cobertura explícita de un valor manual: sin definir → superposición y
+        escenario PROVISIONAL; al vincular la cuota → se excluye solo esa.
+     7. Diferencia exacta + tolerancia por moneda (editable) y panel de
+        movimientos del capital de Banco Demo (256.066,67 vs 300.000).
+     8. Saldo por Mes: fila "Hoy" = Análisis CFO, mismos avisos (incompleto,
+        estimado por TC declarado, UF como hipótesis), CLP con TC de Maestros.
 
    NADA de esto concilia datos reales. Uso:
      CI=true npx react-scripts build; (cd build && python3 -m http.server 4173 --bind 127.0.0.1 &)
@@ -56,8 +63,16 @@ const creditos = [
   { uid: 'D', n: 4, tipo_credito: 'contrato', empresa: 'Frisku Foods', acreedor: 'Banco Perú Demo', moneda: 'PEN', tipo_cr: 'Capital de trabajo',
     monto: 300000, fecha_desembolso: '2026-07-01', vencimiento_final: '2027-07-01', modalidad: 'bullet_int', periodicidad: 6, tasa_tipo: 'variable',
     tasa_ref_nombre: 'TAMN', tasa_ref_hipotesis: 9, margen: 2, base: 'act360', control_desde: '2026-07-01' },
+  // E) EUR sin par en Maestros, con TC declarado en el crédito (hipótesis) del 01-sep → total ESTIMADO + antigüedad
+  { uid: 'E', n: 5, tipo_credito: 'contrato', empresa: 'Allegria Foods', acreedor: 'Banco EUR Demo', moneda: 'EUR', tipo_cr: 'Capital de trabajo',
+    monto: 100000, fecha_desembolso: '2026-08-01', vencimiento_final: '2027-02-01', modalidad: 'bullet_total', tasa_tipo: 'fija', tasa_anual: 5, base: 'act360',
+    control_desde: '2026-08-01', tc_flujo: 0.85, tc_flujo_fecha: '2026-09-01' },
+  // F) UF: vencimiento futuro valorizado con la última UF publicada (hipótesis de proyección)
+  { uid: 'F', n: 6, tipo_credito: 'contrato', empresa: 'Integrity Farms', acreedor: 'Banco UF Demo', moneda: 'UF', tipo_cr: 'Capital de trabajo',
+    monto: 1000, fecha_desembolso: '2026-06-01', vencimiento_final: '2026-12-01', modalidad: 'bullet_total', tasa_tipo: 'fija', tasa_anual: 4, base: 'act360', control_desde: '2026-06-01' },
 ];
-const tcSerie = { 'USD-CLP': [ { fecha: '2026-09-25', valor: 948, fuente: 'mindicador' }, { fecha: '2026-09-29', valor: 955, fuente: 'manual' } ] };
+const tcSerie = { 'USD-CLP': [ { fecha: '2026-09-25', valor: 948, fuente: 'mindicador' }, { fecha: '2026-09-29', valor: 955, fuente: 'manual' } ],
+  'UF-CLP': [ { fecha: '2026-09-29', valor: 39500, fuente: 'mindicador' } ] };
 const VKQ2 = 'A@2026-07-10';
 const store = nuevoStore();
 store.finanzas.value.creditos_data = creditos;
@@ -102,12 +117,54 @@ check('Privado Particular: capital identificado 0, sin clasificar 550.000 → "C
 // ── 2. Escenarios de caja ───────────────────────────────────────────────
 const txtEsc = await page.locator('div', { hasText: 'Dos escenarios de caja' }).last().innerText().catch(() => '');
 check('Tabla de dos escenarios presente', /dos escenarios de caja/i.test(await page.locator('body').innerText()));
-const tablaEsc = page.locator('table').filter({ hasText: 'Cuotas sumadas al escenario' }).first();
+const tablaEsc = page.locator('table').filter({ hasText: 'Cuotas sumadas' }).first();
 await tablaEsc.scrollIntoViewIfNeeded(); await foto(page, '02-escenarios');
-const filaEscO = await tablaEsc.locator('tr', { hasText: 'Osiris' }).first().innerText();
+let filaEscO = await tablaEsc.locator('tr', { hasText: 'Osiris' }).first().innerText();
 const filaEscM = await tablaEsc.locator('tr', { hasText: 'Mediterra' }).first().innerText();
-check('Osiris: la cuota por conciliar NO se suma (valor manual vigente en el mes en curso podría cubrirla)', /1 · \$9,178/.test(filaEscO), filaEscO.replace(/\s+/g, ' '));
+check('Osiris sin cobertura definida: la cuota 9.178 SE SUMA, marcada como posible superposición, escenario PROVISIONAL',
+  /−\$9,178/.test(filaEscO) && /1 · \$9,178/.test(filaEscO) && /Provisional/.test(filaEscO), filaEscO.replace(/\s+/g, ' '));
 check('Mediterra: 34.650 por conciliar sumados al escenario', filaEscM.includes('34,650'), filaEscM.replace(/\s+/g, ' '));
+check('Aviso "ESCENARIO PROVISIONAL … No es un saldo definitivo"', /ESCENARIO PROVISIONAL[\s\S]*No es un saldo definitivo/.test(await page.locator('body').innerText()));
+
+// ── 6. Definir cobertura del valor manual de Osiris (mes en curso) ──────
+const tablaOv = page.locator('table').filter({ hasText: 'Cobertura de cuotas por conciliar' }).first();
+const filaOv = tablaOv.locator('tr', { hasText: 'Osiris' }).filter({ hasText: mesHoy }).first();
+check('Valor manual de Osiris: cobertura "Pendiente de conciliación"', /Pendiente de conciliación/.test(await filaOv.innerText()));
+await filaOv.getByRole('button', { name: 'Definir' }).click(); await page.waitForTimeout(400);
+await page.locator('label', { hasText: 'Banco Security' }).locator('input[type=checkbox]').first().check();
+await page.locator('input[placeholder^="Ej: planilla de Pago Préstamos"]').fill('Planilla simulada: el valor manual incluye la cuota Banco Security 31-07');
+await foto(page, '06-definir-cobertura');
+await page.getByRole('button', { name: 'Guardar cobertura' }).click(); await page.waitForTimeout(1500);
+const cobs = leerFila(store, 'finanzas').finanzas_real?.Osiris?._coberturasManual || [];
+check('Cobertura guardada con la cuota vinculada, nota y usuario', cobs.length === 1 && cobs[0].vencKeys.includes('B1@2026-07-31') && /Banco Security/.test(cobs[0].nota) && !!cobs[0].usuario,
+  JSON.stringify(cobs.map(c => c.vencKeys)));
+filaEscO = await page.locator('table').filter({ hasText: 'Cuotas sumadas' }).first().locator('tr', { hasText: 'Osiris' }).first().innerText();
+check('Osiris con cobertura: la cuota vinculada se EXCLUYE (1 · $9,178) y el escenario de Osiris queda completo',
+  /1 · \$9,178/.test(filaEscO) && /Completo/.test(filaEscO) && !/−\$9,178/.test(filaEscO), filaEscO.replace(/\s+/g, ' '));
+await page.locator('table').filter({ hasText: 'Cuotas sumadas' }).first().scrollIntoViewIfNeeded(); await foto(page, '06b-escenarios-con-cobertura');
+
+// ── 7. Diferencia exacta, tolerancia y movimientos de Banco Demo ────────
+const tablaAcr2 = page.locator('table').filter({ hasText: 'Capital informado' }).first();
+const filaA2 = tablaAcr2.locator('tr', { hasText: 'Banco Demo' }).first();
+const tA2 = await filaA2.innerText();
+check('Banco Demo: diferencia exacta "43,933.33 USD" y tolerancia 0.01', /43,933\.33 USD/.test(tA2) && /\b0\.01\b/.test(tA2), tA2.replace(/\s+/g, ' '));
+await filaA2.getByRole('button', { name: 'Ver movimientos' }).click(); await page.waitForTimeout(500);
+const panel = await page.locator('td', { hasText: 'De dónde sale el capital de la app' }).first().innerText();
+check('Movimientos: capital inicial 400.000, capital pagado 143.933,33 → 256.066,67',
+  /400,000\.00/.test(panel) && /-143,933\.33/.test(panel) && /= Capital app\s*256,066\.67/.test(panel), panel.slice(0, 400).replace(/\s+/g, ' '));
+check('Movimientos: control paso a paso = capital app; intereses 14.066,67 NO descontados del capital',
+  /es igual al capital app/.test(panel) && /14,066\.67/.test(panel) && /no se descuentan del capital/.test(panel));
+check('Movimientos: sin prepagos ni anulaciones (prepagos 0,00; todos los pagos cuentan)', /Prepagos de capital[^\n]*\s*0\.00|-0\.00/.test(panel) && !/ANULADO/.test(panel));
+await page.locator('td', { hasText: 'De dónde sale el capital de la app' }).first().scrollIntoViewIfNeeded(); await foto(page, '07-movimientos-banco-demo');
+await page.getByRole('button', { name: 'Editar tolerancias' }).click(); await page.waitForTimeout(300);
+await page.locator('xpath=//div[starts-with(normalize-space(text()),"USD (inicial")]/following::input[1]').fill('0.5');
+await page.getByRole('button', { name: 'Guardar', exact: true }).click(); await page.waitForTimeout(1500);
+const cfg = leerFila(store, 'finanzas').creditos_config || {};
+check('Tolerancia USD editada a 0,50 y guardada (con usuario)', cfg.tolerancias?.USD === 0.5 && !!cfg.toleranciasPor, JSON.stringify(cfg.tolerancias));
+const tB2 = await page.locator('table').filter({ hasText: 'Capital informado' }).first().locator('tr', { hasText: 'Privado Particular' }).first().innerText();
+check('Privado Particular sigue "Conciliación incompleta" aunque cambie la tolerancia (faltan desgloses)', /Conciliación incompleta/.test(tB2));
+const tA3 = await page.locator('table').filter({ hasText: 'Capital informado' }).first().locator('tr', { hasText: 'Banco Demo' }).first().innerText();
+check('Banco Demo sigue "Diferencia" (43.933,33 > 0,50)', /Diferencia/.test(tA3) && !/Cuadra/.test(tA3));
 
 // ── 5. Monedas ───────────────────────────────────────────────────────────
 await subTab(page, /Análisis CFO/);
@@ -117,6 +174,25 @@ const tMon = await tablaMon.innerText();
 check('CLP valorizado con TC manual de Maestros 955 del 29/09/2026, fuente visible', tMon.includes('955') && tMon.includes('29/09/2026') && /manual/.test(tMon));
 check('PEN sin TC: importe no convertido identificado (PEN 300,000.00)', /PEN 300,000\.00/.test(tMon));
 check('Aviso de total consolidado INCOMPLETO', /INCOMPLETO/.test(await page.locator('body').innerText()));
+const bodyAn = await page.locator('body').innerText();
+check('Análisis: total ESTIMADO por TC declarado (EUR 0,85 del 01/09/2026) con antigüedad > 7 días', /Total ESTIMADO/.test(bodyAn) && /0\.85(00)? EUR por US\$[^|]*01\/09\/2026/.test(bodyAn) && /más de 7 días/.test(bodyAn));
+check('Análisis: UF futura como hipótesis de proyección', /hipótesis de proyección/.test(bodyAn));
+const kpiCap = num((bodyAn.match(/Saldo capital identificado \(USD\)[^\n]*\n\s*\$([\d,]+)/i) || [])[1] || 'NaN');
+
+// ── 8. Saldo por Mes = Análisis al mismo corte ──────────────────────────
+await subTab(page, /Saldo por Mes/); await page.waitForTimeout(800);
+await foto(page, '08-saldo-por-mes');
+const bodySM = await page.locator('body').innerText();
+const filaHoy = await page.locator('tr', { hasText: /^Hoy/ }).first().innerText().catch(() => '');
+const celdas = filaHoy.split('\t').map(x => x.trim());
+const kTot = num((filaHoy.match(/US\$ ([\d.]+) K/g) || []).slice(-3)[0]?.replace(/[^\d]/g, '') || 'NaN');
+check(`Saldo por Mes "Hoy" = Análisis CFO (capital ${kpiCap} → ${Math.round(kpiCap / 1000)} K)`, Number.isFinite(kpiCap) && Math.round(kpiCap / 1000) === kTot, `fila: ${filaHoy.replace(/\s+/g, ' ').slice(0, 300)}`);
+check('Saldo por Mes: mismos avisos (INCOMPLETO, ESTIMADO, UF hipótesis)', /Total en US\$ INCOMPLETO/.test(bodySM) && /Total ESTIMADO/.test(bodySM) && /hipótesis de proyección/.test(bodySM));
+check('Saldo por Mes: capital y sin clasificar en columnas separadas', /Total capital/i.test(bodySM) && /Total sin clasificar/i.test(bodySM));
+await page.getByRole('button', { name: 'CLP', exact: true }).click(); await page.waitForTimeout(400);
+check('Saldo por Mes CLP: TC de Maestros 955 del 29/09/2026 (manual), sin TC editable', /TC 955\.00 CLP\/US\$ · 29\/09\/2026 · Maestros · manual/.test(await page.locator('body').innerText()));
+await foto(page, '08b-saldo-por-mes-clp');
+await page.getByRole('button', { name: 'USD', exact: true }).click();
 
 // ── 2b. Flujo Osiris: fila de escenario y desglose con ajuste ─────────────
 await irAFlujoEmpresas(page); await elegirEmpresa(page, 'Mediterra');

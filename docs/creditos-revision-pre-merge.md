@@ -147,9 +147,9 @@ compararlo con el saldo del acreedor. Ahora:
 
   | Estado | Cuándo |
   |---|---|
-  | **Cuadra** | Solo si no hay cuotas sin clasificar, ni por conciliar, ni cuotas antiguas marcadas pagadas sin registro, y la diferencia es ≤ 1 unidad de la moneda. |
+  | **Cuadra** | Solo si no falta nada (ver 4b.2) y la diferencia exacta es ≤ la tolerancia de redondeo de esa moneda. |
   | **Conciliación incompleta** | Si falta cualquiera de esas informaciones, aunque el capital coincida. Indica el motivo. |
-  | **Diferencia de capital** | La información está completa y la diferencia es mayor a 1 unidad de la moneda. |
+  | **Diferencia de capital** | La información está completa y la diferencia exacta supera la tolerancia de la moneda. |
   | **Sin dato del acreedor** | No hay saldo informado. |
 
 - El saldo informado no se borra: se anula con motivo.
@@ -161,7 +161,7 @@ capital identificado 0 y 550.000 sin clasificar. El estado es **incompleta**, no
 
 - **Confirmado** (fila SALDO ACUM.): no incluye las cuotas por conciliar.
 - **Incluyendo por conciliar** (fila morada, "SALDO ACUM. incl. por conciliar"): las paga en el mes en curso. La diferencia se ve mes a mes y semana a semana.
-- **Sin duplicar:** si la línea Pago Préstamos o Renovaciones de esa empresa tiene un **valor manual vigente en el mes en curso**, esas cuotas **no se suman** al escenario, porque el valor manual podría estar cubriéndolas. Se listan aparte con el motivo.
+- **Sin duplicar:** reemplazado en la tercera revisión por la cobertura explícita (ver 4b.1).
 - Tabla por empresa en Créditos → Conciliación, con: diferencia de caja, cuotas no sumadas y cuotas sin TC (escenario incompleto).
 
 ### 4.3 Excel: hoja "Servicio deuda"
@@ -218,6 +218,115 @@ Al anular una **nómina** o una **línea** que tiene un pago vigente en Crédito
 - Si el TC tiene más de 7 días de antigüedad respecto del corte, se avisa.
 - La lectura del histórico de TC es solo lectura: si falla, se avisa y no se escribe nada.
 
+## 4b. Ajustes de la tercera revisión (01-10-2026)
+
+### 4b.1 Valores manuales y cuotas por conciliar: cobertura explícita
+
+Antes, un valor manual vigente en el mes en curso excluía del escenario **todas** las
+cuotas por conciliar de esa empresa. Ya no se excluye nada de forma automática:
+
+| Situación del valor manual del mes en curso | Cuota por conciliar en el escenario | Estado |
+|---|---|---|
+| No hay valor manual | se suma | completo |
+| Hay valor manual y **no** se definió qué cubre | se suma y se marca "posible superposición" | **PROVISIONAL**: no es un saldo definitivo |
+| Cobertura definida y la cuota está vinculada | se excluye (con usuario y respaldo) | completo |
+| Cobertura definida y la cuota **no** está vinculada | se suma | completo |
+
+La cobertura se define en Créditos → 🔎 Conciliación, tabla de valores manuales, columna
+"Cobertura de cuotas por conciliar" → **Definir**: se marcan las cuotas que el valor manual
+incluye según su respaldo, y el respaldo es obligatorio. Queda en
+`realData[empresa]._coberturasManual`. No se borra: una nueva definición anula la anterior
+con el motivo "reemplazada". Mientras haya cobertura pendiente, la fila morada del flujo, el
+aviso y la tabla de escenarios dicen **PROVISIONAL** e informan el monto que puede estar
+duplicado.
+
+Ejemplo (datos simulados): Osiris tiene un valor manual de 150.000 en el mes en curso y una
+cuota por conciliar de Banco Security por 9.178.
+
+1. Sin cobertura definida, el escenario suma los 9.178 y queda provisional.
+2. Al vincular la cuota, el escenario la excluye (excluidas: 1 · 9.178) y Osiris queda completo.
+
+### 4b.2 Tolerancia por moneda y diferencia exacta
+
+- Tolerancias iniciales: **CLP 1 · USD 0,01 · EUR 0,01 · PEN 0,01 · UF 0,01**. Se editan en "Editar tolerancias" y se guardan en `creditos_config.tolerancias`, con usuario y fecha.
+- Siempre se muestra la **diferencia exacta** (informado − app, sin redondear; el valor completo aparece al pasar el cursor) y la tolerancia aplicada.
+- La tolerancia **solo absorbe redondeo**. El estado es "Conciliación incompleta", cualquiera sea la diferencia, si se cumple al menos una de estas condiciones:
+  - hay cuotas sin desglosar;
+  - hay cuotas por conciliar;
+  - hay cuotas marcadas pagadas sin registro;
+  - el saldo informado no tiene respaldo;
+  - hay contratos con condiciones incompletas;
+  - hay pagos sin vencimiento asociado.
+- Verificado (tests):
+  - USD con diferencia 0,01 → cuadra; con 0,02 → diferencia.
+  - CLP con 0,6 → cuadra; con 1,5 → diferencia.
+  - Sin respaldo o con datos de contrato faltantes → incompleta.
+  - En la vista previa, la tolerancia USD se subió a 0,50. Privado Particular siguió "incompleta" y Banco Demo siguió "diferencia".
+
+### 4b.3 Tipo de cambio
+
+- **Proyecciones:** se mantiene el aviso cuando el TC tiene más de 7 días de antigüedad (o no tiene fecha), con el valor, la fecha y la fuente. Aparece en Análisis CFO, Saldo por Mes, la pestaña Créditos y el aviso de créditos del Flujo Empresas.
+- **Conciliaciones históricas:** el equivalente en US$ de cada fila de la conciliación por acreedor usa el TC **de la fecha de corte** del certificado. Es el último dato con fecha ≤ corte, nunca uno posterior. Un TC declarado en el crédito con fecha posterior al corte no se usa: la fila dice "sin TC al corte".
+- **TC declarado en el crédito:** si se usa porque Maestros no tiene el par, la cifra se rotula **ESTIMADO** en los KPI, en el aviso "Total ESTIMADO", en la tabla por moneda y en el flujo.
+- Verificado:
+  - Con 955 al 29-09 y 960 al 05-10, un corte al 30-09 usa 955.
+  - Un TC declarado con fecha posterior al corte no se usa.
+  - En la vista previa, un crédito EUR con TC declarado 0,85 del 01-09 aparece como estimado y con 30 días de antigüedad.
+
+### 4b.4 Créditos en UF
+
+**Fuente oficial verificada (documentación; la consulta en vivo está bloqueada desde este entorno):**
+- La UF la calcula y publica el **Banco Central de Chile** en el Diario Oficial.
+- Se publica a más tardar el día 9 de cada mes, con los valores diarios del 10 de ese mes al 9 del mes siguiente.
+- **mindicador.cl** expone el indicador `uf` (endpoint `/api/uf/dd-mm-yyyy`) con datos tomados del Banco Central. Es la misma API que la app ya usa para USD y EUR.
+- Fuentes consultadas:
+  - [mindicador.cl](https://mindicador.cl/)
+  - [documentación de la API](https://github.com/LuisFigueroaG/mindicador)
+  - [uf-hoy.com](https://www.uf-hoy.com/)
+  - [Buk: valor UF hoy](https://www.buk.cl/novedades/finanzas/valor-uf-hoy)
+
+Implementación:
+- El botón de actualización de Maestros → Tipo de Cambio ahora también descarga la UF al par `UF-CLP`, con fuente `mindicador`. Un valor **manual** prevalece.
+- Cada pago y cada vencimiento en UF usa la UF **de su propia fecha**. El detalle del crédito muestra, bajo cada total, el equivalente en CLP con el valor UF, su fecha y su fuente:
+  - si existe el valor publicado de ese día → exacto;
+  - si es una fecha pasada sin valor de ese día → el último publicado anterior;
+  - si es una fecha futura sin valor publicado → **la última UF publicada al corte, rotulada "hipótesis de proyección"**. No se proyecta el reajuste por IPC.
+- El USD-CLP de una fecha futura también es el último conocido (hipótesis).
+- Verificado:
+  - La UF publicada del 09-06 se usa exacta.
+  - Un vencimiento del 10-12 usa la UF del corte y queda marcado como hipótesis.
+  - Flujo de 1.000 UF: 1.000 × 39.600 / 955 = **41.465,97 US$**.
+
+### 4b.5 Saldo por Mes = Análisis CFO
+
+- Las dos vistas, más la pestaña Créditos (KPI, "Deuda por empresa", cierre de temporada y trimestres), leen ahora una sola función: `saldosAlCorte(creditos, corte)`.
+- La fila **"Hoy"** de Saldo por Mes es la misma cifra que el KPI de Análisis CFO. La igualdad exacta está probada en el test del modelo; en el navegador se comparó con redondeo a miles: 514.551 → 515 K.
+- Capital identificado y cuotas sin clasificar van en columnas separadas, y por conciliar aparte (solo en "Hoy").
+- La vista en CLP usa el USD-CLP de Maestros con fecha y fuente. **Se eliminó el TC editable a mano**, que podía diferir del usado en Análisis.
+- Muestra los mismos avisos que Análisis (incompleto, estimado, TC desactualizado, UF como hipótesis), también por fila y en el Excel, que tiene columnas separadas.
+
+### 4b.6 Banco Demo: por qué 256.066,67 y no 300.000
+
+Datos simulados. Crédito contrato USD 400.000, capital constante 100.000 por trimestre,
+tasa 8 %, base Act/360, desembolso el 10-01-2026. Corte: 01-10-2026.
+
+| Movimiento hasta el corte | Capital | Interés | ¿Toca el capital? |
+|---|---:|---:|---|
+| Capital inicial (desembolso 10-01) | 400.000,00 | — | — |
+| Prepagos | 0,00 | — | no hay |
+| Anulaciones | — | — | no hay |
+| Pago cuota 10-04 | −100.000,00 | 8.000,00 | solo la parte de capital |
+| Pago parcial cuota 10-07 (vía nómina, 50.000) | −43.933,33 | 6.066,67 | solo la parte de capital |
+| **Capital app al corte** | **256.066,67** | | |
+
+- Interés de la cuota 10-07: 300.000 × 8 % × 91/360 = 6.066,67. Capital del pago parcial: 50.000 − 6.066,67 = 43.933,33. El interés se imputa antes que el capital (art. 1595 CC).
+- Capital pagado: 100.000 + 43.933,33 = 143.933,33. Capital app: 400.000 − 143.933,33 = 256.066,67.
+- **Ningún interés se descontó del capital.** Los intereses pagados, 8.000 + 6.066,67 = 14.066,67, se listan aparte y no entran al cálculo. El panel "Ver movimientos" lo muestra con un control: el cálculo paso a paso es igual al capital app.
+- El certificado simulado informa 300.000, porque omite el pago de capital del 10-07. Diferencia exacta: 300.000 − 256.066,67 = **43.933,33** USD, igual al capital de ese pago. El estado es **"Diferencia de capital"**.
+- En datos reales, una diferencia así se resuelve de dos formas. Si el pago del 10-07 existió, se pide al acreedor el certificado actualizado. Si no existió, se anula el pago en la app con motivo.
+
+---
+
 ---
 
 ## 5. Qué se verificó y cómo
@@ -225,33 +334,47 @@ Al anular una **nómina** o una **línea** que tiene un pago vigente en Crédito
 | Nivel | Qué | Resultado |
 |---|---|---|
 | Compilación | `CI=true npx react-scripts build` | sin errores |
-| Modelo (Node) | `node src/creditos.test.mjs`: 6 casos pedidos, conciliación, nómina, tasa variable, TC de Maestros y conciliación por acreedor; también con TZ=America/Santiago | todo OK |
-| Suite jest | `CI=true npx react-scripts test --watchAll=false` (incluye hoja "Servicio deuda") | todo OK |
-| Navegador (datos simulados) | `scripts/e2e/vista-previa-creditos.mjs`: puntos 1–5 de esta revisión, Excel recalculado por LibreOffice | 20/20 OK |
+| Modelo (Node) | `node src/creditos.test.mjs`: 6 casos pedidos, conciliación, nómina, tasa variable, TC de Maestros, conciliación por acreedor y (3.ª revisión) movimientos de Banco Demo, tolerancias, TC al corte, estimado, UF, Saldo por Mes = Análisis; también con TZ=America/Santiago | todo OK |
+| Suite jest | `CI=true npx react-scripts test --watchAll=false` (incluye hoja "Servicio deuda" y escenario con cobertura explícita) | todo OK |
+| Navegador (datos simulados) | `scripts/e2e/vista-previa-creditos.mjs`: puntos 1–8 (cobertura, tolerancia, movimientos, Saldo por Mes, estimado, UF), Excel recalculado por LibreOffice | 36/36 OK |
 | Navegador (datos simulados) | `scripts/e2e/creditos.mjs`, `scripts/e2e/nomina-credito.mjs` | OK / OK |
 | Navegador (datos simulados) | `scripts/e2e/regresion-empresas.mjs`: pantalla vs Excel recalculado, 8 empresas | 12.032 celdas, 0 diferencias; 0 peticiones a producción |
 | **Datos reales** | — | **NO verificado** |
 
 ---
 
-## 6. Procedimiento de conciliación con datos reales (desde la app)
+## 6. Guía breve: cargar y conciliar los créditos reales desde la app
 
-1. **Respaldo.** Antes de desplegar, descarga el "💾 Respaldo" de la app.
-2. **Tipo de cambio.** En Maestros → Tipo de Cambio, confirma que existan los pares de cada moneda de crédito a la fecha de corte (USD-CLP, USD-PEN manual, UF-CLP si hay créditos en UF). Lo que falte aparecerá como "no convertido".
-3. **Revisar lo pendiente.** Abre Créditos → 🔎 Conciliación.
-4. **Cotejar.** Con "📥 Exportar a Excel para cotejar", contrasta las cuotas por conciliar con las cartolas.
-5. **Resolver cada cuota por conciliar:**
-   - Si se pagó: 📅 → "💵 Pagar", con la fecha y el monto reales.
-   - Si sigue impaga: "Confirmar impaga", con el respaldo.
-6. **Desglosar.** Desglosa las cuotas sin clasificar con respaldo contractual (tabla de desarrollo, pagaré).
-7. **Valores manuales antiguos.** Decide mes a mes: "Usar Créditos" o "Mantener" con motivo.
-8. **Saldos de los acreedores.** Por cada acreedor, en "Conciliación con cada acreedor", registra el **capital insoluto** que informa el certificado, a su fecha de corte, con el respaldo.
-   Opcionalmente registra intereses y cargos; se muestran al lado, sin mezclarse.
-9. **Leer el estado.**
-   - **Cuadra:** solo capital contra capital, con la información completa.
-   - **Conciliación incompleta:** resuelve lo que indica el motivo y vuelve a revisar.
-   - **Diferencia de capital:** falta registrar un pago, hay un pago mal imputado entre capital e interés, o el calendario está mal cargado.
-10. **Caja.** Revisa en cada empresa la diferencia entre los dos escenarios (fila morada) y las cuotas no sumadas por un posible duplicado con un valor manual.
+> **Estado: PENDIENTE DE VALIDACIÓN.** Nada de lo anterior concilia datos reales. Las
+> cifras de este documento (Banco Demo, Osiris 150.000, Privado Particular, etc.) son
+> simuladas. La conciliación real se da por terminada solo cuando la hagas tú en la app y
+> cada acreedor quede en "Cuadra" o con su diferencia explicada.
+
+**Preparar**
+
+1. Descarga el **💾 Respaldo** antes de empezar.
+2. **Tipo de cambio:** en Maestros → Tipo de Cambio, presiona actualizar. Ahora descarga USD-CLP, EUR y **UF**. Carga a mano **USD-PEN** (las APIs no lo cubren) y cualquier valor que quieras fijar: lo manual prevalece. Debe haber un dato con fecha ≤ a cada fecha de corte que vayas a conciliar.
+3. **Tolerancias:** en Créditos → 🔎 Conciliación → "Editar tolerancias", confirma o ajusta los valores iniciales (CLP 1 · USD/EUR/PEN/UF 0,01).
+
+**Cargar cada crédito** (Créditos → ➕)
+
+4. **Contrato**: tipo de cuota, tasa (fija, o variable con referencia + margen), base, periodicidad, gracia, cargos y condición de prepago. Si el acreedor entrega la tabla de desarrollo, cárgala como **calendario manual**. Lo que falte queda listado como "dato faltante"; la app no lo inventa.
+5. **"Controlado desde"**: la fecha desde la que registras pagos en la app. Lo vencido antes queda "por conciliar".
+6. Moneda original y, si Maestros no tiene el par, el TC declarado con su fecha (el total queda rotulado "estimado").
+
+**Conciliar**
+
+7. **Cuotas por conciliar:** con "📥 Exportar a Excel para cotejar", revisa contra las cartolas. Si una cuota se pagó, regístrala en 📅 → "💵 Pagar" con la fecha y el monto reales. Si no se pagó, usa "Confirmar impaga" con el respaldo.
+8. **Cuotas antiguas sin desglose:** usa "Desglosar cuota" con la tabla de desarrollo o el pagaré como respaldo.
+9. **Valores manuales antiguos** de Pago Préstamos y Renovaciones, mes a mes:
+   - "Usar Créditos", o "Mantener" con motivo.
+   - En el mes en curso, define también su **cobertura** ("Definir"): qué cuotas por conciliar incluye. Mientras no la definas, el escenario queda **provisional**.
+10. **Saldo de cada acreedor:** en "Conciliación con cada acreedor" → "Saldo informado", registra el capital insoluto del certificado, su fecha de corte y el respaldo. Luego revisa:
+    - **Cuadra:** la información está completa y la diferencia exacta es ≤ tolerancia.
+    - **Conciliación incompleta:** resuelve el motivo indicado.
+    - **Diferencia de capital:** abre **"Ver movimientos"**. Ahí ves el capital inicial, los prepagos, lo pagado con fecha ≤ corte, los pagos anulados y los posteriores (que no cuentan), y los intereses aparte. Con eso ubicas el pago faltante o mal imputado.
+11. **Caja:** en el flujo de cada empresa, compara la fila SALDO ACUM. con la fila morada "incl. por conciliar".
+12. **Cierre:** cuando cada acreedor esté en "Cuadra" o con su diferencia explicada y respaldada, exporta la conciliación y guárdala con el respaldo del día.
 
 ---
 
@@ -261,10 +384,10 @@ Al anular una **nómina** o una **línea** que tiene un pago vigente en Crédito
 2. **Desglose de cada cuota antigua** (capital / intereses / cargos): requiere las tablas de desarrollo o los pagarés.
 3. **Condiciones de prepago** de cada crédito (comisión, aviso, mínimos): requieren los contratos. Hoy el ejemplo usa "1 mes de interés" solo como hipótesis de prueba.
 4. **Tasas variables:** confirmar la referencia y el margen de cada contrato, y quién actualiza la hipótesis de la referencia y cada cuánto.
-5. **Tolerancia de cuadre:** hoy es 1 unidad de la moneda. Confirma si te sirve o prefieres otra, en monto o en %.
-6. **Escenario "incluyendo por conciliar":** confirma que el criterio de no sumar cuando hay un valor manual vigente en el mes en curso es el que quieres. La alternativa es sumarlas igual y mostrar el posible duplicado.
-7. **Antigüedad máxima aceptable del TC** para la valorización (hoy se avisa sobre 7 días).
-8. **UF:** si hay créditos en UF, confirma la fuente del par UF-CLP en Maestros (mindicador no se descarga hoy automáticamente para UF).
+5. **Tolerancia UF:** el valor inicial es 0,01 UF (≈ CLP 395). Confirma si para la UF prefieres otra, por ejemplo 0,0001 UF.
+6. **Cobertura de los valores manuales reales** del mes en curso: solo tú o tu equipo pueden decir qué cuotas incluye cada valor manual.
+7. **UF en Maestros:** la descarga automática de UF se probó solo con datos simulados; la llamada real a mindicador.cl no se pudo ejecutar desde este entorno. Verifica el primer valor descargado contra el publicado por el Banco Central.
+8. **Reajuste de la UF futura:** hoy la hipótesis es la UF vigente (sin IPC). Si quieres proyectar inflación, indica qué supuesto usar.
 
 ## 8. Limitaciones técnicas pendientes
 
@@ -272,6 +395,6 @@ Al anular una **nómina** o una **línea** que tiene un pago vigente en Crédito
 2. **Prepago parcial en registros legacy o de socio.** Solo se simula; el prepago total sí se aplica.
 3. **Renovaciones legacy.** Siguen con su modelo anterior: mensual, sin día.
 4. **Flujo real.** Sigue siendo de ingreso manual; los pagos registrados no se trasladan. Falta definir esa conciliación.
-5. **Saldo por Mes.** La vista "Saldo por Mes" sigue con su tipo de cambio manual para mostrar en CLP; no usa Maestros.
+5. **Saldo por Mes y cortes futuros:** proyecta suponiendo pagado lo que vence hasta cada cierre (igual que el flujo), no lo que efectivamente se pague.
 6. **Fila de ajuste en vista semanal.** En la vista semanal, la fila de ajuste por valor manual aparece solo en la columna Σ del mes.
-7. **Prepagos anteriores al corte.** La conciliación por acreedor recalcula el calendario de un contrato con todos sus prepagos, aunque tengan fecha posterior al corte. Es poco frecuente, pero puede descuadrar un corte antiguo.
+7. **Prepagos posteriores al corte.** La conciliación por acreedor recalcula el calendario de un contrato con todos sus prepagos, aunque tengan fecha posterior al corte. Es poco frecuente, pero puede descuadrar un corte antiguo.

@@ -7,6 +7,7 @@ import {
   servicioDeudaPorMes, saldoCapitalAl, analisisCartera, datosFaltantesContrato,
   confirmarImpaga, anularConciliacion, porConciliarCartera, registrarPagoIdempotente, pagoPorOrigen,
   tcDesdeTabla, infoTC, valorizarCreditos, sinValorizacion, conciliacionAcreedores, posicionAlCorte,
+  movimientosCapitalAlCorte, saldosAlCorte, ufPorFecha, toleranciaDe,
 } from './creditos.js';
 
 let fallos = 0;
@@ -307,6 +308,67 @@ check('Sin desglose: capital identificado 0, sin clasificar 550.000, estado INCO
   co4.app.capital === 0 && co4.app.sinClasificar === 550000 && co4.estado === 'incompleta' && co4.motivos.some(m => /sin desglosar/.test(m)));
 const co5 = conciliacionAcreedores([vieja], [], HOY)[0];
 check('Sin dato del acreedor → "sin_dato"', co5.estado === 'sin_dato');
+
+
+// ═══ Banco Demo (vista previa): por qué el capital es 256.066,67 ═══
+// Capital inicial 400.000 en 4 cuotas de capital de 100.000 (10-abr, 10-jul, 10-oct, 10-ene).
+//   10-04-26 pago cuota 1: capital 100.000,00 + interés 8.000,00   (400.000×8%×90/360)
+//   10-07-26 pago nómina : capital  43.933,33 + interés 6.066,67   (300.000×8%×91/360) = 50.000
+// Capital = 400.000 − 100.000 − 43.933,33 = 256.066,67. Sin prepagos ni anulaciones.
+// Los 14.066,67 de intereses pagados NO se restan del capital.
+const demo = { ...c2, uid: 'A', acreedor: 'Banco Demo', pagos: [
+  { id: 'pA1', vencKey: 'A@2026-04-10', fecha: '2026-04-10', capital: 100000, interes: 8000, tipo: 'pago' },
+  { id: 'pNom', vencKey: 'A@2026-07-10', fecha: '2026-07-10', capital: 43933.33, interes: 6066.67, tipo: 'pago', origen: { tipo: 'nomina', clave: 'k' } },
+  { id: 'pX', vencKey: 'A@2026-10-10', fecha: '2026-09-15', capital: 5000, tipo: 'pago', anulado: true, motivoAnulacion: 'mal digitado' },
+  { id: 'pY', vencKey: 'A@2026-10-10', fecha: '2026-10-05', capital: 7000, tipo: 'pago' } ] };
+const mv = movimientosCapitalAlCorte([demo], '2026-10-01');
+check('Banco Demo: calendario 400.000 − pagado 143.933,33 = 256.066,67', mv.capitalCalendario === 400000 && aprox(mv.capitalPagado, 143933.33) && aprox(mv.capitalApp, 256066.67));
+check('Banco Demo: identidad exacta calendario − pagado − por conciliar = capital app', mv.cuadra && aprox(mv.calculado, mv.capitalApp));
+check('Banco Demo: intereses pagados 14.066,67 se informan aparte y no tocan el capital', aprox(mv.interesPagado, 14066.67) && aprox(mv.capitalApp, 400000 - 143933.33));
+check('Banco Demo: el pago anulado y el posterior al corte (05-oct) se listan pero no cuentan',
+  mv.movimientos.some(m => /ANULADO/.test(m.tipo) && !m.cuenta) && mv.movimientos.some(m => /POSTERIOR/.test(m.tipo) && !m.cuenta));
+const coDemo = conciliacionAcreedores([demo], [{ id: 'd', empresa: 'Osiris', acreedor: 'Banco Demo', moneda: 'USD', fecha: '2026-10-01', capital: 300000, respaldo: 'cert' }], '2026-10-01')[0];
+check('Banco Demo vs 300.000 informados: diferencia exacta 43.933,33 (= capital pagado el 10-07 que el certificado no refleja)',
+  coDemo.estado === 'diferencia' && aprox(coDemo.diferenciaExacta, 43933.33));
+
+// ═══ Tolerancias por moneda ════════════════════════════════════════
+check('Tolerancias iniciales: CLP 1 · USD/EUR/PEN 0,01', toleranciaDe('CLP') === 1 && toleranciaDe('USD') === 0.01 && toleranciaDe('EUR') === 0.01 && toleranciaDe('PEN') === 0.01);
+const inf0 = (cap, extra = {}) => [{ id: 'i', empresa: 'Osiris', acreedor: 'Banco B', moneda: 'USD', fecha: '2026-05-20', capital: cap, respaldo: 'cert', ...extra }];
+check('USD: diferencia 0,01 → cuadra (redondeo)', conciliacionAcreedores([c2pag], inf0(300000.01), HOY)[0].estado === 'cuadra');
+check('USD: diferencia 0,02 → diferencia (se muestra exacta 0,02)', (() => { const r = conciliacionAcreedores([c2pag], inf0(300000.02), HOY)[0]; return r.estado === 'diferencia' && aprox(r.diferenciaExacta, 0.02, 1e-6); })());
+check('Tolerancia configurable: USD 1 → 0,50 cuadra', conciliacionAcreedores([c2pag], inf0(300000.5), HOY, { tolerancias: { USD: 1 } })[0].estado === 'cuadra');
+check('Diferencia 0 pero SIN respaldo → incompleta (la tolerancia no reemplaza datos)', conciliacionAcreedores([c2pag], inf0(300000, { respaldo: '' }), HOY)[0].estado === 'incompleta');
+const clpC = { ...clp, uid: 'CC', acreedor: 'Banco CLP', control_desde: '2026-01-10' };
+const infCLP = (cap) => [{ id: 'c', empresa: 'Osiris', acreedor: 'Banco CLP', moneda: 'CLP', fecha: '2026-05-20', capital: cap, respaldo: 'cert' }];
+check('CLP: diferencia 0,6 → cuadra; 1,5 → diferencia', conciliacionAcreedores([clpC], infCLP(95000000.6), HOY)[0].estado === 'cuadra' && conciliacionAcreedores([clpC], infCLP(95000001.5), HOY)[0].estado === 'diferencia');
+check('Contrato con condiciones faltantes → incompleta aunque cuadre', conciliacionAcreedores([{ ...c2pag, base: '' }], inf0(300000), HOY)[0].estado === 'incompleta');
+
+// ═══ TC: corte histórico y TC declarado = estimado ══════════════════
+check('Conciliación al 20-may usa TC ≤ 20-may (955 manual del 18-may), no el 960 del 25-may',
+  conciliacionAcreedores([clpC], infCLP(95000000), HOY, { tcData: TCD })[0].tcCorte.tc === 955);
+check('TC declarado → estimado:true', infoTC({ moneda: 'PEN', tc_flujo: 3.75, tc_flujo_fecha: '2026-05-01' }, TCD, '2026-05-20').estimado === true);
+check('TC declarado con fecha POSTERIOR al corte → no sirve para ese corte', infoTC({ moneda: 'PEN', tc_flujo: 3.75, tc_flujo_fecha: '2026-06-01' }, TCD, '2026-05-20') === null);
+check('TC de Maestros con más de 7 días de antigüedad → desactualizado', infoTC({ moneda: 'CLP' }, TCD, '2026-06-30').desactualizado === true);
+
+// ═══ UF ════════════════════════════════════════════════════════════
+const TCU = { 'USD-CLP': [{ fecha: '2026-05-18', valor: 955, fuente: 'manual' }],
+  'UF-CLP': [{ fecha: '2026-05-20', valor: 39500, fuente: 'mindicador' }, { fecha: '2026-06-09', valor: 39600, fuente: 'mindicador' }] };
+const uf = ufPorFecha(TCU, '2026-05-20');
+// 09-jun publicado (Banco Central publica hasta el 9 del mes siguiente): factor = 39.600 / 955
+check('UF del 09-jun ya publicada → valor exacto 39.600, no hipótesis', uf('2026-06-09').tipo === 'publicado' && aprox(1 / uf('2026-06-09').factor, 955 / 39600, 1e-12));
+check('UF de 10-dic (no publicada) → último ≤ corte (39.500 del 20-may) como HIPÓTESIS', uf('2026-12-10').hipotesis === true && uf('2026-12-10').ufCLP === 39500);
+const credUF = valorizarCreditos([{ uid: 'U', tipo_credito: 'contrato', empresa: 'Osiris', acreedor: 'Banco UF', moneda: 'UF', monto: 1000, fecha_desembolso: '2026-03-09',
+  vencimiento_final: '2026-06-09', modalidad: 'bullet_total', tasa_tipo: 'fija', tasa_anual: 0, base: 'act360', control_desde: '2026-03-09' }], TCU, '2026-05-20')[0];
+// 1.000 UF × 39.600 CLP/UF / 955 CLP/US$ = 41.465,97 US$ en Jun-26
+check('Flujo UF: 1.000 UF al 09-jun × 39.600 / 955 = 41.465,97 USD', aprox(flujoCreditosEmpresa('Osiris', [credUF], { hoy: HOY, ubicar }).prestamos.total[iM(2026, 6)], 41465.97, 0.02));
+
+// ═══ Misma fecha de corte = mismos números entre vistas ════════════
+const cartV = valorizarCreditos([c2pag, clpC, { ...clpC, uid: 'PEN', moneda: 'PEN' }, legGrupo[0]], TCD, HOY);
+const sc0 = saldosAlCorte(cartV, HOY, HOY);
+const an0 = analisisCartera(cartV, HOY);
+const capAn = Object.values(an0.porEmpresa).reduce((a, x) => a + x.saldoCapital, 0), sdAn = Object.values(an0.porEmpresa).reduce((a, x) => a + x.sinDesglose, 0);
+check('Saldo por Mes (corte = hoy) = Análisis CFO: capital identificado y sin clasificar', aprox(sc0.total.capital, capAn) && aprox(sc0.total.sinClasificar, sdAn), `${sc0.total.capital} vs ${capAn}`);
+check('Saldo por Mes informa el crédito sin TC (incompleto) igual que Análisis', sc0.incompleto && sc0.sinTC[0].moneda === 'PEN' && an0.sinTC.length === 1);
 
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

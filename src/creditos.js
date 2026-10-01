@@ -650,16 +650,63 @@ export function tcDesdeTabla(moneda, corte, tcData) {
 }
 // TC con el que se valoriza un crédito a la fecha de corte:
 //   1) histórico de Maestros; 2) TC declarado en el crédito (hipótesis); 3) sin TC.
+// Antigüedad sobre la cual se avisa en proyecciones.
+export const TC_ANTIGUEDAD_AVISO_DIAS = 7;
 export function infoTC(c, tcData, corte) {
   const mon = (c && c.moneda) || 'USD';
-  if (mon === 'USD') return { factor: 1, tc: 1, fecha: null, fuente: 'USD', origen: 'usd', moneda: 'USD' };
+  if (mon === 'USD') return { factor: 1, tc: 1, fecha: null, fuente: 'USD', origen: 'usd', moneda: 'USD', estimado: false };
   const m = tcDesdeTabla(mon, corte, tcData);
-  if (m && m.tc > 0) return { factor: 1 / m.tc, tc: r2x(m.tc), fecha: m.fecha, fuente: `Maestros · ${m.fuente}`, par: m.par, origen: 'maestros', moneda: mon,
-    antiguedadDias: m.fecha ? diasEntre(m.fecha, corte) : null };
+  if (m && m.tc > 0) {
+    const ant = m.fecha ? diasEntre(m.fecha, corte) : null;
+    const info = { factor: 1 / m.tc, tc: r2x(m.tc), fecha: m.fecha, fuente: `Maestros · ${m.fuente}`, par: m.par, origen: 'maestros', moneda: mon,
+      antiguedadDias: ant, desactualizado: ant != null && ant > TC_ANTIGUEDAD_AVISO_DIAS, estimado: false, corte };
+    if (mon === 'UF') info.porFecha = ufPorFecha(tcData, corte);
+    return info;
+  }
   const t = num(c.tc_flujo);
-  if (t > 0) return { factor: 1 / t, tc: t, fecha: isoValida(c.tc_flujo_fecha) ? c.tc_flujo_fecha : null, fuente: 'TC declarado en el crédito (hipótesis)',
-    origen: 'credito', moneda: mon };
+  if (t > 0) {
+    const f = isoValida(c.tc_flujo_fecha) ? c.tc_flujo_fecha : null;
+    // Un TC declarado con fecha POSTERIOR al corte no sirve para valorizar ese corte.
+    if (f && f > corte) return null;
+    return { factor: 1 / t, tc: t, fecha: f, fuente: 'TC declarado en el crédito (hipótesis)', origen: 'credito', moneda: mon,
+      antiguedadDias: f ? diasEntre(f, corte) : null, desactualizado: !f || diasEntre(f, corte) > TC_ANTIGUEDAD_AVISO_DIAS, estimado: true, corte };
+  }
   return null;
+}
+
+// ── UF ─────────────────────────────────────────────────────────────
+// Fuente oficial: Banco Central de Chile (Diario Oficial). Publica a más
+// tardar el día 9 los valores diarios del 10 de ese mes al 9 del siguiente.
+// En Maestros se guarda como par "UF-CLP" (CLP por 1 UF; mindicador.cl la
+// toma del Banco Central). Para cada fecha:
+//   · si existe el valor publicado de ESE día → exacto;
+//   · fecha ≤ corte sin valor del día → último publicado ≤ esa fecha;
+//   · fecha futura sin valor publicado → último ≤ corte = HIPÓTESIS de
+//     proyección (no se proyecta el reajuste por IPC).
+// El USD-CLP de una fecha futura siempre es el último ≤ corte (hipótesis).
+export function ufPorFecha(tcData, corte) {
+  const serieUF = (tcData && tcData['UF-CLP']) || [];
+  const serieUSD = (tcData && tcData['USD-CLP']) || [];
+  return (iso) => {
+    const exacto = serieUF.find(p => p && p.fecha === iso && Number(p.valor) > 0);
+    let uf, tipo;
+    if (exacto) { uf = exacto; tipo = 'publicado'; }
+    else if (iso <= corte) { uf = ultimoDato(serieUF, iso); tipo = 'ultimo_publicado'; }
+    else { uf = ultimoDato(serieUF, corte); tipo = 'hipotesis'; }
+    const usd = ultimoDato(serieUSD, iso <= corte ? iso : corte);
+    if (!uf || !usd) return null;
+    const tcUFporUSD = Number(usd.valor) / Number(uf.valor);   // UF por 1 US$
+    return { factor: 1 / tcUFporUSD, ufCLP: Number(uf.valor), ufFecha: uf.fecha, ufFuente: uf.fuente || 's/f',
+      usdCLP: Number(usd.valor), usdFecha: usd.fecha, usdFuente: usd.fuente || 's/f',
+      hipotesis: tipo === 'hipotesis' || iso > corte, tipo };
+  };
+}
+// Factor USD de un vencimiento: UF usa el valor de su fecha (o hipótesis);
+// las demás monedas, el TC del crédito al corte.
+export function factorVencimiento(c, fecha) {
+  const t = c && c._tc;
+  if (t && typeof t.porFecha === 'function') { const x = t.porFecha(fecha); if (x) return x.factor; }
+  return factorUSD(c);
 }
 const r2x = (x) => Math.round(x * 1e6) / 1e6;
 // Copias valorizadas (NO se guardan: `_tc` se retira al persistir).
@@ -677,14 +724,18 @@ export function flujoCreditosEmpresa(empresa, creditos, opts = {}) {
   const bloque = () => ({ total: Z(), capital: Z(), interes: Z(), cargos: Z(), sinDesglose: Z(), sem: {}, porAcreedor: {},
     semComp: { capital: {}, interes: {}, cargos: {}, sinDesglose: {} } });
   const out = { prestamos: bloque(), renovaciones: bloque(), ingresos: { total: Z(), porAcreedor: {} },
-    arrastrados: [], porConciliar: [], sinTC: [], antesHorizonte: [] };
+    arrastrados: [], porConciliar: [], sinTC: [], antesHorizonte: [], valorizacion: [] };
   const hoyPos = ubicar ? ubicar(hoy) : { idx: -1, semIdx: 0 };
   (creditos || []).filter(c => c && c.empresa === empresa && !esAnulado(c)).forEach(c => {
     const f = factorUSD(c);
     if (f === null) { const e = estadoCredito(c, hoy); out.sinTC.push({ ...c, _pendienteOriginal: e.pendienteTotal, _porConciliarOriginal: e.porConciliarTotal }); return; }
+    if (c._tc && c._tc.origen !== 'usd') out.valorizacion.push({ acreedor: c.acreedor, moneda: c.moneda, ...c._tc });
     const { vencimientos } = aplicarPagos(c, vencimientosCredito(c), hoy);
-    vencimientos.forEach(v => {
+    vencimientos.forEach(v0 => {
+      const v = v0;
       if (!(v.pendienteTotal > 0)) return;
+      // UF: el valor de la fecha del vencimiento (publicado) o hipótesis.
+      const f = factorVencimiento(c, v.fecha < hoy ? hoy : v.fecha);
       // Por conciliar: NO entra al flujo; se informa con su impacto potencial.
       if (v.porConciliar) { out.porConciliar.push({ ...v, usd: r2(v.pendienteTotal * f) }); return; }
       let pos = ubicar ? ubicar(v.fecha) : { idx: -1, semIdx: 0 };
@@ -778,9 +829,10 @@ export function analisisCartera(creditos, hoy = hoyISO()) {
 export function servicioDeudaPorMes(creditos, hoy = hoyISO(), { arrastrar = true } = {}) {
   const out = {};
   (creditos || []).filter(c => c && !esAnulado(c)).forEach(c => {
-    const f = factorUSD(c); if (f === null) return;
+    if (factorUSD(c) === null) return;
     aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.forEach(v => {
       if (!(v.pendienteTotal > 0)) return;
+      const f = factorVencimiento(c, v.fecha < hoy ? hoy : v.fecha);
       const k = (arrastrar && v.fecha < hoy) ? hoy.slice(0, 7) : v.fecha.slice(0, 7);
       const x = out[k] || (out[k] = { capital: 0, interes: 0, cargos: 0, sinDesglose: 0, total: 0, vencido: 0, porConciliar: 0, interesVariable: 0 });
       // Por conciliar: columna aparte, fuera del total (impacto potencial).
@@ -842,7 +894,54 @@ export function posicionAlCorte(creditosGrupo, corte) {
   Object.keys(z).forEach(k => { if (!/Cuotas|creditos|pagadoSinRegistro/.test(k)) z[k] = r2(z[k]); });
   return z;
 }
-export function conciliacionAcreedores(creditos, informados, hoy = hoyISO(), tol = 1) {
+// Tolerancia de REDONDEO por moneda (configurable). Nunca reemplaza datos
+// faltantes: con cualquier motivo pendiente el estado es "incompleta".
+export const TOLERANCIAS_DEFAULT = { CLP: 1, USD: 0.01, EUR: 0.01, PEN: 0.01, UF: 0.01 };
+export const toleranciaDe = (moneda, tolerancias) => {
+  const t = tolerancias && tolerancias[moneda];
+  if (t !== undefined && t !== null && t !== '' && isFinite(Number(t)) && Number(t) >= 0) return Number(t);
+  return TOLERANCIAS_DEFAULT[moneda] !== undefined ? TOLERANCIAS_DEFAULT[moneda] : 0.01;
+};
+// Explica el capital de la app al corte, movimiento por movimiento:
+//   capital en calendario (Σ capital de las cuotas; ya neto de prepagos de contrato)
+//   − capital pagado en cuotas (pagos vigentes con fecha ≤ corte, incluye extinciones)
+//   − capital de cuotas por conciliar (excluido, no confirmado)
+//   = capital app.  Los intereses y cargos pagados NO tocan el capital; se listan aparte.
+export function movimientosCapitalAlCorte(creditosGrupo, corte) {
+  const movs = [];
+  let original = 0, prepCap = 0, capCal = 0, capPag = 0, capSinReg = 0, capPC = 0, exceso = 0, intPag = 0, carPag = 0;
+  creditosGrupo.forEach(c => {
+    original += num(c.monto);
+    (c.prepagos || []).filter(p => !p.anulado && p.fecha <= corte).forEach(p => { prepCap += num(p.capital);
+      movs.push({ fecha: p.fecha, tipo: 'prepago de capital (ya descontado del calendario)', capital: num(p.capital), interes: 0, cargos: 0, sinDesglose: 0, cuenta: false }); });
+    const vencs = vencimientosCredito(c);
+    const cc = { ...c, pagos: (c.pagos || []).filter(p => p && p.fecha && p.fecha <= corte) };
+    aplicarPagos(cc, vencs, corte).vencimientos.forEach(v => {
+      capCal += v.capital;
+      if (v.pagadoSinRegistro) { capSinReg += v.capital; movs.push({ fecha: v.fecha, tipo: 'cuota marcada pagada SIN registro (sin fecha ni monto)', capital: v.capital, interes: v.interes, cargos: v.cargos, sinDesglose: v.sinDesglose, cuenta: true }); return; }
+      capPag += v.pagado.capital; exceso += Math.max(0, v.pagado.capital - v.capital);
+      intPag += v.pagado.interes; carPag += v.pagado.cargos;
+      if (v.porConciliar) capPC += v.pendiente.capital;
+    });
+    (c.pagos || []).forEach(p => {
+      const cuenta = !p.anulado && p.fecha && p.fecha <= corte && !!p.vencKey;
+      movs.push({ fecha: p.fecha, tipo: p.anulado ? `pago ANULADO — no cuenta (${p.motivoAnulacion || ''})` : (p.fecha > corte ? 'pago POSTERIOR al corte — no cuenta'
+        : (p.tipo === 'extincion' ? 'extinción por prepago' : (p.vencKey ? 'pago de cuota' : 'pago de prepago (caja; el capital ya bajó en el calendario)'))),
+        capital: num(p.capital), interes: num(p.interes), cargos: num(p.cargos), sinDesglose: num(p.sinDesglose), cuenta });
+    });
+  });
+  movs.sort((x, y) => (x.fecha || '').localeCompare(y.fecha || ''));
+  const app = posicionAlCorte(creditosGrupo, corte).capital;
+  // capital app = calendario − capital imputado a cuotas (+ exceso, que no reduce
+  // más allá de la cuota) − cuotas pagadas sin registro − capital por conciliar
+  const calculado = r2(capCal - (capPag - exceso) - capSinReg - capPC);
+  return { original: r2(original), prepagosCapital: r2(prepCap), capitalCalendario: r2(capCal), capitalPagado: r2(capPag), excesoCapital: r2(exceso),
+    capitalSinRegistro: r2(capSinReg), capitalPorConciliar: r2(capPC), interesPagado: r2(intPag), cargosPagados: r2(carPag),
+    capitalApp: app, calculado, cuadra: Math.abs(calculado - app) <= 0.01, movimientos: movs };
+}
+
+export function conciliacionAcreedores(creditos, informados, hoy = hoyISO(), opciones = {}) {
+  const { tolerancias = null, tcData = null } = (typeof opciones === 'object' && opciones) || {};
   const grupos = {};
   (creditos || []).filter(c => c && !esAnulado(c)).forEach(c => {
     const k = claveAcreedor(c.empresa, c.acreedor, c.moneda);
@@ -861,14 +960,67 @@ export function conciliacionAcreedores(creditos, informados, hoy = hoyISO(), tol
     if (app.sinClasificar > EPS) motivos.push(`${app.sinClasificarCuotas} cuota(s) sin desglosar (${app.sinClasificar} ${g.moneda}) pueden incluir intereses y cargos`);
     if (app.porConciliar > EPS) motivos.push(`${app.porConciliarCuotas} cuota(s) por conciliar (${app.porConciliar} ${g.moneda})`);
     if (app.pagadoSinRegistro > 0) motivos.push(`${app.pagadoSinRegistro} cuota(s) marcadas pagadas sin fecha ni monto`);
+    if (inf && !(inf.respaldo || '').trim()) motivos.push('el saldo informado no tiene respaldo');
+    const falt = g.creditos.filter(c => esContrato(c) && datosFaltantesContrato(c).length);
+    if (falt.length) motivos.push(`${falt.length} crédito(s) con condiciones incompletas: ${falt.map(c => datosFaltantesContrato(c).join(', ')).join(' / ')}`);
+    const huerf = g.creditos.reduce((a, c) => a + aplicarPagos(c, vencimientosCredito(c), corte).huerfanos.length, 0);
+    if (huerf) motivos.push(`${huerf} pago(s) sin vencimiento asociado`);
     const capInf = inf ? num(inf.capital) : null;
-    const dif = inf ? r2(capInf - app.capital) : null;
+    const difExacta = inf ? capInf - app.capital : null;          // sin redondear
+    const dif = inf ? r2(difExacta) : null;
+    const tol = toleranciaDe(g.moneda, tolerancias);
     let estado;
     if (!inf) estado = 'sin_dato';
     else if (motivos.length) estado = 'incompleta';
-    else estado = Math.abs(dif) <= tol ? 'cuadra' : 'diferencia';
-    return { clave, ...g, corte, informado: inf, app, capitalInformado: capInf, diferencia: dif, estado, motivos };
+    else estado = Math.abs(difExacta) <= tol + 1e-9 ? 'cuadra' : 'diferencia';
+    // Equivalente en USD con el TC DE LA FECHA DE CORTE (nunca uno posterior).
+    const tcCorte = g.moneda === 'USD' ? { factor: 1, tc: 1, origen: 'usd', estimado: false }
+      : infoTC({ moneda: g.moneda, tc_flujo: (g.creditos[0] || {}).tc_flujo, tc_flujo_fecha: (g.creditos[0] || {}).tc_flujo_fecha }, tcData, corte);
+    return { clave, ...g, corte, informado: inf, app, capitalInformado: capInf, diferencia: dif, diferenciaExacta: difExacta, tolerancia: tol,
+      estado, motivos, tcCorte, capitalUSD: tcCorte ? r2(app.capital * tcCorte.factor) : null };
   }).sort((a, b) => a.empresa.localeCompare(b.empresa) || a.acreedor.localeCompare(b.acreedor));
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SALDOS AL CORTE — misma regla para Análisis CFO, Saldo por Mes y cierres
+// ═══════════════════════════════════════════════════════════════════
+// corte = hoy  → toda la deuda confirmada pendiente (incluye vencidas impagas).
+// corte > hoy  → proyección: cuotas con fecha > corte (supone que lo que vence
+//                hasta el corte se paga, como el flujo).
+// Capital identificado y cuotas sin clasificar SIEMPRE por separado. Por
+// conciliar aparte. Sin TC: se lista en su moneda y el total es incompleto.
+// USD con el TC de cada crédito (_tc); si alguno usa TC declarado → estimado.
+export function saldosAlCorte(creditos, corte, hoy = hoyISO()) {
+  const porEmpresa = {}; const sinTC = []; const valorizacion = {};
+  let estimado = false, desactualizado = false, ufHipotesis = false;
+  (creditos || []).filter(c => c && !esAnulado(c)).forEach(c => {
+    const e = porEmpresa[c.empresa] || (porEmpresa[c.empresa] = { capital: 0, sinClasificar: 0, porConciliar: 0 });
+    const fBase = factorUSD(c);
+    let cap = 0, sd = 0, pc = 0, capUSD = 0, sdUSD = 0, pcUSD = 0;
+    aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.forEach(v => {
+      if (!(v.pendienteTotal > 0)) return;
+      if (v.porConciliar) { pc += v.pendienteTotal; if (fBase !== null) pcUSD += v.pendienteTotal * factorVencimiento(c, hoy); return; }
+      if (corte > hoy && v.fecha <= corte) return;
+      const f = fBase === null ? null : factorVencimiento(c, v.fecha < hoy ? hoy : v.fecha);
+      cap += v.pendiente.capital; sd += v.pendiente.sinDesglose;
+      if (f !== null) { capUSD += v.pendiente.capital * f; sdUSD += v.pendiente.sinDesglose * f;
+        if (c._tc && c._tc.porFecha && v.fecha > hoy) ufHipotesis = true; }
+    });
+    if (fBase === null) { if (cap + sd + pc > EPS) sinTC.push({ empresa: c.empresa, acreedor: c.acreedor, moneda: c.moneda || 'USD', capital: r2(cap), sinClasificar: r2(sd), porConciliar: r2(pc) }); return; }
+    e.capital += capUSD; e.sinClasificar += sdUSD; e.porConciliar += pcUSD;
+    if (c._tc && c._tc.origen !== 'usd' && (capUSD + sdUSD + pcUSD) > EPS) {
+      if (c._tc.estimado) estimado = true;
+      if (c._tc.desactualizado) desactualizado = true;
+      const uf = typeof c._tc.porFecha === 'function' ? c._tc.porFecha(c._tc.corte || hoy) : null;
+      valorizacion[`${c.moneda}|${c._tc.tc}|${c._tc.fecha}|${c._tc.fuente}`] = { moneda: c.moneda, tc: c._tc.tc, fecha: c._tc.fecha, fuente: c._tc.fuente,
+        estimado: !!c._tc.estimado, desactualizado: !!c._tc.desactualizado, antiguedadDias: c._tc.antiguedadDias,
+        ...(uf ? { ufCLP: uf.ufCLP, ufFecha: uf.ufFecha, ufFuente: uf.ufFuente, usdCLP: uf.usdCLP } : {}) };
+    }
+  });
+  Object.values(porEmpresa).forEach(x => { x.capital = r2(x.capital); x.sinClasificar = r2(x.sinClasificar); x.porConciliar = r2(x.porConciliar); });
+  const tot = Object.values(porEmpresa).reduce((a, x) => ({ capital: a.capital + x.capital, sinClasificar: a.sinClasificar + x.sinClasificar, porConciliar: a.porConciliar + x.porConciliar }), { capital: 0, sinClasificar: 0, porConciliar: 0 });
+  return { corte, porEmpresa, total: { capital: r2(tot.capital), sinClasificar: r2(tot.sinClasificar), porConciliar: r2(tot.porConciliar) },
+    sinTC, incompleto: sinTC.length > 0, estimado, desactualizado, ufHipotesis, valorizacion: Object.values(valorizacion) };
 }
 
 // ═══════════════════════════════════════════════════════════════════

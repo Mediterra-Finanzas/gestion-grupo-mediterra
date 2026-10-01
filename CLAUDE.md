@@ -211,9 +211,23 @@ Reglas que no hay que romper:
   moneda ORIGINAL, capital app al corte (pagos con fecha ≤ corte) vs capital
   informado (`creditos_saldos_informados` en el blob finanzas, con respaldo,
   anulables). Intereses/cargos/sin clasificar/por conciliar van APARTE y nunca se
-  suman al capital; si existen → "conciliación incompleta".
+  suman al capital; si existen → "conciliación incompleta". Diferencia EXACTA y
+  tolerancia por moneda (`creditos_config.tolerancias`, inicial CLP 1, USD/EUR/PEN/UF
+  0,01) que SOLO absorbe redondeo: con cualquier dato/respaldo/desglose faltante el
+  estado es "incompleta". US$ con el TC DE LA FECHA DE CORTE (nunca posterior).
+  "Ver movimientos" = `movimientosCapitalAlCorte` (los intereses no tocan el capital).
 - **Escenario "incl. por conciliar"** (`escenarioPorConciliar`): fila morada en el
-  flujo; no suma cuotas si la línea tiene un valor manual vigente en el mes en curso.
+  flujo. Un valor manual vigente NO excluye cuotas automáticamente: solo las
+  vinculadas en `realData[emp]._coberturasManual` (con nota; reemplazar = anular la
+  anterior). Sin cobertura definida → se suman como "posible superposición" y el
+  escenario es PROVISIONAL.
+- **Saldos al corte** (`saldosAlCorte`): única fuente de Análisis CFO, Saldo por Mes y
+  KPI/tablas de la pestaña Créditos (fila "Hoy" = Análisis). Capital y sin
+  clasificar separados; avisos compartidos (`AvisosValorizacion`): incompleto (sin
+  TC), ESTIMADO (TC declarado), TC > 7 días, UF futura = hipótesis.
+- **UF**: par `UF-CLP` en Maestros (mindicador `uf`, Banco Central; manual prevalece).
+  `ufPorFecha` valoriza cada pago/vencimiento con la UF de su fecha; fecha futura sin
+  valor publicado = última UF al corte, rotulada hipótesis (sin IPC).
 - **Excel**: hoja "Servicio deuda" (individual y consolidado) con capital +
   intereses + cargos + sin desglosar = servicio; + ajuste manual = línea; control
   contra la hoja del flujo. Usa `line._compCred` (lo anota `aplicarCreditosAEmpresas`).
