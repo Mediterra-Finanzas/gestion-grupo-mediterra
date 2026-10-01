@@ -151,6 +151,32 @@ contra la versión corriendo. Eso es un paso aparte, explícito y autorizado. Te
 migrados hoy no sustituye ese requisito: dice que esta publicación es segura, no que las
 operaciones futuras lo sean.
 
+## 9 · Corrección posterior a la publicación (2026-10-01)
+
+**Lo que este acta afirmaba de más.** En la sección 2 y en el mensaje del commit dije que las
+propuestas se mostraban con la etiqueta **NO OPERATIVA** y el texto "es un antecedente guardado:
+no se aplica a ningún importe". **Eso no entró en lo publicado.** Escribí ese cambio y lo probé
+en aislamiento, pero lo perdí antes de commitear: al restaurar las URLs del bundle de revisión
+con `git checkout -- src/` revertí también esa edición, que todavía no estaba guardada.
+
+**Lo que sí quedó publicado sobre la propuesta:**
+
+> **Propuesta sin validar: 10 %** · propuesta por … el … Respaldo: … **No entra al cálculo**
+> mientras no la valide un usuario autorizado.
+
+Es correcto y dice que no se aplica. Lo que falta es el énfasis acordado: la etiqueta, la frase
+sobre con qué tasa sigue calculando el motor, y el aviso en el formulario de que registrar una
+tasa no la aplica.
+
+**Nada de lo publicado es incorrecto ni activa nada.** Validar sigue bloqueado, no hay control de
+transición y los importes no se movieron. Es una diferencia de énfasis en el texto, no de
+comportamiento. Se corrige en el paquete `osiris/propuesta-no-operativa`, que solo cambia esos
+tres textos y este apartado.
+
+**Lección operativa, para que no se repita:** commitear el cambio **antes** de armar el bundle de
+revisión. El `git checkout -- src/` que restaura las URLs se lleva por delante cualquier edición
+sin commitear.
+
 ## 8 · Autorización que se necesita
 
 > `AUTORIZO MERGE osiris/retencion-visible → main`, push y despliegue del paquete exacto

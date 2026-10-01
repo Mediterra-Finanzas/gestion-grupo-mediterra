@@ -8294,11 +8294,16 @@ Retención: ${e.pctAntes} % → ${e.pctDespues} %.
                       )}
                       {cfg.propuesta&&(
                         <div style={{marginTop:6,fontSize:10,lineHeight:1.5,color:C.text,background:C.card,borderRadius:6,padding:"6px 8px",border:`1px dashed ${C.border}`}}>
-                          <strong>Propuesta sin validar: {cfg.propuesta.pct} %</strong>{cfg.propuesta.propuestaPor?<> · propuesta por {cfg.propuesta.propuestaPor}</>:null}{cfg.propuesta.propuestaEl?<> el {cfg.propuesta.propuestaEl}</>:null}. Respaldo: {cfg.propuesta.respaldo||"—"}. <strong>No entra al cálculo</strong> mientras no la valide un usuario autorizado.
+                          <span style={{display:"inline-block",fontSize:9,fontWeight:800,letterSpacing:.5,padding:"1px 6px",borderRadius:4,background:(C.amBg||"#fef9c3"),color:(C.am||"#854d0e"),border:`1px solid ${C.am||"#ca8a04"}`,marginRight:6}}>NO OPERATIVA</span>
+                          <strong>Propuesta registrada: {cfg.propuesta.pct} %</strong>{cfg.propuesta.propuestaPor?<> · propuesta por {cfg.propuesta.propuestaPor}</>:null}{cfg.propuesta.propuestaEl?<> el {cfg.propuesta.propuestaEl}</>:null}. Respaldo: {cfg.propuesta.respaldo||"—"}.
+                          {" "}Es un antecedente guardado: <strong>no se aplica a ningún importe</strong> y el motor sigue usando {ret.pct} % ({ret.etiqueta}).
                         </div>
                       )}
                       {can&&(
                         <div style={{marginTop:8,display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+                          <div style={{gridColumn:"1/-1",fontSize:9,color:C.muted}}>
+                            Registrar una tasa acá <strong>no la aplica</strong>: queda como antecedente con su respaldo, autor y fecha.
+                          </div>
                           <div><div style={{fontSize:10,color:C.gris}}>Tasa propuesta (%)</div>
                             <input type="number" disabled={!can} value={cfg.propuesta&&cfg.propuesta.pct!==null?cfg.propuesta.pct:""} placeholder="sin proponer"
                               onChange={e=>upProp("pct", e.target.value===""?"":(parseFloat(e.target.value)||0))} style={{...inp3,width:120}}/></div>
