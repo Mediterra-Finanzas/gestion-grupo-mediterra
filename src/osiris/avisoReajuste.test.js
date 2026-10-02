@@ -161,7 +161,31 @@ describe("4 · decirlo no cambia ningún importe", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-describe("5 · el aviso no se contradice con el antecedente", () => {
+describe("5 · la etiqueta del listado dice lo que pasa, no lo que se marcó", () => {
+  // La columna de Royalty Comercial mostraba "+IPC" con solo tener la casilla
+  // puesta, al lado del importe. Eso afirma un ajuste que no ocurre.
+  const etiqueta = (ct) => {
+    const ro = reajusteOperativo(ct);
+    if (ro.estado === REAJUSTE_APLICANDO) return "+" + ro.pct + "%/año";
+    if (ro.estado === REAJUSTE_MARCADO_SIN_DEFINICION) return "sin ajustar";
+    return null;
+  };
+
+  test("marcado sin definición ya no dice +IPC", () => {
+    expect(etiqueta(CT({ royaltyInflacion: true }))).toBe("sin ajustar");
+  });
+
+  test("operando dice el porcentaje que realmente compone", () => {
+    expect(etiqueta(CT({ royaltyInflacion: true, rcInflacionPct: 5 }))).toBe("+5%/año");
+  });
+
+  test("sin marca no agrega nada al importe", () => {
+    expect(etiqueta(CT())).toBeNull();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+describe("6 · el aviso no se contradice con el antecedente", () => {
   test("pendiente como antecedente y sin aplicar como efecto conviven sin chocar", () => {
     const ct = CT({ royaltyInflacion: true });
     expect(estadoReajuste(ct)).toBe("pendiente");                      // qué falta declarar

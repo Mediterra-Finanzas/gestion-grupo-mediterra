@@ -10707,7 +10707,17 @@ La orden conserva sus despachos, facturas y cuotas. Queda registrado quién la a
                 <td style={{padding:"9px 12px",textAlign:"center",fontSize:12}}>{r.valorRoyaltyPlanta?`$${r.valorRoyaltyPlanta}/pl`:"—"}</td>
                 <td style={{padding:"9px 12px",textAlign:"center",fontSize:12}}>
                   {r.valorRoyaltyComercial?`$${r.valorRoyaltyComercial}/há`:"—"}
-                  {r.royaltyInflacion?<span style={{fontSize:9,color:C.am,marginLeft:4}}>+IPC</span>:null}
+                  {/* Decia "+IPC" por tener la casilla puesta, sin mirar si habia
+                      porcentaje. Al lado del importe, eso afirma un ajuste que no ocurre. */}
+                  {(()=>{
+                    const ro = reajusteOperativo(r);
+                    if(ro.estado===REAJUSTE_APLICANDO)
+                      return <span style={{fontSize:9,color:C.am,marginLeft:4}}>+{N(ro.pct)}%/año</span>;
+                    if(ro.estado===REAJUSTE_MARCADO_SIN_DEFINICION)
+                      return <span title="Marcado como sujeto a inflación, sin porcentaje ni índice: no se aplica ningún reajuste."
+                        style={{fontSize:9,color:C.muted2,marginLeft:4,textDecoration:"underline dotted"}}>sin ajustar</span>;
+                    return null;
+                  })()}
                 </td>
                 <td style={{padding:"9px 12px",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
                   <button onClick={()=>{setSel(r.id);setVista("detalle");setSec("empresa");}}
