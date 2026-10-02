@@ -263,6 +263,89 @@ export function estadoReajuste(ct) {
   return "noDeclarado";
 }
 
+// ── Lo que el motor hace HOY con el reajuste ──────────────────────────────
+//
+// `estadoReajuste` describe el ANTECEDENTE: qué se declaró y qué falta.
+// Esto otro describe el EFECTO: qué está aplicando el motor en este momento.
+// No son lo mismo y conviene no confundirlos, porque hoy pueden discrepar:
+// el motor compone `(1 + rcInflacionPct/100)^idx` leyendo la marca antigua
+// (`royaltyInflacion` + `rcInflacionPct`), y no lee la configuración nueva.
+//
+// El caso que importa: 17 contratos reales tienen la marca puesta y ningún
+// porcentaje, así que el factor es 1 y no se reajusta nada — en silencio.
+// Esta función existe para que deje de ser silencioso.
+//
+// No cambia ningún importe: solo mira el contrato y lo describe.
+
+export const REAJUSTE_APLICANDO = "aplicando";
+export const REAJUSTE_REGISTRADO_SIN_APLICAR = "registradoSinAplicar";
+export const REAJUSTE_MARCADO_SIN_DEFINICION = "marcadoSinDefinicion";
+export const REAJUSTE_SIN_MARCA = "sinMarca";
+
+// El porcentaje que el motor usa hoy, leído de donde el motor lo lee.
+export function pctReajusteDelMotor(ct) {
+  if (!ct || !ct.royaltyInflacion) return 0;
+  const p = Number(ct.rcInflacionPct);
+  return Number.isFinite(p) && p > 0 ? p : 0;
+}
+
+export function reajusteOperativo(ct) {
+  const pct = pctReajusteDelMotor(ct);
+  const cfg = configReajuste(ct);
+  const estadoAntecedente = estadoReajuste(ct);
+
+  // 1 · Hay una configuración antigua operando. Se conserva tal cual.
+  if (pct > 0) {
+    return {
+      estado: REAJUSTE_APLICANDO, aplica: true, pct,
+      titulo: "Reajuste aplicándose: " + pct + " %/año",
+      aviso: "",
+      detalle: "El motor compone " + pct + " % por temporada sobre el royalty comercial, " +
+        "desde la primera temporada de cada cohorte. Es la configuración que ya estaba operando.",
+    };
+  }
+
+  // 2 · Se registró el antecedente nuevo, pero el motor todavía no lo lee.
+  if (estadoAntecedente === "confirmado") {
+    return {
+      estado: REAJUSTE_REGISTRADO_SIN_APLICAR, aplica: false, pct: 0,
+      titulo: "Reajuste registrado, no aplicado",
+      aviso: "El reajuste está declarado y confirmado como antecedente, pero " +
+        "no se está aplicando: el motor todavía no lo usa para calcular. " +
+        "Conectarlo requiere una activación explícita, que no está hecha. " +
+        "Los importes de este contrato no incluyen ningún reajuste.",
+      detalle: cfg.tipo === "porcentaje" ? "Declarado: " + cfg.pct + " % desde " + (cfg.desde || "sin fecha")
+        : "Declarado por índice (" + (cfg.indice || "sin índice") + ").",
+    };
+  }
+
+  // 3 · Marcado "sujeto a inflación" y sin definición. El caso de los 17.
+  if (ct && ct.royaltyInflacion) {
+    return {
+      estado: REAJUSTE_MARCADO_SIN_DEFINICION, aplica: false, pct: 0,
+      titulo: "Sujeto a inflación, sin definir",
+      aviso: "Este contrato está marcado como sujeto a inflación, pero " +
+        "no se está aplicando ningún reajuste por falta de definición: " +
+        "no hay porcentaje ni índice cargado. Los importes son los del valor base, sin ajustar. " +
+        "Falta: " + faltantesReajuste(ct).join(", ") + ".",
+      detalle: "",
+    };
+  }
+
+  // 4 · Ni marca antigua ni configuración nueva.
+  return {
+    estado: REAJUSTE_SIN_MARCA, aplica: false, pct: 0,
+    titulo: "Sin reajuste",
+    aviso: "", detalle: "",
+  };
+}
+
+// Para una lista: cuántos están marcados sin definición. Sirve para avisar
+// arriba de un listado sin recorrerlo a mano en la pantalla.
+export function contratosConReajusteSinDefinir(contratos) {
+  return (contratos || []).filter((c) => reajusteOperativo(c).estado === REAJUSTE_MARCADO_SIN_DEFINICION);
+}
+
 // Comprobación: qué haría el reajuste configurado sobre un valor base, por
 // períodos. Solo para el tipo "porcentaje" y solo si está confirmado. Con un
 // índice no se proyecta: la serie la define quien la publica, no el sistema.
