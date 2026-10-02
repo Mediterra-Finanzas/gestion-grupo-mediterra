@@ -255,50 +255,71 @@ concepto que existe en dos categorías no dicen a cuál pertenecen. La app:
 
 Meses distintos del mismo concepto pueden ir a categorías distintas.
 
-#### Programas comerciales por contraparte — Allegria Foods (oct-2026)
+#### Liquidación con anticipos y programas por contraparte — Allegria Foods (oct-2026)
 
-Los kg y el FOB de la fruta son **presupuesto**, no la base de ningún acuerdo.
-Un **programa** es el acuerdo con UNA contraparte (cliente o productor), con sus
-propios kilos, su propio precio y su propio calendario de anticipos. Una
-contraparte puede tener varios programas. Modelo puro en `src/programas.js`
-(`node src/programas.test.mjs`), pantalla en `src/ProgramasComerciales.jsx`.
+Representa la operación entre cliente, exportadora y productor, no un calendario
+de cuotas. Modelo puro en `src/programas.js` (`node src/programas.test.mjs`, 76
+casos), pantalla en `src/ProgramasComerciales.jsx`.
+
+```
+Cliente    → base = kg × FOB
+Productor  → base = kg × MAX(0, FOB×(1−desc%) − mat/kg − srv/kg)   ← retorno NETO
+
+base        = liquidación definitiva si existe, si no el presupuesto
+liquidación = MAX(0, base − realizado − pendientes con mes)
+saldo       = pendientes + liquidación     ·  excedente = MAX(0, realizado+pend − base)
+```
+
+Materiales y servicios se descuentan del precio del productor **y** se pagan en
+sus propias líneas (`dist_mat`/`dist_srv`): no hay duplicación. El descuento de
+exportadora se queda en Allegria y no es salida de caja.
 
 ```
 fruta.programas: [{ id, lado:"cliente"|"productor", contraparte, kilos,
-  precio_modo:"usd_kg"|"monto", precio_usd_kg|monto_total, mes_liquidacion,
-  activo:false,
-  anticipos:[{ id, fecha_prevista, mes, modalidad:"usd_kg"|"monto"|"por_confirmar",
-               usd_kg|monto, cerrado, realizaciones:[...] }],
-  antecedentes:[{ id, usd, nota, convertidoEn }] }]
+  precio_usd_kg (informativo), fueraPresupuesto, archivado, motivoArchivo,
+  cuotas:[{ id, fecha_prevista, mes, modalidad:"usd_kg"|"monto"|"por_confirmar",
+            usd_kg|monto, extra_acordado, estado:"borrador"|"vigente"|"anulada",
+            sustituye:[{estimacionId, usd}], realizaciones:[...] }] }]
+fruta.liq_definitiva_cliente / _productor : { total, nota, usuario, ts } | null
+fruta.movimientos_sin_asignar : [{ id, fecha, usd, referencia, lado, aplicaciones }]
 ```
+
+Las estimaciones son las filas de siempre (`anticipos_cliente` /
+`anticipos_productor`): US$/kg sobre los kilos de la FRUTA, sin contraparte.
 
 Reglas que no hay que romper:
 
-- **Registrar ≠ activar.** Un programa con `activo:false` no cambia ninguna
-  proyección. `calcAllegria` usa programas **solo** si el lado tiene al menos uno
-  activo y completo (`ladoActivo`); si no, rige la estimación de la fruta, idéntica
-  a antes. La carga gradual no mueve números.
-- **Dato que falta vale `null`, nunca 0.** `acordadoAnticipo` devuelve
-  `{valor:null, faltantes:[...]}` y `validarActivacion` impide activar hasta
-  completarlo. `por_confirmar` conserva el importe del calendario como referencia
-  y NO lo vuelve contractual.
-- **El presupuesto es el techo del lado.** `proyeccionLado` proyecta los programas
-  activos y manda el presupuesto no asignado al mes de liquidación de la fruta;
-  activar se bloquea si los programas activos se pasan del presupuesto (kilos o
-  monto). No se suman ventas encima del presupuesto ni se fuerza el cuadre.
-- **Los dos lados son independientes**: cada uno tiene su asignación de kilos y su
-  propio calendario. Un cobro nunca implica un pago.
-- **Antecedentes** (monto informado sin fecha): no descuentan, no se proyectan, no
-  cuentan como cobrado ni pagado. `completarAntecedente` los convierte en
-  realización con fecha real; el antecedente queda marcado, no se borra.
-- Excel: con el lado activo, `bloqueProgramasLado` escribe un bloque por
-  contraparte más la fila de presupuesto sin programa, con las mismas fórmulas que
-  los anticipos (realizado constante). El lado que sigue con estimación se exporta
-  como antes.
+- **Un movimiento real descuenta UNA sola vez**, exista o no la cuota, esté o no
+  completo el programa, supere o no lo acordado. Cambiar kilos, tarifas o meses
+  no mueve el dinero ya cobrado o pagado.
+- **Imputar no modifica el acuerdo.** `cuotaPendiente = total acordado − imputado`.
+  La app pregunta si el movimiento estaba incluido o es adicional y muestra el
+  efecto (`efectoImputacion`) antes de confirmar; lo adicional va a
+  `extra_acordado`, sin tocar la tarifa pactada.
+- **Sustitución parcial por monto declarado**, nunca inferida. `estDisponible` =
+  acordado − realizado originado − sustituido. Una estimación cerrada no se
+  sustituye. Sin `MAX(0)` que esconda el exceso: `estSobreSustituida` lo expone.
+- **Borrador no proyecta ni sustituye**, pero su realizado descuenta igual.
+- **`estRealizadoOriginado` cuenta las realizaciones movidas desde la estimación**,
+  estén donde estén: mover no reabre su pendiente y revertir tampoco.
+- **Nada se borra con historial**: `archivarPrograma` exige motivo; anular una
+  realización sí le quita efecto en todo (realizado global y capacidad de la
+  estimación de origen).
+- **Fuera de presupuesto**: no proyecta ni descuenta de las operaciones
+  presupuestadas; su dinero real se muestra aparte (`realizadoFuera`).
+- **Sin asignar**: la bandeja de conciliación es visible y no descuenta de
+  ninguna liquidación. Registrar la aplicación comercial no toca el saldo
+  bancario.
+- **Vencido aparte**: el pendiente programado antes del mes en curso se proyecta
+  antes del corte y NO entra al saldo acumulado; nunca se llama flujo futuro.
+- **Una sola fuente**: `movimientosLado()` alimenta `calcAllegria`, la pantalla
+  (`ResumenLado`) y el Excel (`bloqueLiquidacionLado`). En el Excel el realizado
+  y lo sustituido van como constantes, nunca como fórmula.
 
 Guía de carga: `docs/programas-allegria-carga.md`. Pruebas:
-`src/__tests__/programasFlujo.test.js` y `scripts/e2e/programas-allegria.mjs`
-(navegador + Excel recalculado con LibreOffice, datos sintéticos).
+`src/__tests__/programasFlujo.test.js` (16, incluye 7 escenarios de Excel) y
+`scripts/e2e/programas-allegria.mjs` (navegador + Excel recalculado con
+LibreOffice, datos sintéticos).
 
 #### Limitación conocida — costos de ciruelas
 

@@ -1,138 +1,146 @@
-# Programas comerciales de Allegria Foods — guía de carga
+# Liquidación con anticipos de Allegria Foods — guía de carga
 
-Preview. Nada de lo que cargues acá se migra solo a producción, y la carga
-gradual no cambia ninguna proyección hasta que actives un programa.
+Preview. Nada se migra solo a producción y la carga gradual no cambia ninguna
+proyección hasta que pongas una cuota en vigencia.
 
 Dónde: **Finanzas → Flujo Empresas → Allegria Foods → Parámetros → Temporada →
-Cerezas**, al final del panel: *Programas comerciales por contraparte*.
+Cerezas**.
 
-## Lo que cambia respecto de hoy
+## Cómo calcula
 
-Hoy las filas de "Cobros al cliente" y "Pagos al productor" son una
-**estimación de la temporada**: una tarifa US$/kg aplicada a los kilos de
-presupuesto de la fruta. Siguen ahí y siguen rigiendo.
+Por lado, y los dos lados son independientes:
 
-Lo nuevo es una capa aparte: un **programa por contraparte**, con sus propios
-kilos, su propio precio y su propio calendario de anticipos. Los kg y el FOB de
-arriba quedan como **presupuesto**, no como base de ningún acuerdo.
+```
+Cliente    → base = kg × FOB
+Productor  → base = kg × MAX(0, FOB × (1 − desc. exportadora%) − materiales/kg − servicios/kg)
 
-Las dos listas, clientes y productores, son independientes: cada una tiene su
-propia asignación de kilos contra el presupuesto, y registrar un cobro no
-registra ningún pago.
+base             = liquidación definitiva si la cargaste, si no el presupuesto
+(−) realizado      todos los cobros o pagos reales aplicados
+(−) pendientes     anticipos futuros con mes (estimaciones + cuotas vigentes)
+= liquidación final proyectada
+
+saldo total pendiente = pendientes + liquidación
+```
+
+Cobrar un pendiente lo pasa a realizado por el mismo monto: la liquidación no
+se mueve y nada se descuenta dos veces.
+
+Materiales y servicios se descuentan del precio del productor **y** se pagan
+aparte en sus propias líneas del flujo. El descuento de exportadora se queda en
+Allegria: no es salida de caja.
 
 ## Orden de carga
 
-### 1. Crear el programa
+### 1. Estimación, antes de conocer el calendario
 
-`+ Agregar programa` en la columna que corresponda. Escribe la contraparte y
-despliega la tarjeta con la flecha.
+Columna **Cobros al cliente** o **Pagos al productor** → `+ Agregar anticipo`:
+mes y US$/kg sobre los kilos de la fruta. Es lo que ya existía y sigue igual.
+Sin contraparte, para proyectar caja mientras no hay acuerdo.
+
+### 2. Incorporar un cliente o un productor
+
+Panel **Programas comerciales por contraparte** → `+ Agregar cliente` /
+`+ Agregar productor`. Se pueden agregar en cualquier momento de la temporada.
+
+- **Kilos del programa**: los comprometidos con esa contraparte. Se usan para
+  calcular las cuotas en US$/kg. No son los de la fruta.
+- **Precio del programa**: informativo. No alimenta el flujo.
+- **Fuera de presupuesto**: márcalo si la operación no está en el presupuesto.
+  Entonces no proyecta ni reduce la liquidación de las demás, y sus movimientos
+  reales se muestran aparte con la pregunta de cómo incorporarla.
+
+### 3. Cargar el calendario
+
+`+ Agregar cuota al calendario`, una por línea del acuerdo:
 
 | Campo | Qué va |
 |---|---|
-| Kilos del programa | Los kilos comprometidos **con esa contraparte**. No los del presupuesto. |
-| Precio | `US$/kg` (lo normal) o `Monto total USD` si el acuerdo es por suma cerrada. |
-| Mes liquidación / Mes saldo | Cuándo se cobra o paga el saldo de **ese** programa. |
+| Fecha prevista | la del acuerdo |
+| Mes de flujo | el mes en que se proyecta. Vacío: no se proyecta y se cobra o paga en la liquidación |
+| Modalidad | `US$/kg × kilos del programa`, `monto fijo en USD`, o `por confirmar` |
+| Estado | `borrador` (no proyecta ni sustituye) o `vigente` |
+| Pendiente que reemplaza estimación | cuánto de cada estimación consume esta cuota |
 
-Una contraparte puede tener más de un programa: crea uno por acuerdo.
+`Por confirmar` conserva el importe del calendario como referencia y lo marca
+como no contractual: no se convierte en tarifa ni se proyecta.
 
-Si todavía no tienes los kilos o el precio, déjalos vacíos. Quedan como
-**falta**, nunca como cero, y el programa no se puede activar hasta
-completarlos. Eso es intencional.
+**Sustitución parcial**: una estimación puede ser consumida por varias cuotas y
+quedar con saldo. El disponible es su pendiente, o sea su acordado menos lo ya
+cobrado y menos lo ya sustituido. Si escribes más que eso, la app avisa, pide
+confirmación y marca la **sobre-sustitución** para resolver a mano: no la
+recorta sola. Una estimación con el pendiente trasladado a liquidación no se
+puede sustituir.
 
-### 2. Cargar el calendario de anticipos
+### 4. Registrar cobros y pagos reales
 
-`+ Agregar anticipo al calendario`, una fila por línea del calendario:
+`+ Registrar cobro recibido` / `+ Registrar pago efectuado` en la cuota: fecha
+real, monto en USD y referencia. Al guardar, la app pregunta:
 
-- **Fecha prevista**: la del acuerdo.
-- **Mes de flujo**: el mes en que lo proyecta la caja. Si lo dejas vacío, ese
-  anticipo no se proyecta y se cobra o paga en la liquidación.
-- **Modalidad**, explícita:
-  - `US$/kg × kilos del programa` — carga la tarifa.
-  - `Monto fijo en USD` — carga el importe.
-  - `Por confirmar` — el importe del calendario queda a la vista como
-    referencia, marcado como **no contractual**. No se convierte en tarifa ni
-    se proyecta, y bloquea la activación hasta que definas cuál de las dos es.
+> ¿Este cobro estaba **incluido** en el total acordado de la cuota, o es
+> **adicional** al acuerdo?
 
-Que el calendario esté en dólares no define la modalidad: un importe en USD
-puede venir de una tarifa por kilo. Si no lo sabes, déjalo en *Por confirmar*.
+y muestra el efecto antes de confirmar:
 
-### 3. Registrar los cobros y pagos reales
+- **Incluido**: el total acordado no cambia y el pendiente de la cuota baja.
+- **Adicional**: el total acordado sube y el pendiente se conserva.
 
-`+ Registrar cobro recibido` / `+ Registrar pago efectuado`, sobre la línea del
-calendario a la que corresponde. Fecha real del movimiento, monto fijo en USD y
-referencia de cartola. Varios movimientos parciales sobre la misma línea: sin
-problema.
+Imputar nunca modifica el acuerdo por su cuenta. La tarifa o el monto pactados
+quedan intactos; lo adicional se anota aparte.
 
-- Lo registrado es **histórico**: cambiar kilos o tarifas después mueve el
-  acordado y el pendiente, nunca lo ya cobrado o pagado.
-- Corregir no es editar ni borrar: se **anula con motivo** (queda en el
-  historial) y se registra el movimiento correcto.
-- Lo ya cobrado deja de proyectarse en la caja futura y **sigue descontando**
-  de la liquidación del programa.
+Si todavía no sabes a qué operación corresponde el movimiento:
+`+ Registrar cobro sin operación identificada`. Queda en la bandeja de
+conciliación, visible, **sin descontar de ninguna liquidación**.
 
-### 4. Montos informados sin fecha
+### 5. Asociar un movimiento ya registrado
 
-`+ Anotar monto informado sin fecha` guarda el importe como **antecedente**:
-queda a la vista, no cuenta como cobrado ni pagado, no descuenta nada y no se
-proyecta. Cuando aparezca la cartola, `completar con fecha` lo convierte en
-movimiento sobre la línea que elijas. Es para no perder el dato sin inventar
-una fecha.
+`Asociar movimiento existente` en la cuota: elige el cobro que está en una
+estimación y la app lo **mueve**, conservando id, fecha, monto, usuario e
+historial. No se vuelve a registrar. La estimación de origen **no reabre** ese
+monto, ni al mover ni al revertir después.
 
-### 5. Activar
+### 6. Liquidación definitiva
 
-Mientras el programa esté **registrado**, el flujo sigue con la estimación de
-la temporada: la carga gradual no mueve ningún número.
+`+ Cargar liquidación definitiva` cuando tengas los kilos y el precio reales.
+Reemplaza la base presupuestada de ese lado en el flujo y conserva el
+presupuesto para mostrar la variación. Mientras no la cargues, la cifra se
+rotula *proyectada*: el presupuesto no es deuda en firme.
 
-`Activar en el cálculo` solo funciona si el programa está completo y si los
-programas activos de ese lado no se pasan del presupuesto, ni en kilos ni en
-monto. El presupuesto es el techo del lado: los programas redistribuyen ese
-total, no se suman encima.
+## Qué no se borra
 
-Antes de activar, revisa **ver cuadre antes/después**: muestra mes a mes lo que
-proyecta hoy la estimación y lo que proyectarían los programas activos más el
-presupuesto que no quedó en ninguno. La diferencia esperada es exactamente lo
-que ya cobraste o pagaste, que sale del flujo futuro.
+- Un programa con movimientos o sustituciones no se elimina: se **archiva con
+  motivo**. Sus cuotas dejan de proyectar y de sustituir, la estimación
+  recupera su pendiente, y los cobros o pagos registrados siguen descontando.
+- Una realización no se edita ni se borra: se **anula con motivo**. Ahí sí deja
+  de contar en el realizado y la estimación de origen recupera su capacidad.
+- Volver una cuota a borrador no resucita como pendiente la parte ya cobrada.
 
-Desde el primer programa activo, ese lado deja de usar las filas estimadas: se
-conservan, quedan marcadas como reemplazadas y vuelven a regir si desactivas
-todos los programas.
+## Qué revisar
 
-## Ejemplo (sintético)
+El resumen de cada lado trae, en este orden: total estimado o definitivo,
+variación contra presupuesto, realizado, saldo total pendiente, anticipos
+pendientes, de ellos los **vencidos (fuera del acumulado)**, y la liquidación
+final proyectada. Más los avisos de excedente, sobre-sustitución, movimientos
+sin conciliar y operaciones fuera de presupuesto.
 
-Programa de cliente, 200.000 kg a US$3,20 → venta 640.000.
-Calendario: un anticipo de US$0,50/kg en Nov-26 → acordado 100.000.
-Cobro registrado el 01/08 por 40.000.
+El pendiente vencido es el que quedó programado en un mes anterior al mes en
+curso: se proyecta antes del corte y **no entra al saldo acumulado**. No es
+flujo futuro y hay que reprogramarlo o registrarlo a mano.
 
-```
-Acordado 100.000 · Cobrado 40.000 · Pendiente 60.000
-Liquidación del programa = 640.000 − (40.000 + 60.000) = 540.000
-Flujo: Nov-26 60.000 · Mar-27 540.000 + presupuesto sin programa
-```
+## Comprobar el Excel contra el flujo
 
-Una línea del calendario que ya se cobró completa queda con pendiente 0 y su
-importe sigue descontado de la liquidación. Una línea cuya fecha pasó y no se
-cobró **no** se da por cobrada: queda marcada para reprogramar a mano.
+`📥 Excel` → hoja **Parametros**: las estimaciones con acordado / realizado /
+sustituido / pendiente, un bloque por contraparte con sus cuotas, y la fila de
+liquidación `MAX(0, base − descuentos)`. El realizado y lo sustituido van como
+constantes, nunca como fórmula: son históricos.
 
-## Qué mira el Excel
+Mes a mes, la fila *Anticipo Cerezas* del flujo tiene que ser la suma de los
+pendientes de ese mes, y en el mes de liquidación sumar la liquidación. Igual
+para *Costo Fruta Exportación* del lado productor.
 
-Con un lado activo, la hoja *Parametros* trae un bloque por contraparte
-(kilos, precio, total, cada anticipo con acordado / realizado / pendiente, y la
-liquidación del programa) más una fila de **presupuesto sin programa**. El
-realizado va como constante, nunca como fórmula: es histórico. El lado que
-siga con la estimación se exporta como hasta ahora.
-
-## Lo que no hace
-
-- No vincula un cobro de cliente con un pago a productor, aunque coincidan los
-  montos. Son calendarios independientes.
-- No deduce tarifas dividiendo un importe recibido por los kilos de la fruta.
-- No completa un dato faltante con cero.
-- No toca Allpa Chile, Allpa Perú, Allegria Service ni ninguna otra empresa.
-
-## Verificación
+## Verificación automática
 
 ```bash
-node src/programas.test.mjs                                   # modelo puro (42)
+node src/programas.test.mjs                                   # modelo puro (76)
 CI=true npx react-scripts test --testPathPattern programas --watchAll=false
 OUT_DIR=/tmp/e2e-programas node scripts/e2e/programas-allegria.mjs   # navegador + Excel real
 ```

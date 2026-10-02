@@ -32,13 +32,15 @@ const pintar = (p = params(), props = {}) =>
 
 test('muestra acordado, cobrado, pendiente y el total por cobrar (540.000)', () => {
   pintar();
-  verTexto(/Queda por cobrar: \$540,000/);
-  verTexto(/Queda por pagar: \$352,000/);
+  // El resumen del lado sale de resumenLado (src/programas.js): saldo total =
+  // anticipos pendientes + liquidación.
+  verTexto(/Saldo total por cobrar\$540,000/);
+  verTexto(/Saldo total por pagar\$352,000/);
   verTexto(/Acordado \$100,000/);                    // acordado cliente
   verTexto(/Cobrado \$60,000Pendiente \$40,000/);    // cobrado y pendiente cliente
   verTexto(/Pagado \$70,000Pendiente \$30,000/);     // pagado y pendiente productor
-  verTexto(/Liquidación final: \$500,000/);
-  verTexto(/Saldo productor: \$322,000/);
+  verTexto(/Liquidación final proyectada \(Mar-27\)\$500,000/);
+  verTexto(/\$322,000/);                            // saldo al productor
 });
 
 test('lista la realización con su fecha y dice que no es comprobable sin saldos', () => {
@@ -108,8 +110,8 @@ test('no deja borrar un anticipo con cobros registrados', () => {
 test('avisa del sobre-anticipo sin compensarlo solo', () => {
   const p = params({ anticipos_cliente:[{ id:"a1", mes:"Oct-26", usd_kg:0.70, realizaciones:[{ id:"r1", fecha:"2026-08-10", usd:400000 }] }] });
   pintar(p);
-  verTexto(/Sobre-anticipo: \$100,000 por sobre la venta/);
-  verTexto(/NO se compensa solo/);
+  verTexto(/Excedente de anticipos: \$100,000 por sobre el total de venta/);
+  verTexto(/no se compensa solo/);
 });
 
 test('marca el pendiente vencido y ofrece reprogramarlo a mano', () => {

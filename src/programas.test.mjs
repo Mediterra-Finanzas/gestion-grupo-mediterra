@@ -1,14 +1,15 @@
 /* eslint-disable */
-// Tests del modelo de programas comerciales — ejecutar:
+// Tests del modelo de liquidación con anticipos — ejecutar:
 //   node src/programas.test.mjs
 //
-// DATOS SINTÉTICOS. Ninguna contraparte, kilo ni importe de acá corresponde
-// a un acuerdo real de Allegria Foods.
+// DATOS SINTÉTICOS. Ninguna contraparte, kilo ni importe corresponde a un
+// acuerdo real de Allegria Foods.
 import {
-  normalizarPrograma, acordadoAnticipo, pendienteAnticipo, realizadoAnticipo,
-  totalPrograma, resumenPrograma, movimientosPrograma, resumenLado,
-  validarActivacion, proyeccionLado, ladoActivo, cuadreActivacion,
-  agregarAntecedente, completarAntecedente, referenciaAnticipo, esDato,
+  normalizarPrograma, normalizarCuota, cuotaAcordado, cuotaPendiente, cuotaRealizado,
+  estAcordado, estPendiente, estDisponible, estSobreSustituida, estRealizadoOriginado,
+  resumenLado, movimientosLado, efectoImputacion, imputarMovimiento,
+  moverRealizacion, archivarPrograma, tieneHistorial,
+  nuevoMovimientoSinAsignar, puedeAplicar, esDato,
 } from "./programas.js";
 import { agregarRealizacion, anularRealizacion } from "./anticipos.js";
 
@@ -18,224 +19,410 @@ function check(nombre, cond, extra = "") {
   console.log(`${cond ? "✓" : "✗ FALLA"}  ${nombre}${extra ? "  — " + extra : ""}`);
   if (!cond) fallos++;
 }
+const MESES = ["Jul-26","Aug-26","Sep-26","Oct-26","Nov-26","Dec-26","Jan-27","Feb-27","Mar-27"];
+const mIdx = (m) => MESES.indexOf(m);
+const est = (o) => ({ id: "e1", mes: "Nov-26", realizaciones: [], ...o });
+const rea = (id, fecha, usd, extra = {}) => ({ id, fecha, usd, nota: "", ...extra });
 
-// ── Armado sintético ──────────────────────────────────────────────
-const prg = (over = {}) => normalizarPrograma({
-  lado: "cliente", contraparte: "Cliente Norte",
-  kilos: 200000, precio_modo: "usd_kg", precio_usd_kg: 4,
-  mes_liquidacion: "Mar-27", anticipos: [], ...over,
+// Lado con base presupuestaria; helper para no repetir
+const lado = (o = {}) => resumenLado({
+  lado: "cliente", kgFruta: 0, basePresupuesto: 1000000,
+  mIdx, mesIdxActual: mIdx("Oct-26"), mesLiquidacion: "Mar-27", ...o,
 });
-const ant = (over = {}) => ({ modalidad: "usd_kg", usd_kg: 0.2, mes: "Nov-26", ...over });
 
-// ═══ 1. El dato que falta vale null, nunca 0 ═══════════════════════
+// ═══ 1. Identidad del saldo ════════════════════════════════════════
 {
-  const a = acordadoAnticipo(ant({ usd_kg: null }), 200000);
-  check("(1) sin tarifa → acordado null, no 0", a.valor === null && a.faltantes.includes("tarifa US$/kg"));
-
-  const b = acordadoAnticipo(ant({ modalidad: "usd_kg" }), null);
-  check("(2) sin kilos del programa → acordado null", b.valor === null && b.faltantes.includes("kilos del programa"));
-
-  const c = acordadoAnticipo({ modalidad: "monto", monto: 161920 }, null);
-  check("(3) monto fijo no necesita kilos", c.valor === 161920 && c.faltantes.length === 0);
-
-  const d = acordadoAnticipo({ modalidad: "por_confirmar", monto: 138000 }, 200000);
-  check("(4) modalidad por confirmar NO se vuelve contractual", d.valor === null);
-  check("(5) pero el importe del calendario queda a la vista",
-    referenciaAnticipo({ modalidad: "por_confirmar", monto: 138000 }, 200000) === 138000);
-
-  check("(6) cero cargado a mano SÍ es dato", esDato(0) === true && esDato(null) === false && esDato("") === false);
+  // Venta 500.000 · recibidos 100.000 · pendientes futuros 50.000
+  const e = est({ monto: 150000, realizaciones: [rea("r1", "2026-08-01", 100000)] });
+  const r = resumenLado({ estimaciones: [e], basePresupuesto: 500000, mIdx, mesIdxActual: 0 });
+  check("(1) realizado 100.000", aprox(r.realizado, 100000));
+  check("(2) pendientes 50.000", aprox(r.pendientes, 50000));
+  check("(3) liquidación 350.000", aprox(r.liquidacion, 350000), `${r.liquidacion}`);
+  check("(4) saldo total 400.000 = 50.000 + 350.000", aprox(r.saldoTotal, 400000));
+}
+{
+  // Al cobrarse el pendiente, pasa a realizado y la liquidación NO se mueve
+  const e = est({ monto: 150000, realizaciones: [rea("r1","2026-08-01",100000), rea("r2","2026-11-01",50000)] });
+  const r = resumenLado({ estimaciones: [e], basePresupuesto: 500000, mIdx, mesIdxActual: 0 });
+  check("(5) realizado 150.000 · pendientes 0", aprox(r.realizado, 150000) && aprox(r.pendientes, 0));
+  check("(6) la liquidación sigue en 350.000", aprox(r.liquidacion, 350000), `${r.liquidacion}`);
+  check("(7) saldo total 350.000", aprox(r.saldoTotal, 350000));
 }
 
-// ═══ 2. Los 850.000 kg globales no son la base de ningún acuerdo ═══
+// ═══ 2. Un movimiento descuenta aunque no haya cuota ni programa ═══
 {
-  const p = prg({ kilos: 120000, anticipos: [ant({ usd_kg: 0.5 })] });
-  const r = resumenPrograma(p);
-  check("(7) acordado usa los kilos del programa, no los de la fruta", aprox(r.acordado, 60000), `${r.acordado}`);
+  const sin = est({ monto: 0, realizaciones: [rea("r1","2026-07-15",80000)] });
+  const r = resumenLado({ estimaciones: [sin], basePresupuesto: 500000, mIdx, mesIdxActual: 0 });
+  check("(8) un cobro sin calendario descuenta igual",
+    aprox(r.realizado, 80000) && aprox(r.liquidacion, 420000));
+}
+{
+  // Supera lo acordado: el exceso no se pierde ni se recorta
+  const e = est({ monto: 50000, realizaciones: [rea("r1","2026-07-15",80000)] });
+  const r = resumenLado({ estimaciones: [e], basePresupuesto: 500000, mIdx, mesIdxActual: 0 });
+  check("(9) cobrado > acordado: pendiente 0 y descuenta lo realizado",
+    aprox(r.pendientes, 0) && aprox(r.realizado, 80000) && aprox(r.liquidacion, 420000));
 }
 
-// ═══ 3. Realizado fijo en USD ══════════════════════════════════════
+// ═══ 3. Ejemplo A — imputar no modifica el acuerdo ═════════════════
+// Presupuesto 1.000.000 · estimación 100.000 en Nov · cobrado 10.000
 {
-  let p = prg({ anticipos: [ant({ usd_kg: 0.5 })] });                 // acordado 100.000
-  p.anticipos[0] = agregarRealizacion(p.anticipos[0], { fecha: "2026-09-24", usd: 40000 });
-  let r = resumenPrograma(p);
-  check("(8) pendiente = acordado − realizado", aprox(r.acordado, 100000) && aprox(r.realizado, 40000) && aprox(r.pendiente, 60000));
+  const base = () => est({ monto: 100000, realizaciones: [rea("r1","2026-08-20",10000)] });
+  const r0 = lado({ estimaciones: [base()] });
+  check("(10) A0 · cobrado 10.000 · estimado 90.000 · liquidación 900.000",
+    aprox(r0.realizado,10000) && aprox(r0.pendienteEstimado,90000) && aprox(r0.liquidacion,900000));
 
-  p = normalizarPrograma({ ...p, kilos: 100000 });                    // bajan los kilos
-  r = resumenPrograma(p);
-  check("(9) bajar kilos mueve el acordado, nunca el realizado",
-    aprox(r.acordado, 50000) && aprox(r.realizado, 40000) && aprox(r.pendiente, 10000));
+  // Lectura 1: el programa acuerda 40.000 TOTALES, incluidos los 10.000.
+  const cuotaInc = normalizarCuota({ id:"c1", mes:"Oct-26", modalidad:"monto", monto:40000,
+    estado:"vigente", sustituye:[{estimacionId:"e1", usd:30000}],
+    realizaciones:[rea("r1","2026-08-20",10000,{origen:{tipo:"estimacion",id:"e1"}})] });
+  const p1 = normalizarPrograma({ id:"p1", lado:"cliente", contraparte:"Cliente A", cuotas:[cuotaInc] });
+  const estSinRea = est({ monto:100000, realizaciones: [] });   // el cobro se movió a la cuota
+  const r1 = lado({ estimaciones:[estSinRea], programas:[p1] });
+  check("(11) A1 incluido · cobrado 10.000", aprox(r1.realizado, 10000));
+  check("(12) A1 incluido · estimado 60.000", aprox(r1.pendienteEstimado, 60000), `${r1.pendienteEstimado}`);
+  check("(13) A1 incluido · calendarizado 30.000", aprox(r1.pendienteCalendarizado, 30000), `${r1.pendienteCalendarizado}`);
+  check("(14) A1 incluido · liquidación 900.000", aprox(r1.liquidacion, 900000), `${r1.liquidacion}`);
 
-  p.anticipos[0] = anularRealizacion(p.anticipos[0], p.anticipos[0].realizaciones[0].id, { motivo: "cartola equivocada" });
-  r = resumenPrograma(p);
-  check("(10) anular devuelve el pendiente y conserva el historial",
-    aprox(r.realizado, 0) && aprox(r.pendiente, 50000) && p.anticipos[0].realizaciones.length === 1);
+  // Lectura 2: sustituye 40.000 PENDIENTES y además incluye los 10.000 → total 50.000
+  const cuotaAd = normalizarCuota({ ...cuotaInc, monto:50000, sustituye:[{estimacionId:"e1", usd:40000}] });
+  const p2 = normalizarPrograma({ id:"p1", lado:"cliente", contraparte:"Cliente A", cuotas:[cuotaAd] });
+  const r2 = lado({ estimaciones:[estSinRea], programas:[p2] });
+  check("(15) A2 adicional · estimado 50.000", aprox(r2.pendienteEstimado, 50000), `${r2.pendienteEstimado}`);
+  check("(16) A2 adicional · calendarizado 40.000", aprox(r2.pendienteCalendarizado, 40000));
+  check("(17) A2 adicional · liquidación 900.000, igual que la otra lectura", aprox(r2.liquidacion, 900000));
+  check("(18) los dos cuadran contra el presupuesto",
+    aprox(r1.realizado + r1.pendientes + r1.liquidacion, 1000000) &&
+    aprox(r2.realizado + r2.pendientes + r2.liquidacion, 1000000));
 }
 
-// ═══ 4. Excedente contra el TOTAL, no contra el calendario ═════════
+// ═══ 4. Efecto de la imputación, antes de confirmar ════════════════
 {
-  // Programa de productor: costo neto 500.000, calendario de anticipos 300.000,
-  // pagado 400.000. Se pasó del calendario, NO del costo.
-  let p = prg({ lado: "productor", contraparte: "Productor Sur", kilos: 200000,
-                precio_usd_kg: 2.5, anticipos: [ant({ usd_kg: 1.5, mes: "Dic-26" })] });
-  p.anticipos[0] = agregarRealizacion(p.anticipos[0], { fecha: "2026-08-10", usd: 400000 });
-  const r = resumenPrograma(p);
-  check("(11) pasarse del calendario de anticipos no deja la liquidación en cero",
-    aprox(r.total, 500000) && aprox(r.realizado, 400000) && aprox(r.pendiente, 0) && aprox(r.liquidacion, 100000),
-    `liq=${r.liquidacion}`);
-  check("(12) y no hay excedente mientras no se supere el total", r.excedente === 0);
+  const c = normalizarCuota({ id:"c1", modalidad:"monto", monto:40000, estado:"vigente" });
+  const inc = efectoImputacion({ cuota:c, kilosPrograma:null, usd:10000, incluido:true });
+  const adi = efectoImputacion({ cuota:c, kilosPrograma:null, usd:10000, incluido:false });
+  check("(19) incluido: el total no cambia y el pendiente baja",
+    inc.acordadoDespues === 40000 && inc.pendienteDespues === 30000 && inc.deltaPendiente === -10000);
+  check("(20) adicional: el total sube y el pendiente se conserva",
+    adi.acordadoDespues === 50000 && adi.pendienteDespues === 40000 && adi.deltaPendiente === 0);
 
-  p.anticipos[0] = agregarRealizacion(p.anticipos[0], { fecha: "2026-09-10", usd: 150000 });
-  const r2 = resumenPrograma(p);
-  check("(13) recién al superar el total aparece el excedente",
-    aprox(r2.liquidacion, 0) && aprox(r2.excedente, 50000), `exc=${r2.excedente}`);
+  const cInc = imputarMovimiento(c, null, { fecha:"2026-08-20", usd:10000, incluido:true });
+  const cAdi = imputarMovimiento(c, null, { fecha:"2026-08-20", usd:10000, incluido:false });
+  check("(21) imputar incluido deja pendiente 30.000", aprox(cuotaPendiente(cInc, null), 30000));
+  check("(22) imputar adicional deja pendiente 40.000 y acordado 50.000",
+    aprox(cuotaPendiente(cAdi, null), 40000) && aprox(cuotaAcordado(cAdi, null).valor, 50000));
+  check("(23) la tarifa/monto pactado no se toca", cAdi.monto === 40000 && cAdi.extra_acordado === 10000);
 }
 
-// ═══ 5. Programa sin anticipos ═════════════════════════════════════
+// ═══ 5. Ejemplo B — borrador, vigencia y reversión ═════════════════
 {
-  const p = prg({ contraparte: "Cliente Sin Anticipos", anticipos: [] });
-  const r = resumenPrograma(p);
-  check("(14) programa sin anticipos es válido y liquida el total",
-    r.completo && aprox(r.total, 800000) && aprox(r.liquidacion, 800000) && r.acordado === 0);
-  const v = validarActivacion(p, { kgPresupuesto: 850000, totalPresupuesto: 3825000 });
-  check("(15) y se puede activar", v.puede === true, JSON.stringify(v.faltantes));
+  const estB = est({ id:"e1", monto:100000, realizaciones:[] });
+  const cA = normalizarCuota({ id:"cA", mes:"Oct-26", modalidad:"monto", monto:40000, estado:"vigente",
+    sustituye:[{estimacionId:"e1", usd:30000}],
+    realizaciones:[rea("r1","2026-08-20",10000,{origen:{tipo:"estimacion",id:"e1"}})] });
+  const pA = normalizarPrograma({ id:"pA", lado:"cliente", contraparte:"A", cuotas:[cA] });
+  const mk = (estadoEne, reaEne) => normalizarPrograma({ id:"pB", lado:"cliente", contraparte:"B", cuotas:[
+    normalizarCuota({ id:"cB1", mes:"Nov-26", modalidad:"monto", monto:15000, estado:"vigente",
+                      sustituye:[{estimacionId:"e1", usd:15000}] }),
+    normalizarCuota({ id:"cB2", mes:"Jan-27", modalidad:"monto", monto:25000, estado:estadoEne,
+                      sustituye:[{estimacionId:"e1", usd:25000}], realizaciones: reaEne || [] }),
+    normalizarCuota({ id:"cB3", mes:"Feb-27", modalidad:"monto", monto:10000, estado:"borrador",
+                      sustituye:[{estimacionId:"e1", usd:10000}] }),
+  ]});
+
+  const b1 = lado({ estimaciones:[estB], programas:[pA, mk("borrador")] });
+  check("(24) B1 · estimado 45.000 · calendarizado 45.000 · liquidación 900.000",
+    aprox(b1.pendienteEstimado,45000) && aprox(b1.pendienteCalendarizado,45000) && aprox(b1.liquidacion,900000),
+    `${b1.pendienteEstimado}/${b1.pendienteCalendarizado}/${b1.liquidacion}`);
+
+  // B2a · el cobro de 5.000 cumple la cuota en BORRADOR
+  const b2a = lado({ estimaciones:[estB], programas:[pA, mk("borrador",[rea("r5","2026-12-20",5000)])] });
+  check("(25) B2a · realizado 15.000 · estimado 45.000 · calendarizado 45.000",
+    aprox(b2a.realizado,15000) && aprox(b2a.pendienteEstimado,45000) && aprox(b2a.pendienteCalendarizado,45000),
+    `${b2a.realizado}/${b2a.pendienteEstimado}/${b2a.pendienteCalendarizado}`);
+  check("(26) B2a · el realizado del borrador descuenta igual", aprox(b2a.liquidacion, 895000), `${b2a.liquidacion}`);
+
+  // B2b · el mismo cobro declarado sobre la ESTIMACIÓN
+  const estConRea = est({ id:"e1", monto:100000, realizaciones:[rea("r5","2026-12-20",5000)] });
+  const b2b = lado({ estimaciones:[estConRea], programas:[pA, mk("borrador")] });
+  check("(27) B2b · baja la estimación en vez de la cuota",
+    aprox(b2b.pendienteEstimado,40000) && aprox(b2b.pendienteCalendarizado,45000) && aprox(b2b.realizado,15000),
+    `${b2b.pendienteEstimado}/${b2b.pendienteCalendarizado}`);
+
+  // B3 · la cuota de enero pasa a vigente
+  const b3 = lado({ estimaciones:[estB], programas:[pA, mk("vigente",[rea("r5","2026-12-20",5000)])] });
+  check("(28) B3 · estimado 20.000 · calendarizado 65.000",
+    aprox(b3.pendienteEstimado,20000) && aprox(b3.pendienteCalendarizado,65000),
+    `${b3.pendienteEstimado}/${b3.pendienteCalendarizado}`);
+
+  // B4 · vuelve a borrador: la estimación recupera 25.000, no 30.000
+  const b4 = lado({ estimaciones:[estB], programas:[pA, mk("borrador",[rea("r5","2026-12-20",5000)])] });
+  check("(29) B4 · vuelve exactamente a B2a",
+    aprox(b4.pendienteEstimado,45000) && aprox(b4.pendienteCalendarizado,45000) &&
+    aprox(b4.realizado,15000) && aprox(b4.liquidacion,895000));
+  check("(30) y los 5.000 cobrados no resucitan como pendiente",
+    aprox(b4.realizado + b4.pendientes + b4.liquidacion, 1000000));
 }
 
-// ═══ 6. Registrar ≠ activar ════════════════════════════════════════
+// ═══ 6. Mover una realización no reabre el pendiente de origen ═════
 {
-  const p = prg({ activo: false, anticipos: [ant()] });
-  check("(16) un programa registrado no entra al cálculo", ladoActivo([p]) === false);
-  const proy = proyeccionLado([p], { totalPresupuesto: 3825000, mesLiquidacionFruta: "Mar-27" });
-  check("(17) y no aporta ningún movimiento", proy.movimientos.length === 0 && proy.hayActivos === false);
+  const e = est({ id:"e1", monto:100000, realizaciones:[rea("r1","2026-08-20",10000)] });
+  const c = normalizarCuota({ id:"c1", mes:"Oct-26", modalidad:"monto", monto:40000, estado:"vigente",
+                              sustituye:[{estimacionId:"e1", usd:30000}] });
+  const p = normalizarPrograma({ id:"p1", lado:"cliente", contraparte:"A", cuotas:[c] });
 
-  const act = normalizarPrograma({ ...p, activo: true });
-  check("(18) activado sí entra", ladoActivo([act]) === true);
+  const antes = lado({ estimaciones:[e], programas:[p] });
+  const mv = moverRealizacion({ estimaciones:[e], programas:[p], reaId:"r1",
+    desde:{tipo:"estimacion", id:"e1"}, hacia:{tipo:"cuota", id:"c1"}, usuario:"qa" });
+  const despues = lado({ estimaciones:mv.estimaciones, programas:mv.programas });
+
+  check("(31) la realización cambió de contenedor, no se copió",
+    mv.estimaciones[0].realizaciones.length === 0 &&
+    mv.programas[0].cuotas[0].realizaciones.length === 1 &&
+    mv.programas[0].cuotas[0].realizaciones[0].id === "r1");
+  check("(32) conserva su identidad y guarda de dónde viene",
+    mv.movida.origen.tipo === "estimacion" && mv.movida.origen.id === "e1" && mv.movida.movidaPor === "qa");
+  check("(33) el realizado global no cambia", aprox(antes.realizado, despues.realizado));
+  check("(34) la estimación NO reabre los 10.000",
+    aprox(antes.pendienteEstimado, despues.pendienteEstimado), `${antes.pendienteEstimado} vs ${despues.pendienteEstimado}`);
+  check("(35) el realizado originado sigue contándose en la estimación",
+    aprox(estRealizadoOriginado(mv.estimaciones[0], mv.programas), 10000));
 }
 
-// ═══ 7. Activación bloqueada ═══════════════════════════════════════
+// ═══ 7. Anular quita el efecto en todo ═════════════════════════════
 {
-  const incompleto = prg({ contraparte: "", kilos: null, anticipos: [ant({ modalidad: "por_confirmar", monto: 1000 })] });
-  const v = validarActivacion(incompleto, { kgPresupuesto: 850000, totalPresupuesto: 3825000 });
-  check("(19) no se activa con datos faltantes y los enumera",
-    v.puede === false && v.faltantes.length >= 2, JSON.stringify(v.faltantes));
-
-  const grande = prg({ kilos: 900000, precio_usd_kg: 4.5 });
-  const v2 = validarActivacion(grande, { kgPresupuesto: 850000, totalPresupuesto: 3825000 });
-  check("(20) no se activa si se pasa de los kilos de presupuesto",
-    v2.puede === false && v2.bloqueos.some(b => b.includes("kilos")));
-
-  const a1 = prg({ id: "p1", kilos: 400000, precio_usd_kg: 4.5, activo: true });   // 1.800.000
-  const a2 = prg({ id: "p2", kilos: 400000, precio_usd_kg: 6 });                   // 2.400.000
-  const v3 = validarActivacion(a2, { kgPresupuesto: 850000, totalPresupuesto: 3825000, otrosActivos: [a1] });
-  check("(21) ni si los programas activos se pasan del presupuesto del lado",
-    v3.puede === false && v3.bloqueos.some(b => b.includes("techo")));
+  const e0 = est({ id:"e1", monto:100000, realizaciones:[rea("r1","2026-08-20",10000)] });
+  const e1 = anularRealizacion(e0, "r1", { motivo:"cartola equivocada", usuario:"qa" });
+  const r = lado({ estimaciones:[e1] });
+  check("(36) anulada: no cuenta en el realizado", aprox(r.realizado, 0));
+  check("(37) y la estimación recupera su capacidad", aprox(r.pendienteEstimado, 100000));
+  check("(38) el historial queda", (e1.realizaciones || []).length === 1 && e1.realizaciones[0].anulada === true);
 }
 
-// ═══ 8. Proyección del lado: el presupuesto es el techo ════════════
+// ═══ 8. Sobre-sustitución: se detecta, no se recorta ═══════════════
 {
-  const p = prg({ id: "p1", kilos: 200000, precio_usd_kg: 4.5, activo: true,   // total 900.000
-                  mes_liquidacion: "Mar-27", anticipos: [ant({ usd_kg: 0.5, mes: "Nov-26" })] });  // acordado 100.000
-  const proy = proyeccionLado([p], { totalPresupuesto: 3825000, mesLiquidacionFruta: "Mar-27" });
-  const porMes = m => proy.movimientos.filter(x => x.mes === m).reduce((s, x) => s + x.usd, 0);
-  check("(22) el anticipo pendiente se proyecta en su mes", aprox(porMes("Nov-26"), 100000));
-  check("(23) liquidación del programa + resto presupuestario en el mes de la fruta",
-    aprox(porMes("Mar-27"), 800000 + 2925000), `${porMes("Mar-27")}`);
-  check("(24) el total del lado es exactamente el presupuesto",
-    aprox(proy.totalProyectado, 3825000), `${proy.totalProyectado}`);
-
-  // Con un cobro ya recibido, ese monto sale del flujo futuro pero sigue
-  // descontando de la liquidación del programa.
-  const q = normalizarPrograma(p);
-  q.anticipos[0] = agregarRealizacion(q.anticipos[0], { fecha: "2026-07-15", usd: 60000 });
-  const proy2 = proyeccionLado([q], { totalPresupuesto: 3825000, mesLiquidacionFruta: "Mar-27" });
-  check("(25) lo ya cobrado deja de proyectarse",
-    aprox(proy2.totalProyectado, 3825000 - 60000), `${proy2.totalProyectado}`);
-  check("(26) y sigue descontado de la liquidación del programa",
-    aprox(resumenPrograma(q).liquidacion, 900000 - 100000), `${resumenPrograma(q).liquidacion}`);
+  const e = est({ id:"e1", monto:50000, realizaciones:[] });
+  const c = normalizarCuota({ id:"c1", mes:"Oct-26", modalidad:"monto", monto:80000, estado:"vigente",
+                              sustituye:[{estimacionId:"e1", usd:80000}] });
+  const p = normalizarPrograma({ id:"p1", lado:"cliente", cuotas:[c] });
+  const r = lado({ estimaciones:[e], programas:[p] });
+  check("(39) la estimación no proyecta y el exceso queda a la vista",
+    aprox(r.pendienteEstimado, 0) && aprox(r.sobreSustitucion, 30000), `${r.sobreSustitucion}`);
+  check("(40) disponible para sustituir = 0", aprox(estDisponible(e, 0, [p]), 0));
+}
+{
+  const e = est({ id:"e1", monto:100000, realizaciones:[rea("r1","2026-08-01",10000)] });
+  check("(41) disponible descuenta lo ya cobrado", aprox(estDisponible(e, 0, []), 90000));
+  const cerrada = est({ id:"e2", monto:100000, cerrado:true });
+  check("(42) una estimación cerrada no se puede sustituir", aprox(estDisponible(cerrada, 0, []), 0));
 }
 
-// ═══ 9. Los dos lados son independientes ═══════════════════════════
+// ═══ 9. Fuera de presupuesto ═══════════════════════════════════════
 {
-  const cli  = prg({ lado: "cliente",   kilos: 300000, activo: true });
-  const prod = prg({ lado: "productor", kilos: 500000, precio_usd_kg: 2.5, activo: true });
-  const rc = resumenLado([cli],  { kgPresupuesto: 850000 });
-  const rp = resumenLado([prod], { kgPresupuesto: 850000 });
-  check("(27) cada lado cuenta sus propios kilos contra el presupuesto",
-    rc.kilosAsignados === 300000 && rc.kilosLibres === 550000 &&
-    rp.kilosAsignados === 500000 && rp.kilosLibres === 350000);
+  const p = normalizarPrograma({ id:"pX", lado:"cliente", contraparte:"Nuevo", fueraPresupuesto:true,
+    cuotas:[ normalizarCuota({ id:"cx", mes:"Nov-26", modalidad:"monto", monto:60000, estado:"vigente",
+                               realizaciones:[rea("rx","2026-09-01",20000)] }) ]});
+  const r = lado({ estimaciones:[], programas:[p] });
+  check("(43) no proyecta ni descuenta de la liquidación presupuestada",
+    aprox(r.pendientes, 0) && aprox(r.realizado, 0) && aprox(r.liquidacion, 1000000));
+  check("(44) pero su dinero real se muestra aparte", aprox(r.realizadoFuera, 20000));
 }
 
-// ═══ 10. Variación contra el presupuesto, sin forzar el cuadre ═════
+// ═══ 10. Archivar conserva historial ═══════════════════════════════
 {
-  const p1 = prg({ kilos: 400000, precio_usd_kg: 5 });     // 2.000.000
-  const p2 = prg({ kilos: 400000, precio_usd_kg: 4 });     // 1.600.000
-  const r = resumenLado([p1, p2], { kgPresupuesto: 850000, totalPresupuesto: 3825000 });
-  check("(28) la variación se muestra, no se absorbe",
-    aprox(r.totalProgramas, 3600000) && aprox(r.variacion, -225000), `var=${r.variacion}`);
-  check("(29) y los kilos sin asignar quedan visibles", r.kilosLibres === 50000);
+  const c = normalizarCuota({ id:"c1", mes:"Oct-26", modalidad:"monto", monto:40000, estado:"vigente",
+    sustituye:[{estimacionId:"e1", usd:40000}], realizaciones:[rea("r1","2026-08-20",10000)] });
+  const p = normalizarPrograma({ id:"p1", lado:"cliente", contraparte:"A", cuotas:[c] });
+  const e = est({ id:"e1", monto:100000, realizaciones:[] });
+  check("(45) un programa con historial no se puede borrar", tieneHistorial(p) === true);
+  let err = null; try { archivarPrograma(p, { motivo:"" }); } catch (x) { err = x; }
+  check("(46) archivar exige motivo", !!err);
+  const arch = archivarPrograma(p, { motivo:"acuerdo anulado", usuario:"qa" });
+  const r = lado({ estimaciones:[e], programas:[arch] });
+  check("(47) archivado: la estimación recupera su pendiente", aprox(r.pendienteEstimado, 100000));
+  check("(48) y las realizaciones no se pierden",
+    arch.cuotas[0].realizaciones.length === 1 && arch.motivoArchivo === "acuerdo anulado");
 }
 
-// ═══ 11. Antecedentes: informados, no contabilizados ═══════════════
+// ═══ 11. Vencido aparte del futuro ═════════════════════════════════
 {
-  let p = prg({ lado: "productor", precio_usd_kg: 2.5, anticipos: [ant({ usd_kg: 1, mes: "Dic-26" })] });
-  p = agregarAntecedente(p, { usd: 255000, nota: "pago informado, falta fecha" });
-  p = agregarAntecedente(p, { usd: 89890, nota: "pago informado, falta fecha" });
-  const r = resumenPrograma(p);
-  check("(30) un antecedente NO cuenta como pagado", aprox(r.realizado, 0) && r.antecedentes === 2);
-  check("(31) no descuenta de la liquidación", aprox(r.liquidacion, 500000 - 200000), `${r.liquidacion}`);
-  check("(32) pero su monto queda informado", aprox(r.antecedentesUsd, 344890));
-
-  const anteId = p.antecedentes[0].id;
-  let err = null;
-  try { completarAntecedente(p, anteId, { anticipoId: p.anticipos[0].id, fecha: "" }); }
-  catch (e) { err = e; }
-  check("(33) no se puede completar sin fecha real", !!err);
-
-  const q = completarAntecedente(p, anteId, { anticipoId: p.anticipos[0].id, fecha: "2026-07-15" });
-  const rq = resumenPrograma(q);
-  check("(34) al completarlo pasa a ser movimiento con fecha", aprox(rq.realizado, 255000) && rq.antecedentes === 1);
-  check("(35) y el antecedente queda marcado, no borrado",
-    q.antecedentes.length === 2 && !!q.antecedentes.find(x => x.id === anteId).convertidoEn);
+  const e1 = est({ id:"e1", mes:"Aug-26", monto:30000 });     // anterior al corte
+  const e2 = est({ id:"e2", mes:"Nov-26", monto:50000 });     // futuro
+  const r = lado({ estimaciones:[e1, e2] });
+  check("(49) el pendiente vencido no se suma al futuro",
+    aprox(r.pendienteVencido, 30000) && aprox(r.pendienteFuturo, 50000) && r.vencidos.length === 1);
+  check("(50) pero sigue dentro del saldo total por cobrar", aprox(r.pendientes, 80000));
 }
 
-// ═══ 12. Un anticipo sin mes no se proyecta, pero lo realizado sí descuenta ═
+// ═══ 12. Sin mes: no proyecta y no descuenta ═══════════════════════
 {
-  let p = prg({ kilos: 200000, precio_usd_kg: 4, anticipos: [ant({ usd_kg: 0.5, mes: "" })] });
-  p.anticipos[0] = agregarRealizacion(p.anticipos[0], { fecha: "2026-08-01", usd: 30000 });
-  const r = resumenPrograma(p);
-  check("(36) sin mes: el pendiente no se descuenta de la liquidación",
-    aprox(r.pendienteSinMes, 70000) && aprox(r.descuento, 30000), `desc=${r.descuento}`);
-  check("(37) y no aparece en los movimientos",
-    movimientosPrograma({ ...p, activo: true }).filter(m => m.tipo === "anticipo").length === 0);
+  const e = est({ id:"e1", mes:"", monto:40000 });
+  const r = lado({ estimaciones:[e] });
+  check("(51) sin mes: no proyecta, se cobra en la liquidación",
+    aprox(r.pendienteSinMes, 40000) && aprox(r.pendientes, 0) && aprox(r.liquidacion, 1000000));
 }
 
-// ═══ 13. Cerrar un anticipo pasa el pendiente a la liquidación ═════
+// ═══ 13. Movimientos al flujo ══════════════════════════════════════
 {
-  let p = prg({ kilos: 200000, precio_usd_kg: 4, anticipos: [ant({ usd_kg: 0.5, cerrado: true })] });
-  p.anticipos[0] = agregarRealizacion(p.anticipos[0], { fecha: "2026-08-01", usd: 30000 });
-  const r = resumenPrograma(p);
-  check("(38) cerrado: pendiente 0 y solo descuenta lo realizado",
-    aprox(r.pendiente, 0) && aprox(r.descuento, 30000) && aprox(r.liquidacion, 770000));
+  const e = est({ id:"e1", mes:"Nov-26", monto:60000 });
+  const c = normalizarCuota({ id:"c1", mes:"Oct-26", modalidad:"monto", monto:40000, estado:"vigente" });
+  const p = normalizarPrograma({ id:"p1", lado:"cliente", contraparte:"A", cuotas:[c] });
+  const { movimientos, resumen } = movimientosLado({ estimaciones:[e], programas:[p],
+    basePresupuesto:1000000, mIdx, mesIdxActual:mIdx("Oct-26"), mesLiquidacion:"Mar-27" });
+  const porMes = (m) => movimientos.filter(x => x.mes === m).reduce((s,x)=>s+x.usd,0);
+  check("(52) cada pendiente en su mes", aprox(porMes("Oct-26"),40000) && aprox(porMes("Nov-26"),60000));
+  check("(53) la liquidación en su mes", aprox(porMes("Mar-27"), 900000));
+  check("(54) el total proyectado = base − realizado",
+    aprox(movimientos.reduce((s,m)=>s+m.usd,0), 1000000 - resumen.realizado));
 }
 
-// ═══ 14. Cuadre antes/después ══════════════════════════════════════
+// ═══ 14. Liquidación definitiva ════════════════════════════════════
 {
-  const estim = [{ mes: "Sep-26", usd: 212500 }, { mes: "Nov-26", usd: 374000 }, { mes: "Mar-27", usd: 3238500 }];
-  const p = prg({ kilos: 200000, precio_usd_kg: 4.5, activo: true, anticipos: [ant({ usd_kg: 0.5 })] });
-  const c = cuadreActivacion({ movimientosEstimacion: estim, programas: [p],
-                               totalPresupuesto: 3825000, mesLiquidacionFruta: "Mar-27" });
-  check("(39) el cuadre muestra el antes y el después", aprox(c.antes.total, 3825000) && aprox(c.despues.total, 3825000));
-  check("(40) y la diferencia del lado es cero cuando el presupuesto no cambia", aprox(c.diferencia, 0));
-  check("(41) identificando qué parte queda sin programa", aprox(c.resto, 3825000 - 900000));
+  // acordado 150.000 con 100.000 cobrados → 50.000 de pendiente
+  const e = est({ id:"e1", mes:"Nov-26", monto:150000, realizaciones:[rea("r1","2026-08-01",100000)] });
+  const r = resumenLado({ estimaciones:[e], basePresupuesto:500000,
+    liquidacionDefinitiva:{ total:520000 }, mIdx, mesIdxActual:0 });
+  check("(55) la definitiva reemplaza la base", aprox(r.base, 520000));
+  check("(56) liquidación = definitiva − realizado − pendientes", aprox(r.liquidacion, 520000-100000-50000));
+  check("(57) y conserva el presupuesto para la variación",
+    aprox(r.basePresupuesto, 500000) && aprox(r.variacionBase, 20000));
 }
 
-// ═══ 15. Totales por monto fijo ════════════════════════════════════
+// ═══ 15. Excedente explícito ═══════════════════════════════════════
 {
-  const p = prg({ precio_modo: "monto", monto_total: 750000, kilos: null,
-                  anticipos: [{ modalidad: "monto", monto: 100000, mes: "Nov-26" }] });
-  const r = resumenPrograma(p);
-  check("(42) un programa cerrado en USD no necesita kilos",
-    r.completo && aprox(r.total, 750000) && aprox(r.liquidacion, 650000));
+  // se anticipó más que el total de la operación
+  const e = est({ id:"e1", mes:"Nov-26", monto:200000, realizaciones:[rea("r1","2026-08-01",400000)] });
+  const r = resumenLado({ estimaciones:[e], basePresupuesto:300000, mIdx, mesIdxActual:0 });
+  check("(58) liquidación 0 y excedente a la vista",
+    aprox(r.liquidacion, 0) && aprox(r.excedente, 100000), `exc=${r.excedente}`);
+}
+
+// ═══ 16. Bandeja de conciliación ═══════════════════════════════════
+{
+  const m = nuevoMovimientoSinAsignar({ fecha:"2026-07-15", usd:50000, referencia:"cartola 123" });
+  const r = lado({ estimaciones:[], sinAsignar:[m] });
+  check("(59) un movimiento sin asignar no descuenta de ninguna liquidación",
+    aprox(r.realizado, 0) && aprox(r.liquidacion, 1000000) && aprox(r.sinAsignarUsd, 50000));
+  check("(60) no se puede aplicar más de su monto",
+    puedeAplicar(m, 50000) === true && puedeAplicar(m, 50001) === false);
+  let err = null; try { nuevoMovimientoSinAsignar({ usd:100 }); } catch (e2) { err = e2; }
+  check("(61) un movimiento sin fecha real no se registra", !!err);
+}
+
+// ═══ 17. Ejemplo completo CLIENTE ══════════════════════════════════
+{
+  const BASE = 500000;
+  const paso = (estimaciones, programas, definitiva) => resumenLado({
+    estimaciones, programas, basePresupuesto: BASE, liquidacionDefinitiva: definitiva || null,
+    mIdx, mesIdxActual: mIdx("Oct-26"), lado:"cliente" });
+
+  let e = est({ id:"e1", mes:"Nov-26", monto:100000, realizaciones:[] });
+  let r = paso([e], []);
+  check("(62) C0 · estimado 100.000 · liquidación 400.000",
+    aprox(r.pendienteEstimado,100000) && aprox(r.liquidacion,400000) && aprox(r.saldoTotal,500000));
+
+  e = agregarRealizacion(e, { fecha:"2026-07-15", usd:60000 });
+  r = paso([e], []);
+  check("(63) C1 · cobrado 60.000 · estimado 40.000 · liquidación 400.000",
+    aprox(r.realizado,60000) && aprox(r.pendienteEstimado,40000) && aprox(r.liquidacion,400000) && aprox(r.saldoTotal,440000));
+
+  const pA = normalizarPrograma({ id:"pA", lado:"cliente", contraparte:"Cliente A", cuotas:[
+    normalizarCuota({ id:"ca1", mes:"Oct-26", modalidad:"monto", monto:50000, estado:"vigente",
+                      sustituye:[{estimacionId:"e1", usd:40000}] }),
+    normalizarCuota({ id:"ca2", mes:"Dec-26", modalidad:"monto", monto:50000, estado:"vigente" }),
+  ]});
+  r = paso([e], [pA]);
+  check("(64) C2 · estimado 0 · calendarizado 100.000 · liquidación 340.000",
+    aprox(r.pendienteEstimado,0) && aprox(r.pendienteCalendarizado,100000) &&
+    aprox(r.liquidacion,340000) && aprox(r.saldoTotal,440000), `${r.liquidacion}`);
+
+  const pA3 = { ...pA, cuotas:[ imputarMovimiento(pA.cuotas[0], null,
+      { fecha:"2026-10-10", usd:30000, incluido:true }), pA.cuotas[1] ] };
+  r = paso([e], [pA3]);
+  check("(65) C3 · cobrado 90.000 · calendarizado 70.000 · liquidación 340.000",
+    aprox(r.realizado,90000) && aprox(r.pendienteCalendarizado,70000) &&
+    aprox(r.liquidacion,340000) && aprox(r.saldoTotal,410000));
+
+  // C4 · anticipo adicional realmente adicional
+  const pA4 = { ...pA3, cuotas:[ pA3.cuotas[0], imputarMovimiento(pA3.cuotas[1], null,
+      { fecha:"2026-11-05", usd:20000, incluido:false }), ] };
+  r = paso([e], [pA4]);
+  check("(66) C4 adicional · cobrado 110.000 · pendientes 70.000 · liquidación 320.000",
+    aprox(r.realizado,110000) && aprox(r.pendientes,70000) &&
+    aprox(r.liquidacion,320000) && aprox(r.saldoTotal,390000), `${r.liquidacion}`);
+
+  // C4bis · el mismo monto, declarado como pago de la cuota existente
+  const pA4b = { ...pA3, cuotas:[ pA3.cuotas[0], imputarMovimiento(pA3.cuotas[1], null,
+      { fecha:"2026-11-05", usd:20000, incluido:true }), ] };
+  const rb = paso([e], [pA4b]);
+  check("(67) C4bis incluido · pendientes 50.000 · liquidación 340.000",
+    aprox(rb.realizado,110000) && aprox(rb.pendientes,50000) &&
+    aprox(rb.liquidacion,340000) && aprox(rb.saldoTotal,390000), `${rb.liquidacion}`);
+
+  // C5 · liquidación definitiva 520.000
+  r = paso([e], [pA4], { total:520000 });
+  check("(68) C5 · definitiva 520.000 → liquidación 340.000 y variación +20.000",
+    aprox(r.liquidacion,340000) && aprox(r.variacionBase,20000), `${r.liquidacion}`);
+}
+
+// ═══ 18. Ejemplo completo PRODUCTOR ════════════════════════════════
+// kg 100.000 · FOB 4,00 · desc 6% · mat 0,50 · srv 1,20 → neto 2,06 → 206.000
+{
+  const KG = 100000, FOB = 4, DESC = 0.06, MAT = 0.5, SRV = 1.2;
+  const neto = Math.max(0, FOB * (1 - DESC) - MAT - SRV);
+  check("(69) precio neto productor 2,06", aprox(neto, 2.06), `${neto}`);
+  const BASE = KG * neto;
+  check("(70) retorno al productor 206.000", aprox(BASE, 206000));
+
+  const paso = (estimaciones, programas, definitiva) => resumenLado({
+    estimaciones, programas, lado:"productor", basePresupuesto: BASE,
+    liquidacionDefinitiva: definitiva || null, mIdx, mesIdxActual: mIdx("Oct-26") });
+
+  let e = est({ id:"ep", mes:"Dec-26", monto:60000, realizaciones:[] });
+  let r = paso([e], []);
+  check("(71) P0 · estimado 60.000 · saldo productor 146.000",
+    aprox(r.pendienteEstimado,60000) && aprox(r.liquidacion,146000) && aprox(r.saldoTotal,206000));
+
+  e = agregarRealizacion(e, { fecha:"2026-08-20", usd:25000 });
+  r = paso([e], []);
+  check("(72) P1 · pagado 25.000 · estimado 35.000 · saldo 146.000",
+    aprox(r.realizado,25000) && aprox(r.pendienteEstimado,35000) &&
+    aprox(r.liquidacion,146000) && aprox(r.saldoTotal,181000));
+
+  // P2 · programa con total 80.000 que imputa los 25.000 ya pagados
+  const mv = moverRealizacion({ estimaciones:[e], programas:[normalizarPrograma({
+      id:"pp", lado:"productor", contraparte:"Productor P", cuotas:[
+        normalizarCuota({ id:"cp1", mes:"Nov-26", modalidad:"monto", monto:80000, estado:"vigente",
+                          sustituye:[{estimacionId:"ep", usd:35000}] })]})],
+    reaId: e.realizaciones[0].id, desde:{tipo:"estimacion", id:"ep"}, hacia:{tipo:"cuota", id:"cp1"} });
+  r = paso(mv.estimaciones, mv.programas);
+  check("(73) P2 · pagado 25.000 · estimado 0 · calendarizado 55.000 · saldo productor 126.000",
+    aprox(r.realizado,25000) && aprox(r.pendienteEstimado,0) &&
+    aprox(r.pendienteCalendarizado,55000) && aprox(r.liquidacion,126000) && aprox(r.saldoTotal,181000),
+    `${r.pendienteCalendarizado}/${r.liquidacion}`);
+
+  // P3 · pago parcial de 30.000 sobre la cuota
+  const progs3 = mv.programas.map(p => ({ ...p, cuotas:[ imputarMovimiento(p.cuotas[0], p.kilos,
+    { fecha:"2026-11-10", usd:30000, incluido:true }) ]}));
+  r = paso(mv.estimaciones, progs3);
+  check("(74) P3 · pagado 55.000 · calendarizado 25.000 · saldo 126.000",
+    aprox(r.realizado,55000) && aprox(r.pendienteCalendarizado,25000) &&
+    aprox(r.liquidacion,126000) && aprox(r.saldoTotal,151000));
+
+  // P4 · anticipo adicional pagado 15.000
+  const progs4 = progs3.map(p => ({ ...p, cuotas:[ imputarMovimiento(p.cuotas[0], p.kilos,
+    { fecha:"2026-12-01", usd:15000, incluido:false }) ]}));
+  r = paso(mv.estimaciones, progs4);
+  check("(75) P4 adicional · pagado 70.000 · calendarizado 25.000 · saldo productor 111.000",
+    aprox(r.realizado,70000) && aprox(r.pendienteCalendarizado,25000) &&
+    aprox(r.liquidacion,111000) && aprox(r.saldoTotal,136000), `${r.liquidacion}`);
+
+  // P5 · definitiva con 95.000 kg reales
+  const definitiva = { total: 95000 * neto };
+  r = paso(mv.estimaciones, progs4, definitiva);
+  check("(76) P5 · definitiva 195.700 → saldo productor 100.700",
+    aprox(r.base,195700) && aprox(r.liquidacion,100700) && aprox(r.variacionBase,-10300), `${r.liquidacion}`);
 }
 
 console.log(`\n${fallos === 0 ? "TODOS LOS TESTS PASARON ✓" : `${fallos} TEST(S) FALLARON ✗`}`);
-process.exit(fallos === 0 ? 1 && 0 : 1);
+process.exit(fallos === 0 ? 0 : 1);
