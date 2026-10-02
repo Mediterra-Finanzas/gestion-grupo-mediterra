@@ -181,6 +181,10 @@ describe('Excel', () => {
     ['con programa archivado', con({ programas: [programa({ archivado: true, motivoArchivo: "anulado" })] })],
     ['con operación fuera de presupuesto', con({ programas: [programa({ fueraPresupuesto: true,
       cuotas: [cuota({ realizaciones: [{ id: "rx", fecha: "2026-09-01", usd: 7000 }] })] })] })],
+    ['caso A · cobro incluido en el acuerdo', con({ programas: [programa({ cuotas: [
+      cuota({ realizaciones: [{ id: "ra", fecha: "2026-10-05", usd: 12000 }] }) ]})] })],
+    ['caso B · cobro adicional al acuerdo', con({ programas: [programa({ cuotas: [
+      cuota({ extra_acordado: 12000, realizaciones: [{ id: "rb", fecha: "2026-10-05", usd: 12000 }] }) ]})] })],
   ])('%s: el Excel cuadra con el árbol de la app, mes a mes', (nombre, paramsAllegria) => {
     const { wb, emp } = exportar(paramsAllegria, `prog-${nombre.replace(/\W+/g, '_')}.xlsx`);
     const filas = leerHoja(wb.Sheets[wb.SheetNames.find(n => n !== 'Parametros')]);
@@ -218,5 +222,76 @@ describe('Excel', () => {
     const sust = Object.keys(ws).filter(k => /^H\d+$/.test(k)).map(k => ws[k]).filter(c => c && c.v === 30000);
     expect(sust.length).toBe(1);
     expect(sust[0].f).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// ANTICIPOS ADICIONALES — base 500.000 · realizados 100.000 · futuros 50.000
+//
+// A. 20.000 de una cuota existente  → pendientes 30.000 · liquidación 350.000
+// B. 20.000 realmente adicionales   → pendientes 50.000 · liquidación 330.000
+// En los dos, realizados 120.000 y total por cobrar 380.000.
+// ═══════════════════════════════════════════════════════════════════
+describe('anticipos adicionales · cliente y productor', () => {
+  // kg 500.000 × FOB 1 = 500.000 de venta. Sin desc/mat/srv, el retorno al
+  // productor también es 500.000, así que los dos lados se leen igual.
+  const CUOTA = (over) => ({ id: "c1", mes: "Nov-26", modalidad: "monto", monto: 150000,
+    estado: "vigente", sustituye: [], realizaciones: [{ id: "r1", fecha: "2026-08-01", usd: 100000 }], ...over });
+  const paramsCon = (lado, cuotaOver) => ({ "2026-2027": { cerezas: {
+    kg: 500000, fob_usd_kg: 1, desc_exp_pct: 0, mat_usd_kg: 0, srv_usd_kg: 0,
+    anticipos_cliente: [], mes_liquidacion: "Mar-27",
+    anticipos_productor: [], mes_saldo_productor: "Mar-27",
+    dist_mat: [], dist_srv: [],
+    programas: [{ id: "p1", lado, contraparte: `Contraparte ${lado}`, kilos: 500000,
+                  cuotas: [CUOTA(cuotaOver)] }],
+  } } });
+  const serie = (lado, params) => (lado === "cliente" ? ing(params) : cost(params));
+
+  test.each([["cliente"], ["productor"]])('%s · punto de partida', (lado) => {
+    const v = serie(lado, paramsCon(lado));
+    expect(Math.round(v[iMes("Nov-26")])).toBe(50000);          // pendientes futuros
+    expect(Math.round(v[iMes("Mar-27")])).toBe(350000);         // liquidación
+    expect(Math.round(suma(v))).toBe(400000);                   // saldo total
+  });
+
+  test.each([["cliente"], ["productor"]])('%s · A: 20.000 de una cuota existente', (lado) => {
+    // "incluido": el total acordado no cambia (150.000) y el pendiente baja.
+    const v = serie(lado, paramsCon(lado, { realizaciones: [
+      { id: "r1", fecha: "2026-08-01", usd: 100000 },
+      { id: "r2", fecha: "2026-11-05", usd: 20000 }] }));
+    expect(Math.round(v[iMes("Nov-26")])).toBe(30000);          // pendientes
+    expect(Math.round(v[iMes("Mar-27")])).toBe(350000);         // liquidación
+    expect(Math.round(suma(v))).toBe(380000);                   // total por cobrar/pagar
+  });
+
+  test.each([["cliente"], ["productor"]])('%s · B: 20.000 realmente adicionales', (lado) => {
+    // "adicional": el acuerdo sube a 170.000 y el pendiente se conserva.
+    const v = serie(lado, paramsCon(lado, { extra_acordado: 20000, realizaciones: [
+      { id: "r1", fecha: "2026-08-01", usd: 100000 },
+      { id: "r2", fecha: "2026-11-05", usd: 20000 }] }));
+    expect(Math.round(v[iMes("Nov-26")])).toBe(50000);          // pendientes intactos
+    expect(Math.round(v[iMes("Mar-27")])).toBe(330000);         // liquidación baja
+    expect(Math.round(suma(v))).toBe(380000);                   // mismo total
+  });
+
+  test('cambiar los kilos no mueve el histórico recibido', () => {
+    const conKilos = (kilos) => ({ "2026-2027": { cerezas: {
+      kg: 500000, fob_usd_kg: 1, desc_exp_pct: 0, mat_usd_kg: 0, srv_usd_kg: 0,
+      anticipos_cliente: [], mes_liquidacion: "Mar-27",
+      anticipos_productor: [], mes_saldo_productor: "Mar-27", dist_mat: [], dist_srv: [],
+      programas: [{ id: "p1", lado: "cliente", contraparte: "X", kilos, cuotas: [
+        { id: "c1", mes: "Nov-26", modalidad: "usd_kg", usd_kg: 0.3, estado: "vigente",
+          realizaciones: [{ id: "r1", fecha: "2026-08-01", usd: 120000 }] }]}],
+    } } });
+    const a = ing(conKilos(500000));        // acordado 150.000 − 120.000 = 30.000
+    const b = ing(conKilos(400000));        // acordado 120.000 − 120.000 = 0
+    expect(Math.round(a[iMes("Nov-26")])).toBe(30000);
+    expect(Math.round(b[iMes("Nov-26")])).toBe(0);
+    // El realizado es el mismo en los dos: la liquidación solo cambia por el
+    // pendiente, nunca porque se haya movido la plata ya recibida.
+    expect(Math.round(a[iMes("Mar-27")])).toBe(350000);
+    expect(Math.round(b[iMes("Mar-27")])).toBe(380000);
+    expect(Math.round(suma(a))).toBe(380000);
+    expect(Math.round(suma(b))).toBe(380000);
   });
 });

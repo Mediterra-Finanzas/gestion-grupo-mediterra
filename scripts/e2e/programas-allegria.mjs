@@ -52,9 +52,14 @@ page.on('requestfinished', async r => {
   const via = resp ? await resp.headerValue('access-control-allow-origin').catch(() => null) : null;
   if (via !== '*') escapadas.push(r.url().slice(0, 70));
 });
-// Las confirmaciones se aceptan: en el registro del cobro, aceptar = "estaba
-// incluido en el total acordado".
-page.on('dialog', d => d.accept().catch(() => {}));
+// En el registro de un movimiento, aceptar = "estaba incluido en el total
+// acordado" y descartar = "es adicional al acuerdo".
+let imputarIncluido = true;
+page.on('dialog', d => {
+  const esPregunta = /estaba INCLUIDO en el total acordado/.test(d.message() || '');
+  if (esPregunta && !imputarIncluido) return d.dismiss().catch(() => {});
+  return d.accept().catch(() => {});
+});
 page.on('pageerror', e => { console.log('  [pageerror]', String(e).slice(0, 180)); fallos++; });
 
 const texto = async () => await page.locator('body').innerText();
@@ -77,7 +82,7 @@ async function desplegarTodo() {
   }
   await esperar(600);
 }
-const MESES = ['Oct-26', 'Nov-26', 'Mar-27'];
+const MESES = ['Oct-26', 'Nov-26', 'Dec-26', 'Mar-27'];
 async function leerLinea(etiqueta) {
   await subTab(page, /Flujo de Caja/);
   await esperar(1200);
@@ -201,10 +206,76 @@ check('Oct-26 baja a 25.000: lo cobrado no se reproyecta', conCobro['Oct-26'] ==
 check('la liquidación NO se movió', conCobro['Mar-27'] === 1390000, String(conCobro['Mar-27']));
 check('Nov-26 intacto', conCobro['Nov-26'] === 50000);
 
-// ── 3 · el lado productor no se movió ─────────────────────────────
+// ── 3 · un cobro ADICIONAL al acuerdo ─────────────────────────────
+console.log('\n=== 3 · cobro de 10.000 adicional al acuerdo ===');
+await irAParametros();
+await esperar(700);
+imputarIncluido = false;
+const colCli3 = page.locator('xpath=//span[normalize-space(text())="Clientes"]/ancestor::div[2]').first();
+await colCli3.getByRole('button', { name: /\+ Registrar cobro recibido/ }).first().click();
+await esperar(500);
+const ref3 = page.locator('input[placeholder="referencia / cartola"]').first();
+await ref3.waitFor({ timeout: 15000 });
+const form3 = ref3.locator('xpath=ancestor::div[1]');
+await form3.locator('input[type=date]').first().fill('2026-10-20');
+await form3.locator('input[placeholder="US$"]').first().fill('10000');
+await ref3.fill('QA cobro adicional');
+await form3.getByRole('button', { name: 'Guardar' }).first().click();
+await esperar(1400);
+imputarIncluido = true;
+
+const t3 = await texto();
+check('el acuerdo sube a 50.000 y el pendiente se conserva',
+      /Total acordado\s*\$50,000/.test(t3) && /Pendiente\s*\$25,000/.test(t3),
+      (t3.match(/Total acordado\s*\$[\d,]+/g) || []).join(' | '));
+const adicional = await leerLinea('Anticipo Cerezas');
+console.log('  pantalla →', JSON.stringify(adicional));
+check('Oct-26 sigue en 25.000: el adicional no bajó el pendiente', adicional['Oct-26'] === 25000, String(adicional['Oct-26']));
+check('la liquidación baja 10.000 (1.380.000)', adicional['Mar-27'] === 1380000, String(adicional['Mar-27']));
+
+// ── 3b · pago al productor ────────────────────────────────────────
+console.log('\n=== 3b · pago al productor de 12.000 ===');
+await irAParametros();
+await esperar(700);
+const colProd = page.locator('xpath=//span[normalize-space(text())="Productores"]/ancestor::div[2]').first();
+await colProd.getByRole('button', { name: /\+ Agregar productor/ }).first().click();
+await esperar(700);
+await colProd.locator('input[placeholder="productor"]').first().fill('Productor Sintético P');
+await esperar(400);
+const tarjetaP = colProd.locator('xpath=.//input[@placeholder="productor"]/ancestor::div[2]').first();
+await tarjetaP.getByRole('button', { name: /\+ Agregar cuota al calendario/ }).first().click();
+await esperar(600);
+const filaP = tarjetaP.locator('xpath=.//input[@type="date"]/ancestor::div[2]').first();
+await filaP.locator('select').nth(0).selectOption('Dec-26');
+await esperar(200);
+await filaP.locator('select').nth(1).selectOption('monto');
+await esperar(300);
+const montoP = filaP.locator('input[inputmode=decimal]').first();
+await montoP.click(); await esperar(80);
+await montoP.fill('20000'); await montoP.evaluate(e => e.blur());
+await esperar(400);
+await filaP.locator('select').nth(2).selectOption('vigente');
+await esperar(700);
+await colProd.getByRole('button', { name: /\+ Registrar pago efectuado/ }).first().click();
+await esperar(500);
+const refP = page.locator('input[placeholder="referencia / cartola"]').first();
+await refP.waitFor({ timeout: 15000 });
+const formP = refP.locator('xpath=ancestor::div[1]');
+await formP.locator('input[type=date]').first().fill('2026-11-20');
+await formP.locator('input[placeholder="US$"]').first().fill('12000');
+await refP.fill('QA pago productor');
+await formP.getByRole('button', { name: 'Guardar' }).first().click();
+await esperar(1400);
+
 const costoFinal = await leerLinea('Costo Fruta Exportación');
-check('el lado productor quedó igual', JSON.stringify(costoFinal) === JSON.stringify(costoBase),
-      `${JSON.stringify(costoFinal)} vs ${JSON.stringify(costoBase)}`);
+console.log('  costo →', JSON.stringify(costoFinal));
+check('el pago al productor no tocó el lado cliente',
+      JSON.stringify(await leerLinea('Anticipo Cerezas')) === JSON.stringify(adicional));
+// base productor 650.000 − 12.000 pagados − (50.000 estimación + 8.000 cuota)
+check('Dec-26 proyecta el pendiente de la cuota (8.000)', costoFinal['Dec-26'] === 8000,
+      `Dec-26 ${costoFinal['Dec-26']}`);
+check('y el saldo al productor baja a 580.000', costoFinal['Mar-27'] === 580000,
+      `Mar-27 ${costoFinal['Mar-27']}`);
 
 // ── 4 · Excel recalculado de verdad ───────────────────────────────
 console.log('\n=== 4 · Excel recalculado con LibreOffice ===');
@@ -222,7 +293,12 @@ const fIng = filaDe('Anticipo Cerezas');
 console.log(`  (${rec.formulasBorradas} fórmulas sin caché, recalculadas de verdad)`);
 MESES.forEach(m => {
   const v = ws[`${colDe(m)}${fIng}`]?.v;
-  check(`Excel ${m} = pantalla (${conCobro[m]})`, Math.round(v || 0) === conCobro[m], `${v} vs ${conCobro[m]}`);
+  check(`Excel ${m} = pantalla (${adicional[m]})`, Math.round(v || 0) === adicional[m], `${v} vs ${adicional[m]}`);
+});
+const fCost = filaDe('Costo Fruta Exportación');
+MESES.forEach(m => {
+  const v = ws[`${colDe(m)}${fCost}`]?.v;
+  check(`Excel productor ${m} = pantalla (${costoFinal[m]})`, Math.round(v || 0) === costoFinal[m], `${v} vs ${costoFinal[m]}`);
 });
 const wsP = rec.wb.Sheets['Parametros'];
 const textosP = Object.keys(wsP).filter(k => /^[A-Z]+\d+$/.test(k)).map(k => wsP[k]?.v).filter(v => typeof v === 'string');
@@ -247,8 +323,11 @@ await entrarFinanzas(page).catch(() => {});
 await irAFlujoEmpresas(page);
 await elegirEmpresa(page, 'Allegria Foods');
 const tras = await leerLinea('Anticipo Cerezas');
-check('tras recargar, el flujo es idéntico', JSON.stringify(tras) === JSON.stringify(conCobro),
-      `${JSON.stringify(tras)} vs ${JSON.stringify(conCobro)}`);
+check('tras recargar, el flujo del cliente es idéntico', JSON.stringify(tras) === JSON.stringify(adicional),
+      `${JSON.stringify(tras)} vs ${JSON.stringify(adicional)}`);
+const trasProd = await leerLinea('Costo Fruta Exportación');
+check('y el del productor también', JSON.stringify(trasProd) === JSON.stringify(costoFinal),
+      `${JSON.stringify(trasProd)} vs ${JSON.stringify(costoFinal)}`);
 await page.screenshot({ path: `${OUT}/programas/03-recarga.png`, fullPage: true });
 
 await browser.close();
