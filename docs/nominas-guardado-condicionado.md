@@ -1,9 +1,11 @@
-# Nóminas: guardado condicionado a la versión leída — diseño
+# Nóminas: guardado condicionado a la versión leída
 
-> **Estado: DISEÑO, no implementado.** Requiere aprobación del CFO antes de escribir código.
-> No necesita cambios en la base de datos: funciona con la configuración de producción
-> verificada el 2026-10-01/02 (`updated_at timestamptz`, `value jsonb`, sin reglas, y
-> políticas que permiten a la app leer y actualizar las filas `nominas_*`).
+> **Estado (2026-10-02): IMPLEMENTADO EN LA RAMA `claude/laughing-dijkstra-8665xz`, sin merge ni despliegue.**
+> Probado solo con datos de prueba (Supabase falso aislado). No requiere cambios en la base:
+> funciona con la configuración de producción verificada el 2026-10-01/02 (`updated_at timestamptz`,
+> `value jsonb`, sin reglas, políticas que permiten leer y actualizar `nominas_*`).
+> **Bloqueante antes de desplegar:** sesiones abiertas con el código anterior siguen escribiendo sin
+> condición hasta recargar (ver punto 10). No está resuelto.
 
 ## Por qué
 
@@ -146,7 +148,7 @@ Si se quisiera **imponer** el guardado condicionado desde la base, haría falta 
 - Las pestañas Finanzas, Créditos y el resto de los módulos.
 - No requiere triggers, cambios de permisos ni migraciones.
 
-## Pruebas propuestas (datos de prueba, Supabase falso aislado; PATCH condicionado ya soportado)
+## Casos de prueba (diseño original)
 
 | Caso | Esperado |
 |---|---|
@@ -164,17 +166,42 @@ Si se quisiera **imponer** el guardado condicionado desde la base, haría falta 
 | Pestaña con el código anterior (upsert sin condición) | Documentado como riesgo de transición. Una vez recargada, queda condicionada |
 | Regresión | `nomina-guardado.mjs`, `nomina-credito.mjs`, jest completo, build con `CI=true` |
 
-## Plan de implementación (después de aprobación)
+## Implementación (rama, 2026-10-02)
 
-1. Módulo puro `src/nominasPersistencia.js` (fusión a tres bandas y decisión por fila) con pruebas unitarias.
-2. Carga: revisar `res.ok`, leer `updated_at` y quitar el desvío a la fila antigua.
-3. Guardado por fila con `persistContract` (versión, formato texto, cola) y la fusión del punto 5; creación con 409.
-4. Aviso de conflicto con detalle. Refresco que actualiza versión y base.
-5. Cierre de pestaña sin `keepalive` para filas grandes, con limpieza de la copia al reabrir.
-6. Pruebas en navegador de la tabla anterior y regresión completa. Sin merge hasta revisión.
+| Pieza | Dónde |
+|---|---|
+| Fusión a tres bandas, plan por fila, escritura con reintento y verificación | `src/nominasPersistencia.js` (puro) — `fusionarNominas`, `planGuardado`, `guardarFila`, `resumirGuardado` |
+| Pruebas unitarias | `node src/nominasPersistencia.test.mjs` |
+| Transporte (GET / PATCH condicionado / POST sin `merge-duplicates`) | `transporteNominas` en `src/FinanzasModule.jsx` |
+| Carga por empresa: `ok` / `inexistente` (confirmada) / `error` | `dbLoadNominas`; `dbNominasMigrado` lanza error en vez de suponer "no migrado" |
+| Guardado, conflictos, resolución explícita, reintento de carga | `ejecutarGuardado`, `resolverConflicto`, `reintentarCarga` en `NominasModule` |
+| Refresco que no borra lo ya cargado si una empresa falla al releer | `aplicarRefresco` |
+| Pruebas en navegador | `scripts/e2e/nomina-condicionado.mjs` (dos navegadores sobre el mismo Supabase falso) |
 
-## Decisiones pendientes del CFO
+Reglas acordadas con el CFO (2026-10-02):
 
-1. **Granularidad de la combinación:** cabecera campo a campo y líneas por id (propuesto), o solo por nómina (más simple, más conflictos).
-2. **Despliegue:** horario sin uso y aviso al equipo para recargar.
-3. **Imposición desde la base** (rechazar upsert sin condición en `nominas_*`): ahora no (propuesto), o evaluarla después del despliegue.
+- Se combinan cambios **independientes**: campos distintos de la cabecera y líneas distintas (por id).
+- Requieren **resolución explícita** ("Usar la versión del servidor" / "Mantener la mía", ambas con confirmación que lista lo afectado): el mismo campo, la misma línea, una transición de estado y una anulación (nómina o línea) cuando el otro lado también cambió esa nómina. La misma transición hecha por ambos lados no es conflicto (el historial no se duplica).
+- **Carga por empresa:** si `nominas_<empresa>` no se pudo leer, esa empresa no permite crear ni guardar hasta "Reintentar carga". Las demás siguen operando. Una fila que el servidor confirma inexistente (respuesta 200 vacía) sí permite crear; un error de lectura, no.
+- **Respuesta perdida:** si el servidor no responde tras escribir, la app relee la fila. Si ya contiene exactamente lo enviado, lo da por guardado sin escribir de nuevo; si no puede releer, avisa "sin conexión" y conserva la edición. Reintentar no duplica escrituras ni historial.
+- Las ediciones locales nunca se descartan sin decisión: quedan en pantalla, en la copia del navegador y en "Descargar mis cambios".
+
+Defecto encontrado por la prueba en navegador y corregido: un refresco de fondo que fallaba al releer una empresa la marcaba como no cargada y **hacía desaparecer de la pantalla sus nóminas** (incluida la abierta) hasta el siguiente refresco. Ahora se conserva lo último leído bien (caso 4c-2; comprobado que falla sin la corrección).
+
+### Resultados (datos de prueba)
+
+| Prueba | Resultado |
+|---|---|
+| `node src/nominasPersistencia.test.mjs` | OK |
+| `scripts/e2e/nomina-condicionado.mjs` | 23/23, tres corridas seguidas |
+| `scripts/e2e/nomina-guardado.mjs` | 27/27 |
+| `nomina-credito.mjs`, `apertura-sin-cambios.mjs`, `creditos.mjs` | OK |
+| `node src/creditos.test.mjs`, `node src/anticipos.test.mjs` | OK |
+| jest completo | 1.213 pasan, 9 omitidas |
+| `CI=true npm run build` | OK |
+
+### Pendiente
+
+1. **Sesiones con código anterior** (punto 10): decidir cómo impedir que sobrescriban antes de desplegar. Desplegar fuera de horario reduce el riesgo, no lo elimina.
+2. Borrar sola la copia local al reabrir cuando coincide con el servidor (hoy se ofrece y se elimina a mano).
+3. Horario de despliegue: no fijado.

@@ -22,6 +22,7 @@ import { uploadDocNomina, urlFirmadaNomina, dbLoadGeneric } from './friskuHelper
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
 import { USE_GUARD, pollRow } from './guardClient';
 import { persist, construirAvisoDesde } from './persistencia/instancia.js';
+import { planGuardado, guardarFila, fusionarNominas, resumirGuardado, iguales as igualesNom } from './nominasPersistencia.js';
 import AvisoPersistencia from './AvisoPersistencia.jsx';
 import { computeOverlay, applyOverlay } from './escenarioOverlay';
 import {
@@ -15075,128 +15076,114 @@ function slugEmpresaNom(empresa) {
 
 // Cache en memoria del estado de migración (null=desconocido, true/false=conocido)
 let _cacheNominasMigrado = null;
+// ¿Las nóminas ya están particionadas por empresa (fila nominas_v2_done)?
+// Si la consulta FALLA (red/HTTP) se LANZA: antes se fijaba "no migrado" para toda
+// la sesión y la app cargaba y guardaba en la fila antigua `nominas`.
 async function dbNominasMigrado() {
   if (_cacheNominasMigrado !== null) return _cacheNominasMigrado;
-  try {
-    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas_v2_done&select=id`,{
-      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
-    });
-    const rows = await res.json();
-    _cacheNominasMigrado = Array.isArray(rows) && rows.length > 0;
-  } catch { _cacheNominasMigrado = false; }
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas_v2_done&select=id`,{
+    headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+  });
+  if (!res.ok) throw new Error(`nominas_v2_done HTTP ${res.status}`);
+  const rows = await res.json();
+  if (!Array.isArray(rows)) throw new Error("nominas_v2_done: respuesta inesperada");
+  _cacheNominasMigrado = rows.length > 0;
   return _cacheNominasMigrado;
 }
 
-// Carga nóminas: si migrado → carga solo las filas de empresasPermitidas;
-// si no migrado → carga blob legacy id="nominas" y filtra en memoria.
-async function dbLoadNominas(empresasPermitidas) {
-  try {
-    const migrado = await dbNominasMigrado();
-    if (!migrado) {
-      // Legacy: blob único
-      const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas&select=value`,{
-        headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
-      });
-      const data = await res.json();
-      if (!data?.[0]?.value) return null;
-      const blob = JSON.parse(data[0].value);
-      // Aplicar filtro en memoria para usuarios restringidos
-      if (empresasPermitidas?.length) {
-        blob.nominas = (blob.nominas||[]).filter(n => empresasPermitidas.includes(n.empresa));
-      }
-      return blob;
-    }
-    // v2: cargar por empresa
-    const empresasTarget = (!empresasPermitidas?.length)
-      ? EMPRESAS_NOM
-      : EMPRESAS_NOM.filter(e => empresasPermitidas.includes(e));
-    const resultados = await Promise.all(empresasTarget.map(async emp => {
-      const slug = slugEmpresaNom(emp);
-      const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas_${slug}&select=value`,{
-        headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
-      });
-      const data = await res.json();
-      return data?.[0]?.value ? JSON.parse(data[0].value).nominas || [] : [];
-    }));
-    return { nominas: resultados.flat() };
-  } catch(e) {
-    // Propagar: el caller debe distinguir "carga falló" de "vacío" para no
-    // habilitar el guardado y sobrescribir las nóminas con una lista vacía.
-    console.error("[Nominas] Error cargando:", e);
-    throw e;
-  }
-}
-
-// ⚠️ F0-B DEUDA (NO migrado al contrato compartido, a propósito): las filas
-// `nominas` (blob legacy) y `nominas_<slug>` (v2 por empresa) se dejan en la ruta
-// actual porque el contrato `persist` no replica dos garantías de las que depende
-// nóminas: (1) `keepalive:true` en beforeunload (flushNominas) para que el save
-// del debounce sobreviva a recarga/cierre — el contrato usa fetch normal sin
-// keepalive; y (2) el particionado runtime legacy↔v2 (dbNominasMigrado) escribe N
-// filas por empresa, y esas MISMAS filas las escribe además el one-shot de
-// migración (~línea 15036, con verificación de conteo read-back). Migrar la mitad
-// rompería el optimistic lock por-fila (regla de completitud). La v2 ya verifica
-// res.ok. Migración limpia = incremento dedicado (extender el contrato con
-// keepalive + saveConfirmed por fila nominas_<slug>).
-// Guarda nóminas: si migrado → upsert por empresa;
-// si no migrado → sobreescribe blob legacy.
-// Devuelve el RESULTADO REAL (no un booleano), para que la pantalla nunca muestre
-// éxito sin confirmación del servidor:
-//   { ok, motivo, filas:[{fila, empresa, ok, motivo, status, detalle}], empresasFallidas, empresasGuardadas }
-//   motivo: "sello" (la base rechazó deshacer un dato protegido: datos desactualizados),
-//           "http"  (el servidor respondió error; status trae el código),
-//           "red"   (no hubo respuesta: sin conexión / timeout).
-// opts.keepalive=true permite que el request sobreviva a un beforeunload (flush en recarga/cierre).
-async function _resultadoEscrituraNomina(res, fila, empresa) {
-  if (res.ok) return { fila, empresa, ok:true };
+// ── Transporte de las filas nominas_<empresa> (texto JSON dentro del jsonb) ──
+// Guardado CONDICIONADO (docs/nominas-guardado-condicionado.md):
+//   leer     → { existe, valor, version }   · LANZA ante red/HTTP (regla 9)
+//   patch    → PATCH …&updated_at=eq.<versión leída>; 0 filas = "conflicto"
+//   insertar → POST SIN merge-duplicates: si la fila ya existe, 409 = "existe"
+// keepalive solo para cuerpos chicos: el navegador rechaza keepalive > 64 KiB.
+const LIMITE_KEEPALIVE_NOM = 60000;
+const _bytesNom = (t) => { try { return new TextEncoder().encode(t).length; } catch(e) { return t.length * 2; } };
+async function _falloEscrituraNomina(res) {
   let texto = "";
   try { texto = await res.text(); } catch(e) {}
-  const sello = /MEDITERRA_SELLO/.test(texto);
-  return { fila, empresa, ok:false, motivo: sello ? "sello" : "http", status: res.status, detalle: texto.slice(0,300) };
+  return { ok:false, motivo: /MEDITERRA_SELLO/.test(texto) ? "sello" : (res.status === 409 ? "existe" : "http"), status: res.status, detalle: texto.slice(0,300) };
 }
-function _resumenEscriturasNomina(filas) {
-  const fallidas = filas.filter(f=>!f.ok);
-  const prioridad = ["sello","http","red"];
-  const motivo = fallidas.length ? prioridad.find(m=>fallidas.some(f=>f.motivo===m)) : null;
-  const conStatus = fallidas.find(f=>f.motivo===motivo && f.status);
-  return { ok: fallidas.length===0, motivo, status: conStatus ? conStatus.status : null, filas,
-    empresasFallidas: fallidas.map(f=>f.empresa).filter(Boolean), empresasGuardadas: filas.filter(f=>f.ok).map(f=>f.empresa).filter(Boolean) };
-}
-async function dbSaveNominas(nominas, opts={}) {
-  const keepalive = !!opts.keepalive;
-  let migrado;
-  try { migrado = await dbNominasMigrado(); }
-  catch(e) { console.error("[Nominas] ❌ NO SE GUARDÓ — no se pudo consultar el servidor:", e); return _resumenEscriturasNomina([{ fila:"nominas", ok:false, motivo:"red", detalle:String(e&&e.message||e) }]); }
-  const escribir = async (fila, empresa, value) => {
-    try {
-      const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-        method:"POST", keepalive,
-        headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
-          "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-        body:JSON.stringify({id:fila, value, updated_at:new Date().toISOString()})
-      });
-      return await _resultadoEscrituraNomina(res, fila, empresa);
-    } catch(e) {
-      return { fila, empresa, ok:false, motivo:"red", detalle:String(e&&e.message||e) };
-    }
-  };
-  let filas;
+const transporteNominas = {
+  async leer(fila) {
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${encodeURIComponent(fila)}&select=value,updated_at`,{
+      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Cache-Control":"no-cache"}
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rows = await res.json();
+    if (!Array.isArray(rows)) throw new Error("respuesta inesperada");
+    if (!rows.length) return { existe:false, valor:null, version:null };
+    const v = rows[0].value;
+    const valor = typeof v === "string" ? JSON.parse(v) : v;
+    if (!valor || !Array.isArray(valor.nominas)) throw new Error("contenido inesperado en la fila");
+    return { existe:true, valor, version: rows[0].updated_at || null };
+  },
+  async patch(fila, version, texto, o={}) {
+    const body = JSON.stringify({ value:texto, updated_at:new Date().toISOString() });
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${encodeURIComponent(fila)}&updated_at=eq.${encodeURIComponent(version)}`,{
+      method:"PATCH", keepalive: !!o.keepalive && _bytesNom(body) < LIMITE_KEEPALIVE_NOM,
+      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"}, body });
+    if (!res.ok) return await _falloEscrituraNomina(res);
+    const filas = await res.json().catch(()=>null);
+    if (!Array.isArray(filas)) return { ok:false, motivo:"http", status:res.status, detalle:"el servidor no confirmó la escritura" };
+    if (!filas.length) return { ok:false, motivo:"conflicto" };
+    if (!filas[0].updated_at) return { ok:false, motivo:"http", status:res.status, detalle:"el servidor no confirmó la versión" };
+    return { ok:true, version: filas[0].updated_at };
+  },
+  async insertar(fila, texto, o={}) {
+    const body = JSON.stringify({ id:fila, value:texto, updated_at:new Date().toISOString() });
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+      method:"POST", keepalive: !!o.keepalive && _bytesNom(body) < LIMITE_KEEPALIVE_NOM,
+      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"}, body });
+    if (!res.ok) return await _falloEscrituraNomina(res);
+    const filas = await res.json().catch(()=>null);
+    if (!Array.isArray(filas) || !filas[0] || !filas[0].updated_at) return { ok:false, motivo:"http", status:res.status, detalle:"el servidor no confirmó la creación" };
+    return { ok:true, version: filas[0].updated_at };
+  },
+};
+const filaNominaDe = (empresa) => `nominas_${slugEmpresaNom(empresa)}`;
+
+// Carga nóminas POR EMPRESA. Cada fila queda con su estado:
+//   "ok"          → leída; se guarda condicionada a su versión;
+//   "inexistente" → el servidor confirmó que NO existe; se puede crear;
+//   "error"       → no se pudo leer: esa empresa NO se muestra y NO se puede crear
+//                   ni guardar en ella hasta cargarla bien. Las demás siguen operando.
+// Si no se puede saber si las nóminas están particionadas, se LANZA (carga fallida).
+// Formato antiguo (fila única `nominas`, sin nominas_v2_done): solo lectura.
+async function dbLoadNominas(empresasPermitidas) {
+  const migrado = await dbNominasMigrado();
   if (!migrado) {
-    filas = [await escribir("nominas", null, JSON.stringify({nominas}))];
-  } else {
-    // v2: agrupar por empresa y upsert cada fila
-    const grupos = {};
-    for (const n of nominas) {
-      const emp = n.empresa;
-      if (emp) { if (!grupos[emp]) grupos[emp]=[]; grupos[emp].push(n); }
-    }
-    filas = await Promise.all(Object.entries(grupos).map(([emp, noms]) =>
-      escribir(`nominas_${slugEmpresaNom(emp)}`, emp, JSON.stringify({nominas:noms, empresa:emp}))));
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas&select=value`,{
+      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+    });
+    if (!res.ok) throw new Error(`nominas HTTP ${res.status}`);
+    const data = await res.json();
+    const blob = data?.[0]?.value ? JSON.parse(data[0].value) : { nominas:[] };
+    if (empresasPermitidas?.length) blob.nominas = (blob.nominas||[]).filter(n => empresasPermitidas.includes(n.empresa));
+    return { nominas: blob.nominas || [], filas: {}, legado: true };
   }
-  const r = _resumenEscriturasNomina(filas);
-  if (!r.ok) console.error(`[Nominas] ❌ NO SE GUARDÓ — ${r.motivo}${r.status?" HTTP "+r.status:""} · empresas: ${r.empresasFallidas.join(", ")||"(blob)"}`);
-  return r;
+  const empresasTarget = (!empresasPermitidas?.length)
+    ? EMPRESAS_NOM
+    : EMPRESAS_NOM.filter(e => empresasPermitidas.includes(e));
+  const filas = {};
+  const porEmpresa = await Promise.all(empresasTarget.map(async emp => {
+    const fila = filaNominaDe(emp);
+    try {
+      const r = await transporteNominas.leer(fila);
+      if (!r.existe) { filas[fila] = { empresa:emp, estado:"inexistente", version:null, base:[] }; return []; }
+      filas[fila] = { empresa:emp, estado:"ok", version:r.version, base:r.valor.nominas };
+      return r.valor.nominas;
+    } catch(e) {
+      console.error(`[Nominas] No se pudo cargar ${emp}:`, e);
+      filas[fila] = { empresa:emp, estado:"error", error:String((e&&e.message)||e) };
+      return [];
+    }
+  }));
+  return { nominas: porEmpresa.flat(), filas, legado: false };
 }
+
+// Nóminas: la escritura ya NO es upsert sin condición (antes `dbSaveNominas`). Ver
+// transporteNominas + nominasPersistencia.js y ejecutarGuardado en NominasModule.
 
 // ─── Catálogo GLOBAL de tipos de documento (persistente) ───────────
 // Los tipos que el usuario agrega con "+ Agregar nuevo..." se guardan en la
@@ -17701,7 +17688,7 @@ function MigracionNominasPanel({usuario}) {
           setEstado('completada');
         });
       } else { setEstado('pendiente'); }
-    });
+    }).catch(()=>setEstado('error'));
   },[]);
 
   function addLog(msg){ setLog(prev=>[...prev,`${new Date().toLocaleTimeString('es-CL')} — ${msg}`]); }
@@ -17834,6 +17821,16 @@ function explicarFalloNominas(r, o={}) {
   if(r?.motivo === "red") return { recargar:false, reintentar:true,
     titulo:"No se guardó: sin conexión con el servidor",
     texto:`El servidor no respondió.${parcial} ${queda} NO recargues ni cierres la pestaña: reintenta cuando vuelva la conexión.` };
+  if(r?.motivo === "legado") return { recargar:false, reintentar:false,
+    titulo:"No se guardó: las nóminas están en el formato antiguo (fila única)",
+    texto:`El guardado está deshabilitado en ese formato para no reemplazar nóminas de otras empresas. ${queda} Avisa al administrador.` };
+  if(r?.motivo === "bloqueada") {
+    const MOT = { carga_fallida:"no se pudo cargar (no se puede guardar hasta cargarla)", conflicto_pendiente:"tiene un conflicto pendiente de resolver",
+      quedaria_vacia:"quedaría sin nóminas (no se guarda vacía)", sin_lectura:"no fue leída en esta sesión" };
+    const det = (r.filas||[]).filter(f=>f.motivo==="bloqueada").map(f=>`${f.empresa||f.fila}: ${MOT[f.motivoBloqueo]||f.motivoBloqueo}`).join(" · ");
+    return { recargar:false, reintentar:false, titulo:"No se guardó: empresa bloqueada para guardar",
+      texto:`${det}.${parcial} ${queda}` };
+  }
   if(r?.motivo === "http" && (r.status === 401 || r.status === 403)) return { recargar:true, reintentar:true,
     titulo:`No se guardó: el servidor rechazó el permiso (HTTP ${r.status})`,
     texto:`Puede que tu sesión haya vencido.${parcial} Descarga tus cambios antes de recargar o volver a ingresar.` };
@@ -17841,9 +17838,56 @@ function explicarFalloNominas(r, o={}) {
     titulo:`No se guardó: el servidor respondió con error${r?.status ? ` (HTTP ${r.status})` : ""}`,
     texto:`${parcial} ${queda} Reintenta en unos minutos; no hace falta recargar. Si el error persiste, descarga tus cambios y avisa.` };
 }
-function AvisoGuardadoNominas({aviso, onReintentar, onDescargar, onRecargar, onCerrar, onEliminarCopia, reintentando}) {
+const ETIQ_CONFLICTO = { campo:"mismo campo", linea:"misma línea", transicion:"cambio de estado", anulacion_nomina:"anulación de la nómina",
+  anulacion_linea:"anulación de una línea", nomina_creada_por_ambos:"nómina creada por ambos", nomina_quitada_y_editada:"nómina quitada y editada",
+  linea_creada_por_ambos:"línea creada por ambos", linea_quitada_y_editada:"línea quitada y editada" };
+const breveNom = (v) => { if(v===undefined || v===null) return "—"; if(typeof v!=="object") return String(v);
+  if(v.items || v.estado) return `estado ${v.estado||"?"}`; const t = [v.proveedor, v.concepto, v.montoUSD!=null?`US$ ${v.montoUSD}`:"", v.montoCLP?`$ ${v.montoCLP}`:"", v.estadoLinea==="inactiva"?"ANULADA":""].filter(Boolean).join(" · ");
+  return t || JSON.stringify(v).slice(0,80); };
+function AvisoGuardadoNominas({aviso, onReintentar, onDescargar, onRecargar, onCerrar, onEliminarCopia, onResolver, reintentando}) {
   if(!aviso) return null;
   const btn = (color, solido)=>({padding:"5px 12px",borderRadius:7,border:`1px solid ${color}`,background:solido?color:"transparent",color:solido?"#fff":color,cursor:"pointer",fontSize:12,fontWeight:700});
+  if(aviso.tipo === "info") return (
+    <div role="status" data-aviso-nominas="info" style={{border:`1px solid ${C.yellow}`,background:C.yellow+"18",borderRadius:10,padding:"10px 14px",margin:"8px 0",fontSize:12,color:C.text}}>
+      <div style={{lineHeight:1.6}}>{aviso.texto}</div>
+      <button onClick={onCerrar} style={{...btn(C.muted), marginTop:8}}>Ocultar</button>
+    </div>);
+  if(aviso.tipo === "conflicto"){
+    const r = aviso.r || {};
+    const porFila = {};
+    (r.conflictos||[]).forEach(c=>{ (porFila[c.fila] = porFila[c.fila] || { empresa:c.empresa, lista:[] }).lista.push(c); });
+    (r.filas||[]).filter(f=>!f.ok && f.motivo==="conflicto" && !porFila[f.fila]).forEach(f=>{ porFila[f.fila] = { empresa:f.empresa, lista:[], agotado:true }; });
+    const transicion = aviso.contexto === "transicion";
+    return (
+      <div role="alert" data-aviso-nominas="conflicto" data-motivo="conflicto" style={{border:`2px solid ${C.red}`,background:C.red+"14",borderRadius:10,padding:"10px 14px",margin:"8px 0",fontSize:12,color:C.text}}>
+        <div style={{fontWeight:800,fontSize:13,color:C.red,marginBottom:4}}>No se guardó: otra persona cambió lo mismo que tú</div>
+        <div style={{lineHeight:1.6}}>
+          Lo que no chocaba se combinó y guardó solo; estos puntos NO se combinaron y requieren tu decisión.
+          {r.empresasGuardadas?.length ? ` Sí se guardaron: ${r.empresasGuardadas.join(", ")}.` : ""}
+          {transicion ? ` El cambio de estado NO se hizo${aviso.detalleContexto?` (${aviso.detalleContexto})`:""} y no se envió ninguna notificación.` : " Tu edición sigue en pantalla y hay una copia en este navegador."}
+        </div>
+        {Object.entries(porFila).map(([fila, g])=>(
+          <div key={fila} data-conflicto-fila={fila} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",marginTop:8,background:C.bg2||"transparent"}}>
+            <div style={{fontWeight:800,marginBottom:4}}>{g.empresa}</div>
+            {g.agotado && <div>Otra persona siguió guardando mientras se combinaba: no se pudo completar. Elige una opción.</div>}
+            {g.lista.map((c,i)=>(
+              <div key={i} style={{marginBottom:4}}>
+                <strong>{c.etiqueta}</strong> · {ETIQ_CONFLICTO[c.tipo]||c.tipo}{c.campo?` (${c.campo})`:""}{c.linea?` · línea ${c.linea}`:""}
+                <div style={{color:C.muted}}>Tuyo: {breveNom(c.mio)} · Servidor: {breveNom(c.servidor)}{c.base!==undefined?` · Antes: ${breveNom(c.base)}`:""}</div>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:8,marginTop:6,flexWrap:"wrap"}}>
+              <button onClick={()=>onResolver&&onResolver(fila,"servidor")} style={btn(C.blue,true)}>Usar la versión del servidor</button>
+              <button onClick={()=>onResolver&&onResolver(fila,"mio")} style={btn(C.red)}>Mantener la mía…</button>
+            </div>
+          </div>
+        ))}
+        <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+          <button onClick={onDescargar} style={btn(C.blue)}>Descargar mis cambios (JSON)</button>
+          <button onClick={onCerrar} style={btn(C.muted)}>Ocultar</button>
+        </div>
+      </div>);
+  }
   if(aviso.tipo === "borrador"){
     const b = aviso.borrador || {};
     return (
@@ -17893,8 +17937,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   // Load — dbLoadNominas aplica el filtro por empresa (legacy en memoria, v2 en consulta)
   useEffect(()=>{
     dbLoadNominas(empresasPermitidas).then(d=>{
-      if(d?.nominas) setNominas(d.nominas);
-      servidorRef.current = d?.nominas || [];
+      setNominas(d.nominas); nominasRef.current = d.nominas;
+      aplicarFilas(d.filas, d.legado);
       cargaOkRef.current = true;
       setCargando(false);
       const previo = leerBorradorNominas();
@@ -17922,16 +17966,9 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
       if(sinGuardarRef.current || saveTimer.current) return;
       dbLoadNominas(empresasPermitidas).then(d=>{
         if(sinGuardarRef.current || saveTimer.current) return;
-        if(d?.nominas) {
-          const fresh = d.nominas;
-          setNominas(prev=>{
-            // Solo actualizar si hay cambios reales (evitar re-render innecesario)
-            const prevJSON = JSON.stringify(prev.map(n=>({id:n.id,estado:n.estado,aprobado1Por:n.aprobado1Por,aprobadoPor:n.aprobadoPor})));
-            const newJSON = JSON.stringify(fresh.map(n=>({id:n.id,estado:n.estado,aprobado1Por:n.aprobado1Por,aprobadoPor:n.aprobadoPor})));
-            if(prevJSON !== newJSON) { servidorRef.current = fresh; return fresh; }
-            return prev;
-          });
-        }
+        // Sin cambios locales pendientes: se toma el servidor completo (líneas,
+        // vínculos y versiones de TODAS las filas), no solo los estados.
+        aplicarRefresco(d);
       }).catch(()=>{});
     }, 30000);
     return ()=>clearInterval(interval);
@@ -17944,7 +17981,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
         if(sinGuardarRef.current || saveTimer.current) return;   // no pisar cambios sin guardar
         dbLoadNominas(empresasPermitidas).then(d=>{
           if(sinGuardarRef.current || saveTimer.current) return;
-          if(d?.nominas) { setNominas(d.nominas); servidorRef.current = d.nominas; }
+          aplicarRefresco(d);
         }).catch(()=>{});
       }
     }
@@ -17952,39 +17989,181 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
     return ()=>document.removeEventListener("visibilitychange", onVisibility);
   },[]);
 
-  // ── Guardado (debounce 800ms) con resultado REAL ─────────────────────
-  // dbSaveNominas agrupa por empresa en v2 y devuelve {ok, motivo, …}. Si el
-  // servidor no confirma: la edición se CONSERVA en pantalla, se guarda una copia
-  // en este navegador (localStorage) y se muestra el aviso con el motivo y qué
-  // hacer. Mientras haya cambios sin confirmar, los refrescos automáticos no
-  // reemplazan la lista y cerrar la pestaña pide confirmación.
+  // ── Guardado CONDICIONADO por empresa (debounce 800ms) ─────────────────
+  // docs/nominas-guardado-condicionado.md. Cada fila nominas_<empresa> se escribe
+  // SOLO si cambió, condicionada a la versión leída (o creándola si el servidor
+  // confirmó que no existía). Si otro guardó entretanto, se combina lo
+  // independiente; lo que choca (mismo campo/línea, transición, anulación) NO se
+  // escribe y pide resolución explícita. Si el servidor no confirma: la edición se
+  // CONSERVA en pantalla, hay copia en este navegador y aviso con qué hacer.
   const saveTimer = useRef(null);
   const pendingSaveRef = useRef(null); // última lista pendiente de guardar (para flush en recarga/cierre)
   const sinGuardarRef = useRef(false); // hay cambios locales que el servidor aún no confirmó
   const genRef = useRef(0);            // generación de la edición local (para saber si lo guardado es lo último)
   const colaGuardadoRef = useRef(Promise.resolve());
-  const servidorRef = useRef([]);      // última lista recibida/confirmada por el servidor
+  const servidorRef = useRef([]);      // lo último confirmado por el servidor (todas las filas cargadas)
+  const filasRef = useRef({});         // fila -> { empresa, estado:"ok"|"inexistente"|"error", version, base, conflicto? }
+  const legadoRef = useRef(false);     // formato antiguo (fila única): solo lectura
   const [avisoGuardado, setAvisoGuardado] = useState(null);
+  const [erroresCarga, setErroresCarga] = useState([]);   // empresas que no se pudieron cargar
+  function recalcularServidor() {
+    servidorRef.current = Object.values(filasRef.current).filter(f=>f.estado==="ok").flatMap(f=>f.base||[]);
+  }
+  function aplicarFilas(filas, legado) {
+    filasRef.current = filas || {}; legadoRef.current = !!legado;
+    recalcularServidor();
+    setErroresCarga(Object.entries(filasRef.current).filter(([,f])=>f.estado==="error").map(([fila,f])=>({ fila, empresa:f.empresa, error:f.error })));
+  }
+  // Refresco de fondo (30 s / volver a la pestaña). Si UNA empresa ya cargada no se
+  // pudo releer esta vez, se conserva lo último leído bien de ella (filas y
+  // nóminas): un fallo transitorio no debe hacer desaparecer de la pantalla la
+  // nómina que se está mirando ni bloquear la empresa. Solo una empresa que nunca
+  // se cargó queda en "error".
+  function aplicarRefresco(d) {
+    const filas = { ...(d.filas||{}) };
+    const conservadas = new Set();
+    Object.entries(filas).forEach(([fila, f])=>{
+      const previa = filasRef.current[fila];
+      if(f.estado === "error" && previa && previa.estado !== "error"){ filas[fila] = previa; conservadas.add(f.empresa); }
+    });
+    aplicarFilas(filas, d.legado);
+    let lista = d.nominas;
+    if(conservadas.size){   // mismo orden que la pantalla actual
+      const nuevas = new Map(d.nominas.filter(n=>!conservadas.has(n.empresa)).map(n=>[n.id, n]));
+      lista = [];
+      nominasRef.current.forEach(n=>{
+        if(conservadas.has(n.empresa)) lista.push(n);
+        else if(nuevas.has(n.id)){ lista.push(nuevas.get(n.id)); nuevas.delete(n.id); }
+      });
+      lista.push(...nuevas.values());
+    }
+    if(!igualesNom(lista, nominasRef.current)) { setNominas(lista); nominasRef.current = lista; avisoTrasRefresco(); }
+  }
+  // Un aviso de "no se guardó" sin cambios locales pendientes (p. ej. una transición
+  // cuya respuesta se perdió y no se pudo verificar) queda desactualizado cuando la
+  // lista se refresca con el servidor: se reemplaza por un aviso informativo.
+  function avisoTrasRefresco() {
+    setAvisoGuardado(a => (a && (a.tipo === "error" || a.tipo === "conflicto"))
+      ? { tipo:"info", texto: a.contexto === "transicion"
+          ? `La lista se actualizó con el servidor. Revisa el estado de la nómina: el cambio de estado${a.detalleContexto?` (${a.detalleContexto})`:""} que figuraba como NO hecho pudo haberse aplicado en el servidor; si es así, sus correos de notificación NO se enviaron.`
+          : "La lista se actualizó con el servidor. Revisa que lo que figuraba como no guardado esté como esperabas." }
+      : a);
+  }
+  function hayCambiosLocales() { return nominasConCambiosLocales(nominasRef.current, servidorRef.current).length > 0; }
+  // ¿Se puede crear o guardar en esta empresa?
+  function empresaOperable(empresa) {
+    if(legadoRef.current) return { ok:false, texto:"Las nóminas están en el formato antiguo: guardado deshabilitado." };
+    const f = filasRef.current[filaNominaDe(empresa)];
+    if(!f) return { ok:false, texto:`No se cargaron las nóminas de ${empresa}.` };
+    if(f.estado === "error") return { ok:false, texto:`No se pudieron cargar las nóminas de ${empresa} (${f.error}). No se puede crear ni guardar en esa empresa hasta cargarla: usa "Reintentar carga".` };
+    if(f.conflicto) return { ok:false, texto:`${empresa} tiene un conflicto pendiente de resolver (ver aviso arriba).` };
+    return { ok:true };
+  }
+  // Reemplaza en la lista local las nóminas de UNA empresa, conservando el orden.
+  function reemplazarEmpresaLocal(empresa, nuevas) {
+    const porId = new Map((nuevas||[]).map(n=>[n.id, n]));
+    const puestas = new Set();
+    const next = [];
+    nominasRef.current.forEach(n=>{
+      if(n.empresa !== empresa){ next.push(n); return; }
+      if(porId.has(n.id)){ next.push(porId.get(n.id)); puestas.add(n.id); }
+    });
+    (nuevas||[]).forEach(n=>{ if(!puestas.has(n.id)) next.push(n); });
+    nominasRef.current = next; setNominas(next);
+  }
   function ejecutarGuardado(list, opts={}) {
     const gen = genRef.current;
     const corrida = colaGuardadoRef.current.then(async ()=>{
-      const r = await dbSaveNominas(list, opts);
+      let r;
+      if(legadoRef.current){
+        r = resumirGuardado([], [{ fila:"nominas", empresa:null, motivo:"legado" }]);
+      } else {
+        const plan = planGuardado(list, filasRef.current, filaNominaDe);
+        const resultados = [];
+        for(const e of plan.escrituras){   // una fila a la vez
+          const g = await guardarFila({ ...e, transporte: transporteNominas, opciones:{ keepalive: !!opts.keepalive } });
+          resultados.push(g);
+          if(g.ok){
+            filasRef.current = { ...filasRef.current, [e.fila]: { empresa:e.empresa, estado:"ok", version:g.version, base:g.base } };
+            // Si quedó combinado con cambios de otros, la pantalla los incorpora.
+            if(!igualesNom(g.base, e.mio)){
+              const actual = nominasRef.current.filter(n=>n.empresa===e.empresa);
+              if(igualesNom(actual, e.mio)) reemplazarEmpresaLocal(e.empresa, g.base);
+              else {
+                // Editaste mientras se guardaba: tus cambios nuevos se aplican sobre lo combinado.
+                const f = fusionarNominas(e.mio, actual, g.base);
+                if(f.ok) reemplazarEmpresaLocal(e.empresa, f.valor);
+                else filasRef.current = { ...filasRef.current, [e.fila]: { ...filasRef.current[e.fila], base:e.mio,
+                  conflicto:{ conflictos:f.conflictos, servidor:{ nominas:g.base, version:g.version, existe:true } } } };
+              }
+            }
+          } else if(g.motivo === "conflicto"){
+            filasRef.current = { ...filasRef.current, [e.fila]: { ...filasRef.current[e.fila], conflicto:{ conflictos:g.conflictos||[], servidor:g.servidor, reintentosAgotados:!!g.reintentosAgotados } } };
+          }
+        }
+        r = resumirGuardado(resultados, plan.bloqueadas);
+      }
+      recalcularServidor();
       if(r.ok){
-        servidorRef.current = list;
         if(genRef.current === gen && !saveTimer.current){
-          sinGuardarRef.current = false;
-          borrarBorradorNominas(true);
-          setAvisoGuardado(a => (a && a.tipo === "error") ? null : a);
+          sinGuardarRef.current = hayCambiosLocales();
+          if(!sinGuardarRef.current) borrarBorradorNominas(true);
+          setAvisoGuardado(a => (a && (a.tipo === "error" || a.tipo === "conflicto")) ? null : a);
         }
       } else {
         sinGuardarRef.current = true;
-        const copia = guardarBorradorNominas(list, servidorRef.current, r, usuario);
-        setAvisoGuardado({ tipo:"error", r, copiaLocal: copia, ts: new Date().toISOString() });
+        const copia = guardarBorradorNominas(nominasRef.current, servidorRef.current, r, usuario);
+        setAvisoGuardado({ tipo: r.motivo === "conflicto" ? "conflicto" : "error", r, copiaLocal: copia, ts: new Date().toISOString() });
       }
       return r;
     });
     colaGuardadoRef.current = corrida.catch(()=>{});
     return corrida;
+  }
+  // Resolución EXPLÍCITA de un conflicto, por empresa.
+  async function resolverConflicto(fila, decision) {
+    const f = filasRef.current[fila];
+    if(!f || !f.conflicto) return;
+    const srv = f.conflicto.servidor || { nominas:[], version:null, existe:false };
+    const resumen = (f.conflicto.conflictos||[]).map(c=>`• ${c.etiqueta}${c.linea?` · línea ${c.linea}`:""}${c.campo?` · ${c.campo}`:""}`).join("\n") || "• (sin detalle)";
+    if(decision === "servidor"){
+      if(!window.confirm(`Usar la versión del servidor en ${f.empresa}.\n\nSe descartan de la pantalla tus cambios no guardados en esa empresa (quedan en la copia de este navegador y en "Descargar mis cambios").\n\n¿Continuar?`)) return;
+      filasRef.current = { ...filasRef.current, [fila]: { empresa:f.empresa, estado: srv.existe ? "ok" : "inexistente", version: srv.version, base: srv.nominas||[] } };
+      reemplazarEmpresaLocal(f.empresa, srv.nominas||[]);
+      recalcularServidor();
+      sinGuardarRef.current = hayCambiosLocales();
+      setAvisoGuardado(a=>{
+        const quedan = (a?.r?.conflictos||[]).filter(c=>c.fila !== fila);
+        if(a?.tipo === "conflicto" && quedan.length) return { ...a, r:{ ...a.r, conflictos:quedan } };
+        const previo = leerBorradorNominas();
+        return previo ? { tipo:"borrador", borrador:previo } : null;
+      });
+      return;
+    }
+    if(!window.confirm(`Mantener TU versión en ${f.empresa}.\n\nEn estos puntos se sobrescribirá lo que guardó la otra persona:\n${resumen}\n\nLo que la otra persona cambió en otros campos y líneas se conserva. ¿Continuar?`)) return;
+    const mioActual = nominasRef.current.filter(n=>n.empresa===f.empresa);
+    const fus = fusionarNominas(f.base||[], mioActual, srv.nominas||[], { preferir:"mio" });
+    filasRef.current = { ...filasRef.current, [fila]: { empresa:f.empresa, estado: srv.existe ? "ok" : "inexistente", version: srv.version, base: srv.nominas||[] } };
+    reemplazarEmpresaLocal(f.empresa, fus.valor);
+    recalcularServidor();
+    clearTimeout(saveTimer.current); saveTimer.current = null; pendingSaveRef.current = null;
+    sinGuardarRef.current = true; genRef.current += 1;
+    await ejecutarGuardado(nominasRef.current);
+  }
+  // Reintenta leer las empresas que no se pudieron cargar (no toca las demás).
+  async function reintentarCarga() {
+    const pendientes = Object.entries(filasRef.current).filter(([,f])=>f.estado==="error");
+    const filas = { ...filasRef.current };
+    const agregar = [];
+    for(const [fila, f] of pendientes){
+      try {
+        const r = await transporteNominas.leer(fila);
+        if(!r.existe) filas[fila] = { empresa:f.empresa, estado:"inexistente", version:null, base:[] };
+        else { filas[fila] = { empresa:f.empresa, estado:"ok", version:r.version, base:r.valor.nominas }; agregar.push(...r.valor.nominas); }
+      } catch(e) { filas[fila] = { ...f, error:String((e&&e.message)||e) }; }
+    }
+    aplicarFilas(filas, legadoRef.current);
+    if(agregar.length){ const next = [...nominasRef.current, ...agregar]; nominasRef.current = next; setNominas(next); }
   }
   function saveNominas(list) {
     if(!cargaOkRef.current){ console.warn("[Nominas] save bloqueado — la carga inicial falló."); return; }
@@ -18016,8 +18195,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
     clearTimeout(saveTimer.current); saveTimer.current = null; pendingSaveRef.current = null;
     try {
       const d = await dbLoadNominas(empresasPermitidas);
-      const fresh = d?.nominas || [];
-      setNominas(fresh); nominasRef.current = fresh; servidorRef.current = fresh;
+      setNominas(d.nominas); nominasRef.current = d.nominas;
+      aplicarFilas(d.filas, d.legado);
       sinGuardarRef.current = false; genRef.current += 1;
       const previo = leerBorradorNominas();
       setAvisoGuardado(previo ? { tipo:"borrador", borrador:previo } : null);
@@ -18053,7 +18232,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
       const next = prev.some(n=>n.id===nom.id) ? prev.map(n=>n.id===nom.id?nom:n) : [...prev, nom];
       nominasRef.current = next; setNominas(next);
       if(opts.soloLocal){
-        sinGuardarRef.current = nominasConCambiosLocales(next, servidorRef.current).length > 0 || !!saveTimer.current;
+        sinGuardarRef.current = hayCambiosLocales() || !!saveTimer.current;
         if(sinGuardarRef.current) guardarBorradorNominas(next, servidorRef.current, { motivo:"revertido" }, usuario);
         else borrarBorradorNominas(true);
         return Promise.resolve({ ok:true, soloLocal:true });
@@ -18062,7 +18241,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
       clearTimeout(saveTimer.current); saveTimer.current = null; pendingSaveRef.current = null;
       sinGuardarRef.current = true; genRef.current += 1;
       return ejecutarGuardado(next).then(r=>{
-        if(!r.ok && opts.contexto) setAvisoGuardado(a=>a && a.tipo==="error" ? {...a, contexto:opts.contexto, detalleContexto:opts.detalleContexto} : a);
+        if(!r.ok && opts.contexto) setAvisoGuardado(a=>a && (a.tipo==="error" || a.tipo==="conflicto") ? {...a, contexto:opts.contexto, detalleContexto:opts.detalleContexto} : a);
         return r;
       });
     }
@@ -18132,6 +18311,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   }
 
   function crearNomina(empresa, semanaOverride, añoOverride) {
+    const op = empresaOperable(empresa);
+    if(!op.ok){ alert(`No se puede crear la nómina: ${op.texto}`); return; }
     const s = semanaOverride || filtroSemana || semanaActual();
     const a = añoOverride || filtroAño || añoActualNom();
     // Calcular N° secuencial: contar cuántas ya existen para esta empresa/semana/año
@@ -18215,8 +18396,16 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   },[]);
 
   const [reintentando, setReintentando] = useState(false);
-  const avisoNominas = (
-    <AvisoGuardadoNominas aviso={avisoGuardado} reintentando={reintentando}
+  const avisoNominas = (<>
+    {erroresCarga.length>0 && (
+      <div role="alert" data-aviso-carga-nominas style={{border:`2px solid ${C.red}`,background:C.red+"14",borderRadius:10,padding:"10px 14px",margin:"8px 0",fontSize:12,color:C.text}}>
+        <div style={{fontWeight:800,fontSize:13,color:C.red,marginBottom:4}}>No se pudieron cargar las nóminas de: {erroresCarga.map(e=>e.empresa).join(", ")}</div>
+        <div style={{lineHeight:1.6}}>Sus nóminas no se muestran y no se puede crear ni guardar en esas empresas hasta cargarlas bien (así no se reemplaza lo que hay en el servidor con una lista incompleta). Las demás empresas funcionan normal.</div>
+        <div style={{color:C.muted,marginTop:4}}>{erroresCarga.map(e=>`${e.empresa}: ${e.error}`).join(" · ")}</div>
+        <button onClick={reintentarCarga} style={{marginTop:8,padding:"5px 12px",borderRadius:7,border:`1px solid ${C.green}`,background:C.green,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Reintentar carga</button>
+      </div>
+    )}
+    <AvisoGuardadoNominas aviso={avisoGuardado} reintentando={reintentando} onResolver={resolverConflicto}
       onReintentar={async ()=>{ setReintentando(true); clearTimeout(saveTimer.current); saveTimer.current=null; pendingSaveRef.current=null; await ejecutarGuardado(nominasRef.current); setReintentando(false); }}
       onDescargar={()=>{
         if(avisoGuardado?.tipo === "borrador") descargarCambiosNominas(avisoGuardado.borrador?.nominas||[], { copiaDel: avisoGuardado.borrador?.ts, motivo: avisoGuardado.borrador?.motivo });
@@ -18225,7 +18414,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
       onRecargar={recargarDesdeServidor}
       onCerrar={()=>setAvisoGuardado(null)}
       onEliminarCopia={()=>{ if(window.confirm("¿Eliminar la copia local de los cambios no guardados? No se puede recuperar después.")){ borrarBorradorNominas(); setAvisoGuardado(null); } }}
-    />);
+    />
+  </>);
 
   if(cargando) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",
@@ -18257,6 +18447,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
       onPagoCredito={onPagoCredito}
       onCrearYAbrir={(empresa, semDest, añoDest, itemAplazado)=>{
         if(semDest && añoDest) {
+          const op = empresaOperable(empresa);
+          if(!op.ok){ alert(`No se puede crear la nómina: ${op.texto}`); return; }
           // Aplazamiento: buscar o crear nómina en semana destino
           let nomDest = nominas.find(n=>n.empresa===empresa&&n.semana===semDest&&n.año===añoDest);
           if(!nomDest) {
@@ -18306,15 +18498,20 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
         }
         // Cancelar cualquier guardado debounced pendiente para que no pise este guardado.
         clearTimeout(saveTimer.current); saveTimer.current=null; pendingSaveRef.current=null;
-        setNominas(base);
-        const r = await new Promise(res=>{ colaGuardadoRef.current = colaGuardadoRef.current.then(()=>dbSaveNominas(base)).then(x=>{ res(x); }, e=>{ res({ok:false, motivo:"red"}); }); });
+        const op = empresaOperable(empresa);
+        if(!op.ok){ alert(`No se puede aplazar: ${op.texto}`); return false; }
+        setNominas(base); nominasRef.current = base;
+        sinGuardarRef.current = true; genRef.current += 1;
+        const r = await ejecutarGuardado(base);
         if(!r.ok) {
           // Revertir el movimiento: el guardado no se confirmó (no puede quedar a medias).
-          setNominas(prevList);
-          setAvisoGuardado({ tipo:"error", r, copiaLocal:{ ok:true, n:0 }, ts:new Date().toISOString(), contexto:"aplazar" });
+          setNominas(prevList); nominasRef.current = prevList;
+          sinGuardarRef.current = hayCambiosLocales();
+          if(sinGuardarRef.current) guardarBorradorNominas(prevList, servidorRef.current, { motivo:"revertido" }, usuario);
+          else borrarBorradorNominas(true);
+          setAvisoGuardado(a => a && (a.tipo === "error" || a.tipo === "conflicto") ? { ...a, contexto:"aplazar" } : a);
           return false;
         }
-        servidorRef.current = base;
         window.auditLog&&window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
           descripcion:`Aplazó item "${itemNuevo.proveedor||itemNuevo.tipoDoc||"s/n"}" de ${empresa} S${nomOrigen.semana} → S${semDest}/${añoDest}`,
           registroId:nomOrigen.id});

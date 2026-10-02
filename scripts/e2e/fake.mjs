@@ -65,6 +65,12 @@ export async function instalarFake(context, store, log = () => {}) {
     let body = null;
     try { body = JSON.parse(req.postData() || 'null'); } catch (_) {}
 
+    // Lecturas fallidas simuladas por fila: (id) → null | 'red' | { status, body }.
+    if (store.__interceptarLectura && metodo === 'GET') {
+      const x = store.__interceptarLectura(id);
+      if (x === 'red') return route.abort('failed');
+      if (x) return route.fulfill({ status: x.status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(x.body || {}) });
+    }
     if (metodo === 'GET') {
       const f = id ? store[id] : null;
       log(`GET   ${id} → ${f ? 'fila' : 'vacío'}`);
@@ -73,9 +79,13 @@ export async function instalarFake(context, store, log = () => {}) {
 
     // Interceptor opcional por prueba: (metodo, id, body) → null (seguir) |
     // 'red' (sin respuesta) | { status, body } (respuesta de error simulada).
+    // 'perdida' = el servidor APLICA la escritura pero la respuesta no llega.
+    let perderRespuesta = false;
     if (store.__interceptar && metodo !== 'GET') {
       const x = store.__interceptar(metodo, id || (body && body.id), body);
-      if (x === 'red') { log(`${metodo} ${id} → SIN RED (simulado)`); return route.abort('failed'); }
+      if (x === 'perdida') perderRespuesta = true;
+      else if (x === 'red') { log(`${metodo} ${id} → SIN RED (simulado)`); return route.abort('failed'); }
+      else
       if (x) { log(`${metodo} ${id} → HTTP ${x.status} (simulado)`); return route.fulfill({ status: x.status, contentType: 'application/json',
         headers: { 'access-control-allow-origin': '*' }, body: typeof x.body === 'string' ? x.body : JSON.stringify(x.body || {}) }); }
     }
@@ -88,25 +98,37 @@ export async function instalarFake(context, store, log = () => {}) {
         headers: { 'access-control-allow-origin': '*' }, body: '{"message":"fallo simulado"}' });
     }
 
+    const registrar = (rid) => { (store.__escrituras = store.__escrituras || []).push({ metodo, id: rid }); };
     if (metodo === 'PATCH') {
       const f = id ? store[id] : null;
       if (!f) { log(`PATCH ${id} → fila inexistente`); return json([]); }
       if (version && f.updated_at !== version) { log(`PATCH ${id} → CONFLICTO`); return json([]); }
       f.value = body?.value !== undefined ? body.value : f.value;
       f.updated_at = body?.updated_at || new Date().toISOString();
+      registrar(id);
       log(`PATCH ${id} ← guardado`);
+      if (perderRespuesta) { log(`PATCH ${id} → respuesta PERDIDA (simulado)`); return route.abort('failed'); }
       return json([{ id, value: f.value, updated_at: f.updated_at }]);
     }
 
     if (metodo === 'POST' || metodo === 'PUT') {
       const filas = Array.isArray(body) ? body : body ? [body] : [];
+      // Como PostgREST: sin "resolution=merge-duplicates", insertar una fila que ya
+      // existe es un error de clave duplicada (409).
+      const prefer = String(req.headers()['prefer'] || '');
+      if (metodo === 'POST' && !/merge-duplicates|ignore-duplicates/.test(prefer) && filas.some(fl => store[fl.id || id])) {
+        log(`POST ${filas.map(fl => fl.id).join(',')} → 409 ya existe`);
+        return route.fulfill({ status: 409, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"code":"23505","message":"duplicate key value violates unique constraint"}' });
+      }
       const out = filas.map(fl => {
         const rid = fl.id || id;
         const updated_at = fl.updated_at || new Date().toISOString();
         store[rid] = { value: fl.value, updated_at };
+        registrar(rid);
         log(`${metodo}  ${rid} ← guardado`);
         return { id: rid, value: fl.value, updated_at };
       });
+      if (perderRespuesta) return route.abort('failed');
       return json(out, 201);
     }
     return json([]);

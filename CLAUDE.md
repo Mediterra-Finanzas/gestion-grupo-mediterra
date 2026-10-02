@@ -254,12 +254,20 @@ Reglas que no hay que romper:
 - **Monedas**: `valorizarCreditos` anota `_tc` (Maestros `maestro_tc` a la fecha de
   corte, manual prevalece; si no, `tc_flujo` declarado = hipótesis; si no, sin TC).
   `_tc` NO se persiste (`handleSaveCreditos` aplica `sinValorizacion`).
-- **Guardado de Nóminas comprueba la respuesta** (`dbSaveNominas` devuelve `{ok, motivo: sello|http|red, status, empresas…}`):
+- **Guardado de Nóminas comprueba la respuesta** (`ejecutarGuardado` → `resumirGuardado`: `{ok, motivo: conflicto|sello|http|red|bloqueada, empresas…}`; `dbSaveNominas` ya no existe):
   si falla, aviso `AvisoGuardadoNominas` (qué pasó, si hay que recargar), la edición se conserva, copia en
   localStorage (`mediterra_nominas_sin_guardar`, no se re-aplica sola), los refrescos de 30 s / visibilidad
   no pisan cambios sin confirmar y cerrar la pestaña pide confirmación. Las transiciones de estado guardan
   ANTES de notificar/auditar (`confirmarTransicion`); si falla, vuelve al estado anterior sin correos.
   Test: `scripts/e2e/nomina-guardado.mjs`.
+- **Guardado CONDICIONADO de Nóminas** (rama, sin desplegar; `docs/nominas-guardado-condicionado.md`): por fila
+  `nominas_<empresa>`, PATCH condicionado a `updated_at` leído; fila nueva con POST sin `merge-duplicates` (409 =
+  ya existe → releer y combinar). Fusión a tres bandas en `src/nominasPersistencia.js` (cabecera campo a campo,
+  líneas por id); mismo campo/línea, transición o anulación = conflicto con resolución explícita. Carga por
+  empresa `ok`/`inexistente`/`error` (con error no se crea ni guarda en esa empresa). Respuesta perdida → relee
+  y verifica, sin duplicar. Un refresco fallido conserva lo ya cargado (`aplicarRefresco`). Riesgo abierto:
+  sesiones con código anterior escriben sin condición hasta recargar. Tests: `node src/nominasPersistencia.test.mjs`,
+  `scripts/e2e/nomina-condicionado.mjs`.
 - **Anular nómina/línea con pago vigente** → `ResolverPagosVinculados`: conservar
   (`anotarPago`) o anular el pago, con motivo; si Créditos no confirma, no se anula.
 - Revisión previa al merge y verificación del prepago: `docs/creditos-revision-pre-merge.md`.
@@ -479,6 +487,8 @@ node src/creditos.test.mjs                  # modelo de créditos (puro)
 OUT_DIR=/tmp/e2e node scripts/e2e/creditos.mjs   # Créditos en navegador (Supabase falso)
 OUT_DIR=/tmp/e2e node scripts/e2e/nomina-credito.mjs   # Nómina ↔ crédito en navegador
 OUT_DIR=/tmp/ng node scripts/e2e/nomina-guardado.mjs   # Nóminas: guardado rechazado (sello / red / 500) y transiciones
+node src/nominasPersistencia.test.mjs       # fusión y guardado condicionado de Nóminas (puro)
+OUT_DIR=/tmp/nc node scripts/e2e/nomina-condicionado.mjs   # Nóminas: dos pestañas, cargas fallidas, 409, respuesta perdida
 OUT_DIR=/tmp/vp node scripts/e2e/vista-previa-creditos.mjs   # vista previa de Créditos con datos simulados (Excel recalculado)
 OUT_DIR=/tmp/e2e node scripts/e2e/apertura-sin-cambios.mjs   # abrir con registros antiguos no los modifica
 node scripts/vista-previa/armar.mjs --build && node scripts/vista-previa/servir.mjs   # vista previa funcional en http://localhost:4180
@@ -525,7 +535,7 @@ git push origin main
 - RLS Supabase mediterra-calendario (vulnerabilidad de seguridad pendiente de fix sequential). Verificado 2026-10-02:
   RLS ACTIVO en `calendario_data` pero con políticas abiertas a `anon` (leer/crear/modificar/BORRAR todo salvo
   `backup*`/`main_pre_restore*`). Propuesta NO aplicada para quitar DELETE: `docs/seguridad-quitar-delete-anon.md`.
-- Nóminas: guardado condicionado a la versión leída — diseño NO implementado: `docs/nominas-guardado-condicionado.md`.
+- Nóminas: guardado condicionado a la versión leída — implementado en la rama, sin desplegar: `docs/nominas-guardado-condicionado.md`.
 - Módulo EEFF (Etapa 1: carga balance + P&L con análisis comparativo Real vs Ppto vs Año Anterior) — esperar Excel de plantilla de Angelo
 
 ## Estructura típica de un archivo de módulo
