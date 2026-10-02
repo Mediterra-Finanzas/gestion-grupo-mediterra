@@ -71,6 +71,15 @@ export async function instalarFake(context, store, log = () => {}) {
       return json(f ? [{ id, value: f.value, updated_at: f.updated_at }] : []);
     }
 
+    // Interceptor opcional por prueba: (metodo, id, body) → null (seguir) |
+    // 'red' (sin respuesta) | { status, body } (respuesta de error simulada).
+    if (store.__interceptar && metodo !== 'GET') {
+      const x = store.__interceptar(metodo, id || (body && body.id), body);
+      if (x === 'red') { log(`${metodo} ${id} → SIN RED (simulado)`); return route.abort('failed'); }
+      if (x) { log(`${metodo} ${id} → HTTP ${x.status} (simulado)`); return route.fulfill({ status: x.status, contentType: 'application/json',
+        headers: { 'access-control-allow-origin': '*' }, body: typeof x.body === 'string' ? x.body : JSON.stringify(x.body || {}) }); }
+    }
+
     // Interruptor de prueba: simular que el servidor rechaza las escrituras
     // (para verificar que un guardado fallido no pierde ni marca nada).
     if (store.__fallarEscrituras && metodo !== 'GET') {
@@ -101,6 +110,20 @@ export async function instalarFake(context, store, log = () => {}) {
       return json(out, 201);
     }
     return json([]);
+  });
+
+  // El tiempo real de Supabase (WebSocket) apunta a PRODUCCIÓN y context.route
+  // no intercepta WebSockets: se reemplaza por un socket inerte en la página.
+  await context.addInitScript(() => {
+    const WSReal = window.WebSocket;
+    window.WebSocket = function (url, prot) {
+      if (String(url).includes('bywovqayuzodbzwsriet.supabase.co')) {
+        window.__WS_BLOQUEADOS = (window.__WS_BLOQUEADOS || 0) + 1;
+        return { readyState: 0, url: String(url), send() {}, close() { this.readyState = 3; }, addEventListener() {}, removeEventListener() {} };
+      }
+      return prot !== undefined ? new WSReal(url, prot) : new WSReal(url);
+    };
+    ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach((k, i) => { window.WebSocket[k] = i; });
   });
 
   // Endpoints propios (/api/*) y correo: fuera del alcance de esta prueba.

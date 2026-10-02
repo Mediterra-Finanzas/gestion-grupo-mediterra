@@ -184,6 +184,7 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
 
   // Categorías
   const catRows = {};
+  const lineRows = {};   // `${cat}::${label}` → fila (para referencias desde otras hojas)
   CAT_ORDER.forEach(cat => {
     const isIng = ING_CATS.includes(cat);
     const natNum  = isIng ? S.catNumIng  : S.catNumEgr;
@@ -194,6 +195,7 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
     const firstLineRow = r + 1;
     catLines.forEach(ln => {
       const isLink = !!ln.cellFormula;
+      lineRows[`${cat}::${ln.label}`] = r + 1;
       cells[ref(r+1,0)] = { t:'s', v:ln.label, s:isLink?S.linkLabel:S.lineLabel };
       monthOrder.forEach((mc,k) => {
         if (isLink) {
@@ -308,7 +310,7 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
     avisos.forEach(a => { cells[ref(r+1,0)] = { t:'s', v:a, s:S.avisoPie }; rows[r] = { level:0 }; r++; });
   }
 
-  return { cells, rows, merges, num, lastRow:r, lastCol:lastColIdx, catRows, saldoIniRow, flujoRow, saldoFinRow, kIni };
+  return { cells, rows, merges, num, lastRow:r, lastCol:lastColIdx, catRows, lineRows, saldoIniRow, flujoRow, saldoFinRow, kIni };
 }
 
 function toSheet({ cells, rows, merges, lastRow, lastCol, cols }) {
@@ -325,6 +327,113 @@ function toSheet({ cells, rows, merges, lastRow, lastCol, cols }) {
   ws['!rows'] = rows.map(rr => rr || { level:0 });
   if (merges.length) ws['!merges'] = merges;
   // congelar: fila de meses (3) + columna concepto (A)
+  ws['!freeze'] = { xSplit:1, ySplit:3, topLeftCell:'B4', activePane:'bottomRight', state:'frozen' };
+  return ws;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HOJA "Servicio deuda" — desglose de Pago Préstamos + Renovaciones.
+// Va en hoja aparte para que los componentes NO entren al subtotal de la hoja
+// del flujo (que suma un rango de filas): se suman una sola vez.
+//   Capital + Intereses + Otros cargos + Cuotas sin desglosar = Servicio según Créditos
+//   + Ajuste por valor manual vigente = Pago Préstamos + Renovaciones del flujo
+//   Control = esa suma − las celdas de la hoja del flujo  (debe ser 0)
+// Las cuotas por conciliar van en una fila informativa: NO están en el flujo.
+// bloques: [{ nombre, emp, sheetName, built }]
+const SD_LINEAS = ['Pago Préstamos - Total', 'Renovaciones'];
+const SD = {
+  hdr:  { font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:BLUE} }, alignment:{ horizontal:'left' }, border:BORD },
+  lbl:  { font:{ name:FONT, sz:10 }, alignment:{ horizontal:'left', indent:1 }, border:BORD },
+  lblB: { font:{ name:FONT, sz:10, bold:true }, alignment:{ horizontal:'left' }, border:BORD },
+  lblI: { font:{ name:FONT, sz:9, italic:true, color:{rgb:'7030A0'} }, alignment:{ horizontal:'left', indent:1 }, border:BORD },
+  num:  { font:{ name:FONT, sz:10 }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  numB: { font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  numI: { font:{ name:FONT, sz:9, italic:true, color:{rgb:'7030A0'} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  ctrl: { font:{ name:FONT, sz:9, bold:true, color:{rgb:'C00000'} }, alignment:{ horizontal:'right' }, numFmt:'#,##0.00;-#,##0.00;"OK"', border:BORD },
+};
+export function datosServicioDeuda(emp, months) {
+  const z = () => months.map(() => 0);
+  const out = { capital:z(), interes:z(), cargos:z(), sinDesglose:z(), flujo:z(), porConciliar:z(), tiene:false };
+  const sec = (emp.sections || []).find(x => x.cat === 'egr_nop');
+  (sec ? sec.lines : []).forEach(l => {
+    if (!SD_LINEAS.includes(l.label) || !l._compCred) return;
+    out.tiene = true;
+    months.forEach((mo, k) => {
+      ['capital','interes','cargos','sinDesglose'].forEach(c => { out[c][k] += Number(l._compCred[c]?.[mo.idx]) || 0; });
+      out.flujo[k] += Number(l.proy[mo.idx]) || 0;
+      if (l._porConciliarUSD && mo.idx === l._porConciliarIdx) out.porConciliar[k] += l._porConciliarUSD;
+    });
+  });
+  return out;
+}
+function buildHojaServicioDeuda({ bloques, months, monthOrder, titulo }) {
+  const cells = {}, rows = [], merges = [];
+  const nM = months.length, cTot = nM + 1;
+  let r = 0;
+  const put = (row, c, cell) => { cells[ref(row, c)] = cell; };
+  put(1, 0, { t:'s', v:titulo, s:S.title });
+  for (let c = 1; c <= cTot; c++) put(1, c, { t:'s', v:'', s:S.title });
+  r = 1;
+  put(2, 0, { t:'s', v:'Total servicio de deuda = capital + intereses + otros cargos + cuotas sin desglosar (cada componente se suma una sola vez). Las cuotas por conciliar NO están en el flujo.', s:S.titleSub });
+  r = 2;
+  const hdrRow = 3;
+  put(hdrRow, 0, { t:'s', v:'Concepto', s:S.concept });
+  months.forEach((mo, k) => put(hdrRow, k + 1, { t:'s', v:mo.label, s:S.colHdr }));
+  put(hdrRow, cTot, { t:'s', v:'Total', s:S.colHdr });
+  r = 3;
+  const filasTotales = { capital:[], interes:[], cargos:[], sinDesglose:[], servicio:[], ajuste:[], flujo:[], ctrl:[], porConciliar:[] };
+  const filaNum = (row, label, vals, sl, sn, key) => {
+    put(row, 0, { t:'s', v:label, s:sl });
+    vals.forEach((v, k) => put(row, k + 1, { t:'n', v: Math.round((Number(v)||0)*100)/100, s:sn }));
+    put(row, cTot, { t:'n', f:`SUM(${ref(row,1)}:${ref(row,nM)})`, v: vals.reduce((a,b)=>a+(Number(b)||0),0), s:S.saldoNum });
+    if (key) filasTotales[key].push(row);
+  };
+  const filaFx = (row, label, fx, sl, sn, key, vfn) => {
+    put(row, 0, { t:'s', v:label, s:sl });
+    months.forEach((mo, k) => put(row, k + 1, { t:'n', f:fx(k), v: vfn ? vfn(k) : 0, s:sn }));
+    put(row, cTot, { t:'n', f:`SUM(${ref(row,1)}:${ref(row,nM)})`, s:S.saldoNum });
+    if (key) filasTotales[key].push(row);
+  };
+  bloques.forEach(b => {
+    const d = datosServicioDeuda(b.emp, months);
+    if (!d.tiene) return;
+    r++; put(r + 1, 0, { t:'s', v:b.nombre, s:SD.hdr }); for (let c = 1; c <= cTot; c++) put(r + 1, c, { t:'s', v:'', s:SD.hdr }); r++;
+    const R = {};
+    [['capital','Capital'],['interes','Intereses'],['cargos','Otros cargos'],['sinDesglose','Cuotas sin desglosar']].forEach(([k,l]) => { r++; R[k] = r; filaNum(r, l, d[k], SD.lbl, SD.num, k); });
+    r++; R.serv = r;
+    const credK = (k) => d.capital[k] + d.interes[k] + d.cargos[k] + d.sinDesglose[k];
+    filaFx(r, '= Servicio de deuda según Créditos', (k) => `SUM(${ref(R.capital,k+1)}:${ref(R.sinDesglose,k+1)})`, SD.lblB, SD.numB, 'servicio', credK);
+    r++; R.aj = r;
+    filaNum(r, 'Ajuste: valor manual vigente (flujo − Créditos)', months.map((_, k) => d.flujo[k] - credK(k)), SD.lbl, SD.num, 'ajuste');
+    r++; R.fl = r;
+    filaFx(r, '= Pago Préstamos + Renovaciones en el flujo', (k) => `${ref(R.serv,k+1)}+${ref(R.aj,k+1)}`, SD.lblB, SD.numB, 'flujo', (k) => d.flujo[k]);
+    if (b.sheetName && b.built) {
+      r++;
+      const filasHoja = SD_LINEAS.map(l => b.built.lineRows && b.built.lineRows[`egr_nop::${l}`]).filter(Boolean);
+      filaFx(r, 'Control vs hoja del flujo (debe ser 0)', (k) => {
+        const col = monthOrder[k].c;
+        const refs = filasHoja.map(fr => `'${b.sheetName}'!${ref(fr, col)}`);
+        return `ROUND(${ref(R.fl,k+1)}-(${refs.length ? refs.join('+') : '0'}),2)`;
+      }, SD.lbl, SD.ctrl, 'ctrl', () => 0);
+    }
+    r++;
+    filaNum(r, 'Escenario: cuotas por conciliar (NO incluidas en el flujo)', d.porConciliar, SD.lblI, SD.numI, 'porConciliar');
+  });
+  if (bloques.length > 1 && filasTotales.capital.length > 1) {
+    r++; put(r + 1, 0, { t:'s', v:'TOTAL GRUPO', s:SD.hdr }); for (let c = 1; c <= cTot; c++) put(r + 1, c, { t:'s', v:'', s:SD.hdr }); r++;
+    [['capital','Capital',SD.lbl,SD.num],['interes','Intereses',SD.lbl,SD.num],['cargos','Otros cargos',SD.lbl,SD.num],['sinDesglose','Cuotas sin desglosar',SD.lbl,SD.num],
+     ['servicio','= Servicio de deuda según Créditos',SD.lblB,SD.numB],['ajuste','Ajuste: valor manual vigente',SD.lbl,SD.num],
+     ['flujo','= Pago Préstamos + Renovaciones en el flujo',SD.lblB,SD.numB],['ctrl','Control vs hojas del flujo (debe ser 0)',SD.lbl,SD.ctrl],
+     ['porConciliar','Escenario: cuotas por conciliar (NO incluidas)',SD.lblI,SD.numI]].forEach(([k,l,sl,sn]) => {
+      if (!filasTotales[k].length) return;
+      r++; filaFx(r, l, (kk) => filasTotales[k].map(fr => ref(fr, kk+1)).join('+'), sl, sn, null);
+    });
+  }
+  const ws = {};
+  Object.keys(cells).forEach(a => { ws[a] = cells[a]; });
+  ws['!ref'] = `A1:${L(cTot)}${Math.max(r, 3)}`;
+  ws['!cols'] = [{ wch:52 }, ...months.map(() => ({ wch:11.5 })), { wch:13 }];
+  ws['!merges'] = [{ s:{ r:0, c:0 }, e:{ r:0, c:6 } }, { s:{ r:1, c:0 }, e:{ r:1, c:Math.min(cTot, 14) } }];
   ws['!freeze'] = { xSplit:1, ySplit:3, topLeftCell:'B4', activePane:'bottomRight', state:'frozen' };
   return ws;
 }
@@ -1100,6 +1209,10 @@ export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonSta
   const sheetNm = (String(empName).replace(/[\\/?*\[\]:]/g, '').slice(0, 28)) || 'Flujo';
   XLSX.utils.book_append_sheet(wb, toSheet({ ...built, cols }), sheetNm);
   if (paramSheet) XLSX.utils.book_append_sheet(wb, paramSheet, 'Parametros');
+  if (datosServicioDeuda(emp, months).tiene) {
+    XLSX.utils.book_append_sheet(wb, buildHojaServicioDeuda({ bloques:[{ nombre:empName, emp, sheetName:sheetNm, built }], months, monthOrder,
+      titulo:`Servicio de deuda — ${empName} (desglose de Pago Préstamos + Renovaciones)` }), 'Servicio deuda');
+  }
   wb.Workbook = { ...(wb.Workbook||{}), Views:[{ activeTab:0 }], CalcPr:{ fullCalcOnLoad:true } };
 
   const safeName = String(empName).replace(/[^\w\-]+/g,'_').slice(0,40);
@@ -1184,6 +1297,12 @@ export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldo
   empNames.forEach(n => {
     XLSX.utils.book_append_sheet(wb, toSheet({ ...empBuilt[n], cols }), sheetName[n]);
   });
+  const bloquesSD = empNames.map(n => ({ nombre:n, emp:empresasConOverrides[n], sheetName:sheetName[n], built:empBuilt[n] }))
+    .filter(b => datosServicioDeuda(b.emp, months).tiene);
+  if (bloquesSD.length) {
+    XLSX.utils.book_append_sheet(wb, buildHojaServicioDeuda({ bloques:bloquesSD, months, monthOrder,
+      titulo:'Servicio de deuda — desglose por empresa (Pago Préstamos + Renovaciones)' }), 'Servicio deuda');
+  }
 
   // Consolidado = primera pestaña y activa al abrir; forzar recálculo
   wb.Workbook = { ...(wb.Workbook||{}), Views:[{ activeTab:0 }], CalcPr:{ fullCalcOnLoad:true } };
