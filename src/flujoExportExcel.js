@@ -15,6 +15,9 @@
 // Usa xlsx-js-style (fork de SheetJS con soporte de estilos).
 // ═══════════════════════════════════════════════════════════════════
 import { antRealizado, antPendiente } from './anticipos.js';
+import {
+  normalizarPrograma, resumenPrograma, totalPrograma,
+} from './programas.js';
 import * as XLSXns from 'xlsx-js-style';
 const XLSX = XLSXns.utils ? XLSXns : (XLSXns.default || XLSXns);
 
@@ -469,7 +472,93 @@ function helpersAnticipo(put, getR, setR) {
     setR(getR()+1);
   };
 
-  return { hdrAnticipo, filaAnticipo, filasLiquidacion };
+  // ── Fila de anticipo de un PROGRAMA comercial ──────────────────
+  // Igual que la anterior, pero el acordado depende de la modalidad: US$/kg
+  // sobre los kilos DEL PROGRAMA, o monto fijo en USD. Nunca se deduce una
+  // tarifa dividiendo un importe por los kilos de la fruta.
+  const filaAnticipoPrograma = (a, kgC, kgNum, mesCol, monCol, etiqueta) => {
+    const rA = getR();
+    const cierreC=ref(rA,2), uC=ref(rA,3), acC=ref(rA,4), reC=ref(rA,5), peC=ref(rA,6), mesC=ref(rA,mesCol);
+    const modalidad = a.modalidad || 'por_confirmar';
+    const realizado = antRealizado(a);
+    let acordado = 0;
+    put(rA,1,{ t:'s', v:`   ↳ ${etiqueta}`, s:PS.txtSub });
+    put(rA,2,{ t:'s', v:a.cerrado?'Cerrado':'Abierto', s:PS.inTxt });
+    if (modalidad === 'usd_kg') {
+      const usd = Number(a.usd_kg)||0; acordado = usd*kgNum;
+      put(rA,3,{ t:'n', v:usd, s:PS.inUsd });
+      put(rA,4,{ t:'n', f:`${uC}*${kgC}`, v:acordado, s:PS.der });
+    } else if (modalidad === 'monto') {
+      acordado = Number(a.monto)||0;
+      put(rA,3,{ t:'s', v:'monto fijo', s:PS.txtSub });
+      put(rA,4,{ t:'n', v:acordado, s:PS.inNum });
+    } else {
+      put(rA,3,{ t:'s', v:'por confirmar', s:PS.txtSub });
+      put(rA,4,{ t:'s', v:'falta modalidad', s:PS.txtSub });
+    }
+    const pend = a.cerrado ? 0 : Math.max(0, acordado - realizado);
+    put(rA,5,{ t:'n', v:realizado, s:PS.inNum });
+    put(rA,6,{ t:'n', f:`IF(${cierreC}="Cerrado",0,MAX(0,${acC}-${reC}))`, v:pend, s:PS.der });
+    put(rA,mesCol,{ t:'s', v:a.mes||'', s:PS.inTxt });
+    put(rA,monCol,{ t:'n', f:`${peC}`, v:pend, s:PS.movNum });
+    setR(getR()+1);
+    return { f:`${reC}+IF(${mesC}="",0,${peC})`, v:realizado + (a.mes?pend:0) };
+  };
+
+  return { hdrAnticipo, filaAnticipo, filaAnticipoPrograma, filasLiquidacion };
+}
+
+// ── Bloque de programas comerciales de UN lado ─────────────────────
+// Se exporta solo si el lado está activo (al menos un programa activo y
+// completo): es la misma condición que usa calcAllegria, así que la hoja y
+// el flujo no pueden mostrar cosas distintas. El presupuesto que no quedó
+// en ningún programa va a su propia fila, en el mes de liquidación de la
+// fruta: el total del lado nunca pasa del presupuesto.
+function bloqueProgramasLado({
+  programas, lado, helpers, put, getR, setR, mesCol, monCol,
+  presupF, presupV, mesLiqFruta, etiquetaTot, etiquetaLiq,
+}) {
+  const { hdrAnticipo, filaAnticipoPrograma, filasLiquidacion } = helpers;
+  const activos = (programas||[]).map(normalizarPrograma)
+    .filter(p => p.lado === lado && p.activo && resumenPrograma(p).completo);
+  if (!activos.length) return false;
+  const totalCells = [];
+  activos.forEach(p => {
+    const rP = getR();
+    const kgC = ref(rP,2), prC = ref(rP,3), toC = ref(rP,4);
+    put(rP,1,{ t:'s', v:`↳ Programa · ${p.contraparte||'sin nombre'}`, s:PS.colHdr });
+    if (p.precio_modo === 'monto') {
+      put(rP,2,{ t:'s', v:'(monto fijo)', s:PS.txtSub });
+      put(rP,3,{ t:'s', v:'', s:PS.txtSub });
+      put(rP,4,{ t:'n', v:Number(p.monto_total)||0, s:PS.inNum });
+    } else {
+      put(rP,2,{ t:'n', v:Number(p.kilos)||0, s:PS.inKg });
+      put(rP,3,{ t:'n', v:Number(p.precio_usd_kg)||0, s:PS.inUsd });
+      put(rP,4,{ t:'n', f:`${kgC}*${prC}`, v:(Number(p.kilos)||0)*(Number(p.precio_usd_kg)||0), s:PS.der });
+    }
+    put(rP,5,{ t:'s', v:'kg · US$/kg · total del programa', s:PS.txtSub });
+    setR(getR()+1);
+    totalCells.push(toC);
+    if (p.anticipos.length) hdrAnticipo(`   ↳ calendario de anticipos`);
+    const descs = p.anticipos.map(a =>
+      filaAnticipoPrograma(a, kgC, Number(p.kilos)||0, mesCol, monCol, `Anticipo ${p.contraparte||''}`.trim()));
+    filasLiquidacion({
+      totalF:`${toC}`, totalV:totalPrograma(p).valor||0, descs,
+      mesLiq:p.mes_liquidacion, mesCol, monCol,
+      etiqueta:`${etiquetaLiq} · ${p.contraparte||'sin nombre'}`, etiquetaTot,
+    });
+  });
+  // Resto de presupuesto sin programa
+  const rR = getR();
+  const sumaProg = totalCells.length ? totalCells.join('+') : '0';
+  const restoV = Math.max(0, presupV - activos.reduce((s,p)=>s+(totalPrograma(p).valor||0),0));
+  put(rR,1,{ t:'s', v:'   ↳ Presupuesto sin programa', s:PS.txtSub });
+  put(rR,2,{ t:'s', v:'= presupuesto − programas', s:PS.txtSub });
+  put(rR,4,{ t:'n', f:`MAX(0,${presupF}-(${sumaProg}))`, v:restoV, s:PS.derB });
+  put(rR,mesCol,{ t:'s', v:mesLiqFruta||'', s:PS.inTxt });
+  put(rR,monCol,{ t:'n', f:`${ref(rR,4)}`, v:restoV, s:PS.movNum });
+  setR(getR()+1);
+  return true;
 }
 
 // HOJA "Parametros" — Allpa Farms (Chile). Inputs vivos + fórmulas.
@@ -926,7 +1015,9 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
   const secHdr = (txt) => { put(r,0,{ t:'s', v:txt, s:PS.secHdr }); for(let c=1;c<=7;c++) put(r,c,{ t:'s', v:'', s:PS.secHdr }); merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:7} }); r++; };
   const colHdrs = (arr) => { arr.forEach((h,c)=>put(r,c,{ t:'s', v:h, s:PS.colHdr })); r++; };
 
-  const { hdrAnticipo, filaAnticipo, filasLiquidacion } = helpersAnticipo(put, ()=>r, (v)=>{ r=v; });
+  const helpersAll = helpersAnticipo(put, ()=>r, (v)=>{ r=v; });
+  const { hdrAnticipo, filaAnticipo, filasLiquidacion } = helpersAll;
+  const getR = ()=>r, setR = (v)=>{ r=v; };
 
   // ══ CEREZAS (4 líneas) ══
   secHdr('① CEREZAS — anticipos cliente/productor (acordado · realizado · pendiente), materiales y packing');
@@ -943,24 +1034,41 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
     put(rH,4,{ t:'n', v:desc, s:PS.inPct }); put(rH,5,{ t:'n', v:matU, s:PS.inUsd }); put(rH,6,{ t:'n', v:srvU, s:PS.inUsd });
     r++;
     // ── cliente → Anticipo Cerezas (AC) ──
-    const antCli = (p.anticipos_cliente||[]);
-    if (antCli.length) hdrAnticipo('↳ anticipos cliente');
-    const descsCli = antCli.map(a => filaAnticipo(a, kgC, kg, AC_M, AC_N, 'Ant. cliente'));
-    filasLiquidacion({
-      totalF:`${kgC}*${fobC}`, totalV:kg*fob, descs:descsCli,
-      mesLiq:p.mes_liquidacion, mesCol:AC_M, monCol:AC_N,
-      etiqueta:'Liquidación', etiquetaTot:'Venta total',
+    // Con programas comerciales activos manda el desglose por contraparte;
+    // si no hay ninguno, la estimación de la temporada, igual que antes.
+    const usoProgCli = bloqueProgramasLado({
+      programas:p.programas, lado:'cliente', helpers:helpersAll, put, getR, setR,
+      mesCol:AC_M, monCol:AC_N, presupF:`${kgC}*${fobC}`, presupV:kg*fob,
+      mesLiqFruta:p.mes_liquidacion, etiquetaTot:'Venta del programa', etiquetaLiq:'Liquidación',
     });
+    if (!usoProgCli) {
+      const antCli = (p.anticipos_cliente||[]);
+      if (antCli.length) hdrAnticipo('↳ anticipos cliente');
+      const descsCli = antCli.map(a => filaAnticipo(a, kgC, kg, AC_M, AC_N, 'Ant. cliente'));
+      filasLiquidacion({
+        totalF:`${kgC}*${fobC}`, totalV:kg*fob, descs:descsCli,
+        mesLiq:p.mes_liquidacion, mesCol:AC_M, monCol:AC_N,
+        etiqueta:'Liquidación', etiquetaTot:'Venta total',
+      });
+    }
     // ── productor → Costo Fruta (CO) ──
-    const antProd = (p.anticipos_productor||[]);
-    if (antProd.length) hdrAnticipo('↳ anticipos productor');
-    const descsProd = antProd.map(a => filaAnticipo(a, kgC, kg, CO_M, CO_N, 'Ant. productor'));
     const netoF = `${kgC}*MAX(0,${fobC}*(1-${descC}/100)-${matC}-${srvC})`;
-    filasLiquidacion({
-      totalF:netoF, totalV:kg*Math.max(0, fob*(1-desc/100)-matU-srvU), descs:descsProd,
-      mesLiq:p.mes_saldo_productor, mesCol:CO_M, monCol:CO_N,
-      etiqueta:'Saldo productor', etiquetaTot:'Costo neto total',
+    const netoV = kg*Math.max(0, fob*(1-desc/100)-matU-srvU);
+    const usoProgProd = bloqueProgramasLado({
+      programas:p.programas, lado:'productor', helpers:helpersAll, put, getR, setR,
+      mesCol:CO_M, monCol:CO_N, presupF:netoF, presupV:netoV,
+      mesLiqFruta:p.mes_saldo_productor, etiquetaTot:'Costo neto del programa', etiquetaLiq:'Saldo productor',
     });
+    if (!usoProgProd) {
+      const antProd = (p.anticipos_productor||[]);
+      if (antProd.length) hdrAnticipo('↳ anticipos productor');
+      const descsProd = antProd.map(a => filaAnticipo(a, kgC, kg, CO_M, CO_N, 'Ant. productor'));
+      filasLiquidacion({
+        totalF:netoF, totalV:netoV, descs:descsProd,
+        mesLiq:p.mes_saldo_productor, mesCol:CO_M, monCol:CO_N,
+        etiqueta:'Saldo productor', etiquetaTot:'Costo neto total',
+      });
+    }
     // materiales (dist_mat) → MT: kg×matUSD×pct/100
     (p.dist_mat||[]).forEach(d => {
       const pct = Number(d.pct)||0; const rD=r; const pC=ref(rD,3);
@@ -989,14 +1097,21 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
     const rH=r; const kgC=ref(rH,2), fobC=ref(rH,3);
     put(rH,0,{ t:'s', v:sk, s:PS.txt }); put(rH,1,{ t:'s', v:'Ciruelas', s:PS.txt });
     put(rH,2,{ t:'n', v:kg, s:PS.inKg }); put(rH,3,{ t:'n', v:fob, s:PS.inUsd }); r++;
-    const ants = (p.anticipos_cliente||[]);
-    if (ants.length) hdrAnticipo('↳ anticipos cliente');
-    const descs = ants.map(a => filaAnticipo(a, kgC, kg, LC_M, LC_N, 'Ant. cliente'));
-    filasLiquidacion({
-      totalF:`${kgC}*${fobC}`, totalV:kg*fob, descs,
-      mesLiq:p.mes_liquidacion, mesCol:LC_M, monCol:LC_N,
-      etiqueta:'Liquidación', etiquetaTot:'Venta total',
+    const usoProgCir = bloqueProgramasLado({
+      programas:p.programas, lado:'cliente', helpers:helpersAll, put, getR, setR,
+      mesCol:LC_M, monCol:LC_N, presupF:`${kgC}*${fobC}`, presupV:kg*fob,
+      mesLiqFruta:p.mes_liquidacion, etiquetaTot:'Venta del programa', etiquetaLiq:'Liquidación',
     });
+    if (!usoProgCir) {
+      const ants = (p.anticipos_cliente||[]);
+      if (ants.length) hdrAnticipo('↳ anticipos cliente');
+      const descs = ants.map(a => filaAnticipo(a, kgC, kg, LC_M, LC_N, 'Ant. cliente'));
+      filasLiquidacion({
+        totalF:`${kgC}*${fobC}`, totalV:kg*fob, descs,
+        mesLiq:p.mes_liquidacion, mesCol:LC_M, monCol:LC_N,
+        etiqueta:'Liquidación', etiquetaTot:'Venta total',
+      });
+    }
   });
   r++;
 

@@ -114,9 +114,14 @@ test('avisa del sobre-anticipo sin compensarlo solo', () => {
 
 test('marca el pendiente vencido y ofrece reprogramarlo a mano', () => {
   const p = params({ anticipos_cliente:[{ id:"a1", mes:"Jul-26", usd_kg:0.10, realizaciones:[] }] });
-  pintar(p);           // hoy = Sep-26 → Jul-26 está vencido
+  pintar(p);           // Jul-26 quedó antes del mes en curso
+  // El mes de destino es el mes en curso, así que se calcula: fijarlo a mano
+  // hacía fallar el test al cambiar de mes.
+  const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const hoy = new Date();
+  const mesHoy = `${MN[hoy.getMonth()]}-${String(hoy.getFullYear()).slice(2)}`;
   verTexto(/vencido: Jul-26 ya pasó/);
-  verTexto(/reprogramar a Sep-26/);
+  verTexto(new RegExp(`reprogramar a ${mesHoy}`));
   verTexto(/No se da por cobrado ni se mueve solo/);
 });
 

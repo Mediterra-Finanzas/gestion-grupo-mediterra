@@ -20,6 +20,8 @@ import {
   puedeBorrarAnticipo, nuevoIdAnticipo, clasificarRealizacionVsSaldos, conciliacionRealizaciones,
   pendientesVencidos,
 } from './anticipos.js';
+import { proyeccionLado, ladoActivo } from './programas.js';
+import ProgramasPanel from './ProgramasComerciales.jsx';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -283,6 +285,10 @@ function defaultFruta() {
     mes_liquidacion:'',
     anticipos_productor:[],
     mes_saldo_productor:'',
+    // Programas comerciales por contraparte (ver src/programas.js). Mientras
+    // ninguno esté activo, el cálculo es exactamente el de las líneas de
+    // arriba: registrar una contraparte no cambia la proyección.
+    programas:[],
     mat_usd_kg:0,
     srv_usd_kg:0,
     dist_mat:[],
@@ -497,22 +503,38 @@ export function calcAllegria(params) {
       // Anticipos con realizaciones: SOLO se proyecta el pendiente (lo ya
       // cobrado/pagado está en la caja y no vuelve al flujo); la liquidación
       // descuenta realizado + pendiente proyectado. Ver src/anticipos.js.
-      (p.anticipos_cliente||[]).forEach(a => {
-        const i = mIdx(a.mes); if(i<0) return;
-        ing[f][i] += antPendiente(a, kg);
-      });
-      if (p.mes_liquidacion) {
-        const i = mIdx(p.mes_liquidacion);
-        if (i>=0) ing[f][i] += resumenAnticipos(p.anticipos_cliente, kg, kg*fob, {esProyectable:esAntProyectable}).liquidacion;
-      }
       const precioNetoProd = Math.max(0, fob*(1-desc) - matUsd - srvUsd);
-      (p.anticipos_productor||[]).forEach(a => {
-        const i = mIdx(a.mes); if(i<0) return;
-        cost[f][i] += antPendiente(a, kg);
-      });
-      if (p.mes_saldo_productor) {
-        const i = mIdx(p.mes_saldo_productor);
-        if (i>=0) cost[f][i] += resumenAnticipos(p.anticipos_productor, kg, kg*precioNetoProd, {esProyectable:esAntProyectable}).liquidacion;
+      // Programas comerciales por contraparte: cada lado se calcula con sus
+      // programas SOLO si hay alguno activo y completo. Si no, rige la
+      // estimación de la fruta, idéntica a antes. Ver src/programas.js.
+      const progs = Array.isArray(p.programas) ? p.programas : [];
+      const proyCli = proyeccionLado(progs.filter(x=>x&&x.lado==="cliente"),
+        { totalPresupuesto: kg*fob, mesLiquidacionFruta: p.mes_liquidacion||"" });
+      if (proyCli.hayActivos) {
+        proyCli.movimientos.forEach(m => { const i = mIdx(m.mes); if(i>=0) ing[f][i] += m.usd; });
+      } else {
+        (p.anticipos_cliente||[]).forEach(a => {
+          const i = mIdx(a.mes); if(i<0) return;
+          ing[f][i] += antPendiente(a, kg);
+        });
+        if (p.mes_liquidacion) {
+          const i = mIdx(p.mes_liquidacion);
+          if (i>=0) ing[f][i] += resumenAnticipos(p.anticipos_cliente, kg, kg*fob, {esProyectable:esAntProyectable}).liquidacion;
+        }
+      }
+      const proyProd = proyeccionLado(progs.filter(x=>x&&x.lado==="productor"),
+        { totalPresupuesto: kg*precioNetoProd, mesLiquidacionFruta: p.mes_saldo_productor||"" });
+      if (proyProd.hayActivos) {
+        proyProd.movimientos.forEach(m => { const i = mIdx(m.mes); if(i>=0) cost[f][i] += m.usd; });
+      } else {
+        (p.anticipos_productor||[]).forEach(a => {
+          const i = mIdx(a.mes); if(i<0) return;
+          cost[f][i] += antPendiente(a, kg);
+        });
+        if (p.mes_saldo_productor) {
+          const i = mIdx(p.mes_saldo_productor);
+          if (i>=0) cost[f][i] += resumenAnticipos(p.anticipos_productor, kg, kg*precioNetoProd, {esProyectable:esAntProyectable}).liquidacion;
+        }
       }
       const totalMat = kg * matUsd;
       if (totalMat > 0) {
@@ -2145,6 +2167,31 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
       linea:lbl, mes:MESES_65[Number(idx)]||`#${idx}`,
       val: (val&&typeof val==="object") ? Object.values(val).reduce((a,v)=>a+(Number(v)||0),0) : Number(val)||0,
     })).filter(o=>!!o.mes && mesesDeLaTemporada.has(o.mes)));
+  // ── Programas comerciales por contraparte (src/programas.js) ──
+  // Mientras ningún programa esté activo, el flujo sigue con las filas
+  // estimadas de abajo y esta sección no cambia ningún número.
+  const progsFruta  = Array.isArray(p.programas) ? p.programas : [];
+  const progsCli    = progsFruta.filter(x=>x&&x.lado==="cliente");
+  const progsProd   = progsFruta.filter(x=>x&&x.lado==="productor");
+  const cliConProg  = ladoActivo(progsCli);
+  const prodConProg = ladoActivo(progsProd);
+  // Movimientos que hoy proyecta la estimación, para el cuadre antes/después.
+  const movEst = (ants, resumen, mesLiq) => [
+    ...(ants||[]).filter(a=>a&&a.mes).map(a=>({mes:a.mes, usd:antPendiente(a,kg)})),
+    ...(mesLiq ? [{mes:mesLiq, usd:resumen.liquidacion}] : []),
+  ].filter(m=>m.usd>0);
+  const movimientosEstimacion = {
+    cliente:    movEst(p.anticipos_cliente,   rIng,  p.mes_liquidacion),
+    productor:  movEst(p.anticipos_productor, rCost, p.mes_saldo_productor),
+  };
+  const avisoReemplazo = (activo) => activo ? (
+    <div style={{background:`${C.warning}14`,border:`1px solid ${C.warning}55`,borderRadius:8,
+      padding:"7px 9px",marginBottom:8,fontSize:9,color:C.text,lineHeight:1.6}}>
+      <strong style={{color:C.warning}}>Estas filas ya no alimentan el flujo.</strong>{" "}
+      Este lado se calcula con los programas comerciales activos de más abajo. Las filas se
+      conservan como antecedente y vuelven a regir si desactivas todos los programas.
+    </div>
+  ) : null;
   const pctMat=(p.dist_mat||[]).reduce((s,d)=>s+(Number(d.pct)||0),0);
   const pctSrv=(p.dist_srv||[]).reduce((s,d)=>s+(Number(d.pct)||0),0);
   const iSt={width:90,padding:"5px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none",textAlign:"right"};
@@ -2262,7 +2309,8 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
       )}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
         <div style={{background:`${C.green}0d`,border:`1px solid ${C.green}33`,borderRadius:10,padding:12}}>
-          <div style={{fontSize:11,fontWeight:700,color:C.green,marginBottom:10}}>📥 Cobros al cliente</div>
+          <div style={{fontSize:11,fontWeight:700,color:C.green,marginBottom:10}}>📥 Cobros al cliente (estimación de la temporada)</div>
+          {avisoReemplazo(cliConProg)}
           <AnticipList label="Anticipos (US$/kg por mes) — registra acá los cobros ya recibidos"
             items={p.anticipos_cliente} onChange={v=>upd("anticipos_cliente",v)} meses={mesesSel}
             base={kg} tipo="cliente" readOnly={readOnly} usuario={usuario}
@@ -2295,7 +2343,8 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
           </div>
         </div>
         <div style={{background:`${C.red}0d`,border:`1px solid ${C.red}33`,borderRadius:10,padding:12}}>
-          <div style={{fontSize:11,fontWeight:700,color:C.red,marginBottom:10}}>📤 Pagos al productor</div>
+          <div style={{fontSize:11,fontWeight:700,color:C.red,marginBottom:10}}>📤 Pagos al productor (estimación de la temporada)</div>
+          {avisoReemplazo(prodConProg)}
           <AnticipList label="Anticipos productor (US$/kg) — registra acá los pagos ya efectuados"
             items={p.anticipos_productor} onChange={v=>upd("anticipos_productor",v)} meses={mesesSel}
             base={kg} tipo="productor" readOnly={readOnly} usuario={usuario}
@@ -2334,6 +2383,34 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
             )}
           </div>
         </div>
+      </div>
+      {/* ── Programas comerciales por contraparte ── */}
+      <div style={{marginTop:16,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}}>
+          <span style={{fontSize:12,fontWeight:800,color:C.text}}>Programas comerciales por contraparte</span>
+          <span style={{fontSize:9,color:C.muted2}}>
+            Acuerdos reales: cada programa trae sus propios kilos, su propio precio y su propio calendario.
+          </span>
+        </div>
+        <div style={{fontSize:10,color:C.muted,lineHeight:1.6,marginBottom:4}}>
+          Los {kg?Math.round(kg).toLocaleString("es-CL"):"—"} kg y el FOB de arriba son <strong>presupuesto</strong>, no compromiso: no son la base de
+          ningún acuerdo. Las asignaciones de kilos de clientes y de productores son independientes entre sí.
+          Un programa registrado no cambia ninguna proyección hasta que lo actives.
+        </div>
+        <ProgramasPanel
+          programas={progsFruta}
+          onChange={v=>upd("programas",v)}
+          kgPresupuesto={kg}
+          ventaPresupuesto={totalIng}
+          costoPresupuesto={totalCost}
+          meses={mesesSel}
+          mesLiqCliente={p.mes_liquidacion||""}
+          mesLiqProductor={p.mes_saldo_productor||""}
+          movimientosEstimacion={movimientosEstimacion}
+          readOnly={readOnly}
+          usuario={usuario}
+          C={C} $$={$$}
+        />
       </div>
       {(matUsd>0||srvUsd>0)&&kg>0&&(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginTop:14}}>
