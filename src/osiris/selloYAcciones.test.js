@@ -15,10 +15,19 @@ import {
   diferenciasConElSello, estadoActivacion, terminosVigentes,
   ACTIVADO, MODIFICACION_PENDIENTE, ACTIVACIONES_NUEVAS_HABILITADAS,
 } from "./reajusteAplicado";
-import { CONTRATO, DATOS_ACTIVACION, filas, porTemp, r2, TABLA_CANDIDATO } from "./fixturesReajuste";
+import { CONTRATO, ACTIVACION, DATOS_ACTIVACION, filas, porTemp, r2, TABLA_CANDIDATO } from "./fixturesReajuste";
+
+// El mismo archivo corre en el candidato y en la version de recuperacion.
+// Lo que depende de CREAR una activacion solo aplica donde esta permitido;
+// todo lo demas —el sello, el bloqueo de edicion, la proteccion de filas—
+// tiene que comportarse igual en las dos.
+const sePuedeCrear = ACTIVACIONES_NUEVAS_HABILITADAS;
+const dCrear = sePuedeCrear ? describe : describe.skip;
+// Contrato ya activado, sin pasar por la accion: sirve en las dos versiones.
+const ACTIVO = () => CONTRATO({ reajusteActivacion: ACTIVACION });
 
 // ══════════════════════════════════════════════════════════════════
-describe("1 · activar sella los términos", () => {
+dCrear("1 · activar sella los términos", () => {
   test("la acción deja el sello con porcentaje, fecha y regla", () => {
     const res = activar(CONTRATO(), DATOS_ACTIVACION);
     expect(res.ok).toBe(true);
@@ -49,7 +58,7 @@ describe("1 · activar sella los términos", () => {
 
 // ══════════════════════════════════════════════════════════════════
 describe("2 · editar los términos NO recalcula", () => {
-  const activo = activar(CONTRATO(), DATOS_ACTIVACION).contrato;
+  const activo = ACTIVO();
 
   const editado = (cambio) => {
     const c = JSON.parse(JSON.stringify(activo));
@@ -99,7 +108,7 @@ describe("2 · editar los términos NO recalcula", () => {
 // ══════════════════════════════════════════════════════════════════
 describe("3 · esas modificaciones quedan bloqueadas", () => {
   test("con el reajuste activo no se pueden editar los tres campos", () => {
-    const p = puedeEditarTerminos(activar(CONTRATO(), DATOS_ACTIVACION).contrato);
+    const p = puedeEditarTerminos(ACTIVO());
     expect(p.puede).toBe(false);
     expect(p.campos).toEqual(["porcentaje", "fecha de referencia", "regla de fecha"]);
     expect(p.motivo).toMatch(/modificacion economica/);
@@ -111,7 +120,7 @@ describe("3 · esas modificaciones quedan bloqueadas", () => {
   });
 
   test("con una modificación ya pendiente, siguen bloqueados", () => {
-    const c = JSON.parse(JSON.stringify(activar(CONTRATO(), DATOS_ACTIVACION).contrato));
+    const c = JSON.parse(JSON.stringify(ACTIVO()));
     c.reajuste.pct = 7;
     expect(puedeEditarTerminos(c).puede).toBe(false);
   });
@@ -119,7 +128,7 @@ describe("3 · esas modificaciones quedan bloqueadas", () => {
 
 // ══════════════════════════════════════════════════════════════════
 describe("4 · las filas con factura o pago siguen protegidas", () => {
-  const activo = activar(CONTRATO(), DATOS_ACTIVACION).contrato;
+  const activo = ACTIVO();
 
   test("protegida con la activación limpia", () => {
     const ct = Object.assign({}, activo, { rcPagos: { "2027/2028": { nFact: "123", pagado: true } } });
@@ -141,7 +150,7 @@ describe("4 · las filas con factura o pago siguen protegidas", () => {
 
 // ══════════════════════════════════════════════════════════════════
 describe("5 · desactivar es una acción con condiciones", () => {
-  const activo = activar(CONTRATO(), DATOS_ACTIVACION).contrato;
+  const activo = ACTIVO();
 
   test("exige un motivo", () => {
     const r = desactivar(activo, "", "prueba");
@@ -166,7 +175,7 @@ describe("5 · desactivar es una acción con condiciones", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-describe("6 · en el candidato se pueden crear activaciones", () => {
+dCrear("6 · en el candidato se pueden crear activaciones", () => {
   test("la bandera está en true y la acción lo permite", () => {
     expect(ACTIVACIONES_NUEVAS_HABILITADAS).toBe(true);
     expect(puedeCrearActivacion().puede).toBe(true);
