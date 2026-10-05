@@ -882,5 +882,34 @@ import {
 }
 
 
+// ═══ ETAPA 5 · doble aplicación de una compensación ═══
+{
+  const saldo = normalizarSaldo({ id: "sX", lado: "productor", contraparte: "P",
+    usd: 50000, estado: "reconocido" });
+  const conRes = agregarAplicacion(saldo, { tipo: "compensacion", usd: 30000,
+    destino: { programaId: "pDest" }, usuario: "qa" });
+  const apId = conRes.aplicaciones[0].id;
+  const ap1 = aplicarCompensacion(conRes, apId, { saldoDestino: 100000, usuario: "qa" });
+  check("(163) la compensación se aplica una vez y resuelve 30.000",
+    aprox(resumenSaldo(ap1.saldo).resuelto, 30000) &&
+    aprox(resumenSaldo(ap1.saldo).programado, 0));
+  let err = null;
+  try { aplicarCompensacion(ap1.saldo, apId, { saldoDestino: 100000 }); } catch (e) { err = e; }
+  check("(164) aplicarla de nuevo está prohibido: no se descuenta dos veces",
+    !!err && err.message.includes("reservada"), err?.message);
+
+  // Sin saldo en el destino no se aplica, ni queda a medias.
+  let err2 = null;
+  const otra = agregarAplicacion(saldo, { tipo: "compensacion", usd: 10000,
+    destino: { programaId: "pDest" }, usuario: "qa" });
+  try { aplicarCompensacion(otra, otra.aplicaciones[0].id, { saldoDestino: 0 }); } catch (e) { err2 = e; }
+  check("(165) un destino sin saldo que absorber no aplica nada", !!err2, err2?.message);
+  let err3 = null;
+  try { aplicarCompensacion(otra, otra.aplicaciones[0].id, { saldoDestino: null }); } catch (e) { err3 = e; }
+  check("(166) y sin el saldo del destino tampoco: no se escribe a mano",
+    !!err3 && err3.message.includes("Falta el saldo"), err3?.message);
+}
+
+
 console.log(`\n${fallos === 0 ? "TODOS LOS TESTS PASARON ✓" : `${fallos} TEST(S) FALLARON ✗`}`);
 process.exit(fallos === 0 ? 0 : 1);

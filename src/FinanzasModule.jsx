@@ -1802,7 +1802,8 @@ const CONCILIA_LBL = {
 function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
                       readOnly=false,usuario="",fechasCuentas=[],mesIdxActual=-1,
                       mesLiquidacion=undefined}) {
-  const [formIdx,setFormIdx]=useState(null);        // fila con el formulario abierto
+  const [formIdx,setFormIdx]=useState(null);
+  const [anulDraft,setAnulDraft]=useState(null);  // anular con motivo, sin prompt        // fila con el formulario abierto
   const [draft,setDraft]=useState({fecha:"",usd:"",nota:""});
   const esCli = tipo==="cliente";
   const verbo = esCli ? "cobro" : "pago";
@@ -1852,13 +1853,17 @@ function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
     n[i]=agregarRealizacion(n[i],{fecha:draft.fecha,usd,nota:draft.nota,usuario});
     onChange(n); setFormIdx(null);
   };
-  const anular=(i,reaId)=>{
-    const motivo=window.prompt(`Motivo de la anulación (queda registrado en el historial):`,"");
-    if(motivo===null) return;
-    if(!motivo.trim()){ window.alert("La anulación necesita un motivo para conservar la trazabilidad."); return; }
+  // Anular un movimiento: formulario en línea, sin prompt del navegador.
+  const anular=(i,reaId)=>setAnulDraft({i,reaId,motivo:"",error:null});
+  const confirmarAnular=()=>{
+    if(!String(anulDraft.motivo||"").trim()){
+      setAnulDraft({...anulDraft,error:"La anulación necesita un motivo para conservar la trazabilidad."});
+      return;
+    }
     const n=[...lista];
-    n[i]=anularRealizacion(n[i],reaId,{motivo:motivo.trim(),usuario});
-    onChange(n);
+    n[anulDraft.i]=anularRealizacion(n[anulDraft.i],anulDraft.reaId,
+      {motivo:String(anulDraft.motivo).trim(),usuario});
+    onChange(n); setAnulDraft(null);
   };
 
   const inSt={padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none"};
@@ -1971,6 +1976,28 @@ function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
                     </div>
                   ))}
                 </details>
+              )}
+
+              {/* Anular un movimiento, con motivo */}
+              {anulDraft&&anulDraft.i===i&&!readOnly&&(
+                <div style={{marginTop:6,padding:"7px 8px",background:C.cardAlt,
+                  border:`1px solid ${C.danger}55`,borderRadius:7,display:"flex",alignItems:"center",
+                  gap:6,flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,color:C.muted,fontWeight:700}}>Anular el movimiento:</span>
+                  <input type="text" value={anulDraft.motivo} placeholder="motivo (queda en el historial)"
+                    onChange={e=>setAnulDraft({...anulDraft,motivo:e.target.value,error:null})}
+                    style={{...inSt,flex:1,minWidth:170}}/>
+                  <button onClick={confirmarAnular}
+                    style={{padding:"4px 11px",background:C.danger,border:"none",borderRadius:6,color:"#fff",
+                      cursor:"pointer",fontSize:10,fontWeight:700}}>Anular</button>
+                  <button onClick={()=>setAnulDraft(null)}
+                    style={{padding:"4px 9px",background:"transparent",border:`1px solid ${C.border}`,
+                      borderRadius:6,color:C.muted,cursor:"pointer",fontSize:10}}>Cancelar</button>
+                  <div style={{flexBasis:"100%",fontSize:9,color:C.muted2,marginTop:3}}>
+                    No se borra: queda anulado con su motivo y deja de contar en el realizado.
+                    {anulDraft.error&&<strong style={{color:C.danger}}> {anulDraft.error}</strong>}
+                  </div>
+                </div>
               )}
 
               {/* Formulario de registro */}

@@ -524,6 +524,12 @@ check('el antecedente quedó guardado como convertido, sin borrarse',
       !!anteG && anteG.estado === 'convertido' && Number(anteG.usd) === 255000 &&
       anteG.convertidoEn?.tipo === 'sin_asignar',
       JSON.stringify(anteG && { estado: anteG.estado, usd: anteG.usd, en: anteG.convertidoEn?.tipo }));
+const prgProdG = (cerezasG?.programas || []).find(p => p.lado === 'productor');
+check('el presupuesto asignado y el importe definitivo quedaron guardados',
+      Number(prgProdG?.presupuesto_asignado) === 100000 &&
+      Number(prgProdG?.importe_definitivo) === 8000,
+      JSON.stringify({ asignado: prgProdG?.presupuesto_asignado,
+                       definitivo: prgProdG?.importe_definitivo }));
 const movG = (cerezasG?.movimientos_sin_asignar || []).find(m => Number(m.usd) === 255000);
 check('y su movimiento quedó en la bandeja con su origen trazado',
       !!movG && movG.fecha === '2026-08-14' && movG.origen?.tipo === 'antecedente',
@@ -549,6 +555,28 @@ const trasProd = await leerLinea('Costo Fruta Exportación');
 check('y el del productor también', JSON.stringify(trasProd) === JSON.stringify(costoTrasLiq),
       `${JSON.stringify(trasProd)} vs ${JSON.stringify(costoTrasLiq)}`);
 await page.screenshot({ path: `${OUT}/programas/03-recarga.png`, fullPage: true });
+
+// Los dos campos cargados a mano sobreviven la recarga, con su variación.
+await irAParametros();
+await esperar(700);
+const colPost = page.locator('xpath=//span[normalize-space(text())="Productores"]/ancestor::div[2]').first();
+const leerCampoEn = async (scope, etiqueta) => {
+  const el = scope.locator(`xpath=.//div[normalize-space(text())="${etiqueta}"]/following::input[1]`).first();
+  return (await el.inputValue()).replace(/[^0-9]/g, '');
+};
+const asignadoPost = await leerCampoEn(colPost, 'Presupuesto asignado a esta operación');
+const definitivoPost = await leerCampoEn(colPost, 'Importe definitivo (liquidación individual)');
+check('tras recargar, el presupuesto asignado sigue en pantalla (100.000)',
+      Number(asignadoPost) === 100000, asignadoPost);
+check('y el importe definitivo también (8.000)',
+      Number(definitivoPost) === 8000, definitivoPost);
+const tPost = await texto();
+check('con su variación recalculada (-92.000)',
+      /Variación de esta operación:\s*-\$92,000/.test(tPost),
+      (tPost.match(/Variación de esta operación:[^\n]*/) || [])[0]);
+check('y el monto informado sigue marcado como convertido',
+      /convertido el 2026-08-14/.test(tPost));
+await page.screenshot({ path: `${OUT}/programas/10-recarga-posiciones.png`, fullPage: true });
 
 await ctx.close();
 await browser.close();

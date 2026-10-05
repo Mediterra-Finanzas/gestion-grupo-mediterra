@@ -344,6 +344,7 @@ describe('solo lectura', () => {
       anticipos_productor: [], mes_saldo_productor: MES_LIQ, dist_mat: [], dist_srv: [],
       programas: [{ id: 'p1', lado: 'productor', contraparte: 'P', kilos: 100000,
         presupuesto_asignado: 100000, importe_definitivo: 50000, mes_liquidacion: MES_A,
+        antecedentes: [{ id: 'an1', usd: 255000, referencia: 'informado', estado: 'pendiente' }],
         cuotas: [{ id: 'c1', mes: MES_A, modalidad: 'monto', monto: 60000, estado: 'vigente',
           realizaciones: [{ id: 'r1', fecha: '2026-08-01', usd: 60000 }] }] }],
       saldos_favor: [{ id: 's1', lado: 'productor', contraparte: 'P', usd: 10000, estado: 'reconocido',
@@ -360,6 +361,7 @@ describe('solo lectura', () => {
     /Recuperar del productor/, /Compensar/, /registrar movimiento/, /aplazar/, /anular/,
     /sigue acordado sin fecha/, /trasladar a liquidación/,
     /\+ Registrar pago sin operación identificada/, /\+ Cargar liquidación definitiva/,
+    /\+ Registrar monto informado sin fecha/, /completar con su fecha/, /Archivar/,
   ];
 
   test('con permiso de edición los controles están', () => {

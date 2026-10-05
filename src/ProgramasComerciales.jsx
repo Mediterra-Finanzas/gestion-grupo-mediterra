@@ -205,6 +205,7 @@ function Columna({
   const col = esCli ? C.green : C.red;
   const [verArchivados, setVerArchivados] = useState(false);
   const [draftMov, setDraftMov] = useState(null);
+  const [archDraft, setArchDraft] = useState(null);   // archivar con motivo, sin prompt
   const vivos = programas.filter(p => !p.archivado);
   const archivados = programas.filter(p => p.archivado);
 
@@ -222,18 +223,17 @@ function Columna({
     setLista(todos.filter(x => x.id !== p.id));
   };
   const archivar = (p) => {
-    const motivo = window.prompt("Motivo del archivo (queda registrado):", "");
-    if (motivo === null) return;
+    const ya = p.cuotas.reduce((s2, c) => s2 + cuotaRealizado(c), 0);
+    setArchDraft({ id: p.id, contraparte: p.contraparte || "sin nombre", motivo: "", realizado: ya });
+  };
+  const confirmarArchivar = () => {
+    const p = todos.find(x => x.id === archDraft.id);
+    if (!p) { setArchDraft(null); return; }
     try {
-      const arch = archivarPrograma(p, { motivo, usuario });
-      const r = resumen || {};
-      if (!window.confirm(
-        `Archivar «${p.contraparte}».\n\n` +
-        `Sus cuotas dejan de proyectar y de sustituir estimación, así que la estimación recupera pendiente.\n` +
-        `Los ${$$(p.cuotas.reduce((s, c) => s + cuotaRealizado(c), 0))} ya ${esCli ? "cobrados" : "pagados"} NO se mueven y siguen descontando.\n\n` +
-        `¿Confirmas?`)) return;
+      const arch = archivarPrograma(p, { motivo: archDraft.motivo, usuario });
       reemplazar(p.id, arch);
-    } catch (e) { window.alert(e.message); }
+      setArchDraft(null);
+    } catch (e) { setArchDraft({ ...archDraft, error: e.message }); }
   };
 
   return (
@@ -256,6 +256,35 @@ function Columna({
 
       <LiquidacionDefinitiva definitiva={definitiva} onDefinitiva={onDefinitiva} resumen={resumen}
         esCli={esCli} C={C} $$={$$} readOnly={readOnly} usuario={usuario} />
+
+      {archDraft && !readOnly && (
+        <div style={{ marginBottom: 8, padding: "7px 8px", background: C.cardAlt,
+          border: `1px solid ${C.warning}55`, borderRadius: 7 }}>
+          <div style={{ fontSize: 10, color: C.text, fontWeight: 700 }}>
+            Archivar «{archDraft.contraparte}»
+          </div>
+          <div style={{ fontSize: 9, color: C.muted2, margin: "3px 0 5px", lineHeight: 1.6 }}>
+            Sus cuotas dejan de proyectar y de sustituir estimación, así que la estimación recupera
+            pendiente. Los {$$(archDraft.realizado)} ya {esCli ? "cobrados" : "pagados"} NO se mueven
+            y siguen descontando.
+          </div>
+          <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+            <input type="text" value={archDraft.motivo} placeholder="motivo del archivo (queda registrado)"
+              onChange={e => setArchDraft({ ...archDraft, motivo: e.target.value, error: null })}
+              style={{ padding: "3px 6px", minWidth: 220, background: C.card2,
+                border: `1px solid ${C.border}`, borderRadius: 6, color: C.text, fontSize: 10 }} />
+            <button onClick={confirmarArchivar}
+              style={{ padding: "3px 9px", background: C.warning, border: "none", borderRadius: 6,
+                color: "#fff", cursor: "pointer", fontSize: 9, fontWeight: 700 }}>Archivar</button>
+            <button onClick={() => setArchDraft(null)}
+              style={{ padding: "3px 7px", background: "transparent", border: `1px solid ${C.border}`,
+                borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 9 }}>Cancelar</button>
+          </div>
+          {archDraft.error && (
+            <div style={{ fontSize: 9, color: C.danger, marginTop: 3 }}>{archDraft.error}</div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {vivos.length === 0 && (
@@ -409,6 +438,7 @@ function Tarjeta({
   const [ante, setAnte] = useState(null);       // cargar monto informado
   const [compl, setCompl] = useState(null);     // completar con su fecha real
   const [anulAnte, setAnulAnte] = useState(null);
+  const [anulRea, setAnulRea] = useState(null);   // anular un movimiento, sin prompt
   const inSt = { padding: "4px 7px", background: C.card2, border: `1px solid ${C.border}`, borderRadius: 6, color: C.text, fontSize: 11, outline: "none" };
   const selSt = { ...inSt, padding: "4px 6px" };
   const chip = (t, c) => <span style={{ fontSize: 9, color: c, background: `${c}18`, border: `1px solid ${c}44`, borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>{t}</span>;
@@ -475,12 +505,18 @@ function Tarjeta({
     setForm(null);
   };
 
-  const anular = (cuotaId, reaId) => {
-    const motivo = window.prompt("Motivo de la anulación (queda registrado en el historial):", "");
-    if (motivo === null) return;
-    if (!motivo.trim()) { window.alert("La anulación necesita un motivo para conservar la trazabilidad."); return; }
-    onReemplazar({ ...p, cuotas: p.cuotas.map(c => c.id === cuotaId
-      ? normalizarCuota(anularRealizacion(c, reaId, { motivo: motivo.trim(), usuario })) : c) });
+  const anular = (cuotaId, reaId) => setAnulRea({ cuotaId, reaId, motivo: "" });
+  const confirmarAnularRea = () => {
+    if (!String(anulRea.motivo || "").trim()) {
+      setAnulRea({ ...anulRea, error: "La anulación necesita un motivo para conservar la trazabilidad." });
+      return;
+    }
+    try {
+      onReemplazar({ ...p, cuotas: p.cuotas.map(c => c.id === anulRea.cuotaId
+        ? normalizarCuota(anularRealizacion(c, anulRea.reaId,
+            { motivo: String(anulRea.motivo).trim(), usuario })) : c) });
+      setAnulRea(null);
+    } catch (e) { setAnulRea({ ...anulRea, error: e.message }); }
   };
 
   // ── Antecedentes: montos informados sin fecha verificada ────────
@@ -741,6 +777,30 @@ function Tarjeta({
               </button>
             ))}
           </div>
+
+          {anulRea && !readOnly && (
+            <div style={{ marginTop: 8, padding: "7px 8px", background: C.cardAlt,
+              border: `1px solid ${C.danger}55`, borderRadius: 7, display: "flex", gap: 6,
+              alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 10, color: C.muted, fontWeight: 700 }}>
+                Anular el movimiento registrado:
+              </span>
+              <input type="text" value={anulRea.motivo} placeholder="motivo (queda en el historial)"
+                onChange={e => setAnulRea({ ...anulRea, motivo: e.target.value, error: null })}
+                style={{ ...inSt, flex: 1, minWidth: 180 }} />
+              <button onClick={confirmarAnularRea}
+                style={{ padding: "4px 11px", background: C.danger, border: "none", borderRadius: 6,
+                  color: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 700 }}>Anular</button>
+              <button onClick={() => setAnulRea(null)}
+                style={{ padding: "4px 9px", background: "transparent", border: `1px solid ${C.border}`,
+                  borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 10 }}>Cancelar</button>
+              <div style={{ flexBasis: "100%", fontSize: 9, color: C.muted2, marginTop: 3 }}>
+                No se borra: queda anulado con su motivo. Deja de contar en el realizado y la
+                estimación de origen recupera su capacidad.
+                {anulRea.error && <strong style={{ color: C.danger }}> {anulRea.error}</strong>}
+              </div>
+            </div>
+          )}
 
           {form && !readOnly && (
             <div style={{ marginTop: 8, padding: "7px 8px", background: C.cardAlt, border: `1px solid ${C.border}`,
