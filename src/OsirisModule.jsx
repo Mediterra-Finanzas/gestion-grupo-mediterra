@@ -36,7 +36,13 @@ import {
   reajusteOperativo, contratosConReajusteSinDefinir,
   REAJUSTE_APLICANDO, REAJUSTE_MARCADO_SIN_DEFINICION, REAJUSTE_REGISTRADO_SIN_APLICAR,
 } from "./osiris/condicionesConfigurables";
-import { reajusteDeFila as reajusteActivadoDeFila } from "./osiris/reajusteAplicado";
+import {
+  reajusteDeFila as reajusteActivadoDeFila, estadoActivacion, previsualizarActivacion,
+  puedeCrearActivacion, puedeEditarTerminos, activar as activarReajuste, desactivar as desactivarReajuste,
+  antecedentesDeCobro, REGLAS_FECHA,
+  ACTIVADO as REAJ_ACTIVADO, MODIFICACION_PENDIENTE as REAJ_MODIF_PENDIENTE,
+  CONFLICTO_CON_ANTIGUA as REAJ_CONFLICTO, SIN_ACTIVAR as REAJ_SIN_ACTIVAR,
+} from "./osiris/reajusteAplicado";
 import {
   PAISES_CONSTITUCION, paisConstitucionDe, declararPaisConstitucion,
   indicioDesdeDocumentos, divergenciaConPaisIdentificacion, clientesPorRevisar,
@@ -9882,6 +9888,160 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                         background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,
                         borderRadius:8,padding:"7px 11px",color:C.am||"#854d0e"}}>
                         <strong>Estos montos no llevan reajuste.</strong> {ro.aviso}
+                      </div>
+                    );
+                  })()}
+                  {/* Activacion del reajuste. Vive aca porque aca estan las filas
+                      y los montos: la vista previa es fila por fila. */}
+                  {(()=>{
+                    const act = estadoActivacion(r);
+                    const permiso = puedeCrearActivacion();
+                    const edit = puedeEditarTerminos(r);
+                    const antes = (f)=>((r.rcPagos||{})[f.temporada]||null);
+                    const prev = previsualizarActivacion(r, rcRows, {mesCobro: r.rcMesCobro, antecedentesDe: antes});
+                    const ra = r.reajusteActivacion||{};
+                    const upA = (campo,val)=>{ if(!can) return; upd(r.id,"reajusteActivacion",{...(r.reajusteActivacion||{}),[campo]:val}); };
+                    const col = act.estado===REAJ_ACTIVADO ? C.success
+                      : act.estado===REAJ_MODIF_PENDIENTE ? (C.am||"#ca8a04")
+                      : act.estado===REAJ_CONFLICTO ? C.danger : C.border;
+                    const inp3 = {padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11};
+                    return (
+                      <div style={{background:C.cardAlt,border:`1px solid ${col}`,borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:6}}>
+                          <div style={{fontSize:12,fontWeight:800,color:C.text}}>
+                            Activacion del reajuste
+                            <span style={{marginLeft:8,fontSize:10,fontWeight:700,color:col}}>
+                              {act.estado===REAJ_ACTIVADO?"\u00b7 ACTIVO"
+                                :act.estado===REAJ_MODIF_PENDIENTE?"\u00b7 ACTIVO con modificacion pendiente"
+                                :act.estado===REAJ_CONFLICTO?"\u00b7 EN CONFLICTO con la configuracion antigua"
+                                :act.estado===REAJ_SIN_ACTIVAR?"\u00b7 sin activar":"\u00b7 no activable"}
+                            </span>
+                          </div>
+                          <span style={{fontSize:9,fontWeight:700,padding:"1px 6px",borderRadius:99,background:C.card,color:C.muted,border:`1px solid ${C.border}`}}>
+                            Confirmar un antecedente no activa nada
+                          </span>
+                        </div>
+
+                        {act.motivo&&<div style={{fontSize:10,lineHeight:1.6,color:C.muted,marginBottom:8}}>{act.motivo}</div>}
+
+                        {act.estado===REAJ_MODIF_PENDIENTE&&(
+                          <div style={{fontSize:10,lineHeight:1.6,marginBottom:8,padding:"6px 10px",borderRadius:8,
+                            background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,color:C.am||"#854d0e"}}>
+                            {(act.diferencias||[]).map(d=>(
+                              <div key={d.campo}>{d.campo}: sellado <strong>{String(d.sellado)}</strong> · ahora <strong>{String(d.actual)}</strong></div>
+                            ))}
+                          </div>
+                        )}
+
+                        {!edit.puede&&(
+                          <div style={{fontSize:10,lineHeight:1.6,marginBottom:8,color:C.muted}}>
+                            <strong>Bloqueado:</strong> {edit.motivo}
+                          </div>
+                        )}
+
+                        {/* Datos de la activacion. Editables solo cuando no hay nada activo. */}
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))",gap:8,marginBottom:8}}>
+                          <div>
+                            <div style={{fontSize:10,color:C.gris,fontWeight:600,marginBottom:3}}>Fecha de referencia</div>
+                            <input type="date" disabled={!can||!edit.puede} value={ra.fechaReferencia||""}
+                              onChange={e=>upA("fechaReferencia",e.target.value)} style={{...inp3,width:"100%"}}/>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:C.gris,fontWeight:600,marginBottom:3}}>Respaldo de la fecha</div>
+                            <input type="text" disabled={!can||!edit.puede} value={ra.respaldo||""} placeholder="p. ej. comprobante del primer pago"
+                              onChange={e=>upA("respaldo",e.target.value)} style={{...inp3,width:"100%",boxSizing:"border-box"}}/>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:C.gris,fontWeight:600,marginBottom:3}}>Fecha que determina la tasa</div>
+                            <select disabled={!can||!edit.puede} value={ra.reglaFecha||""} onChange={e=>upA("reglaFecha",e.target.value)}
+                              style={{...inp3,width:"100%"}}>
+                              <option value="">— sin declarar —</option>
+                              {REGLAS_FECHA.map(o=><option key={o} value={o}>{o}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:C.gris,fontWeight:600,marginBottom:3}}>Respaldo de esa regla</div>
+                            <input type="text" disabled={!can||!edit.puede} value={ra.reglaFechaRespaldo||""} placeholder="clausula que lo dice"
+                              onChange={e=>upA("reglaFechaRespaldo",e.target.value)} style={{...inp3,width:"100%",boxSizing:"border-box"}}/>
+                          </div>
+                        </div>
+
+                        {/* Vista previa FILA POR FILA, antes de activar y despues. */}
+                        <div style={{overflowX:"auto",marginBottom:8}}>
+                          <table style={{borderCollapse:"collapse",width:"100%",fontSize:10}}>
+                            <thead><tr style={{background:C.card}}>
+                              {["Temporada","Monto actual","Con el reajuste","Diferencia","Estado"].map(h=>(
+                                <th key={h} style={{padding:"4px 8px",textAlign:"left",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                              ))}
+                            </tr></thead>
+                            <tbody>
+                              {prev.detalle.map(d=>(
+                                <tr key={d.temporada}>
+                                  <td style={{padding:"4px 8px"}}>{d.temporada}</td>
+                                  <td style={{padding:"4px 8px",textAlign:"right"}}>${N(d.base.toFixed(2))}</td>
+                                  <td style={{padding:"4px 8px",textAlign:"right"}}>{d.intocable||d.bloqueado?"\u2014":`$${N(d.ajustado.toFixed(2))}`}</td>
+                                  <td style={{padding:"4px 8px",textAlign:"right",color:d.diferencia>0?C.success:C.muted2}}>{d.diferencia>0?`+$${N(d.diferencia.toFixed(2))}`:"\u2014"}</td>
+                                  <td style={{padding:"4px 8px",fontSize:9,color:C.muted}}>
+                                    {d.intocable?"protegida: tiene factura o pago"
+                                      :d.reglaPendiente?"bloqueada: regla pendiente"
+                                      :d.aplica?`${d.periodos} periodo(s)`:"sin efecto"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div style={{fontSize:10,color:C.muted,marginBottom:8}}>
+                          Filas que cambian: <strong>{prev.filasQueCambian}</strong> · protegidas: <strong>{prev.filasIntocables}</strong> ·
+                          bloqueadas por regla pendiente: <strong>{prev.filasBloqueadasPorReglaPendiente}</strong> ·
+                          diferencia aplicada: <strong>${N(prev.diferenciaAplicada.toFixed(2))}</strong>
+                        </div>
+
+                        {/* Acciones. Activar y desactivar son operaciones economicas. */}
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                          {!permiso.puede
+                            ? <span style={{fontSize:10,color:C.danger,fontWeight:700}}>{permiso.motivo}</span>
+                            : act.activo
+                            ? <button disabled={!can||!puedeDesactivar(r,{puedeEditar:can}).puede} onClick={()=>{
+                                // Desactivar exige lo mismo que activar: permiso,
+                                // vista previa del impacto y confirmacion explicita.
+                                const permiso = puedeDesactivar(r,{puedeEditar:can});
+                                if(!permiso.puede){ window.alert(permiso.motivo); return; }
+                                const pd = previsualizarDesactivacion(r, rcRows, {mesCobro:r.rcMesCobro, antecedentesDe:antes});
+                                const lineas = pd.detalle.filter(x=>x.diferencia<0)
+                                  .map(x=>`${x.temporada}: $${N(x.conReajuste.toFixed(2))} → $${N(x.sinReajuste.toFixed(2))}`).join("\n");
+                                const motivo = window.prompt(
+                                  "Desactivar devuelve importes a la base.\n\n"+lineas+
+                                  "\n\nFilas que bajan: "+pd.filasQueBajan+
+                                  "\nSe deja de aplicar: US$ "+Math.abs(pd.diferencia).toFixed(2)+
+                                  "\n\nPor que se desactiva? (obligatorio)");
+                                if(!motivo||!motivo.trim()) return;
+                                const ok = window.confirm("Confirmas desactivar y dejar de aplicar US$ "+Math.abs(pd.diferencia).toFixed(2)+"?");
+                                if(!ok) return;
+                                const res = desactivarReajuste(r,{motivo, usuario:(window.__usuarioOsiris||""), confirmado:true, impacto:pd.diferencia, puedeEditar:can});
+                                if(!res.ok){ window.alert(res.motivo); return; }
+                                upd(r.id,"reajusteActivacion",res.contrato.reajusteActivacion);
+                              }} style={{background:C.dangerBg,color:C.danger,border:`1px solid ${C.danger}`,borderRadius:8,padding:"6px 14px",cursor:can?"pointer":"default",fontSize:11,fontWeight:700}}>
+                                Desactivar
+                              </button>
+                            : <button disabled={!can} onClick={()=>{
+                                const res = activarReajuste(r, r.reajusteActivacion||{});
+                                if(!res.ok){ window.alert(res.motivo); return; }
+                                const p = previsualizarActivacion(res.contrato, rcRows, {mesCobro: r.rcMesCobro, antecedentesDe: antes});
+                                const ok = window.confirm(
+                                  "Activar el reajuste cambia importes.\n\n"+
+                                  "Filas que cambian: "+p.filasQueCambian+"\n"+
+                                  "Protegidas por factura o pago: "+p.filasIntocables+"\n"+
+                                  "Bloqueadas por regla pendiente: "+p.filasBloqueadasPorReglaPendiente+"\n"+
+                                  "Diferencia que se aplica: US$ "+p.diferenciaAplicada.toFixed(2)+"\n\n"+
+                                  "\u00bfConfirmas?");
+                                if(!ok) return;
+                                upd(r.id,"reajusteActivacion",res.contrato.reajusteActivacion);
+                              }} style={{background:C.success,color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:can?"pointer":"default",fontSize:11,fontWeight:700}}>
+                                Activar el reajuste
+                              </button>}
+                          {act.estado===REAJ_ACTIVADO&&<span style={{fontSize:10,color:C.muted}}>Sellado: {act.pct} % · desde {act.fechaReferencia} · por {act.reglaSellada}</span>}
+                        </div>
                       </div>
                     );
                   })()}

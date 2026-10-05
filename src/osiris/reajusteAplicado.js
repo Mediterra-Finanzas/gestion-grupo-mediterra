@@ -288,19 +288,66 @@ export function activar(ct, datos) {
   return { ok: true, motivo: "", contrato: Object.assign({}, ct, { reajusteActivacion: act }) };
 }
 
-// Desactivar es una operacion economica propia, no un efecto secundario.
-export function desactivar(ct, motivo, usuario) {
+// Desactivar es una operacion economica propia, con las mismas exigencias que
+// activar: permiso, vista previa del impacto y confirmacion explicita. Si
+// falta cualquiera de las tres, queda bloqueada. Vale igual en el candidato y
+// en la version de recuperacion: una activacion existente no queda atrapada,
+// pero tampoco se apaga de un clic.
+export function puedeDesactivar(ct, opciones) {
+  const o = opciones || {};
   const act = (ct && ct.reajusteActivacion) || {};
-  if (!act.activado) return { ok: false, motivo: "No hay una activacion vigente.", contrato: ct };
-  if (!txt(motivo)) return { ok: false, motivo: "Desactivar mueve importes: hace falta un motivo.", contrato: ct };
+  if (!act.activado) return { puede: false, motivo: "No hay una activacion vigente." };
+  if (o.puedeEditar === false) return { puede: false, motivo: "Sin permiso de edicion en esta pestana." };
+  return { puede: true, motivo: "" };
+}
+
+// Que pasaria si se desactiva: por fila, cuanto vuelve a la base.
+export function previsualizarDesactivacion(ct, filas, opciones) {
+  const o = opciones || {};
+  const antes = previsualizarActivacion(ct, filas, o);
+  const apagado = Object.assign({}, ct, {
+    reajusteActivacion: Object.assign({}, (ct && ct.reajusteActivacion) || {}, { activado: false }),
+  });
+  const despues = previsualizarActivacion(apagado, filas, o);
+  const detalle = antes.detalle.map((d, i) => ({
+    temporada: d.temporada,
+    conReajuste: d.ajustado,
+    sinReajuste: despues.detalle[i].ajustado,
+    diferencia: +(despues.detalle[i].ajustado - d.ajustado).toFixed(2),
+    intocable: d.intocable,
+  }));
+  return {
+    detalle,
+    filasQueBajan: detalle.filter((d) => d.diferencia < 0).length,
+    totalAntes: antes.totalAplicado,
+    totalDespues: despues.totalAplicado,
+    diferencia: +(despues.totalAplicado - antes.totalAplicado).toFixed(2),
+  };
+}
+
+export function desactivar(ct, datos) {
+  // Compatibilidad: antes la firma era (ct, motivo, usuario).
+  const d = (typeof datos === "string") ? { motivo: datos, usuario: arguments[2] } : (datos || {});
+  const permiso = puedeDesactivar(ct, d);
+  if (!permiso.puede) return { ok: false, motivo: permiso.motivo, contrato: ct };
+  if (!txt(d.motivo)) return { ok: false, motivo: "Desactivar mueve importes: hace falta un motivo.", contrato: ct };
+  if (d.confirmado !== true)
+    return {
+      ok: false,
+      motivo: "Falta la confirmacion explicita. Desactivar devuelve importes a la base: hay que " +
+        "mirar la vista previa y confirmar.",
+      contrato: ct,
+    };
+  const act = ct.reajusteActivacion;
   return {
     ok: true, motivo: "",
     contrato: Object.assign({}, ct, {
       reajusteActivacion: Object.assign({}, act, {
         activado: false,
-        desactivadoMotivo: txt(motivo),
-        desactivadoPor: txt(usuario),
+        desactivadoMotivo: txt(d.motivo),
+        desactivadoPor: txt(d.usuario),
         desactivadoFecha: new Date().toISOString().slice(0, 10),
+        desactivadoImpacto: d.impacto === undefined ? null : d.impacto,
       }),
     }),
   };
