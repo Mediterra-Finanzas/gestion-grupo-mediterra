@@ -8,7 +8,7 @@
    por la API REST (por donde pasa la app):
      · las peticiones EXACTAS del código de producción (upsert sin condición) y
        de la rama actual (PATCH con filtro / POST sin merge) antes y después;
-     · el transporte propuesto (scripts/nominas-cas/nominasTransporteRpc.js) con
+     · el transporte de la app (src/nominasTransporteRpc.js) con
        guardarFila REAL de src/nominasPersistencia.js: ediciones simultáneas,
        conflicto, creación simultánea, carrera real, respuesta perdida;
      · filas excluidas, restauración con service_role/SQL, intentos de saltarse
@@ -29,7 +29,7 @@ import crypto from 'crypto';
 import { spawn, execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { guardarFila } from '../../src/nominasPersistencia.js';
-import { crearTransporteRpc } from './nominasTransporteRpc.js';
+import { crearTransporteRpc } from '../../src/nominasTransporteRpc.js';
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const RAIZ = path.join(AQUI, '../..');
@@ -296,12 +296,6 @@ check('J1. Consulta de respaldos: lista los 3 respaldos (el más reciente primer
   p.ok && /^backup_2026-09-02\|backup_\*\|2026-09-02/.test(lineasResp[0]) && lineasResp.some((l) => /^backup_\*\|2\|/.test(l)) && lineasResp.some((l) => /^main_pre_restore\*\|1\|/.test(l)) && huella() === foto,
   p.ok ? '' : p.salida.slice(0, 200));
 check('J2. No muestra contenido ni credenciales (la marca de prueba no aparece en la salida)', p.ok && !/SECRETO/.test(p.salida));
-
-// ═══ I. El parche de cliente contiene EXACTAMENTE el transporte probado ═
-const parche = fs.readFileSync(path.join(RAIZ, 'supabase/propuesta_nominas_version_obligatoria_cliente.patch'), 'utf8');
-const bloque = parche.split('diff --git a/src/nominasTransporteRpc.js')[1] || '';
-const agregado = bloque.split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++')).map((l) => l.slice(1)).join('\n') + '\n';
-check('I1. El parche agrega src/nominasTransporteRpc.js idéntico al módulo probado aquí', agregado === fs.readFileSync(path.join(AQUI, 'nominasTransporteRpc.js'), 'utf8'));
 
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nPropuesta "versión obligatoria" de Nóminas: todos los casos OK');
 process.exit(fallos ? 1 : 0);

@@ -11,6 +11,13 @@
      PATCH ?id=eq.X&updated_at=eq.V  (return=representation)
               → [] si la versión no coincide (conflicto), si no la fila escrita
      POST  (merge-duplicates, return=representation) → fila creada/actualizada
+     POST  /rpc/nominas_guardar → misma lógica que la función SQL
+           (supabase/propuesta_nominas_version_obligatoria.sql, PARTE 1)
+   Y la regla del trigger de esa propuesta (PARTE 2), ACTIVA por defecto: una
+   escritura directa (PATCH/POST) a una fila nominas_<empresa> o a la fila
+   antigua `nominas` responde 400, como responderá la base. Así cualquier
+   escritura de nóminas que no pase por la función hace fallar las pruebas.
+   `store.__sinTriggerNominas = true` la desactiva.
    ───────────────────────────────────────────────────────────────────────── */
 import fs from 'fs';
 
@@ -42,6 +49,12 @@ export function nuevoStore() {
   };
 }
 
+// Igual que public.nominas_fila_protegida (PARTE 1 de la propuesta SQL).
+export function filaNominaProtegida(id) {
+  return typeof id === 'string' && id.startsWith('nominas_')
+    && !['nominas_v2_done', 'nominas_tipos_doc', 'nominas_correlativos'].includes(id) && !id.startsWith('nominas_respaldo');
+}
+
 export function leerFila(store, id) {
   const f = store[id];
   if (!f) return null;
@@ -56,14 +69,63 @@ export async function instalarFake(context, store, log = () => {}) {
     const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json',
       headers: { 'content-range': '0-0/1', 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
 
+    let body = null;
+    try { body = JSON.parse(req.postData() || 'null'); } catch (_) {}
+    const registrar = (rid, m) => { (store.__escrituras = store.__escrituras || []).push({ metodo: m || metodo, id: rid }); };
+    const error400 = (message) => route.fulfill({ status: 400, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
+      body: JSON.stringify({ code: 'P0001', details: null, hint: null, message }) });
+    // Interceptor opcional por prueba: (metodo, id, body) → null (seguir) |
+    // 'red' (sin respuesta) | { status, body } (respuesta de error simulada) |
+    // 'perdida' (el servidor APLICA la escritura pero la respuesta no llega).
+    // La llamada a nominas_guardar se le presenta como PATCH (con versión) o POST (creación).
+    const interceptar = (m, rid) => {
+      if (store.__interceptar) {
+        const x = store.__interceptar(m, rid, body);
+        if (x === 'perdida') return { perder: true };
+        if (x === 'red') { log(`${m} ${rid} → SIN RED (simulado)`); return { respuesta: route.abort('failed') }; }
+        if (x) { log(`${m} ${rid} → HTTP ${x.status} (simulado)`); return { respuesta: route.fulfill({ status: x.status, contentType: 'application/json',
+          headers: { 'access-control-allow-origin': '*' }, body: typeof x.body === 'string' ? x.body : JSON.stringify(x.body || {}) }) }; }
+      }
+      if (store.__fallarEscrituras) {
+        log(`${m} ${rid} → RECHAZADO (simulado)`);
+        return { respuesta: route.fulfill({ status: 500, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"message":"fallo simulado"}' }) };
+      }
+      return {};
+    };
+
+    if (url.pathname === '/rest/v1/rpc/nominas_guardar' && metodo === 'POST') {
+      const rid = body && body.p_id, ver = (body && body.p_version_leida) || null;
+      const mEq = ver ? 'PATCH' : 'POST';
+      const ic = interceptar(mEq, rid);
+      if (ic.respuesta) return ic.respuesta;
+      if (!filaNominaProtegida(rid)) return error400(`MEDITERRA_NOMINAS_FILA_NO_VALIDA: "${rid}" no es una fila de nóminas por empresa`);
+      let contenido = null;
+      try { contenido = typeof body.p_value === 'string' ? JSON.parse(body.p_value) : null; } catch (_) {}
+      if (!contenido || !Array.isArray(contenido.nominas)) return error400('MEDITERRA_NOMINAS_FORMATO: el valor debe ser el texto JSON de la fila');
+      let r;
+      if (!ver) {
+        if (store[rid]) r = { resultado: 'existe' };
+        else { const v = new Date().toISOString(); store[rid] = { value: body.p_value, updated_at: v }; registrar(rid, mEq); r = { resultado: 'ok', version: v }; }
+      } else {
+        const f = store[rid];
+        if (!f) r = { resultado: 'no_existe' };
+        else if (f.updated_at !== ver) r = { resultado: 'conflicto', version_actual: f.updated_at };
+        else {
+          const v = new Date(Math.max(Date.now(), new Date(ver).getTime() + 1)).toISOString();
+          f.value = body.p_value; f.updated_at = v; registrar(rid, mEq); r = { resultado: 'ok', version: v };
+        }
+      }
+      log(`RPC nominas_guardar ${rid} (${ver ? 'con versión' : 'crear'}) → ${r.resultado}`);
+      if (ic.perder && r.resultado === 'ok') { log(`RPC ${rid} → respuesta PERDIDA (simulado)`); return route.abort('failed'); }
+      return json(r);
+    }
+
     if (!url.pathname.startsWith('/rest/v1/calendario_data')) return json({});
 
     const idm = /id=eq\.([^&]+)/.exec(url.search);
     const id = idm ? decodeURIComponent(idm[1]) : null;
     const verm = /updated_at=eq\.([^&]+)/.exec(url.search);
     const version = verm ? decodeURIComponent(verm[1]) : null;
-    let body = null;
-    try { body = JSON.parse(req.postData() || 'null'); } catch (_) {}
 
     // Lecturas fallidas simuladas por fila: (id) → null | 'red' | { status, body }.
     if (store.__interceptarLectura && metodo === 'GET') {
@@ -77,28 +139,19 @@ export async function instalarFake(context, store, log = () => {}) {
       return json(f ? [{ id, value: f.value, updated_at: f.updated_at }] : []);
     }
 
-    // Interceptor opcional por prueba: (metodo, id, body) → null (seguir) |
-    // 'red' (sin respuesta) | { status, body } (respuesta de error simulada).
-    // 'perdida' = el servidor APLICA la escritura pero la respuesta no llega.
-    let perderRespuesta = false;
-    if (store.__interceptar && metodo !== 'GET') {
-      const x = store.__interceptar(metodo, id || (body && body.id), body);
-      if (x === 'perdida') perderRespuesta = true;
-      else if (x === 'red') { log(`${metodo} ${id} → SIN RED (simulado)`); return route.abort('failed'); }
-      else
-      if (x) { log(`${metodo} ${id} → HTTP ${x.status} (simulado)`); return route.fulfill({ status: x.status, contentType: 'application/json',
-        headers: { 'access-control-allow-origin': '*' }, body: typeof x.body === 'string' ? x.body : JSON.stringify(x.body || {}) }); }
+    // Regla del trigger (PARTE 2): sin pasar por nominas_guardar no se escribe una fila de nóminas.
+    const ridDirecto = id || (body && !Array.isArray(body) && body.id) || (Array.isArray(body) && body[0] && body[0].id) || null;
+    if (!store.__sinTriggerNominas && (filaNominaProtegida(ridDirecto) || ridDirecto === 'nominas')) {
+      (store.__rechazosTrigger = store.__rechazosTrigger || []).push({ metodo, id: ridDirecto });
+      log(`${metodo} ${ridDirecto} → 400 SIN VERSIÓN (regla del trigger)`);
+      return error400(ridDirecto === 'nominas'
+        ? 'MEDITERRA_NOMINAS_LEGADO: la fila antigua "nominas" es de solo lectura. Recarga la página.'
+        : `MEDITERRA_NOMINAS_SIN_VERSION: "${ridDirecto}" solo se guarda indicando la versión leída. Tu página tiene una versión antigua de la app: recárgala.`);
     }
+    const ic = interceptar(metodo, ridDirecto);
+    if (ic.respuesta) return ic.respuesta;
+    const perderRespuesta = !!ic.perder;
 
-    // Interruptor de prueba: simular que el servidor rechaza las escrituras
-    // (para verificar que un guardado fallido no pierde ni marca nada).
-    if (store.__fallarEscrituras && metodo !== 'GET') {
-      log(`${metodo} ${id} → RECHAZADO (simulado)`);
-      return route.fulfill({ status: 500, contentType: 'application/json',
-        headers: { 'access-control-allow-origin': '*' }, body: '{"message":"fallo simulado"}' });
-    }
-
-    const registrar = (rid) => { (store.__escrituras = store.__escrituras || []).push({ metodo, id: rid }); };
     if (metodo === 'PATCH') {
       const f = id ? store[id] : null;
       if (!f) { log(`PATCH ${id} → fila inexistente`); return json([]); }

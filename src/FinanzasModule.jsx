@@ -23,6 +23,7 @@ import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNom
 import { USE_GUARD, pollRow } from './guardClient';
 import { persist, construirAvisoDesde } from './persistencia/instancia.js';
 import { planGuardado, guardarFila, fusionarNominas, resumirGuardado, iguales as igualesNom } from './nominasPersistencia.js';
+import { crearTransporteRpc } from './nominasTransporteRpc.js';
 import AvisoPersistencia from './AvisoPersistencia.jsx';
 import { computeOverlay, applyOverlay } from './escenarioOverlay';
 import {
@@ -15093,17 +15094,10 @@ async function dbNominasMigrado() {
 
 // ── Transporte de las filas nominas_<empresa> (texto JSON dentro del jsonb) ──
 // Guardado CONDICIONADO (docs/nominas-guardado-condicionado.md):
-//   leer     → { existe, valor, version }   · LANZA ante red/HTTP (regla 9)
-//   patch    → PATCH …&updated_at=eq.<versión leída>; 0 filas = "conflicto"
-//   insertar → POST SIN merge-duplicates: si la fila ya existe, 409 = "existe"
-// keepalive solo para cuerpos chicos: el navegador rechaza keepalive > 64 KiB.
-const LIMITE_KEEPALIVE_NOM = 60000;
-const _bytesNom = (t) => { try { return new TextEncoder().encode(t).length; } catch(e) { return t.length * 2; } };
-async function _falloEscrituraNomina(res) {
-  let texto = "";
-  try { texto = await res.text(); } catch(e) {}
-  return { ok:false, motivo: /MEDITERRA_SELLO/.test(texto) ? "sello" : (res.status === 409 ? "existe" : "http"), status: res.status, detalle: texto.slice(0,300) };
-}
+//   leer              → { existe, valor, version }   · LANZA ante red/HTTP (regla 9)
+//   patch / insertar  → función nominas_guardar(id, valor, versión leída | null):
+//                       "conflicto" / "existe" sin escribir nada (src/nominasTransporteRpc.js)
+const _rpcNominas = crearTransporteRpc({ url:SUPA_URL, key:SUPA_KEY });
 const transporteNominas = {
   async leer(fila) {
     const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${encodeURIComponent(fila)}&select=value,updated_at`,{
@@ -15118,28 +15112,11 @@ const transporteNominas = {
     if (!valor || !Array.isArray(valor.nominas)) throw new Error("contenido inesperado en la fila");
     return { existe:true, valor, version: rows[0].updated_at || null };
   },
-  async patch(fila, version, texto, o={}) {
-    const body = JSON.stringify({ value:texto, updated_at:new Date().toISOString() });
-    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${encodeURIComponent(fila)}&updated_at=eq.${encodeURIComponent(version)}`,{
-      method:"PATCH", keepalive: !!o.keepalive && _bytesNom(body) < LIMITE_KEEPALIVE_NOM,
-      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"}, body });
-    if (!res.ok) return await _falloEscrituraNomina(res);
-    const filas = await res.json().catch(()=>null);
-    if (!Array.isArray(filas)) return { ok:false, motivo:"http", status:res.status, detalle:"el servidor no confirmó la escritura" };
-    if (!filas.length) return { ok:false, motivo:"conflicto" };
-    if (!filas[0].updated_at) return { ok:false, motivo:"http", status:res.status, detalle:"el servidor no confirmó la versión" };
-    return { ok:true, version: filas[0].updated_at };
-  },
-  async insertar(fila, texto, o={}) {
-    const body = JSON.stringify({ id:fila, value:texto, updated_at:new Date().toISOString() });
-    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-      method:"POST", keepalive: !!o.keepalive && _bytesNom(body) < LIMITE_KEEPALIVE_NOM,
-      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"}, body });
-    if (!res.ok) return await _falloEscrituraNomina(res);
-    const filas = await res.json().catch(()=>null);
-    if (!Array.isArray(filas) || !filas[0] || !filas[0].updated_at) return { ok:false, motivo:"http", status:res.status, detalle:"el servidor no confirmó la creación" };
-    return { ok:true, version: filas[0].updated_at };
-  },
+  // Escritura vía la función nominas_guardar: la base exige la versión leída y
+  // rechaza cualquier otra escritura de nominas_<empresa> (incluidas pestañas con
+  // código antiguo). supabase/propuesta_nominas_version_obligatoria.sql
+  patch: (fila, version, texto, o) => _rpcNominas.patch(fila, version, texto, o),
+  insertar: (fila, texto, o) => _rpcNominas.insertar(fila, texto, o),
 };
 const filaNominaDe = (empresa) => `nominas_${slugEmpresaNom(empresa)}`;
 
@@ -18037,13 +18014,16 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
       });
       lista.push(...nuevas.values());
     }
-    if(!igualesNom(lista, nominasRef.current)) { setNominas(lista); nominasRef.current = lista; avisoTrasRefresco(); }
+    if(!igualesNom(lista, nominasRef.current)) { setNominas(lista); nominasRef.current = lista; avisoTrasRefresco(conservadas); }
   }
   // Un aviso de "no se guardó" sin cambios locales pendientes (p. ej. una transición
   // cuya respuesta se perdió y no se pudo verificar) queda desactualizado cuando la
   // lista se refresca con el servidor: se reemplaza por un aviso informativo.
-  function avisoTrasRefresco() {
-    setAvisoGuardado(a => (a && (a.tipo === "error" || a.tipo === "conflicto"))
+  // Si alguna empresa del aviso NO se pudo releer en este refresco (se conservó lo
+  // anterior), el aviso sigue vigente: decir "la lista se actualizó" sería falso.
+  function avisoTrasRefresco(conservadas = new Set()) {
+    setAvisoGuardado(a => (a && (a.tipo === "error" || a.tipo === "conflicto")
+        && !((a.r && a.r.empresasFallidas) || []).some(e => conservadas.has(e)))
       ? { tipo:"info", texto: a.contexto === "transicion"
           ? `La lista se actualizó con el servidor. Revisa el estado de la nómina: el cambio de estado${a.detalleContexto?` (${a.detalleContexto})`:""} que figuraba como NO hecho pudo haberse aplicado en el servidor; si es así, sus correos de notificación NO se enviaron.`
           : "La lista se actualizó con el servidor. Revisa que lo que figuraba como no guardado esté como esperabas." }

@@ -1,14 +1,14 @@
 /* eslint-disable */
-// PROPUESTA (no conectada a la app): escritura de las filas nominas_<empresa> a
-// través de la función de base de datos nominas_guardar, que exige la versión
-// leída (supabase/propuesta_nominas_version_obligatoria.sql). Reemplaza patch e
-// insertar de transporteNominas; leer no cambia. Misma interfaz que espera
-// guardarFila (src/nominasPersistencia.js):
+// Escritura de las filas nominas_<empresa> a través de la función de base de
+// datos nominas_guardar, que exige la versión leída
+// (supabase/propuesta_nominas_version_obligatoria.sql, PARTE 1). Reemplaza el
+// PATCH/POST directo; leer no cambia. Misma interfaz que espera guardarFila
+// (src/nominasPersistencia.js):
 //   patch(fila, version, texto)  → { ok, version } | { ok:false, motivo:"conflicto"|"sello"|"http" }
 //   insertar(fila, texto)        → { ok, version } | { ok:false, motivo:"existe"|"sello"|"http" }
 // Un fallo de red LANZA (guardarFila lo trata como "red" y verifica releyendo).
-// El parche supabase/propuesta_nominas_version_obligatoria_cliente.patch agrega
-// este mismo archivo como src/nominasTransporteRpc.js (la prueba lo compara).
+// OJO: requiere que la función exista en la base ANTES de desplegar este código
+// (si no, ningún guardado de nóminas funciona: la app avisa y conserva la edición).
 
 const LIMITE_KEEPALIVE = 60000;   // el navegador rechaza keepalive > 64 KiB
 const bytes = (t) => { try { return new TextEncoder().encode(t).length; } catch (e) { return t.length * 2; } };

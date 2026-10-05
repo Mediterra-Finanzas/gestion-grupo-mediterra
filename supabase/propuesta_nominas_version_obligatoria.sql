@@ -15,7 +15,7 @@
 --     · una pestaña con el código de la rama ACTUAL (PATCH condicionado por
 --       filtro) TAMBIÉN es rechazada: el filtro de la URL no es visible para la
 --       base. Por eso el cliente debe pasar a llamar la función
---       (supabase/propuesta_nominas_version_obligatoria_cliente.patch).
+--       (src/nominasTransporteRpc.js, aplicado en la rama 2026-10-05).
 --   La fila antigua `nominas` (formato previo a la partición) queda de solo
 --   lectura para la llave pública: nadie la debe escribir desde 2026.
 --
