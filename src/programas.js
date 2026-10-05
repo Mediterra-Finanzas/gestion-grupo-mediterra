@@ -211,85 +211,287 @@ export function estDisponible(e0, kgFruta, programas) {
   return estPendiente(e, kgFruta, programas);
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+// TRATAMIENTO DE FECHAS
+//
+// Un pendiente cae en UNA sola cubeta temporal: vencido (antes del corte),
+// dentro del horizonte, después del horizonte, o sin fecha. Ningún monto
+// aparece dos veces ni desaparece.
+//
+// Una fecha vacía NO es una decisión de trasladar el anticipo a la
+// liquidación. Un anticipo acordado sin fecha queda *pendiente de
+// calendarizar* y RESERVA su monto fuera de la liquidación.
+// ═══════════════════════════════════════════════════════════════════
+
+export const MODELO_VERSION = 2;
+export const CUBETAS = ["vencido", "horizonte", "fuera_horizonte", "sin_fecha"];
+
+/** Cubeta temporal de un pendiente. Excluyentes por construcción. */
+export function cubetaTemporal(mes, mIdx, mesIdxActual) {
+  if (!mes) return "sin_fecha";
+  const i = typeof mIdx === "function" ? mIdx(mes) : -1;
+  if (i < 0) return "fuera_horizonte";
+  if (mesIdxActual >= 0 && i < mesIdxActual) return "vencido";
+  return "horizonte";
+}
+
+/**
+ * Regla EXPLÍCITA de versión: un registro es antiguo si no lleva su propia
+ * marca `v` y la fruta todavía está en la versión 1 del modelo. Un anticipo
+ * nuevo sin fecha NO es antiguo: lo nuevo se graba con `v: MODELO_VERSION`.
+ */
+export function esItemLegacy(item, modeloVersion) {
+  if (item && Number(item.v) >= MODELO_VERSION) return false;
+  return Number(modeloVersion || 1) < MODELO_VERSION;
+}
+
+/**
+ * Qué se hace con un pendiente SIN FECHA:
+ *   "reservado"      → pendiente de calendarizar; reserva su monto y NO se proyecta
+ *   "en_liquidacion" → su monto queda dentro de la liquidación
+ *
+ * Mientras un registro antiguo no tenga decisión, se conserva EXACTAMENTE el
+ * comportamiento anterior ("en_liquidacion"), que es lo que la app viene
+ * haciendo. Nada se migra solo.
+ */
+export function tratoSinFecha(item, { modeloVersion = 1, decisiones = {} } = {}) {
+  if (item?.cerrado) return "en_liquidacion";              // decisión explícita de siempre
+  const d = decisiones?.[item?.id];
+  if (d?.trato === "acordado_sin_fecha")   return "reservado";
+  if (d?.trato === "trasladar_liquidacion") return "en_liquidacion";
+  return esItemLegacy(item, modeloVersion) ? "en_liquidacion" : "reservado";
+}
+
+/** Registra la decisión del usuario, con trazabilidad. No muta el original. */
+export function registrarDecisionSinFecha(decisiones, itemId, trato, { usuario = "", nota = "" } = {}) {
+  if (!itemId) throw new Error("La decisión necesita identificar el registro.");
+  if (trato !== "acordado_sin_fecha" && trato !== "trasladar_liquidacion") {
+    throw new Error("Trato no válido para un pendiente sin fecha.");
+  }
+  const previo = (decisiones || {})[itemId] || null;
+  return {
+    ...(decisiones || {}),
+    [itemId]: {
+      trato, usuario, nota, ts: new Date().toISOString(),
+      historial: [...(previo?.historial || []), ...(previo ? [{ trato: previo.trato, usuario: previo.usuario, ts: previo.ts }] : [])],
+    },
+  };
+}
+
+/**
+ * Cuadre de UNA posición (una operación individual o el bloque residual).
+ *
+ *   saldo económico     = MAX(0, base − realizado)
+ *   excedente real      = MAX(0, realizado − base)          ← lo único que puede ser deuda
+ *   compromisos         = pendientes con fecha + sin fecha RESERVADOS
+ *   liquidación         = MAX(0, base − realizado − compromisos)
+ *   exceso compromisos  = MAX(0, realizado + compromisos − base) − excedente real
+ *
+ * Identidad que se cumple siempre:
+ *   saldo económico = total calendarizado + pendiente de calendarizar − exceso de compromisos
+ */
+export function cuadrePosicion({
+  etiqueta = "", base = 0, realizado = 0, pendientes = [],
+  mesLiquidacion = "", mIdx = () => -1, mesIdxActual = -1,
+} = {}) {
+  const cubetas = { vencido: 0, horizonte: 0, fuera_horizonte: 0, sin_fecha: 0 };
+  const sinFechaEnLiquidacion = [];
+  const detalle = [];
+  (pendientes || []).forEach(p => {
+    const usd = n(p.usd);
+    if (usd <= 0) return;
+    const cub = cubetaTemporal(p.mes, mIdx, mesIdxActual);
+    if (cub === "sin_fecha" && p.trato === "en_liquidacion") {
+      // No es compromiso aparte: su monto vive dentro de la liquidación.
+      sinFechaEnLiquidacion.push({ ...p, usd });
+      return;
+    }
+    cubetas[cub] += usd;
+    detalle.push({ ...p, usd, cubeta: cub });
+  });
+
+  const compromisos = cubetas.vencido + cubetas.horizonte + cubetas.fuera_horizonte + cubetas.sin_fecha;
+  const saldoEconomico = Math.max(0, n(base) - n(realizado));
+  const excedenteReal  = Math.max(0, n(realizado) - n(base));
+  const liquidacion    = Math.max(0, n(base) - n(realizado) - compromisos);
+  const excesoCompromisos = Math.max(0, n(realizado) + compromisos - n(base)) - excedenteReal;
+
+  const ubicacionLiq = cubetaTemporal(mesLiquidacion, mIdx, mesIdxActual);
+  const liqCalendarizada = liquidacion > 0 && ubicacionLiq !== "sin_fecha";
+  const totalCalendarizado = cubetas.vencido + cubetas.horizonte + cubetas.fuera_horizonte
+                           + (liqCalendarizada ? liquidacion : 0);
+  const pendienteDeCalendarizar = cubetas.sin_fecha + (liqCalendarizada ? 0 : liquidacion);
+
+  return {
+    etiqueta, base: n(base), realizado: n(realizado),
+    saldoEconomico, excedenteReal, excesoCompromisos,
+    compromisos, cubetas, detalle, sinFechaEnLiquidacion,
+    liquidacion, liquidacionMes: mesLiquidacion || "", ubicacionLiquidacion: ubicacionLiq,
+    liquidacionCalendarizada: liqCalendarizada ? liquidacion : 0,
+    totalCalendarizado, pendienteDeCalendarizar,
+    // Lo que de verdad llega al flujo mensual: horizonte + liquidación ubicada
+    // dentro del horizonte. Lo vencido se proyecta antes del corte y NO entra
+    // al saldo acumulado; lo de fuera del horizonte no tiene columna.
+    cajaEnHorizonte: cubetas.horizonte + (ubicacionLiq === "horizonte" ? liquidacion : 0),
+    cuadra: Math.abs(saldoEconomico - (totalCalendarizado + pendienteDeCalendarizar - excesoCompromisos)) < 0.005,
+  };
+}
+
 // ── Resumen de un lado ────────────────────────────────────────────
 // `mIdx(mes)` → índice del mes, o <0 si no corresponde. `mesIdxActual` marca
 // el corte del saldo acumulado: lo anterior se proyecta pero no entra.
 export function resumenLado({
   estimaciones = [], programas = [], lado = "cliente",
   kgFruta = 0, basePresupuesto = 0, liquidacionDefinitiva = null,
-  mIdx = () => -1, mesIdxActual = -1, sinAsignar = [],
+  mIdx = () => -1, mesIdxActual = -1, sinAsignar = [], mesLiquidacion = "",
+  modeloVersion = 1, decisionesSinFecha = {},
 } = {}) {
   const ests = (Array.isArray(estimaciones) ? estimaciones : []).map(normalizarAnticipo);
   const progs = programasDeLado(programas, lado).filter(p => !p.archivado);
   const dentro = progs.filter(p => !p.fueraPresupuesto);
   const fuera  = progs.filter(p => p.fueraPresupuesto);
+  const ctxTrato = { modeloVersion, decisiones: decisionesSinFecha };
 
-  const definitiva = liquidacionDefinitiva && esDato(liquidacionDefinitiva.total)
-    ? Number(liquidacionDefinitiva.total) : null;
-  const base = definitiva !== null ? definitiva : n(basePresupuesto);
+  // Una operación sale del bloque ENTERA: su presupuesto, sus movimientos y
+  // sus pendientes al mismo tiempo. Se individualiza con presupuesto asignado
+  // o con liquidación definitiva propia.
+  const individual = dentro.filter(p => esDato(p.presupuesto_asignado) || esDato(p.importe_definitivo));
+  const delBloque  = dentro.filter(p => !(esDato(p.presupuesto_asignado) || esDato(p.importe_definitivo)));
 
-  // Realizado: cada movimiento vive en un solo lugar y se cuenta una vez.
-  let realizado = 0;
-  ests.forEach(e => { realizado += antRealizado(e); });
-  dentro.forEach(p => p.cuotas.forEach(c => { realizado += cuotaRealizado(c); }));
-  const realizadoFuera = fuera.reduce((s, p) =>
+  let faltanDatos = 0, sobreSustitucion = 0;
+  const avisosCompatibilidad = [];
+
+  const pendientesDeCuotas = (lista) => {
+    const out = [];
+    lista.forEach(p => p.cuotas.forEach(c => {
+      if (c.estado !== "vigente") return;
+      const pend = cuotaPendiente(c, p.kilos);
+      if (pend === null) { faltanDatos += 1; return; }
+      if (pend <= 0) return;
+      const trato = c.mes ? "" : tratoSinFecha(c, ctxTrato);
+      if (!c.mes && esItemLegacy(c, modeloVersion) && !decisionesSinFecha?.[c.id]) {
+        avisosCompatibilidad.push({ tipo: "cuota", id: c.id, contraparte: p.contraparte,
+          usd: pend, tratoActual: "en_liquidacion" });
+      }
+      out.push({ tipo: "cuota", id: c.id, mes: c.mes, usd: pend, trato,
+                 contraparte: p.contraparte, programaId: p.id });
+    }));
+    return out;
+  };
+
+  const pendientesDeEstimaciones = () => {
+    const out = [];
+    ests.forEach(e => {
+      const pend = estPendiente(e, kgFruta, programas);
+      sobreSustitucion += estSobreSustituida(e, kgFruta, programas);
+      if (pend <= 0) return;
+      const trato = e.mes ? "" : tratoSinFecha(e, ctxTrato);
+      if (!e.mes && esItemLegacy(e, modeloVersion) && !decisionesSinFecha?.[e.id]) {
+        avisosCompatibilidad.push({ tipo: "estimacion", id: e.id, contraparte: "",
+          usd: pend, tratoActual: "en_liquidacion" });
+      }
+      out.push({ tipo: "estimacion", id: e.id, mes: e.mes, usd: pend, trato, contraparte: "" });
+    });
+    return out;
+  };
+
+  const realizadoDe = (lista) => lista.reduce((s, p) =>
     s + p.cuotas.reduce((t, c) => t + cuotaRealizado(c), 0), 0);
 
-  // Pendientes. Solo proyectan los que tienen mes; los que no, se cobran o
-  // pagan dentro de la liquidación y por eso no la descuentan.
-  const detalle = [];
-  let pendEstimado = 0, pendCalendarizado = 0, pendSinMes = 0;
-  let faltanDatos = 0, sobreSustitucion = 0;
-
-  ests.forEach(e => {
-    const pend = estPendiente(e, kgFruta, programas);
-    sobreSustitucion += estSobreSustituida(e, kgFruta, programas);
-    if (pend <= 0) return;
-    if (!e.mes) { pendSinMes += pend; return; }
-    pendEstimado += pend;
-    detalle.push({ tipo: "estimacion", id: e.id, mes: e.mes, usd: pend, contraparte: "" });
+  // ── Posiciones individuales ──────────────────────────────────────
+  const posiciones = individual.map(p => {
+    const base = esDato(p.importe_definitivo) ? Number(p.importe_definitivo)
+               : (esDato(p.presupuesto_asignado) ? Number(p.presupuesto_asignado) : 0);
+    const q = cuadrePosicion({
+      etiqueta: p.contraparte || "sin nombre", base,
+      realizado: realizadoDe([p]), pendientes: pendientesDeCuotas([p]),
+      mesLiquidacion: p.mes_liquidacion || mesLiquidacion, mIdx, mesIdxActual,
+    });
+    return {
+      ...q, programaId: p.id, contraparte: p.contraparte,
+      presupuestoAsignado: esDato(p.presupuesto_asignado) ? Number(p.presupuesto_asignado) : null,
+      importeDefinitivo: esDato(p.importe_definitivo) ? Number(p.importe_definitivo) : null,
+      variacionBase: (esDato(p.importe_definitivo) && esDato(p.presupuesto_asignado))
+        ? Number(p.importe_definitivo) - Number(p.presupuesto_asignado) : null,
+    };
   });
 
-  dentro.forEach(p => p.cuotas.forEach(c => {
-    if (c.estado !== "vigente") return;
-    const pend = cuotaPendiente(c, p.kilos);
-    if (pend === null) { faltanDatos += 1; return; }
-    if (pend <= 0) return;
-    if (!c.mes) { pendSinMes += pend; return; }
-    pendCalendarizado += pend;
-    detalle.push({ tipo: "cuota", id: c.id, mes: c.mes, usd: pend,
-                   contraparte: p.contraparte, programaId: p.id });
-  }));
+  // ── Bloque presupuestario residual ───────────────────────────────
+  // Su base descuenta SOLO el presupuesto de las operaciones que salieron, y
+  // sus movimientos y pendientes son los del mismo conjunto que quedó.
+  const presupuestoRetirado = individual.reduce((s, p) =>
+    s + (esDato(p.presupuesto_asignado) ? Number(p.presupuesto_asignado) : 0), 0);
+  const definitivaLado = liquidacionDefinitiva && esDato(liquidacionDefinitiva.total)
+    ? Number(liquidacionDefinitiva.total) : null;
+  const baseBloque = definitivaLado !== null
+    ? definitivaLado - presupuestoRetirado
+    : n(basePresupuesto) - presupuestoRetirado;
 
-  const pendientes = pendEstimado + pendCalendarizado;
-  const liquidacion = Math.max(0, base - realizado - pendientes);
-  const excedente   = Math.max(0, realizado + pendientes - base);
-  const saldoTotal  = pendientes + liquidacion;
-
-  // Vencido: proyectado en un mes anterior al corte. Se muestra aparte y
-  // NUNCA se llama flujo futuro: no entra al saldo acumulado.
-  let pendVencido = 0, pendFuturo = 0;
-  const vencidos = [];
-  detalle.forEach(d => {
-    const i = mIdx(d.mes);
-    const vencido = i >= 0 && mesIdxActual >= 0 && i < mesIdxActual;
-    if (vencido) { pendVencido += d.usd; vencidos.push(d); } else pendFuturo += d.usd;
+  const bloque = cuadrePosicion({
+    etiqueta: "Bloque presupuestario", base: baseBloque,
+    realizado: ests.reduce((s, e) => s + antRealizado(e), 0) + realizadoDe(delBloque),
+    pendientes: [...pendientesDeEstimaciones(), ...pendientesDeCuotas(delBloque)],
+    mesLiquidacion, mIdx, mesIdxActual,
   });
 
+  // ── Totales del lado: SUMA de posiciones, sin neteo ──────────────
+  const todas = [...posiciones, bloque];
+  const sum = (f) => todas.reduce((s, q) => s + (f(q) || 0), 0);
+  const cub = (k) => todas.reduce((s, q) => s + q.cubetas[k], 0);
+
+  const realizado = sum(q => q.realizado);
+  const pendientes = cub("vencido") + cub("horizonte") + cub("fuera_horizonte");
+  const liquidacion = sum(q => q.liquidacion);
+  const detalle = todas.flatMap(q => q.detalle.filter(d => d.cubeta !== "sin_fecha")
+    .map(d => ({ ...d, posicion: q.etiqueta })));
+  if (liquidacion > 0 && mesLiquidacion) {
+    // la liquidación del bloque y de cada posición se proyecta en su mes
+  }
+  const realizadoFuera = realizadoDe(fuera);
   const sinAsignarUsd = (Array.isArray(sinAsignar) ? sinAsignar : [])
-    .filter(m => m && !m.anulada)
-    .reduce((s, m) => s + n(m.usd), 0);
+    .filter(m => m && !m.anulada).reduce((s, m) => s + n(m.usd), 0);
 
   return {
-    base, basePresupuesto: n(basePresupuesto), definitiva,
-    variacionBase: definitiva === null ? null : definitiva - n(basePresupuesto),
+    // ── compatibilidad con lo que ya consume la app ───────────────
+    base: definitivaLado !== null ? definitivaLado : n(basePresupuesto),
+    basePresupuesto: n(basePresupuesto), definitiva: definitivaLado,
+    variacionBase: definitivaLado === null ? null : definitivaLado - n(basePresupuesto),
     realizado, realizadoFuera,
-    pendienteEstimado: pendEstimado, pendienteCalendarizado: pendCalendarizado,
-    pendientes, pendienteSinMes: pendSinMes,
-    pendienteVencido: pendVencido, pendienteFuturo: pendFuturo, vencidos,
-    liquidacion, excedente, saldoTotal,
-    detalle, faltanDatos, sobreSustitucion,
-    sinAsignarUsd, programasFuera: fuera,
+    pendienteEstimado: todas.reduce((s, q) => s + q.detalle
+      .filter(d => d.tipo === "estimacion" && d.cubeta !== "sin_fecha")
+      .reduce((t, d) => t + d.usd, 0), 0),
+    pendienteCalendarizado: todas.reduce((s, q) => s + q.detalle
+      .filter(d => d.tipo === "cuota" && d.cubeta !== "sin_fecha")
+      .reduce((t, d) => t + d.usd, 0), 0),
+    pendientes,
+    // Sin fecha, cualquiera sea su trato: es lo que la pantalla viene avisando.
+    pendienteSinMes: cub("sin_fecha") + todas.reduce((s2, q) =>
+      s2 + q.sinFechaEnLiquidacion.reduce((t, x) => t + x.usd, 0), 0),
+    pendienteVencido: cub("vencido"),
+    pendienteFuturo: cub("horizonte") + cub("fuera_horizonte"),
+    vencidos: detalle.filter(d => d.cubeta === "vencido"),
+    liquidacion, saldoTotal: pendientes + liquidacion,
+    excedente: sum(q => q.excedenteReal) + sum(q => q.excesoCompromisos),   // mezclado: lo reemplaza excedenteReal
+    detalle, faltanDatos, sobreSustitucion, sinAsignarUsd,
+    programasFuera: fuera,
+    // ── cuadre nuevo ──────────────────────────────────────────────
+    posiciones, bloque, todas,
+    saldoEconomico: sum(q => q.saldoEconomico),
+    excedenteReal: sum(q => q.excedenteReal),
+    excesoCompromisos: sum(q => q.excesoCompromisos),
+    totalCalendarizado: sum(q => q.totalCalendarizado),
+    pendienteDeCalendarizar: sum(q => q.pendienteDeCalendarizar),
+    pendienteFueraHorizonte: cub("fuera_horizonte"),
+    // Sin fecha RESERVADO (pendiente de calendarizar) vs. absorbido en la liquidación.
+    pendienteSinFechaReservado: cub("sin_fecha"),
+    pendienteSinFechaEnLiquidacion: todas.reduce((s2, q) =>
+      s2 + q.sinFechaEnLiquidacion.reduce((t, x) => t + x.usd, 0), 0),
+    cajaEnHorizonte: sum(q => q.cajaEnHorizonte),
+    cubetas: { vencido: cub("vencido"), horizonte: cub("horizonte"),
+               fuera_horizonte: cub("fuera_horizonte"), sin_fecha: cub("sin_fecha") },
+    avisosCompatibilidad,
+    cuadra: todas.every(q => q.cuadra),
   };
 }
 
@@ -300,11 +502,15 @@ export function resumenLado({
  */
 export function movimientosLado(opts = {}) {
   const r = resumenLado(opts);
+  // Pendientes con fecha, cada uno en su mes (los sin fecha ya quedaron fuera
+  // de `detalle`), más la liquidación de CADA posición en su propio mes.
   const movs = r.detalle.map(d => ({ ...d }));
-  const mesLiq = opts.mesLiquidacion || "";
-  if (mesLiq && r.liquidacion > 0) {
-    movs.push({ tipo: "liquidacion", id: "liq", mes: mesLiq, usd: r.liquidacion, contraparte: "" });
-  }
+  r.todas.forEach(q => {
+    if (q.liquidacionMes && q.liquidacion > 0) {
+      movs.push({ tipo: "liquidacion", id: `liq_${q.etiqueta}`, mes: q.liquidacionMes,
+                  usd: q.liquidacion, contraparte: q.etiqueta === "Bloque presupuestario" ? "" : q.etiqueta });
+    }
+  });
   return { movimientos: movs, resumen: r };
 }
 
@@ -402,3 +608,197 @@ export function puedeAplicar(mov, usd) {
 }
 
 export { realizacionesVigentes, antRealizado };
+
+// ═══════════════════════════════════════════════════════════════════
+// SALDOS A FAVOR
+//
+// Programar NO extingue el saldo. Solo lo resuelven los movimientos
+// efectivamente realizados y las compensaciones APLICADAS.
+//
+//   resuelto   = ejecutadas (recuperación/devolución) + compensaciones aplicadas
+//   programado = programadas sin ejecutar + compensaciones reservadas
+//   pendiente real = reconocido − resuelto
+//   disponible     = pendiente real − programado
+// ═══════════════════════════════════════════════════════════════════
+
+export const ESTADOS_SALDO = ["provisional", "en_discusion", "reconocido"];
+export const TIPOS_APLICACION = ["recuperacion", "devolucion", "compensacion", "aplazamiento"];
+
+export function normalizarSaldo(x) {
+  const base = x || {};
+  return {
+    ...base,
+    id: base.id || uid("sf"),
+    lado: LADOS.includes(base.lado) ? base.lado : "cliente",
+    contraparte: base.contraparte || "",
+    programaId: base.programaId || null,
+    usd: esDato(base.usd) ? Number(base.usd) : null,
+    estado: ESTADOS_SALDO.includes(base.estado) ? base.estado : "provisional",
+    respaldo: base.respaldo || null,
+    aplicaciones: (Array.isArray(base.aplicaciones) ? base.aplicaciones : []).map(a => ({
+      ...a, id: a?.id || uid("ap"), usd: esDato(a?.usd) ? Number(a.usd) : 0,
+      tipo: TIPOS_APLICACION.includes(a?.tipo) ? a.tipo : "recuperacion",
+      estado: a?.estado || "programada",
+      historial: Array.isArray(a?.historial) ? a.historial : [],
+    })),
+  };
+}
+
+const vigentes = (s) => s.aplicaciones.filter(a => !a.anulada && a.estado !== "anulada");
+
+/**
+ * Reconocer un saldo exige respaldo: liquidación definitiva individual o un
+ * documento que lo acredite. Una nota que solo asigna presupuesto no basta.
+ */
+export function puedeReconocer({ importeDefinitivo = null, respaldo = null } = {}) {
+  if (esDato(importeDefinitivo)) return { puede: true, motivo: "liquidación definitiva individual" };
+  if (respaldo && respaldo.tipo === "documento" && respaldo.referencia && respaldo.fecha) {
+    return { puede: true, motivo: "documento que acredita el saldo" };
+  }
+  return { puede: false, motivo: "falta liquidación definitiva individual o documento con contraparte, operación, monto, fecha y respaldo" };
+}
+
+export function resumenSaldo(s0) {
+  const s = normalizarSaldo(s0);
+  const act = vigentes(s);
+  const resuelto = act
+    .filter(a => (a.tipo === "recuperacion" || a.tipo === "devolucion") ? a.estado === "ejecutada"
+                : a.tipo === "compensacion" ? a.estado === "aplicada" : false)
+    .reduce((t, a) => t + n(a.usd), 0);
+  const programado = act
+    .filter(a => (a.tipo === "recuperacion" || a.tipo === "devolucion") ? a.estado === "programada"
+                : a.tipo === "compensacion" ? a.estado === "reservada" : false)
+    .reduce((t, a) => t + n(a.usd), 0);
+  const reconocido = n(s.usd);
+  const pendienteReal = Math.max(0, reconocido - resuelto);
+  return {
+    reconocido, resuelto, programado,
+    pendienteReal, disponible: Math.max(0, pendienteReal - programado),
+    estado: s.estado, cerrado: pendienteReal <= 0.005,
+    aplicaciones: act,
+  };
+}
+
+/** Agrega una aplicación, sin permitir usar dos veces el mismo monto. */
+export function agregarAplicacion(s0, { tipo, usd, mes, destino = null, motivo = "", usuario = "" }) {
+  const s = normalizarSaldo(s0);
+  if (!TIPOS_APLICACION.includes(tipo)) throw new Error("Tipo de aplicación no válido.");
+  if (tipo === "aplazamiento") throw new Error("El aplazamiento se hace sobre una aplicación existente.");
+  const r = resumenSaldo(s);
+  if (!(n(usd) > 0)) throw new Error("La aplicación necesita su monto.");
+  if (n(usd) > r.disponible + 0.005) {
+    throw new Error(`No se puede aplicar ${Math.round(n(usd))}: quedan ${Math.round(r.disponible)} disponibles. ` +
+      `Lo ya programado sigue ocupando saldo aunque no esté ejecutado.`);
+  }
+  if (tipo === "compensacion" && !destino) throw new Error("Una compensación necesita identificar la operación destino.");
+  const estado = tipo === "compensacion" ? "reservada" : "programada";
+  return { ...s, aplicaciones: [...s.aplicaciones, {
+    id: uid("ap"), tipo, usd: n(usd), mes: mes || "", destino, motivo, usuario,
+    estado, ts: new Date().toISOString(), historial: [],
+  }] };
+}
+
+/** Marca una programación como efectivamente ejecutada (hubo movimiento real). */
+export function ejecutarAplicacion(s0, aplicacionId, { fecha, movimientoId = null, usuario = "" }) {
+  const s = normalizarSaldo(s0);
+  if (!fecha) throw new Error("Ejecutar una aplicación necesita la fecha real del movimiento.");
+  return { ...s, aplicaciones: s.aplicaciones.map(a => a.id === aplicacionId
+    ? { ...a, estado: "ejecutada", fechaEjecucion: fecha, movimientoId, usuario,
+        historial: [...a.historial, { de: a.estado, a: "ejecutada", ts: new Date().toISOString(), usuario }] }
+    : a) };
+}
+
+/** Aplica una compensación reservada contra el destino, validando su saldo. */
+export function aplicarCompensacion(s0, aplicacionId, { saldoDestino, usuario = "" }) {
+  const s = normalizarSaldo(s0);
+  const ap = s.aplicaciones.find(a => a.id === aplicacionId);
+  if (!ap || ap.tipo !== "compensacion") throw new Error("No es una compensación.");
+  if (ap.estado !== "reservada") throw new Error("Solo se aplica una compensación reservada.");
+  if (!esDato(saldoDestino)) throw new Error("Falta el saldo de la operación destino.");
+  const absorbe = Math.min(n(ap.usd), Number(saldoDestino));
+  if (absorbe <= 0) throw new Error("La operación destino no tiene saldo que absorber.");
+  const remanente = n(ap.usd) - absorbe;
+  const aplicaciones = s.aplicaciones.map(a => a.id === aplicacionId
+    ? { ...a, estado: "aplicada", usd: absorbe, usuario, fechaAplicacion: new Date().toISOString(),
+        historial: [...a.historial, { de: "reservada", a: "aplicada", usd: absorbe, remanente, ts: new Date().toISOString(), usuario }] }
+    : a);
+  return { saldo: { ...s, aplicaciones }, absorbido: absorbe, remanente };
+}
+
+/** Aplaza una programación: cambia su mes, deja historial y NO duplica cuotas. */
+export function aplazarAplicacion(s0, aplicacionId, { mes, motivo, usuario = "" }) {
+  const s = normalizarSaldo(s0);
+  if (!motivo || !String(motivo).trim()) throw new Error("Aplazar necesita un motivo.");
+  return { ...s, aplicaciones: s.aplicaciones.map(a => {
+    if (a.id !== aplicacionId) return a;
+    if (a.estado === "ejecutada" || a.estado === "aplicada") {
+      throw new Error("No se aplaza una aplicación ya ejecutada o aplicada.");
+    }
+    return { ...a, mes: mes || "", motivo: String(motivo).trim(), usuario,
+      historial: [...a.historial, { mesAnterior: a.mes, mesNuevo: mes || "", motivo: String(motivo).trim(), ts: new Date().toISOString(), usuario }] };
+  }) };
+}
+
+/**
+ * Anular una programación libera su reserva. NUNCA borra ni revierte un
+ * movimiento ya realizado: una aplicación ejecutada o aplicada no se anula
+ * desde acá, se corrige anulando su movimiento con motivo.
+ */
+export function anularAplicacion(s0, aplicacionId, { motivo, usuario = "" }) {
+  const s = normalizarSaldo(s0);
+  const ap = s.aplicaciones.find(a => a.id === aplicacionId);
+  if (!ap) return s;
+  if (ap.estado === "ejecutada" || ap.estado === "aplicada") {
+    throw new Error("Esta aplicación ya se ejecutó: para revertirla hay que anular su movimiento, con motivo.");
+  }
+  if (!motivo || !String(motivo).trim()) throw new Error("Anular necesita un motivo.");
+  return { ...s, aplicaciones: s.aplicaciones.map(a => a.id === aplicacionId
+    ? { ...a, anulada: true, estado: "anulada", motivoAnulacion: String(motivo).trim(), usuario,
+        anuladaTs: new Date().toISOString(),
+        historial: [...a.historial, { de: ap.estado, a: "anulada", motivo: String(motivo).trim(), ts: new Date().toISOString(), usuario }] }
+    : a) };
+}
+
+/** Movimientos que los saldos a favor mandan al flujo. */
+export function movimientosSaldos(saldos, { mIdx = () => -1 } = {}) {
+  const out = [];
+  (Array.isArray(saldos) ? saldos : []).map(normalizarSaldo).forEach(s => {
+    vigentes(s).forEach(a => {
+      // Solo lo programado y todavía no ejecutado llega al flujo: lo ejecutado
+      // ya es caja y las compensaciones no generan movimiento bancario.
+      if (a.tipo === "compensacion" || a.tipo === "aplazamiento") return;
+      if (a.estado !== "programada" || !a.mes) return;
+      out.push({ tipo: a.tipo, saldoId: s.id, aplicacionId: a.id, mes: a.mes, usd: n(a.usd),
+                 lado: s.lado, contraparte: s.contraparte,
+                 // recuperación del productor = entrada · devolución al cliente = salida
+                 signo: a.tipo === "recuperacion" ? 1 : -1 });
+    });
+  });
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RECONSTRUIR LA BASE DESDE UN DOCUMENTO NETO
+//
+// Solo vuelven los anticipos y compensaciones que ESE documento descontó.
+// Las deducciones comerciales (comisión, materiales, servicios) y los otros
+// ajustes quedan descontados: no se suman de nuevo.
+// ═══════════════════════════════════════════════════════════════════
+export const TIPOS_DEDUCCION = ["comercial", "anticipo", "compensacion", "otro"];
+const VUELVEN = new Set(["anticipo", "compensacion"]);
+
+export function baseDesdeDocumento({ neto, deducciones = [] } = {}) {
+  if (!esDato(neto)) return { base: null, faltantes: ["neto del documento"], devuelve: 0, cuadra: false };
+  const faltantes = [];
+  let devuelve = 0;
+  (deducciones || []).forEach((d, i) => {
+    if (!TIPOS_DEDUCCION.includes(d?.tipo)) { faltantes.push(`tipo de la deducción ${i + 1}`); return; }
+    if (!esDato(d?.usd)) { faltantes.push(`monto de la deducción ${i + 1}`); return; }
+    if (VUELVEN.has(d.tipo)) devuelve += Number(d.usd);
+  });
+  if (faltantes.length) return { base: null, faltantes, devuelve, cuadra: false };
+  const base = Number(neto) + devuelve;
+  // Validación: deshacer el cálculo tiene que devolver el neto del documento.
+  const cuadra = Math.abs((base - devuelve) - Number(neto)) < 0.005;
+  return { base, devuelve, faltantes: [], cuadra };
+}

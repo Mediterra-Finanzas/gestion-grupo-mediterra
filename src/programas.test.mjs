@@ -424,5 +424,297 @@ const lado = (o = {}) => resumenLado({
     aprox(r.base,195700) && aprox(r.liquidacion,100700) && aprox(r.variacionBase,-10300), `${r.liquidacion}`);
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+// ETAPA 2 · FECHAS, POSICIONES, COMPATIBILIDAD Y SALDOS A FAVOR
+//
+// El horizonte y el corte salen de src/horizonte.js, no de un mes fijado
+// a mano: si la app cambia su horizonte, estas pruebas lo siguen.
+// ═══════════════════════════════════════════════════════════════════
+import { MESES as HORIZONTE, mIdx as mIdxReal, mesIdxActual as cortReal, mesActual } from "./horizonte.js";
+import {
+  cuadrePosicion, cubetaTemporal, esItemLegacy, tratoSinFecha,
+  registrarDecisionSinFecha, MODELO_VERSION,
+  normalizarSaldo, resumenSaldo, puedeReconocer, agregarAplicacion,
+  ejecutarAplicacion, aplicarCompensacion, aplazarAplicacion, anularAplicacion,
+  movimientosSaldos, baseDesdeDocumento,
+} from "./programas.js";
+
+const CORTE = cortReal();
+const MES_VENCIDO   = HORIZONTE[Math.max(0, CORTE - 2)];
+const MES_FUTURO    = HORIZONTE[CORTE + 1];
+const MES_FUTURO_2  = HORIZONTE[CORTE + 2];
+const MES_LIQ       = HORIZONTE[CORTE + 5];
+const MES_FUERA     = "Dec-99";                       // no existe en el horizonte
+console.log(`\n── horizonte real: ${HORIZONTE[0]} a ${HORIZONTE[HORIZONTE.length-1]} · corte ${mesActual()} (idx ${CORTE}) ──`);
+check("(H1) el corte está dentro del horizonte", CORTE >= 0, `${mesActual()}`);
+check("(H2) el mes de fuera no pertenece al horizonte", mIdxReal(MES_FUERA) < 0);
+
+const pos = (o) => cuadrePosicion({ mIdx: mIdxReal, mesIdxActual: CORTE, ...o });
+
+// ═══ Cubetas excluyentes ═══════════════════════════════════════════
+{
+  const q = pos({ base: 1000000, realizado: 0, mesLiquidacion: MES_LIQ, pendientes: [
+    { id: "a", mes: MES_VENCIDO, usd: 10000 },
+    { id: "b", mes: MES_FUTURO,  usd: 20000 },
+    { id: "c", mes: MES_FUERA,   usd: 30000 },
+    { id: "d", mes: "",          usd: 40000, trato: "reservado" },
+  ]});
+  check("(77) cada pendiente cae en una sola cubeta",
+    q.cubetas.vencido === 10000 && q.cubetas.horizonte === 20000 &&
+    q.cubetas.fuera_horizonte === 30000 && q.cubetas.sin_fecha === 40000);
+  check("(78) nada se cuenta dos veces ni se pierde", aprox(q.compromisos, 100000));
+  check("(79) la liquidación toma el resto", aprox(q.liquidacion, 900000));
+  check("(80) la identidad del cuadre se cumple", q.cuadra === true);
+  check("(81) a la caja del horizonte solo llegan el mes futuro y la liquidación",
+    aprox(q.cajaEnHorizonte, 20000 + 900000), `${q.cajaEnHorizonte}`);
+}
+
+// ═══ Los cuatro casos acordados ════════════════════════════════════
+{
+  const c1 = pos({ base:500000, realizado:100000, mesLiquidacion:MES_LIQ,
+                   pendientes:[{ id:"x", mes:MES_FUTURO, usd:50000 }] });
+  check("(82) caso 1 · normal: saldo 400.000 · liq 350.000 · exceso 0",
+    aprox(c1.saldoEconomico,400000) && aprox(c1.liquidacion,350000) &&
+    aprox(c1.totalCalendarizado,400000) && aprox(c1.excedenteReal,0) && aprox(c1.excesoCompromisos,0));
+
+  const c2 = pos({ base:100000, realizado:80000, mesLiquidacion:MES_LIQ,
+                   pendientes:[{ id:"x", mes:MES_FUTURO, usd:40000 }] });
+  check("(83) caso 2 · calendario excede sin sobrepago: exceso 20.000, sin deuda",
+    aprox(c2.saldoEconomico,20000) && aprox(c2.liquidacion,0) &&
+    aprox(c2.totalCalendarizado,40000) && aprox(c2.excedenteReal,0) && aprox(c2.excesoCompromisos,20000));
+  check("(84) caso 2 · la diferencia queda explicada, no forzada a cero", c2.cuadra === true);
+
+  const c3 = pos({ base:100000, realizado:120000, mesLiquidacion:MES_LIQ,
+                   pendientes:[{ id:"x", mes:MES_FUTURO_2, usd:30000 }] });
+  check("(85) caso 3 · sobrepago real 20.000 y exceso de calendario 30.000",
+    aprox(c3.saldoEconomico,0) && aprox(c3.liquidacion,0) && aprox(c3.totalCalendarizado,30000) &&
+    aprox(c3.excedenteReal,20000) && aprox(c3.excesoCompromisos,30000));
+  check("(86) caso 3 · no es una obligación de 50.000", !aprox(c3.excedenteReal, 50000));
+}
+{
+  // caso 4 · bloque excedido conviviendo con una operación individual
+  const estim = est({ id:"eb", mes:MES_FUTURO, monto:850000,
+                      realizaciones:[rea("rb","2026-08-01",850000)] });   // pendiente 0
+  const indiv = normalizarPrograma({ id:"pA", lado:"cliente", contraparte:"A",
+    presupuesto_asignado:200000, importe_definitivo:180000,
+    mes_liquidacion:MES_FUTURO, cuotas:[] });
+  const r = resumenLado({ estimaciones:[estim], programas:[indiv], lado:"cliente",
+    basePresupuesto:1000000, mIdx:mIdxReal, mesIdxActual:CORTE, mesLiquidacion:MES_LIQ });
+  const A = r.posiciones[0];
+  check("(87) caso 4 · la operación individual cobra sus 180.000",
+    aprox(A.base,180000) && aprox(A.liquidacion,180000) && aprox(A.variacionBase,-20000));
+  check("(88) caso 4 · el bloque queda en 800.000 con excedente de 50.000",
+    aprox(r.bloque.base,800000) && aprox(r.bloque.liquidacion,0) && aprox(r.bloque.excedenteReal,50000));
+  check("(89) caso 4 · el total NO netea: 180.000 por cobrar",
+    aprox(r.liquidacion,180000) && aprox(r.saldoEconomico,180000), `${r.liquidacion}`);
+  check("(90) caso 4 · el excedente del bloque va aparte", aprox(r.excedenteReal,50000));
+}
+
+// ═══ Posiciones individuales sin neteo: A y B ══════════════════════
+{
+  const mk = (lado) => [
+    normalizarPrograma({ id:"pA", lado, contraparte:"A", presupuesto_asignado:100000,
+      importe_definitivo:100000, mes_liquidacion:MES_FUTURO, cuotas:[
+      normalizarCuota({ id:"ca", mes:MES_FUTURO, modalidad:"monto", monto:120000, estado:"vigente",
+        realizaciones:[rea("ra","2026-08-01",120000)] })]}),
+    normalizarPrograma({ id:"pB", lado, contraparte:"B", presupuesto_asignado:100000,
+      importe_definitivo:100000, mes_liquidacion:MES_FUTURO_2, cuotas:[] }),
+  ];
+  ["cliente","productor"].forEach((lado,i) => {
+    const r = resumenLado({ estimaciones:[], programas:mk(lado), lado,
+      basePresupuesto:200000, mIdx:mIdxReal, mesIdxActual:CORTE, mesLiquidacion:MES_LIQ });
+    const A = r.posiciones.find(p=>p.contraparte==="A"), B = r.posiciones.find(p=>p.contraparte==="B");
+    check(`(9${1+i}) ${lado} · A con 20.000 a su favor y B debe 100.000`,
+      aprox(A.excedenteReal,20000) && aprox(A.liquidacion,0) && aprox(B.liquidacion,100000));
+    check(`(9${3+i}) ${lado} · el flujo muestra 100.000, no 80.000`,
+      aprox(r.liquidacion,100000) && aprox(r.excedenteReal,20000), `${r.liquidacion}`);
+  });
+}
+
+// ═══ Fechas · los dos ejemplos ═════════════════════════════════════
+{
+  // 1 · liquidación calculada pero sin mes
+  const q = pos({ base:500000, realizado:100000, mesLiquidacion:"",
+                  pendientes:[{ id:"x", mes:MES_FUTURO, usd:50000 }] });
+  check("(95) liquidación sin mes: calendarizado 50.000 y 350.000 por calendarizar",
+    aprox(q.saldoEconomico,400000) && aprox(q.totalCalendarizado,50000) &&
+    aprox(q.pendienteDeCalendarizar,350000) && aprox(q.liquidacion,350000));
+  check("(96) y no se inventa fecha: nada de eso llega a la caja del horizonte",
+    aprox(q.cajaEnHorizonte,50000), `${q.cajaEnHorizonte}`);
+}
+{
+  // 2 · anticipo sin fecha, acordado vs trasladado
+  const acordado = pos({ base:500000, realizado:100000, mesLiquidacion:MES_LIQ,
+                         pendientes:[{ id:"x", mes:"", usd:50000, trato:"reservado" }] });
+  check("(97) anticipo acordado sin fecha: reserva 50.000 y liquidación 350.000",
+    aprox(acordado.cubetas.sin_fecha,50000) && aprox(acordado.liquidacion,350000) &&
+    aprox(acordado.saldoEconomico,400000));
+  const trasladado = pos({ base:500000, realizado:100000, mesLiquidacion:MES_LIQ,
+                           pendientes:[{ id:"x", mes:"", usd:50000, trato:"en_liquidacion" }] });
+  check("(98) trasladado a liquidación: anticipo separado 0 y liquidación 400.000",
+    aprox(trasladado.cubetas.sin_fecha,0) && aprox(trasladado.liquidacion,400000));
+  check("(99) en los dos casos el saldo económico es el mismo",
+    aprox(acordado.saldoEconomico, trasladado.saldoEconomico));
+}
+
+// ═══ Compatibilidad de registros antiguos ══════════════════════════
+{
+  const viejo = { id:"v1", mes:"", usd_kg:0 };                       // sin marca de versión
+  const nuevo = { id:"n1", mes:"", usd_kg:0, v: MODELO_VERSION };
+  check("(100) la regla de versión no se basa solo en la fecha vacía",
+    esItemLegacy(viejo,1) === true && esItemLegacy(nuevo,1) === false &&
+    esItemLegacy(viejo,MODELO_VERSION) === false);
+  check("(101) antiguo sin decisión conserva el tratamiento de antes",
+    tratoSinFecha(viejo,{modeloVersion:1,decisiones:{}}) === "en_liquidacion");
+  check("(102) uno nuevo sin fecha queda pendiente de calendarizar",
+    tratoSinFecha(nuevo,{modeloVersion:1,decisiones:{}}) === "reservado");
+
+  let dec = registrarDecisionSinFecha({}, "v1", "acordado_sin_fecha", { usuario:"qa", nota:"sigue acordado" });
+  check("(103) la decisión queda con usuario y fecha",
+    dec.v1.trato === "acordado_sin_fecha" && dec.v1.usuario === "qa" && !!dec.v1.ts);
+  check("(104) y cambia el tratamiento",
+    tratoSinFecha(viejo,{modeloVersion:1,decisiones:dec}) === "reservado");
+  dec = registrarDecisionSinFecha(dec, "v1", "trasladar_liquidacion", { usuario:"qa", nota:"corrijo" });
+  check("(105) cambiar de opinión deja el historial",
+    dec.v1.historial.length === 1 && dec.v1.historial[0].trato === "acordado_sin_fecha");
+  const round = JSON.parse(JSON.stringify(dec));
+  check("(106) la decisión sobrevive a serializar y recargar",
+    tratoSinFecha(viejo,{modeloVersion:1,decisiones:round}) === "en_liquidacion" &&
+    round.v1.historial.length === 1);
+
+  // El flujo no cambia mientras no haya decisión
+  const estVieja = est({ id:"v1", mes:"", monto:50000 });
+  const antes = resumenLado({ estimaciones:[estVieja], basePresupuesto:500000,
+    mIdx:mIdxReal, mesIdxActual:CORTE, mesLiquidacion:MES_LIQ, modeloVersion:1 });
+  check("(107) sin decisión, la liquidación es la de siempre (500.000)",
+    aprox(antes.liquidacion,500000), `${antes.liquidacion}`);
+  check("(108) y el registro queda listado para decidir",
+    antes.avisosCompatibilidad.length === 1 && antes.avisosCompatibilidad[0].id === "v1");
+  const despues = resumenLado({ estimaciones:[estVieja], basePresupuesto:500000,
+    mIdx:mIdxReal, mesIdxActual:CORTE, mesLiquidacion:MES_LIQ, modeloVersion:1,
+    decisionesSinFecha: registrarDecisionSinFecha({}, "v1", "acordado_sin_fecha", { usuario:"qa" }) });
+  check("(109) al decidir 'sigue acordado' la liquidación baja 50.000",
+    aprox(despues.liquidacion,450000) && aprox(despues.pendienteSinFechaReservado,50000), `${despues.liquidacion}`);
+  check("(110) y el saldo económico no se mueve",
+    aprox(antes.saldoEconomico, despues.saldoEconomico));
+}
+
+// ═══ Saldos a favor ════════════════════════════════════════════════
+{
+  check("(111) reconocer exige respaldo",
+    puedeReconocer({}).puede === false &&
+    puedeReconocer({ importeDefinitivo: 200000 }).puede === true &&
+    puedeReconocer({ respaldo:{ tipo:"documento", referencia:"LIQ-1", fecha:"2027-04-01" } }).puede === true);
+
+  // A · productor, exceso 40.000 recuperado en dos cuotas de 20.000
+  let s = normalizarSaldo({ id:"s1", lado:"productor", contraparte:"P", usd:40000, estado:"reconocido" });
+  s = agregarAplicacion(s, { tipo:"recuperacion", usd:20000, mes:MES_FUTURO,  usuario:"qa" });
+  s = agregarAplicacion(s, { tipo:"recuperacion", usd:20000, mes:MES_FUTURO_2, usuario:"qa" });
+  let r = resumenSaldo(s);
+  check("(112) A · programar no extingue: pendiente 40.000, programado 40.000, disponible 0, resuelto 0",
+    aprox(r.pendienteReal,40000) && aprox(r.programado,40000) && aprox(r.disponible,0) && aprox(r.resuelto,0));
+  let err = null;
+  try { agregarAplicacion(s, { tipo:"recuperacion", usd:1, mes:MES_FUTURO }); } catch (e) { err = e; }
+  check("(113) A · no se puede usar dos veces el mismo monto", !!err);
+
+  s = ejecutarAplicacion(s, s.aplicaciones[0].id, { fecha:"2026-12-05", usuario:"qa" });
+  r = resumenSaldo(s);
+  check("(114) A · tras cobrar la primera: pendiente 20.000, programado 20.000, resuelto 20.000",
+    aprox(r.pendienteReal,20000) && aprox(r.programado,20000) && aprox(r.resuelto,20000));
+  const movs = movimientosSaldos([s], { mIdx: mIdxReal });
+  check("(115) A · el flujo proyecta solo la cuota que falta",
+    movs.length === 1 && aprox(movs[0].usd,20000) && movs[0].signo === 1 && movs[0].mes === MES_FUTURO_2);
+
+  // aplazar la que queda
+  s = aplazarAplicacion(s, s.aplicaciones[1].id, { mes:MES_LIQ, motivo:"acordado con el productor", usuario:"qa" });
+  const movs2 = movimientosSaldos([s], { mIdx: mIdxReal });
+  check("(116) A · aplazar cambia el mes sin duplicar la cuota",
+    movs2.length === 1 && movs2[0].mes === MES_LIQ &&
+    s.aplicaciones[1].historial.length === 1);
+  check("(117) A · y no toca lo ya cobrado", aprox(resumenSaldo(s).resuelto,20000));
+
+  // anular la programación pendiente
+  let err2 = null;
+  try { anularAplicacion(s, s.aplicaciones[0].id, { motivo:"x" }); } catch (e) { err2 = e; }
+  check("(118) A · una aplicación ya ejecutada no se anula desde acá", !!err2);
+  s = anularAplicacion(s, s.aplicaciones[1].id, { motivo:"se renegoció", usuario:"qa" });
+  r = resumenSaldo(s);
+  check("(119) A · anular libera la reserva y conserva lo cobrado",
+    aprox(r.programado,0) && aprox(r.disponible,20000) && aprox(r.resuelto,20000) && aprox(r.pendienteReal,20000));
+  check("(120) A · el movimiento ejecutado sigue en el historial",
+    s.aplicaciones.filter(a=>a.estado==="ejecutada").length === 1);
+}
+{
+  // B · compensación reservada y después aplicada
+  let s = normalizarSaldo({ id:"s2", lado:"productor", contraparte:"P", usd:40000, estado:"reconocido" });
+  s = agregarAplicacion(s, { tipo:"compensacion", usd:40000, destino:{ temporada:"2027-2028", contraparte:"P" }, usuario:"qa" });
+  let r = resumenSaldo(s);
+  check("(121) B · reservada: ocupa disponible y todavía NO resuelve",
+    aprox(r.programado,40000) && aprox(r.resuelto,0) && aprox(r.pendienteReal,40000) && aprox(r.disponible,0));
+  check("(122) B · una reserva no manda nada al flujo", movimientosSaldos([s],{mIdx:mIdxReal}).length === 0);
+  const ap = aplicarCompensacion(s, s.aplicaciones[0].id, { saldoDestino:100000, usuario:"qa" });
+  r = resumenSaldo(ap.saldo);
+  check("(123) B · aplicada contra 100.000: absorbe 40.000 y el pago final queda en 60.000",
+    aprox(ap.absorbido,40000) && aprox(ap.remanente,0) && aprox(r.resuelto,40000) && aprox(r.pendienteReal,0));
+  check("(124) B · sin ingreso ficticio", movimientosSaldos([ap.saldo],{mIdx:mIdxReal}).length === 0);
+
+  // destino que solo absorbe una parte
+  let s3 = normalizarSaldo({ id:"s3", lado:"productor", contraparte:"Q", usd:40000, estado:"reconocido" });
+  s3 = agregarAplicacion(s3, { tipo:"compensacion", usd:40000, destino:{ contraparte:"Q" }, usuario:"qa" });
+  const parcial = aplicarCompensacion(s3, s3.aplicaciones[0].id, { saldoDestino:15000 });
+  const r3 = resumenSaldo(parcial.saldo);
+  check("(125) B · si el destino solo absorbe parte, el remanente queda visible",
+    aprox(parcial.absorbido,15000) && aprox(parcial.remanente,25000) &&
+    aprox(r3.resuelto,15000) && aprox(r3.pendienteReal,25000) && aprox(r3.disponible,25000));
+}
+{
+  // C y D · cliente
+  let s = normalizarSaldo({ id:"s4", lado:"cliente", contraparte:"A", usd:50000, estado:"reconocido" });
+  s = agregarAplicacion(s, { tipo:"devolucion", usd:50000, mes:MES_FUTURO, usuario:"qa" });
+  const m = movimientosSaldos([s], { mIdx: mIdxReal });
+  check("(126) C · devolución al cliente: egreso en su mes",
+    m.length === 1 && m[0].signo === -1 && aprox(m[0].usd,50000) && m[0].mes === MES_FUTURO);
+  let s2 = normalizarSaldo({ id:"s5", lado:"cliente", contraparte:"A", usd:50000, estado:"reconocido" });
+  s2 = agregarAplicacion(s2, { tipo:"compensacion", usd:50000, destino:{ nota:"venta nueva" }, usuario:"qa" });
+  const ap = aplicarCompensacion(s2, s2.aplicaciones[0].id, { saldoDestino:200000 });
+  check("(127) D · aplicada a una venta de 200.000: quedan 150.000 por cobrar",
+    aprox(ap.absorbido,50000) && aprox(200000 - ap.absorbido,150000) &&
+    movimientosSaldos([ap.saldo],{mIdx:mIdxReal}).length === 0);
+}
+{
+  // E · exceso proyectado por cambio de presupuesto: no crea saldo
+  const q = pos({ base:400000, realizado:450000, mesLiquidacion:MES_LIQ, pendientes:[] });
+  check("(128) E · baja el presupuesto: excedente real 50.000 sobre base presupuestaria",
+    aprox(q.excedenteReal,50000) && aprox(q.liquidacion,0));
+  check("(129) E · pero sin liquidación definitiva no se puede reconocer deuda",
+    puedeReconocer({}).puede === false);
+}
+
+// ═══ Documento neto ════════════════════════════════════════════════
+{
+  const d = baseDesdeDocumento({ neto:300000, deducciones:[
+    { tipo:"comercial", usd:50000, detalle:"comisión y servicios" },
+    { tipo:"anticipo",  usd:150000 },
+  ]});
+  check("(130) base liquidable 450.000, no 500.000", aprox(d.base,450000) && d.cuadra === true);
+
+  const sinClasificar = baseDesdeDocumento({ neto:300000, deducciones:[{ usd:150000 }] });
+  check("(131) sin clasificar la deducción no se infiere nada",
+    sinClasificar.base === null && sinClasificar.faltantes.length > 0);
+
+  // una cuota futura que el documento NO descontó no entra en la reconstrucción
+  const conFutura = baseDesdeDocumento({ neto:300000, deducciones:[
+    { tipo:"comercial", usd:50000 }, { tipo:"anticipo", usd:150000 },
+  ]});
+  check("(132) una cuota futura ajena al documento no se suma", aprox(conFutura.base,450000));
+
+  const conOtros = baseDesdeDocumento({ neto:300000, deducciones:[
+    { tipo:"comercial", usd:50000 }, { tipo:"anticipo", usd:150000 },
+    { tipo:"otro", usd:10000, detalle:"castigo de calidad" },
+  ]});
+  check("(133) los otros ajustes quedan descontados", aprox(conOtros.base,450000));
+}
+
 console.log(`\n${fallos === 0 ? "TODOS LOS TESTS PASARON ✓" : `${fallos} TEST(S) FALLARON ✗`}`);
 process.exit(fallos === 0 ? 0 : 1);

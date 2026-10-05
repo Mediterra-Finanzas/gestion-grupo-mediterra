@@ -20,6 +20,7 @@ import {
   puedeBorrarAnticipo, nuevoIdAnticipo, clasificarRealizacionVsSaldos, conciliacionRealizaciones,
   pendientesVencidos,
 } from './anticipos.js';
+import { generarMeses } from './horizonte.js';
 import {
   movimientosLado, resumenLado, normalizarPrograma, normalizarCuota,
   cuotaAcordado, cuotaPendiente, cuotaRealizado, estPendiente, estDisponible,
@@ -33,17 +34,8 @@ import ProgramasPanel, { ResumenLado } from './ProgramasComerciales.jsx';
 // ═══════════════════════════════════════════════════════════════════
 const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-function generarMeses() {
-  const out = [];
-  let y = 2026, m = 3; // Empieza en Apr-26
-  // Genera Apr-26 a Jun-31 = 63 meses
-  while (out.length < 63) {
-    out.push({ label:`${MN[m]}-${String(y).slice(2)}`, y, m, idx:out.length });
-    m++; if (m > 11) { m = 0; y++; }
-  }
-  return out;
-}
-
+// El horizonte vive en src/horizonte.js: una sola definición para la app,
+// el modelo y las pruebas.
 const MESES_INFO = generarMeses();
 const MESES_65   = MESES_INFO.map(x => x.label);
 function seasonOf(mo) { return mo.m >= 6 ? mo.y : mo.y - 1; }
@@ -82,7 +74,7 @@ const SEMANAS_MES = {
 
 const Z65  = () => Array(63).fill(0); // 63 meses: Apr-26 → Jun-31
 function ext(arr) { const r=[...(arr||[])]; while(r.length<63) r.push(0); if(r.length>63) r.splice(63); return r; }
-function mIdx(label) { return MESES_65.indexOf(label); }
+function mIdx(label) { return MESES_65.indexOf(label); }   // = mIdx de src/horizonte.js
 // Un anticipo solo se proyecta si su mes cae dentro del horizonte del flujo.
 // Si no, su pendiente no se descuenta de la liquidación (se cobra/paga al
 // liquidar) — así el dinero nunca desaparece de la proyección.
