@@ -110,7 +110,7 @@ El riesgo real es **escalar permisos**: `fn_mis_empresas()` (SECURITY DEFINER, e
   - RLS activo y políticas **solo para `authenticated`** con `empresa_id IN fn_mis_empresas()`;
   - `anon` tiene permisos de tabla, pero sin política aplicable RLS le niega todo por la API **[Seguro]**.
   - **El riesgo es de quien tenga sesión:** como `rbac_usuarios_roles` está abierta a escritura, cualquier usuario con sesión puede asignarse una empresa y leer o escribir su contabilidad.
-  - **Reproducido en local** con la misma configuración (`scripts/nominas-cas/prueba-roles.mjs`, casos A1–A3).
+  - **Reproducido en local** con la misma configuración (ahora en la rama `claude/seguridad-roles-empresas`: `scripts/seguridad-roles/prueba.mjs`, casos A1–A4).
 - **Quién puede tener sesión** depende de si Supabase Auth permite que cualquiera se registre: **P5** en la consola. Si el registro está abierto, cualquiera en internet podría crearse una cuenta y escalar **[Probable]**. Cuánto quedaría expuesto lo dice **U9** (conteo de filas contables).
 
 **Propuesta de seguridad (NO aplicada), separada de este PR:** rama `claude/seguridad-roles-empresas`, documento `docs/seguridad-roles-empresas.md`. Esa rama reemplaza el borrador que estuvo aquí (`propuesta_cerrar_tablas_roles.sql`).
