@@ -795,5 +795,92 @@ import {
     pvSinCupo.valido === false && pvSinCupo.motivo.includes("disponibles"));
 }
 
+// ═══ ETAPA 4 · antecedentes: montos informados sin fecha ═══
+import {
+  agregarAntecedente, completarAntecedente, anularAntecedente,
+  resumenAntecedentes, antecedenteFaltantes, normalizarPrograma as normPrg,
+} from "./programas.js";
+
+{
+  // Don Alberto: seis pagos informados, ninguna fecha. El monto es dato real;
+  // la fecha es un pendiente de datos, no una excusa para no cargarlos.
+  const MONTOS = [255000, 89890, 17110, 119000, 119000, 79000];
+  let prg = normPrg({ id: "pDA", lado: "productor", contraparte: "Don Alberto", kilos: 200000 });
+  MONTOS.forEach((usd, k) => {
+    prg = agregarAntecedente(prg, { usd, referencia: `informado ${k + 1}`, usuario: "qa" });
+  });
+  check("(147) se cargan los seis montos informados sin inventar fecha",
+    prg.antecedentes.length === 6 && prg.antecedentes.every(a => a.fecha === ""));
+  const rs = resumenAntecedentes([prg], "productor");
+  check("(148) el total informado es US$679.000", aprox(rs.totalInformado, 679000));
+  check("(149) dice exactamente qué falta por movimiento",
+    rs.sinFecha === 6 && rs.sinRespaldo === 6 &&
+    antecedenteFaltantes(prg.antecedentes[0]).join("|")
+      .includes("fecha real del movimiento"));
+  check("(150) nunca se afirma conciliación bancaria", rs.conciliadoConBancos === false);
+
+  // No descuenta nada: ni realizado, ni pendiente, ni liquidación
+  const r = resumenLado({ programas: [prg], lado: "productor", basePresupuesto: 1000000,
+    mIdx: mIdxReal, mesIdxActual: cortReal(), mesLiquidacion: MES_LIQ });
+  check("(151) un antecedente NO cuenta como pagado",
+    aprox(r.realizado, 0) && aprox(r.pendientes, 0) && aprox(r.liquidacion, 1000000));
+  check("(152) pero viaja en el resumen para verlo",
+    aprox(r.antecedentes.totalInformado, 679000) && r.antecedentes.cuentaPendientes === 6);
+
+  let err = null;
+  try { completarAntecedente(prg, prg.antecedentes[0].id, { fecha: "" }); } catch (e) { err = e; }
+  check("(153) convertir sin fecha real está prohibido",
+    !!err && err.message.includes("No se inventa"), err?.message);
+
+  // Con la fecha recuperada y sin saber la operación: bandeja de conciliación
+  const conv = completarAntecedente(prg, prg.antecedentes[1].id,
+    { fecha: "2026-08-14", usuario: "qa" });
+  check("(154) con fecha real sale a la bandeja, sin descontar",
+    aprox(conv.movimiento.usd, 89890) && conv.movimiento.fecha === "2026-08-14" &&
+    conv.movimiento.origen.tipo === "antecedente");
+  check("(155) el antecedente no se borra: queda convertido y apuntando",
+    conv.programa.antecedentes.length === 6 &&
+    conv.programa.antecedentes[1].estado === "convertido" &&
+    conv.programa.antecedentes[1].convertidoEn.id === conv.movimiento.id);
+  const rs2 = resumenAntecedentes([conv.programa], "productor");
+  check("(156) lo convertido sale del total informado y no se cuenta dos veces",
+    aprox(rs2.totalInformado, 679000 - 89890) && rs2.convertidos === 1);
+  let err2 = null;
+  try { completarAntecedente(conv.programa, conv.programa.antecedentes[1].id, { fecha: "2026-09-01" }); }
+  catch (e) { err2 = e; }
+  check("(157) un antecedente convertido no se vuelve a registrar", !!err2, err2?.message);
+
+  // Con la fecha y la cuota conocidas: se imputa como cualquier pago
+  const conCuota = normPrg({ ...conv.programa, cuotas: [
+    { id: "cDA1", modalidad: "monto", monto: 255000, estado: "vigente", mes: MES_FUTURO,
+      fecha_prevista: "2026-07-01" }] });
+  const imp = completarAntecedente(conCuota, conCuota.antecedentes[0].id,
+    { fecha: "2026-07-05", cuotaId: "cDA1", incluido: true, usuario: "qa" });
+  const rImp = resumenLado({ programas: [imp.programa], lado: "productor",
+    basePresupuesto: 1000000, mIdx: mIdxReal, mesIdxActual: cortReal(), mesLiquidacion: MES_LIQ });
+  check("(158) imputado a su cuota recién cuenta como pagado",
+    aprox(rImp.realizado, 255000) && aprox(rImp.pendientes, 0) &&
+    aprox(rImp.liquidacion, 745000));
+  check("(159) y el antecedente queda ligado a la realización",
+    imp.programa.antecedentes[0].convertidoEn.tipo === "cuota" &&
+    !!imp.programa.antecedentes[0].convertidoEn.realizacionId);
+
+  // Un monto informado equivocado se anula con motivo, no se borra
+  let err3 = null;
+  try { anularAntecedente(prg, prg.antecedentes[2].id, { motivo: "" }); } catch (e) { err3 = e; }
+  check("(160) anular un antecedente exige motivo", !!err3);
+  const anul = anularAntecedente(prg, prg.antecedentes[2].id,
+    { motivo: "el productor corrigió el monto", usuario: "qa" });
+  check("(161) anulado deja de sumar y conserva el motivo",
+    aprox(resumenAntecedentes([anul], "productor").totalInformado, 679000 - 17110) &&
+    anul.antecedentes[2].motivoAnulacion.includes("corrigió"));
+  let err4 = null;
+  try { anularAntecedente(imp.programa, imp.programa.antecedentes[0].id, { motivo: "x" }); }
+  catch (e) { err4 = e; }
+  check("(162) lo ya convertido se corrige anulando la realización, no el antecedente",
+    !!err4 && err4.message.includes("anulando la realización"), err4?.message);
+}
+
+
 console.log(`\n${fallos === 0 ? "TODOS LOS TESTS PASARON ✓" : `${fallos} TEST(S) FALLARON ✗`}`);
 process.exit(fallos === 0 ? 0 : 1);

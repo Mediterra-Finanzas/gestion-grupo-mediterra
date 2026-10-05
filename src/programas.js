@@ -500,6 +500,8 @@ export function resumenLado({
     cubetas: { vencido: cub("vencido"), horizonte: cub("horizonte"),
                fuera_horizonte: cub("fuera_horizonte"), sin_fecha: cub("sin_fecha") },
     avisosCompatibilidad,
+    // Informativo: NO entra en realizado, pendientes ni liquidación.
+    antecedentes: resumenAntecedentes(programas, lado),
     compensadoAplicado: sum(q => q.compensado),
     saldosFavor: (Array.isArray(saldosFavor) ? saldosFavor : [])
       .map(normalizarSaldo).filter(x => x.lado === lado),
@@ -617,6 +619,165 @@ export function nuevoMovimientoSinAsignar({ fecha, usd, referencia = "", contrap
 export function puedeAplicar(mov, usd) {
   const aplicado = (mov?.aplicaciones || []).reduce((s, a) => s + n(a.usd), 0);
   return n(usd) <= n(mov?.usd) - aplicado + 0.005;
+}
+
+
+// ── Antecedentes: montos informados sin fecha verificada ───────────
+//
+// Una contraparte informa pagos o cobros por un monto, sin la fecha ni el
+// respaldo. El monto es un dato real; la fecha NO se inventa.
+//
+// Un antecedente:
+//   · NO cuenta como realizado         (no toca el cuadre de nadie)
+//   · NO se proyecta en el flujo       (no tiene mes ni fecha)
+//   · NO descuenta de ninguna liquidación
+//   · NO está conciliado con bancos    (nunca se afirma que lo esté)
+//
+// Es información pendiente de completar, visible y separada del calendario
+// futuro. Con su fecha real recién se convierte en movimiento.
+
+export const ESTADOS_ANTECEDENTE = ["pendiente", "convertido", "anulado"];
+
+export function normalizarAntecedente(x) {
+  const a = x || {};
+  return {
+    ...a,
+    id: a.id || uid("ante"),
+    usd: esDato(a.usd) ? Number(a.usd) : null,
+    fecha: a.fecha || "",            // fecha real, si alguna vez se recupera
+    fechaAprox: a.fechaAprox || "",  // referencia informada, NO es la fecha
+    referencia: a.referencia || "",
+    respaldo: a.respaldo || "",
+    nota: a.nota || "",
+    estado: ESTADOS_ANTECEDENTE.includes(a.estado) ? a.estado : "pendiente",
+    convertidoEn: a.convertidoEn || null,
+  };
+}
+
+/** Qué le falta a un antecedente para poder convertirse en movimiento. */
+export function antecedenteFaltantes(x) {
+  const a = normalizarAntecedente(x);
+  const f = [];
+  if (!esDato(a.usd)) f.push("monto informado");
+  if (!a.fecha) f.push("fecha real del movimiento");
+  if (!a.respaldo) f.push("respaldo (comprobante, cartola o correo)");
+  return f;
+}
+export const antecedenteCompletable = (x) =>
+  !antecedenteFaltantes(x).some(t => t !== "respaldo (comprobante, cartola o correo)");
+
+/**
+ * Registra un monto informado. Exige el monto; la fecha es opcional a
+ * propósito: su ausencia es el pendiente que hay que resolver.
+ */
+export function agregarAntecedente(p0, { usd, fecha = "", fechaAprox = "", referencia = "", respaldo = "", nota = "", usuario = "" } = {}) {
+  const p = normalizarPrograma(p0);
+  if (!(n(usd) > 0)) throw new Error("Un antecedente necesita el monto informado.");
+  const a = normalizarAntecedente({
+    usd: n(usd), fecha, fechaAprox, referencia, respaldo, nota,
+    usuario, ts: new Date().toISOString(),
+  });
+  return { ...p, antecedentes: [...p.antecedentes.map(normalizarAntecedente), a] };
+}
+
+/**
+ * Con la fecha real recuperada, el antecedente se convierte en movimiento.
+ *
+ *   con `cuotaId`  → se imputa a esa cuota (pregunta incluido/adicional)
+ *   sin `cuotaId`  → sale a la bandeja de conciliación, sin descontar nada
+ *
+ * El antecedente NO se borra: queda marcado como convertido, apuntando a
+ * dónde fue. Así el monto informado nunca se registra dos veces.
+ */
+export function completarAntecedente(p0, anteId, { fecha, cuotaId = null, incluido = true, usuario = "", nota = "", referencia = "" } = {}) {
+  const p = normalizarPrograma(p0);
+  const antes = p.antecedentes.map(normalizarAntecedente);
+  const a = antes.find(x => x.id === anteId);
+  if (!a) throw new Error("No existe ese antecedente.");
+  if (a.estado === "convertido") throw new Error("Ese antecedente ya se convirtió en movimiento: no se registra dos veces.");
+  if (a.estado === "anulado") throw new Error("Ese antecedente está anulado.");
+  if (!fecha) throw new Error("Convertir un antecedente necesita su fecha real. No se inventa.");
+  if (!esDato(a.usd)) throw new Error("Ese antecedente no tiene monto informado.");
+
+  const ts = new Date().toISOString();
+  const ref = referencia || a.referencia || "";
+
+  if (cuotaId) {
+    const cuota = p.cuotas.find(c => c.id === cuotaId);
+    if (!cuota) throw new Error("No existe esa cuota en el programa.");
+    const conRea = imputarMovimiento(cuota, p.kilos, {
+      fecha, usd: Number(a.usd), nota: nota || a.nota, usuario, referencia: ref,
+      incluido, origen: { tipo: "antecedente", id: a.id },
+    });
+    const rea = (conRea.realizaciones || []).filter(r => !r.anulada).slice(-1)[0];
+    return {
+      programa: {
+        ...p,
+        cuotas: p.cuotas.map(c => (c.id === cuotaId ? conRea : c)),
+        antecedentes: antes.map(x => x.id !== anteId ? x : {
+          ...x, estado: "convertido", fecha,
+          convertidoEn: { tipo: "cuota", id: cuotaId, realizacionId: rea ? rea.id : null },
+          convertidoPor: usuario, convertidoTs: ts,
+        }),
+      },
+      movimiento: null,
+    };
+  }
+
+  const mov = nuevoMovimientoSinAsignar({
+    fecha, usd: Number(a.usd), referencia: ref,
+    contraparte: p.contraparte, lado: p.lado, usuario,
+  });
+  mov.origen = { tipo: "antecedente", id: a.id, programaId: p.id };
+  return {
+    programa: {
+      ...p,
+      antecedentes: antes.map(x => x.id !== anteId ? x : {
+        ...x, estado: "convertido", fecha,
+        convertidoEn: { tipo: "sin_asignar", id: mov.id },
+        convertidoPor: usuario, convertidoTs: ts,
+      }),
+    },
+    movimiento: mov,
+  };
+}
+
+/** Un monto informado que resultó equivocado se anula con motivo, no se borra. */
+export function anularAntecedente(p0, anteId, { motivo, usuario = "" } = {}) {
+  const p = normalizarPrograma(p0);
+  const antes = p.antecedentes.map(normalizarAntecedente);
+  const a = antes.find(x => x.id === anteId);
+  if (!a) throw new Error("No existe ese antecedente.");
+  if (a.estado === "convertido") throw new Error("Ese antecedente ya es un movimiento: corrígelo anulando la realización, con motivo.");
+  if (!motivo || !String(motivo).trim()) throw new Error("Anular un antecedente necesita un motivo.");
+  return {
+    ...p, antecedentes: antes.map(x => x.id !== anteId ? x : {
+      ...x, estado: "anulado", motivoAnulacion: String(motivo).trim(),
+      anuladoPor: usuario, anuladoTs: new Date().toISOString(),
+    }),
+  };
+}
+
+/** Informativo puro: totales de lo informado y qué falta por movimiento. */
+export function resumenAntecedentes(programas, lado = null) {
+  const progs = programasTodos(programas).filter(p => (lado ? p.lado === lado : true));
+  const items = [];
+  progs.forEach(p => p.antecedentes.map(normalizarAntecedente).forEach(a => {
+    items.push({ ...a, programaId: p.id, contraparte: p.contraparte, lado: p.lado,
+                 faltantes: antecedenteFaltantes(a) });
+  }));
+  const pend = items.filter(a => a.estado === "pendiente");
+  return {
+    items,
+    pendientes: pend,
+    totalInformado: pend.reduce((s, a) => s + n(a.usd), 0),
+    cuentaPendientes: pend.length,
+    sinFecha: pend.filter(a => !a.fecha).length,
+    sinRespaldo: pend.filter(a => !a.respaldo).length,
+    convertidos: items.filter(a => a.estado === "convertido").length,
+    // nunca se afirma conciliación bancaria desde acá
+    conciliadoConBancos: false,
+  };
 }
 
 export { realizacionesVigentes, antRealizado };

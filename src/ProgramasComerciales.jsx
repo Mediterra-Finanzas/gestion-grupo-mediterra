@@ -26,6 +26,8 @@ import {
   agregarAplicacion, ejecutarAplicacion, aplicarCompensacion,
   aplazarAplicacion, anularAplicacion, inconsistenciasSaldos,
   excedentePorReconocer, reconocerDesdePosicion, destinosCompensacion, previaCompensacion,
+  agregarAntecedente, completarAntecedente, anularAntecedente,
+  antecedenteFaltantes, normalizarAntecedente,
 } from "./programas.js";
 import { realizacionesVigentes, anularRealizacion, normalizarAnticipo } from "./anticipos.js";
 
@@ -268,6 +270,7 @@ function Columna({
             estimaciones={estimaciones} onEstimaciones={onEstimaciones}
             todos={todos} setLista={setLista}
             onReemplazar={nuevo => reemplazar(p.id, nuevo)}
+            sinAsignar={sinAsignar} onSinAsignar={onSinAsignar}
             onBorrar={() => quitar(p)} onArchivar={() => archivar(p)} />
         ))}
       </div>
@@ -398,10 +401,14 @@ function LiquidacionDefinitiva({ definitiva, onDefinitiva, resumen, esCli, C, $$
 function Tarjeta({
   p, esCli, col, C, $$, meses, readOnly, usuario, kgFruta, presupuestoGlobal = 0,
   estimaciones, onEstimaciones, todos, setLista, onReemplazar, onBorrar, onArchivar,
+  sinAsignar = [], onSinAsignar,
 }) {
   const [abierto, setAbierto] = useState(true);
   const [form, setForm] = useState(null);       // registrar movimiento
   const [asociar, setAsociar] = useState(null); // mover un movimiento existente
+  const [ante, setAnte] = useState(null);       // cargar monto informado
+  const [compl, setCompl] = useState(null);     // completar con su fecha real
+  const [anulAnte, setAnulAnte] = useState(null);
   const inSt = { padding: "4px 7px", background: C.card2, border: `1px solid ${C.border}`, borderRadius: 6, color: C.text, fontSize: 11, outline: "none" };
   const selSt = { ...inSt, padding: "4px 6px" };
   const chip = (t, c) => <span style={{ fontSize: 9, color: c, background: `${c}18`, border: `1px solid ${c}44`, borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>{t}</span>;
@@ -474,6 +481,43 @@ function Tarjeta({
     if (!motivo.trim()) { window.alert("La anulación necesita un motivo para conservar la trazabilidad."); return; }
     onReemplazar({ ...p, cuotas: p.cuotas.map(c => c.id === cuotaId
       ? normalizarCuota(anularRealizacion(c, reaId, { motivo: motivo.trim(), usuario })) : c) });
+  };
+
+  // ── Antecedentes: montos informados sin fecha verificada ────────
+  // El monto es dato real; la fecha NO se inventa. No descuenta, no se
+  // proyecta y no se afirma conciliado con bancos.
+  const antes = (p.antecedentes || []).map(normalizarAntecedente);
+  const antesPend = antes.filter(a => a.estado === "pendiente");
+  const totalInformado = antesPend.reduce((s2, a) => s2 + (Number(a.usd) || 0), 0);
+
+  const guardarAnte = () => {
+    try {
+      onReemplazar(agregarAntecedente(p, { ...ante, usuario }));
+      setAnte(null);
+    } catch (e) { window.alert(e.message); }
+  };
+  const guardarCompletar = () => {
+    try {
+      const a = antes.find(x => x.id === compl.id);
+      const destino = compl.cuotaId
+        ? `la cuota elegida (pasa a contar como ${esCli ? "cobrado" : "pagado"})`
+        : "la bandeja de conciliación (sigue sin descontar de ninguna liquidación)";
+      if (!window.confirm(
+        `Convertir ${$$(a.usd)} con fecha real ${compl.fecha}.\n\n` +
+        `Va a ${destino}.\n\n` +
+        `El antecedente no se borra: queda marcado como convertido, así el monto no se registra dos veces.`)) return;
+      const res = completarAntecedente(p, compl.id, {
+        fecha: compl.fecha, cuotaId: compl.cuotaId || null, incluido: true, usuario });
+      onReemplazar(res.programa);
+      if (res.movimiento && onSinAsignar) onSinAsignar([...(sinAsignar || []), res.movimiento]);
+      setCompl(null);
+    } catch (e) { window.alert(e.message); }
+  };
+  const guardarAnulAnte = () => {
+    try {
+      onReemplazar(anularAntecedente(p, anulAnte.id, { motivo: anulAnte.motivo, usuario }));
+      setAnulAnte(null);
+    } catch (e) { window.alert(e.message); }
   };
 
   // Asociar un movimiento que ya está registrado en una estimación.
@@ -596,6 +640,106 @@ function Tarjeta({
                 + Agregar cuota al calendario
               </button>
             )}
+          </div>
+
+          <div style={{ marginTop: 10, paddingTop: 7, borderTop: `1px dashed ${C.border}` }}>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 700 }}>
+              Montos informados sin fecha verificada
+              {totalInformado > 0 && <span style={{ color: C.warning }}> · {$$(totalInformado)}</span>}
+            </div>
+            <div style={{ fontSize: 9, color: C.muted2, marginTop: 2, lineHeight: 1.6 }}>
+              Información pendiente de completar. No cuenta como {esCli ? "cobrado" : "pagado"},
+              no se proyecta en el flujo, no descuenta de ninguna liquidación y no está conciliada con bancos.
+              Con su fecha real recién se convierte en movimiento.
+            </div>
+            {antes.length === 0 && (
+              <div style={{ fontSize: 9, color: C.muted2, fontStyle: "italic", marginTop: 3 }}>Ninguno.</div>
+            )}
+            {antes.map(a => {
+              const falta = antecedenteFaltantes(a);
+              return (
+                <div key={a.id} style={{ marginTop: 3 }}>
+                  <div style={{ display: "flex", gap: 7, fontSize: 9, alignItems: "center", flexWrap: "wrap" }}>
+                    <strong style={{ color: a.estado === "pendiente" ? C.warning : C.muted2,
+                      textDecoration: a.estado === "anulado" ? "line-through" : "none" }}>{$$(a.usd)}</strong>
+                    {a.referencia && <span style={{ color: C.muted2, fontStyle: "italic" }}>{a.referencia}</span>}
+                    {a.estado === "pendiente" && falta.length > 0 && (
+                      <span style={{ color: C.muted2 }}>falta: {falta.join(", ")}</span>
+                    )}
+                    {a.estado === "convertido" && (
+                      <span style={{ color: C.success }}>
+                        convertido el {a.fecha} → {a.convertidoEn?.tipo === "cuota" ? "cuota del calendario" : "bandeja de conciliación"}
+                      </span>
+                    )}
+                    {a.estado === "anulado" && <span style={{ color: C.muted2 }}>anulado · {a.motivoAnulacion}</span>}
+                    {!readOnly && a.estado === "pendiente" && (
+                      <>
+                        <button onClick={() => setCompl({ id: a.id, fecha: "", cuotaId: "" })}
+                          style={{ background: "transparent", border: "none", color: C.success, cursor: "pointer", fontSize: 9, textDecoration: "underline" }}>
+                          completar con su fecha
+                        </button>
+                        <button onClick={() => setAnulAnte({ id: a.id, motivo: "" })}
+                          style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", fontSize: 9, textDecoration: "underline" }}>
+                          anular
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {compl && compl.id === a.id && !readOnly && (
+                    <div style={{ marginTop: 3, display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 9, color: C.muted }}>Fecha real</span>
+                      <input type="date" value={compl.fecha} onChange={e => setCompl({ ...compl, fecha: e.target.value })} style={inSt} />
+                      <select value={compl.cuotaId} onChange={e => setCompl({ ...compl, cuotaId: e.target.value })} style={selSt}>
+                        <option value="">sin operación identificada → bandeja</option>
+                        {p.cuotas.map(c => (
+                          <option key={c.id} value={c.id}>
+                            cuota {c.fecha_prevista || c.mes || "sin fecha"} · {$$(cuotaAcordado(c, p.kilos).valor || 0)}
+                          </option>
+                        ))}
+                      </select>
+                      <button onClick={guardarCompletar}
+                        style={{ padding: "3px 9px", background: C.success, border: "none", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 9, fontWeight: 700 }}>Convertir</button>
+                      <button onClick={() => setCompl(null)}
+                        style={{ padding: "3px 7px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 9 }}>Cancelar</button>
+                    </div>
+                  )}
+                  {anulAnte && anulAnte.id === a.id && !readOnly && (
+                    <div style={{ marginTop: 3, display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+                      <input type="text" value={anulAnte.motivo} placeholder="motivo de la anulación"
+                        onChange={e => setAnulAnte({ ...anulAnte, motivo: e.target.value })}
+                        style={{ ...inSt, minWidth: 160 }} />
+                      <button onClick={guardarAnulAnte}
+                        style={{ padding: "3px 9px", background: C.danger, border: "none", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 9, fontWeight: 700 }}>Anular</button>
+                      <button onClick={() => setAnulAnte(null)}
+                        style={{ padding: "3px 7px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 9 }}>Cancelar</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {!readOnly && (ante ? (
+              <div style={{ marginTop: 4, display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+                <InputNumero formato="monto" value={ante.usd} placeholder="US$ informado"
+                  onChange={n => setAnte({ ...ante, usd: n })} style={{ ...inSt, width: 110, textAlign: "right" }} />
+                <input type="text" value={ante.referencia} placeholder="referencia informada"
+                  onChange={e => setAnte({ ...ante, referencia: e.target.value })} style={{ ...inSt, minWidth: 130 }} />
+                <input type="text" value={ante.respaldo} placeholder="respaldo (si existe)"
+                  onChange={e => setAnte({ ...ante, respaldo: e.target.value })} style={{ ...inSt, minWidth: 120 }} />
+                <button onClick={guardarAnte}
+                  style={{ padding: "3px 9px", background: C.success, border: "none", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 9, fontWeight: 700 }}>Guardar</button>
+                <button onClick={() => setAnte(null)}
+                  style={{ padding: "3px 7px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 9 }}>Cancelar</button>
+                <div style={{ flexBasis: "100%", fontSize: 9, color: C.muted2, marginTop: 2 }}>
+                  Sin campo de fecha a propósito: su ausencia es justamente el pendiente por resolver.
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setAnte({ usd: "", referencia: "", respaldo: "", nota: "" })}
+                style={{ marginTop: 4, padding: "2px 8px", background: "transparent", border: `1px dashed ${C.border}`,
+                  borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 9 }}>
+                + Registrar monto informado sin fecha
+              </button>
+            ))}
           </div>
 
           {form && !readOnly && (

@@ -312,11 +312,21 @@ Reglas que no hay que romper:
   bancario.
 - **Vencido aparte**: el pendiente programado antes del mes en curso se proyecta
   antes del corte y NO entra al saldo acumulado; nunca se llama flujo futuro.
+- **Antecedentes**: un monto informado sin fecha verificada
+  (`programa.antecedentes[]`) existe, se ve y **no** cuenta como realizado, no
+  se proyecta, no descuenta de ninguna liquidación y no se declara conciliado
+  con bancos. `completarAntecedente` exige la fecha real (nunca se inventa) y
+  lo convierte en imputación a una cuota o en movimiento de la bandeja; el
+  antecedente queda marcado como convertido, nunca borrado, así el monto no se
+  registra dos veces. En el Excel va como constante informativa, fuera de los
+  descuentos.
 - **Una sola fuente**: `movimientosLado()` alimenta `calcAllegria`, la pantalla
   (`ResumenLado`) y el Excel (`bloqueLiquidacionLado`). En el Excel el realizado
   y lo sustituido van como constantes, nunca como fórmula.
 
-Guía de carga: `docs/programas-allegria-carga.md`. Pruebas:
+Guía de carga: `docs/programas-allegria-carga.md`. Propuesta de carga y
+pendientes comerciales (WLH, Don Alberto, fichas Perú / Allegria Service):
+`docs/propuesta-carga-allegria.md`. Pruebas:
 `src/__tests__/programasFlujo.test.js` (16, incluye 7 escenarios de Excel) y
 `scripts/e2e/programas-allegria.mjs` (navegador + Excel recalculado con
 LibreOffice, datos sintéticos).

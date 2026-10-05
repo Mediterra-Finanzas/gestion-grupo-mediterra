@@ -403,6 +403,64 @@ check('la cuota ejecutada deja de proyectarse',
       recupTras['Nov-26'] === 0, JSON.stringify(recupTras));
 const costoTrasLiq = await leerLinea('Costo Fruta Exportación');
 
+// ── 3d · antecedentes: monto informado sin fecha ──────────────────
+// Un productor informa un pago por un monto, sin fecha ni respaldo. El monto
+// se carga; la fecha NO se inventa. Nada del flujo se mueve por eso.
+console.log('\n=== 3d · monto informado sin fecha verificada ===');
+await irAParametros();
+await esperar(700);
+const colP3 = page.locator('xpath=//span[normalize-space(text())="Productores"]/ancestor::div[2]').first();
+await colP3.getByRole('button', { name: /\+ Registrar monto informado sin fecha/ }).first().click();
+await esperar(500);
+const fAnte = colP3.locator('input[placeholder="US$ informado"]').first();
+await fAnte.waitFor({ timeout: 15000 });
+await fAnte.click(); await esperar(80);
+await fAnte.fill('255000'); await fAnte.evaluate(e => e.blur());
+await esperar(200);
+await colP3.locator('input[placeholder="referencia informada"]').first().fill('QA informado por el productor');
+await colP3.locator('xpath=.//input[@placeholder="US$ informado"]/ancestor::div[1]')
+  .getByRole('button', { name: 'Guardar' }).first().click();
+await esperar(1200);
+const tA = await texto();
+check('el monto informado queda visible con su total',
+      /Montos informados sin fecha verificada\s*·\s*\$255,000/.test(tA),
+      (tA.match(/Montos informados sin fecha verificada[^\n]*/) || [])[0]);
+check('y dice exactamente qué falta',
+      /falta:\s*fecha real del movimiento/.test(tA),
+      (tA.match(/falta:[^\n]*/) || [])[0]);
+check('declara que no cuenta como pagado ni está conciliado',
+      /[Nn]o cuenta como pagado/.test(tA) && /no está conciliada con bancos/.test(tA));
+await page.screenshot({ path: `${OUT}/programas/08-antecedente.png`, fullPage: true });
+
+const costoConAnte = await leerLinea('Costo Fruta Exportación');
+check('el antecedente NO mueve ningún mes del flujo',
+      JSON.stringify(costoConAnte) === JSON.stringify(costoTrasLiq),
+      `${JSON.stringify(costoConAnte)} vs ${JSON.stringify(costoTrasLiq)}`);
+
+// Con la fecha real recuperada, y sin saber a qué operación corresponde:
+// sale a la bandeja de conciliación, que tampoco descuenta.
+await irAParametros();
+await esperar(700);
+const colP4 = page.locator('xpath=//span[normalize-space(text())="Productores"]/ancestor::div[2]').first();
+await colP4.getByRole('button', { name: /completar con su fecha/ }).first().click();
+await esperar(500);
+const filaComp = colP4.locator('xpath=.//span[normalize-space(text())="Fecha real"]/ancestor::div[1]').first();
+await filaComp.locator('input[type=date]').first().fill('2026-08-14');
+await esperar(200);
+await filaComp.getByRole('button', { name: 'Convertir' }).first().click();
+await esperar(1200);
+const tC = await texto();
+check('convertido deja constancia de a dónde fue',
+      /convertido el 2026-08-14 → bandeja de conciliación/.test(tC),
+      (tC.match(/convertido el[^\n]*/) || [])[0]);
+check('y el movimiento aparece en la bandeja, sin descontar',
+      /2026-08-14[\s\S]{0,120}\$255,000[\s\S]{0,160}sin operación: no descuenta/.test(tC));
+await page.screenshot({ path: `${OUT}/programas/09-antecedente-convertido.png`, fullPage: true });
+const costoTrasConv = await leerLinea('Costo Fruta Exportación');
+check('convertir a la bandeja tampoco mueve el flujo',
+      JSON.stringify(costoTrasConv) === JSON.stringify(costoTrasLiq),
+      `${JSON.stringify(costoTrasConv)} vs ${JSON.stringify(costoTrasLiq)}`);
+
 // ── 4 · Excel recalculado de verdad ───────────────────────────────
 console.log('\n=== 4 · Excel recalculado con LibreOffice ===');
 const [dl] = await Promise.all([
@@ -452,10 +510,24 @@ const wsP = rec.wb.Sheets['Parametros'];
 const textosP = Object.keys(wsP).filter(k => /^[A-Z]+\d+$/.test(k)).map(k => wsP[k]?.v).filter(v => typeof v === 'string');
 check('la hoja Parametros nombra la contraparte', textosP.some(t => t.includes('Cliente Sintético A')));
 check('y separa la estimación', textosP.some(t => t.includes('Estimación')));
+// El antecedente ya convertido no vuelve a aparecer como informado pendiente.
+check('el Excel no deja el informado convertido como pendiente',
+      !textosP.some(t => t.includes('Informado sin fecha verificada')),
+      textosP.filter(t => t.includes('Informado')).join(' | '));
 
 // ── 5 · recarga ───────────────────────────────────────────────────
 console.log('\n=== 5 · recarga ===');
 await esperar(2500);
+const cerezasG = leerFila(store, 'finanzas')?.allegria_params?.['2026-2027']?.cerezas;
+const anteG = (cerezasG?.programas || []).find(p => p.lado === 'productor')?.antecedentes?.[0];
+check('el antecedente quedó guardado como convertido, sin borrarse',
+      !!anteG && anteG.estado === 'convertido' && Number(anteG.usd) === 255000 &&
+      anteG.convertidoEn?.tipo === 'sin_asignar',
+      JSON.stringify(anteG && { estado: anteG.estado, usd: anteG.usd, en: anteG.convertidoEn?.tipo }));
+const movG = (cerezasG?.movimientos_sin_asignar || []).find(m => Number(m.usd) === 255000);
+check('y su movimiento quedó en la bandeja con su origen trazado',
+      !!movG && movG.fecha === '2026-08-14' && movG.origen?.tipo === 'antecedente',
+      JSON.stringify(movG && { fecha: movG.fecha, origen: movG.origen?.tipo }));
 const guardado = leerFila(store, 'finanzas')?.allegria_params?.['2026-2027']?.cerezas?.programas?.[0];
 check('el programa quedó guardado', !!guardado && guardado.contraparte === 'Cliente Sintético A' &&
       Number(guardado.kilos) === 200000, JSON.stringify(guardado?.contraparte));

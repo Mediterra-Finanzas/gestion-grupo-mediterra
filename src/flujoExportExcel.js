@@ -561,6 +561,16 @@ function bloqueLiquidacionLado({
       setR(getR()+1);
       descs.push({ f:`${ref(rC,5)}`, v:compUsd });
     }
+    // Montos informados sin fecha verificada: van como constante informativa y
+    // NO entran en `descs`, así que no descuentan de ninguna liquidación.
+    (p.antecedentes||[]).filter(a => a && a.estado !== 'convertido' && a.estado !== 'anulado')
+      .forEach(a => {
+        const rA = getR();
+        put(rA,1,{ t:'s', v:'   ↳ Informado sin fecha verificada', s:PS.txtSub });
+        put(rA,2,{ t:'s', v:'no descuenta · no conciliado', s:PS.txtSub });
+        put(rA,4,{ t:'n', v:Number(a.usd)||0, s:PS.der });
+        setR(getR()+1);
+      });
     return { descs, baseFormula, baseValor, etiquetaLiq };
   };
 

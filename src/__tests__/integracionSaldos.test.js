@@ -402,3 +402,56 @@ describe('hoja Parametros con posiciones', () => {
     expect(formulas.some(f => /-200000/.test(f))).toBe(true);
   });
 });
+
+// ═══ 7. Antecedentes: montos informados sin fecha ══════════════════
+describe('antecedentes informados sin fecha', () => {
+  // Seis pagos informados por el productor, sin fecha ni respaldo.
+  const MONTOS = [255000, 89890, 17110, 119000, 119000, 79000];
+  const conAntecedentes = base({ programas: [prog({
+    id: 'pDA', lado: 'productor', contraparte: 'Don Alberto', kilos: 200000, cuotas: [],
+    antecedentes: MONTOS.map((usd, k) => ({ id: `a${k}`, usd, referencia: `informado ${k + 1}`, estado: 'pendiente' })),
+  })] });
+
+  test('no cambian ni un mes del flujo', () => {
+    const sin = cost(base({ programas: [prog({ id: 'pDA', lado: 'productor', contraparte: 'Don Alberto', cuotas: [] })] }));
+    const con = cost(conAntecedentes);
+    expect(con.map(x => Math.round(x))).toEqual(sin.map(x => Math.round(x)));
+    // y la liquidación completa sigue viva: nada se dio por pagado
+    expect(Math.round(con[iMes(MES_LIQ)])).toBe(500000);
+    expect(Math.round(suma(con))).toBe(500000);
+  });
+
+  test('el Excel los muestra como informativos y no los descuenta', () => {
+    const PARAMS = { paramsAllegria: conAntecedentes, allegraComisionArandanos: { cobros: [] } };
+    const empresas = buildEmpresas(conAntecedentes, PARAMS.allegraComisionArandanos);
+    const file = path.join(OUT_DIR, 'antecedentes.xlsx');
+    fs.mkdirSync(OUT_DIR, { recursive: true });
+    exportarFlujoEmpresa({ emp: empresas['Allegria Foods'], empName: 'Allegria Foods',
+                           saldoIni: 0, fileName: file, params: PARAMS });
+    const ws = XLSX.readFile(file, { cellFormula: true }).Sheets['Parametros'];
+    const claves = Object.keys(ws).filter(k => /^[A-Z]+\d+$/.test(k));
+    const textos = claves.map(k => ws[k]?.v).filter(v => typeof v === 'string');
+    expect(textos.filter(t => t.includes('Informado sin fecha verificada')).length).toBe(6);
+    expect(textos.some(t => t.includes('no descuenta · no conciliado'))).toBe(true);
+    // Los montos informados están como constante, nunca dentro de una fórmula
+    // de descuento de la liquidación.
+    const formulas = claves.map(k => ws[k]?.f).filter(Boolean);
+    expect(formulas.some(f => /255000|89890|17110/.test(f))).toBe(false);
+  });
+
+  test('con su fecha real, imputado a una cuota, recién descuenta', () => {
+    const conFecha = base({ programas: [prog({
+      id: 'pDA', lado: 'productor', contraparte: 'Don Alberto', kilos: 200000,
+      mes_liquidacion: MES_LIQ,
+      cuotas: [{ id: 'cDA', mes: MES_A, modalidad: 'monto', monto: 255000, estado: 'vigente',
+        realizaciones: [{ id: 'rDA', fecha: '2026-07-05', usd: 255000,
+          origen: { tipo: 'antecedente', id: 'a0' } }] }],
+      antecedentes: [{ id: 'a0', usd: 255000, estado: 'convertido', fecha: '2026-07-05',
+        convertidoEn: { tipo: 'cuota', id: 'cDA', realizacionId: 'rDA' } }],
+    })] });
+    const serie = cost(conFecha);
+    expect(Math.round(serie[iMes(MES_A)])).toBe(0);                   // ya pagado, no se proyecta
+    expect(Math.round(serie[iMes(MES_LIQ)])).toBe(500000 - 255000);   // y descuenta una sola vez
+    expect(Math.round(suma(serie))).toBe(500000 - 255000);
+  });
+});

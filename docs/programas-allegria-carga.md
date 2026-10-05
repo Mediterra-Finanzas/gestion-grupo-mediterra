@@ -91,6 +91,34 @@ Si todavía no sabes a qué operación corresponde el movimiento:
 `+ Registrar cobro sin operación identificada`. Queda en la bandeja de
 conciliación, visible, **sin descontar de ninguna liquidación**.
 
+### 4b. Montos informados sin fecha verificada
+
+Cuando la contraparte informa pagos o cobros por un monto y no hay fecha ni
+respaldo: `+ Registrar monto informado sin fecha` en la tarjeta. El formulario
+**no tiene campo de fecha a propósito**: su ausencia es el pendiente a resolver.
+
+Un monto informado:
+
+- no cuenta como cobrado ni pagado,
+- no se proyecta en ningún mes,
+- no descuenta de ninguna liquidación,
+- **no** está conciliado con bancos,
+- y queda separado del calendario futuro.
+
+Con la fecha real recuperada, `completar con su fecha`:
+
+- **eligiendo una cuota** → se imputa ahí, con la pregunta de incluido o
+  adicional, y recién entonces cuenta como movimiento;
+- **sin elegir cuota** → sale a la bandeja de conciliación, que sigue sin
+  descontar de ninguna liquidación.
+
+El antecedente no se borra: queda marcado como convertido, apuntando a dónde
+fue, así el monto no se registra dos veces. Uno equivocado se anula con motivo;
+uno ya convertido se corrige anulando su realización, no el antecedente.
+
+En el Excel aparecen en la hoja Parametros como constante rotulada
+*no descuenta · no conciliado*, fuera de toda fórmula de descuento.
+
 ### 5. Asociar un movimiento ya registrado
 
 `Asociar movimiento existente` en la cuota: elige el cobro que está en una
@@ -220,7 +248,7 @@ para *Costo Fruta Exportación* del lado productor.
 ## Verificación automática
 
 ```bash
-node src/programas.test.mjs                                   # modelo puro (135)
+node src/programas.test.mjs                                   # modelo puro (162)
 CI=true npx react-scripts test --watchAll=false               # suite completa
 VIDEO=1 OUT_DIR=/tmp/e2e node scripts/e2e/programas-allegria.mjs   # navegador + Excel real + video
 OUT_DIR=/tmp/reg node scripts/e2e/regresion-empresas.mjs      # las demás empresas
