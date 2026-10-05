@@ -7,7 +7,7 @@
 > - Cliente: `src/nominasTransporteRpc.js` (la app guarda nóminas solo por `nominas_guardar`)
 > - Procedimiento de activación: `docs/nominas-activacion.md` · foto de verificación: `supabase/verificar_activacion_nominas.sql`
 > - Pruebas: `scripts/nominas-cas/prueba.mjs` (SQL por la API REST, 51 casos) y `scripts/e2e/nomina-base-real.mjs`
->   (la app en el navegador contra la base local con el SQL aplicado tal cual, __NBR__ casos, 3 corridas seguidas).
+>   (la app en el navegador contra la base local con el SQL aplicado tal cual, 26 casos, 3 corridas seguidas).
 >   Controles negativos: sin el trigger fallan 8 casos; con la regla anterior (solo rol de conexión, `public` antes que
 >   `pg_catalog`) fallan K1 y K3.
 
