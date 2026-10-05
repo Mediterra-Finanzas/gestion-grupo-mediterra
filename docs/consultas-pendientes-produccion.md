@@ -7,8 +7,8 @@
 
 ## Estado al 2026-10-05
 
-**Recibidos:** V1–V9, D1–D5, R1–R4 y U1–U7 (análisis en `docs/revision-consultas-produccion-2026-10-05.md`).
-**Pendientes:** U8 (nueva), P1–P4 y el JSON completo de V8.
+**Recibidos:** V1–V9, D1–D5, R1–R4 y U1–U8 (análisis en `docs/revision-consultas-produccion-2026-10-05.md`).
+**Pendientes:** U9 (nueva), P1–P5 y el JSON completo de V8.
 
 ## Cómo no confundir las dos "PARTE 0"
 
@@ -54,6 +54,7 @@ Copiar **solo** el bloque indicado: el texto desde el comentario `-- N.N` hasta 
 | **U6** | ídem → **U6** | Políticas de CUALQUIER tabla que dependan de las funciones o tablas de roles | Qué datos quedan expuestos si alguien altera `rbac_usuarios_roles` |
 | **U7** | ídem → **U7** | Conteo de filas de las 3 tablas abiertas | Dimensionar |
 | **U8** | ídem → **U8** | Condición de cada política de U6 y permisos de `anon` sobre esas tablas | Saber si alguna tabla queda abierta a la llave pública |
+| **U9** | ídem → **U9** | Conteo de filas de las tablas contables que dependen de `fn_mis_empresas` | Dimensionar lo expuesto |
 
 ## Fuera del SQL Editor (en la consola de Supabase)
 
@@ -63,6 +64,7 @@ Copiar **solo** el bloque indicado: el texto desde el comentario `-- N.N` hasta 
 | **P2** | Database → Backups → Point in Time | Si está habilitado o no |
 | **P3** | Database → Backups | Qué opciones ofrece (restaurar el proyecto completo, restaurar en un proyecto nuevo, descarga) |
 | **P4** | Settings → API → Exposed schemas | Qué esquemas publica la API. Si hay otros además de `public` y `graphql_public`, V5, V6 y V9 deben repetirse con ellos |
+| **P5** | Authentication → Sign In / Providers | Si "Allow new users to sign up" está activo y si exige confirmar el correo (define quién puede tener sesión) |
 
 ## Lo que NO hay que ejecutar todavía
 

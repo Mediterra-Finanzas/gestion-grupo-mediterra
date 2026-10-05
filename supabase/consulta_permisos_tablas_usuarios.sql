@@ -101,3 +101,14 @@ join pg_class c on c.relname = p.tablename and c.relnamespace = p.schemaname::re
 where coalesce(p.qual, '') || ' ' || coalesce(p.with_check, '')
       ~* '(fn_mis_empresas|osi_current_empresa|osi_current_rol|rbac_usuarios_roles|rbac_roles|usuarios_empresa)'
 order by 1, 2;
+
+-- U9. Cuántas filas tienen las tablas que dependen de fn_mis_empresas (solo el
+--     conteo): dimensiona lo que quedaría expuesto si alguien se asigna una empresa.
+select 'contab_asientos' as tabla, count(*) as filas from public.contab_asientos
+union all select 'contab_asientos_lineas', count(*) from public.contab_asientos_lineas
+union all select 'contab_empresas', count(*) from public.contab_empresas
+union all select 'contab_plan_cuentas', count(*) from public.contab_plan_cuentas
+union all select 'doc_lotes', count(*) from public.doc_lotes
+union all select 'cc_campos', count(*) from public.cc_campos
+union all select 'cc_cuarteles', count(*) from public.cc_cuarteles
+union all select 'audit_log', count(*) from public.audit_log;

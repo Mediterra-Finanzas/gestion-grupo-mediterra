@@ -100,11 +100,31 @@ El riesgo real es **escalar permisos**: `fn_mis_empresas()` (SECURITY DEFINER, e
 
 **Conclusión de respaldos:** el 2 de septiembre es un punto de recuperación **completo** para todas las filas de `calendario_data`, incluidas las nóminas. Lo posterior depende de los respaldos de plataforma (P1–P3).
 
+## Recibido (cuarta entrega): U8
+
+- **Tablas `osi_*` (Osiris) [Seguro]:**
+  - la llave pública **sin sesión** (`anon`) **no tiene ningún permiso** de tabla sobre ellas: aunque la política diga rol `public`, no puede leer ni escribir;
+  - con sesión, la condición es `empresa_id = osi_current_empresa()`, que sale del JWT o de `osi_user_empresa` (protegida).
+  - **Descartado el riesgo de acceso abierto a Osiris.**
+- **Tablas contables y documentales** (`contab_*`, `doc_lotes`, `cc_campos`, `cc_cuarteles`, `audit_log`):
+  - RLS activo y políticas **solo para `authenticated`** con `empresa_id IN fn_mis_empresas()`;
+  - `anon` tiene permisos de tabla, pero sin política aplicable RLS le niega todo por la API **[Seguro]**.
+  - **El riesgo es de quien tenga sesión:** como `rbac_usuarios_roles` está abierta a escritura, cualquier usuario con sesión puede asignarse una empresa y leer o escribir su contabilidad.
+  - **Reproducido en local** con la misma configuración (`scripts/nominas-cas/prueba-roles.mjs`, casos A1–A3).
+- **Quién puede tener sesión** depende de si Supabase Auth permite que cualquiera se registre: **P5** en la consola. Si el registro está abierto, cualquiera en internet podría crearse una cuenta y escalar **[Probable]**. Cuánto quedaría expuesto lo dice **U9** (conteo de filas contables).
+
+**Propuesta preparada (NO aplicada):** `supabase/propuesta_cerrar_tablas_roles.sql`. Activa RLS en las tres tablas de roles, retira a la llave pública escritura y TRUNCATE (deja solo lectura del catálogo `rbac_roles` a usuarios con sesión) y fija `search_path` en `fn_mis_empresas`. Probada en local, 16/16:
+- reproduce la escalada antes;
+- la cierra después;
+- `fn_mis_empresas` sigue funcionando con asignaciones hechas por el administrador;
+- la reversión deja todo como hoy.
+
 ## Pendiente de producción
 
 | Código | Qué falta |
 |---|---|
-| **U8** | Condición de cada política de U6 y si `anon` tiene permisos sobre esas tablas (`consulta_permisos_tablas_usuarios.sql` → U8) |
+| **U9** | Conteo de filas de las tablas contables que dependen de `fn_mis_empresas` (`consulta_permisos_tablas_usuarios.sql` → U9) |
+| **P5** | Consola → Authentication → Sign In / Providers: si "Allow new users to sign up" está activo y si exige confirmar el correo |
 | **P1–P4** | Consola: último respaldo de plataforma, PITR, opciones de restauración y esquemas publicados |
 | V8 completo | JSON con la fila de `authenticator` sin cortar (no cambia la conclusión) |
 
