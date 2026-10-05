@@ -10,35 +10,18 @@
 //
 // Las cifras de referencia están medidas sobre el candidato (7f0b5dd).
 
-import { derivarRoyaltyComercialDesdeContratos } from "../OsirisModule";
-import { ACTIVACIONES_NUEVAS_HABILITADAS, puedeCrearActivacion, estadoActivacion, ACTIVADO } from "./reajusteAplicado";
+import {
+  ACTIVACIONES_NUEVAS_HABILITADAS, puedeCrearActivacion, estadoActivacion,
+  activar, desactivar, ACTIVADO,
+} from "./reajusteAplicado";
+import {
+  CONTRATO, ACTIVACION, DATOS_ACTIVACION, EDITADO, filas, porTemp, r2,
+  TABLA_CANDIDATO, TABLA_EDITADO, TOTAL_CANDIDATO, DIFERENCIA,
+} from "./fixturesReajuste";
 
-const ACTIVACION = {
-  activado: true,
-  fechaReferencia: "2026-07-01",
-  respaldo: "Comprobante sintetico de primer pago 001",
-  reglaFecha: "inicioPeriodoServicio",
-  reglaFechaRespaldo: "Clausula sintetica 1.2.6",
-  usuario: "prueba", fecha: "2026-10-05",
-};
-
-const CONTRATO = (extra) => Object.assign({
-  id: "ct_sint", razonSocial: "Sintetica SA", pais: "Chile",
-  modeloIngresos: "oc", valorRoyaltyComercial: 3000, rcMesCobro: "Abril",
-  fechaTermino: "2031-06-30",
-  rcCohortes: [{ id: "c1", ha: 41.97, desde: "2026/2027" }],
-  reajuste: { tipo: "porcentaje", pct: 2, desde: "2026-07-01", referencia: "Clausula sintetica 1.2.5", confirmado: true },
-}, extra || {});
-
-const filas = (ct) => derivarRoyaltyComercialDesdeContratos([ct], { ct_sint: [] });
-const porTemp = (fs) => fs.reduce((m, f) => (m[f.temporada] = f, m), {});
-const r2 = (n) => Math.round(n * 100) / 100;
-
-// Medido sobre el candidato, con la activación cargada.
-const CANDIDATO = {
-  "2026/2027": 125910, "2027/2028": 128428.2, "2028/2029": 130996.76,
-  "2029/2030": 133616.7, "2030/2031": 136289.03,
-};
+// Las tablas y los datos vienen de fixturesReajuste.js, identico en las dos
+// ramas: una diferencia de importes solo puede venir del codigo.
+const CANDIDATO = TABLA_CANDIDATO;
 
 // ══════════════════════════════════════════════════════════════════
 describe("1 · importes idénticos al candidato, en todas las temporadas", () => {
@@ -80,13 +63,16 @@ describe("2 · conserva activación, respaldo y cambios posteriores", () => {
     expect(estadoActivacion(ct).respaldo).toBe("Respaldo corregido 002");
   });
 
-  test("un cambio posterior en el porcentaje se refleja en los importes", () => {
+  test("un cambio posterior en el porcentaje NO mueve importes: manda el sello", () => {
+    // Misma regla que en el candidato. La version de recuperacion no puede
+    // ser mas permisiva que el candidato en materia economica.
     const ct = CONTRATO({
       reajuste: { tipo: "porcentaje", pct: 3, desde: "2026-07-01", referencia: "x", confirmado: true },
       reajusteActivacion: ACTIVACION,
     });
     const f = porTemp(filas(ct));
-    expect(r2(f["2027/2028"].montoFact)).toBeCloseTo(r2(125910 * 1.03), 2);
+    expect(r2(f["2027/2028"].montoFact)).toBe(r2(CANDIDATO["2027/2028"]));
+    expect(estadoActivacion(ct).pct).toBe(2);   // el sellado
   });
 });
 
@@ -94,16 +80,10 @@ describe("2 · conserva activación, respaldo y cambios posteriores", () => {
 describe("3 · editar con la version de recuperacion y volver al candidato", () => {
   // La edición: se agrega una cohorte nueva y se corrige el respaldo. Son
   // cambios de datos; el candidato los tiene que leer igual.
-  const EDITADO = CONTRATO({
-    reajusteActivacion: Object.assign({}, ACTIVACION, { respaldo: "Respaldo corregido 002" }),
-    rcCohortes: [
-      { id: "c1", ha: 41.97, desde: "2026/2027" },
-      { id: "c2", ha: 10, desde: "2028/2029" },
-    ],
-  });
+  const editado = EDITADO();
 
   test("la edicion produce importes estables en esta version", () => {
-    const f = porTemp(filas(EDITADO));
+    const f = porTemp(filas(editado));
     expect(r2(f["2026/2027"].montoFact)).toBe(125910);
     // 2028/2029: la cohorte vieja aporta 130.996,76 y la nueva 10 ha x 3.000.
     // El reajuste se aplica al TOTAL de la temporada, asi que la cohorte nueva
@@ -115,15 +95,15 @@ describe("3 · editar con la version de recuperacion y volver al candidato", () 
   });
 
   test("nada de lo registrado se pierde al editar", () => {
-    expect(EDITADO.reajusteActivacion.fechaReferencia).toBe("2026-07-01");
-    expect(EDITADO.reajusteActivacion.reglaFecha).toBe("inicioPeriodoServicio");
-    expect(EDITADO.reajusteActivacion.reglaFechaRespaldo).toMatch(/Clausula/);
-    expect(EDITADO.reajusteActivacion.activado).toBe(true);
-    expect(EDITADO.reajuste.pct).toBe(2);
+    expect(editado.reajusteActivacion.fechaReferencia).toBe("2026-07-01");
+    expect(editado.reajusteActivacion.reglaFecha).toBe("inicioPeriodoServicio");
+    expect(editado.reajusteActivacion.reglaFechaRespaldo).toMatch(/Clausula/);
+    expect(editado.reajusteActivacion.activado).toBe(true);
+    expect(editado.reajuste.pct).toBe(2);
   });
 
   test("tabla que el candidato debe reproducir despues de la edicion", () => {
-    const f = porTemp(filas(EDITADO));
+    const f = porTemp(filas(editado));
     const tabla = Object.keys(f).sort().reduce((m, t) => (m[t] = r2(f[t].montoFact), m), {});
     // eslint-disable-next-line no-console
     console.log("TRAS EDITAR EN RECUPERACION\n" + JSON.stringify(tabla, null, 1));
@@ -142,6 +122,26 @@ describe("4 · no deja crear activaciones nuevas", () => {
     expect(p.puede).toBe(false);
     expect(p.motivo).toMatch(/version de recuperacion/i);
     expect(p.motivo).toMatch(/no permite crear nuevas/);
+  });
+
+  test("la ACCION de activar se rechaza, no solo se oculta el boton", () => {
+    const res = activar(CONTRATO(), DATOS_ACTIVACION);
+    expect(res.ok).toBe(false);
+    expect(res.motivo).toMatch(/version de recuperacion/i);
+    expect(res.contrato.reajusteActivacion).toBeUndefined();   // no escribio nada
+  });
+
+  test("y el contrato devuelto sigue calculando la base", () => {
+    const res = activar(CONTRATO(), DATOS_ACTIVACION);
+    const f = porTemp(filas(res.contrato));
+    expect(r2(f["2027/2028"].montoFact)).toBe(125910);
+  });
+
+  test("desactivar una existente SI se puede: no queda atrapada", () => {
+    const ct = CONTRATO({ reajusteActivacion: ACTIVACION });
+    const res = desactivar(ct, "Motivo sintetico", "prueba");
+    expect(res.ok).toBe(true);
+    expect(porTemp(filas(res.contrato))["2027/2028"].montoFact).toBe(125910);
   });
 
   test("bloquear nuevas no apaga las existentes", () => {
