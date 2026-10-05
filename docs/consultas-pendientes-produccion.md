@@ -14,6 +14,7 @@ Hay dos propuestas **separadas**, y cada una tiene su propia PARTE 0:
 | **V** | Versión obligatoria de Nóminas (consistencia) | `supabase/propuesta_nominas_version_obligatoria.sql` |
 | **D** | Retirar DELETE a la llave pública (seguridad) | `supabase/propuesta_quitar_delete_anon.sql` |
 | **R** | Respaldos existentes | `supabase/consulta_respaldos_existentes.sql` |
+| **U** | Permisos de las 6 tablas de usuarios y roles (tema aparte) | `supabase/consulta_permisos_tablas_usuarios.sql` |
 
 Copiar **solo** el bloque indicado: el texto desde el comentario `-- N.N` hasta antes del siguiente `-- N.N` o del título de la parte siguiente. **No ejecutar nada fuera de la PARTE 0** de cada archivo.
 
@@ -38,6 +39,11 @@ Copiar **solo** el bloque indicado: el texto desde el comentario `-- N.N` hasta 
 | **D6** | ídem → **0.6** | Código de una función de D5. Hay que **reemplazar el nombre** y quitar el `--` inicial | Revisarlas |
 | **R1** | `consulta_respaldos_existentes.sql` → **1** | Cada fila `backup_*` / `main_pre_restore*`: id, fecha, tamaño (sin contenido) | Qué respaldo recuperable existe |
 | **R2** | ídem → **2** | Resumen por tipo: cantidad, más antiguo, más reciente | Ídem |
+| **U1** | `consulta_permisos_tablas_usuarios.sql` → **U1** | Si cada tabla existe, RLS activo/forzado, filas aproximadas, dueño | Tema aparte: acceso a datos de usuarios |
+| **U2** | ídem → **U2** | Qué pueden hacer `anon`/`authenticated` en cada tabla (leer, crear, modificar, borrar, vaciar) | Ídem |
+| **U3** | ídem → **U3** | Políticas RLS de cada tabla | Ídem |
+| **U4** | ídem → **U4** | Columnas y tipos (sin valores) | Saber si hay correos, hashes o tokens expuestos |
+| **U5** | ídem → **U5** | Funciones que usan esas tablas y si la llave pública las ejecuta | Candidatas a revisar; también alimenta V5 |
 
 ## Fuera del SQL Editor (en la consola de Supabase)
 
