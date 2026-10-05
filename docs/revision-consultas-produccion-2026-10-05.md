@@ -113,11 +113,7 @@ El riesgo real es **escalar permisos**: `fn_mis_empresas()` (SECURITY DEFINER, e
   - **Reproducido en local** con la misma configuración (`scripts/nominas-cas/prueba-roles.mjs`, casos A1–A3).
 - **Quién puede tener sesión** depende de si Supabase Auth permite que cualquiera se registre: **P5** en la consola. Si el registro está abierto, cualquiera en internet podría crearse una cuenta y escalar **[Probable]**. Cuánto quedaría expuesto lo dice **U9** (conteo de filas contables).
 
-**Propuesta preparada (NO aplicada):** `supabase/propuesta_cerrar_tablas_roles.sql`. Activa RLS en las tres tablas de roles, retira a la llave pública escritura y TRUNCATE (deja solo lectura del catálogo `rbac_roles` a usuarios con sesión) y fija `search_path` en `fn_mis_empresas`. Probada en local, 16/16:
-- reproduce la escalada antes;
-- la cierra después;
-- `fn_mis_empresas` sigue funcionando con asignaciones hechas por el administrador;
-- la reversión deja todo como hoy.
+**Propuesta de seguridad (NO aplicada), separada de este PR:** rama `claude/seguridad-roles-empresas`, documento `docs/seguridad-roles-empresas.md`. Esa rama reemplaza el borrador que estuvo aquí (`propuesta_cerrar_tablas_roles.sql`).
 
 ## Recibido (quinta entrega): U9
 
