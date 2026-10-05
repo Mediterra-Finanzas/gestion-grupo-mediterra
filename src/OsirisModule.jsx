@@ -9928,7 +9928,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                           <div style={{fontSize:10,lineHeight:1.6,marginBottom:8,padding:"6px 10px",borderRadius:8,
                             background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,color:C.am||"#854d0e"}}>
                             {(act.diferencias||[]).map(d=>(
-                              <div key={d.campo}>{d.campo}: sellado <strong>{String(d.sellado)}</strong> \u00b7 ahora <strong>{String(d.actual)}</strong></div>
+                              <div key={d.campo}>{d.campo}: sellado <strong>{String(d.sellado)}</strong> · ahora <strong>{String(d.actual)}</strong></div>
                             ))}
                           </div>
                         )}
@@ -9955,7 +9955,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                             <div style={{fontSize:10,color:C.gris,fontWeight:600,marginBottom:3}}>Fecha que determina la tasa</div>
                             <select disabled={!can||!edit.puede} value={ra.reglaFecha||""} onChange={e=>upA("reglaFecha",e.target.value)}
                               style={{...inp3,width:"100%"}}>
-                              <option value="">\u2014 sin declarar \u2014</option>
+                              <option value="">— sin declarar —</option>
                               {REGLAS_FECHA.map(o=><option key={o} value={o}>{o}</option>)}
                             </select>
                           </div>
@@ -9992,8 +9992,8 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                           </table>
                         </div>
                         <div style={{fontSize:10,color:C.muted,marginBottom:8}}>
-                          Filas que cambian: <strong>{prev.filasQueCambian}</strong> \u00b7 protegidas: <strong>{prev.filasIntocables}</strong> \u00b7
-                          bloqueadas por regla pendiente: <strong>{prev.filasBloqueadasPorReglaPendiente}</strong> \u00b7
+                          Filas que cambian: <strong>{prev.filasQueCambian}</strong> · protegidas: <strong>{prev.filasIntocables}</strong> ·
+                          bloqueadas por regla pendiente: <strong>{prev.filasBloqueadasPorReglaPendiente}</strong> ·
                           diferencia aplicada: <strong>${N(prev.diferenciaAplicada.toFixed(2))}</strong>
                         </div>
 
@@ -10027,7 +10027,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                               }} style={{background:C.success,color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:can?"pointer":"default",fontSize:11,fontWeight:700}}>
                                 Activar el reajuste
                               </button>}
-                          {act.estado===REAJ_ACTIVADO&&<span style={{fontSize:10,color:C.muted}}>Sellado: {act.pct} % \u00b7 desde {act.fechaReferencia} \u00b7 por {act.reglaSellada}</span>}
+                          {act.estado===REAJ_ACTIVADO&&<span style={{fontSize:10,color:C.muted}}>Sellado: {act.pct} % · desde {act.fechaReferencia} · por {act.reglaSellada}</span>}
                         </div>
                       </div>
                     );
