@@ -29,6 +29,27 @@
 
 import { configReajuste, faltantesReajuste, estadoReajuste } from "./condicionesConfigurables";
 
+// ── Version de recuperacion ───────────────────────────────────────────────
+//
+// Volver a una version SIN soporte de activaciones no es recuperacion: borra
+// el reajuste aplicado, que es una operacion economica y no puede ocurrir como
+// efecto silencioso de un rollback. Medido: US$ 25.690,69 en el caso sintetico.
+//
+// Por eso existe una VERSION DE RECUPERACION COMPATIBLE: calcula igual las
+// activaciones que ya existen en los datos, y bloquea la creacion de nuevas.
+// Es la unica a la que se puede volver sin cambiar importes.
+//
+// En el candidato esta bandera va en true. En la rama de recuperacion, en
+// false. Es la UNICA diferencia entre las dos.
+export const ACTIVACIONES_NUEVAS_HABILITADAS = true;
+
+export function puedeCrearActivacion() {
+  return ACTIVACIONES_NUEVAS_HABILITADAS
+    ? { puede: true, motivo: "" }
+    : { puede: false, motivo: "Esta es la version de recuperacion: conserva el calculo de las " +
+        "activaciones que ya existen, pero no permite crear nuevas." };
+}
+
 export const SIN_ACTIVAR = "sinActivar";
 export const ACTIVADO = "activado";
 export const NO_ACTIVABLE = "noActivable";

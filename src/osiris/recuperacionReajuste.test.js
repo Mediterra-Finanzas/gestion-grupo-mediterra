@@ -87,23 +87,60 @@ describe("1 · el caso sintético aplica de verdad", () => {
   });
 });
 
-// ══════════════════════════════════════════════════════════════════
-describe("2 · recuperación: quitar la activación devuelve los importes exactos", () => {
-  // Simula el camino de vuelta por datos: el contrato queda sin activación.
+// 2 · CONTRAPRUEBA: una version sin soporte CAMBIA los importes
+//
+// Corrección de fondo. Que la versión publicada devuelva 125.910 después de
+// que el candidato calculó 128.428,20 NO es recuperación segura: es
+// incompatibilidad económica. Volver atrás **elimina el reajuste aplicado**, y
+// desactivar un reajuste es una operación económica propia, no el efecto
+// silencioso de un rollback.
+//
+// Estas pruebas existen para DETECTARLO. Si alguna vez pasaran a decir que los
+// importes coinciden, es que alguien reintrodujo la incompatibilidad.
+describe("2 · contraprueba: sin soporte, los importes cambian", () => {
   const base = porTemp(filas(CONTRATO()));
-  const act = CONTRATO({ reajusteActivacion: ACTIVACION });
-  const vuelta = porTemp(filas(CONTRATO({ reajusteActivacion: Object.assign({}, ACTIVACION, { activado: false }) })));
+  const act = porTemp(filas(CONTRATO({ reajusteActivacion: ACTIVACION })));
 
-  test("todas las temporadas vuelven al importe original, al centavo", () => {
-    Object.keys(base).forEach((t) => {
-      expect(r2(vuelta[t].montoFact)).toBe(r2(base[t].montoFact));
-      expect(r2(vuelta[t].montoCobro)).toBe(r2(base[t].montoCobro));
-    });
+  // Medido el 2026-10-05 contra 9d90ed2, con este mismo contrato y la
+  // activación cargada: la versión sin soporte devuelve la base en las cinco.
+  const SIN_SOPORTE = {
+    "2026/2027": 125910, "2027/2028": 125910, "2028/2029": 125910,
+    "2029/2030": 125910, "2030/2031": 125910,
+  };
+  const CON_SOPORTE = {
+    "2026/2027": 125910, "2027/2028": 128428.2, "2028/2029": 130996.76,
+    "2029/2030": 133616.7, "2030/2031": 136289.03,
+  };
+
+  test("el candidato calcula lo que dice la tabla", () => {
+    Object.keys(CON_SOPORTE).forEach((t) => expect(r2(act[t].montoFact)).toBeCloseTo(CON_SOPORTE[t], 2));
   });
 
-  test("desactivar no borra lo registrado", () => {
-    expect(act.reajusteActivacion.fechaReferencia).toBe("2026-07-01");
-    expect(act.reajuste.pct).toBe(2);
+  test("una version sin soporte daría otros importes en 4 de las 5 temporadas", () => {
+    const distintas = Object.keys(SIN_SOPORTE).filter((t) => r2(SIN_SOPORTE[t]) !== r2(CON_SOPORTE[t]));
+    expect(distintas).toEqual(["2027/2028", "2028/2029", "2029/2030", "2030/2031"]);
+  });
+
+  test("la diferencia que un rollback sin soporte borraría es de US$ 25.690,69", () => {
+    const perdida = Object.keys(CON_SOPORTE).reduce((s, t) => s + (CON_SOPORTE[t] - SIN_SOPORTE[t]), 0);
+    expect(r2(perdida)).toBeCloseTo(25690.69, 2);
+  });
+
+  test("desactivar es una operación econ\u00f3mica, no un rollback", () => {
+    // Bajar la bandera devuelve los importes a la base. Está bien que exista
+    // como ACCIÓN deliberada; lo que no puede pasar es que ocurra sola al
+    // volver a una versión anterior.
+    const apagada = porTemp(filas(CONTRATO({ reajusteActivacion: Object.assign({}, ACTIVACION, { activado: false }) })));
+    Object.keys(base).forEach((t) => expect(r2(apagada[t].montoFact)).toBe(r2(base[t].montoFact)));
+    const dif = Object.keys(base).reduce((s, t) => s + (act[t].montoFact - apagada[t].montoFact), 0);
+    expect(r2(dif)).toBeCloseTo(25690.69, 2);
+  });
+
+  test("apagar la activación no borra lo registrado", () => {
+    const ct = CONTRATO({ reajusteActivacion: Object.assign({}, ACTIVACION, { activado: false }) });
+    expect(ct.reajusteActivacion.fechaReferencia).toBe("2026-07-01");
+    expect(ct.reajusteActivacion.respaldo).toMatch(/Comprobante/);
+    expect(ct.reajuste.pct).toBe(2);
   });
 });
 
