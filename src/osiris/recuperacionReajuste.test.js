@@ -187,7 +187,50 @@ describe("3 · lo que NO debe mover el motor", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-describe("4 · los importes que debe reproducir la versión anterior", () => {
+// 4 · ida y vuelta con la version de recuperacion compatible
+//
+// Se edita el contrato con la version de recuperacion (rama
+// osiris/recuperacion-compatible, 5bf8e2c) y se vuelve al candidato. Los
+// importes de ida y de vuelta tienen que ser los mismos.
+describe("4 · vuelta desde la version de recuperacion, sin cambio economico", () => {
+  const EDITADO = CONTRATO({
+    reajusteActivacion: Object.assign({}, ACTIVACION, { respaldo: "Respaldo corregido 002" }),
+    rcCohortes: [
+      { id: "c1", ha: 41.97, desde: "2026/2027" },
+      { id: "c2", ha: 10, desde: "2028/2029" },
+    ],
+  });
+  // Tabla medida en la version de recuperacion.
+  const MEDIDO_EN_RECUPERACION = {
+    "2026/2027": 125910, "2027/2028": 128428.2, "2028/2029": 162208.76,
+    "2029/2030": 165452.94, "2030/2031": 168762,
+  };
+
+  test("el candidato reproduce los mismos importes, al centavo", () => {
+    const f = porTemp(filas(EDITADO));
+    Object.keys(MEDIDO_EN_RECUPERACION).forEach((t) => {
+      expect(f[t]).toBeDefined();
+      expect(r2(f[t].montoFact)).toBe(r2(MEDIDO_EN_RECUPERACION[t]));
+    });
+  });
+
+  test("no se perdio nada de lo registrado en la ida", () => {
+    expect(EDITADO.reajusteActivacion.activado).toBe(true);
+    expect(EDITADO.reajusteActivacion.fechaReferencia).toBe("2026-07-01");
+    expect(EDITADO.reajusteActivacion.respaldo).toBe("Respaldo corregido 002");
+    expect(EDITADO.reajusteActivacion.reglaFecha).toBe("inicioPeriodoServicio");
+    expect(EDITADO.reajusteActivacion.reglaFechaRespaldo).toMatch(/Clausula/);
+  });
+
+  test("y el reajuste sigue aplicado despues de la vuelta", () => {
+    const f = porTemp(filas(EDITADO));
+    const sinAct = porTemp(filas(Object.assign({}, EDITADO, { reajusteActivacion: undefined })));
+    expect(f["2027/2028"].montoFact).toBeGreaterThan(sinAct["2027/2028"].montoFact);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════
+describe("5 · los importes que debe reproducir la versión anterior", () => {
   // Esta tabla es el contrato de la prueba de recuperación: la versión
   // publicada, corriendo con el MISMO contrato CON la activación cargada,
   // tiene que devolver exactamente estos números.
