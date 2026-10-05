@@ -9,9 +9,10 @@ Dos cosas que van por separado y no deben mezclarse en el mismo paso:
   Al desplegarse, la pantalla muestra lo mismo que hoy, porque sin programas,
   saldos ni montos informados cargados el cálculo es el histórico.
 - **Incorporación de los datos** (WLH, Don Alberto, kilos y tarifas, Cerima /
-  GFP / Ideal, saldo de apertura). Queda pendiente de tus definiciones y de la
-  comprobación de `docs/verificacion-pagos-productor.md`. Se hace después, con
-  la funcionalidad ya publicada y estable.
+  GFP / Ideal). WLH quedó definido el 05/10 y listo para cargar; de Don Alberto
+  falta la cartola de los US$362.000 con pagaré y tu decisión de tratamiento
+  (`docs/verificacion-pagos-productor.md`). Se hace después, con la
+  funcionalidad ya publicada y estable.
 
 ## Diferencial final
 
@@ -38,7 +39,7 @@ adjunto aparte.
 | `CLAUDE.md` | 83 | 4 | Reglas del modelo que no hay que romper |
 | `docs/programas-allegria-carga.md` | 255 | 0 | Guía de carga |
 | `docs/propuesta-carga-allegria.md` | 253 | 0 | Propuesta de carga, conciliación y pendientes |
-| `docs/verificacion-pagos-productor.md` | 136 | 0 | Comprobación previa y saldo de apertura |
+| `docs/verificacion-pagos-productor.md` | 106 | 0 | Comprobación de cartola y de lo ya cargado, con el efecto de cada opción |
 | `docs/publicacion-allegria.md` | 128 | 0 | Este documento |
 
 Código de aplicación: **3.040 altas y 103 bajas** en 5 archivos. El resto son
@@ -135,7 +136,8 @@ datos: la vuelta atrás es limpia mientras no haya datos nuevos.
 - No carga ni modifica ningún dato real.
 - No resuelve WLH: las cuotas quedan donde estén y los US$480.000 no se
   proyectan hasta que se carguen como vigentes.
-- No descuenta los pagos de Don Alberto: eso requiere la comprobación y, si lo
-  apruebas, el saldo de apertura, que todavía no está implementado.
+- No carga los compromisos con Don Alberto, y no da por pagados los US$362.000
+  con pagaré: eso requiere la cartola. El saldo de apertura quedó retirado y no
+  se implementó.
 - No toca Allpa Perú ni Allegria Service.
 - No arregla los costos de ciruelas sin línea de flujo.

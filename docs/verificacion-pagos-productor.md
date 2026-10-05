@@ -1,37 +1,69 @@
-# Comprobación previa y saldo de apertura — pagos a Don Alberto
+# Comprobación de los compromisos con Don Alberto
 
-Autorizaste la revisión de solo lectura. **No pude ejecutarla**: la política de
-red de este entorno rechaza el host de Supabase (403 a CONNECT a
-`bywovqayuzodbzwsriet.supabase.co`). No es tu permiso, es el entorno. Para
-habilitarlo: en el menú del entorno cloud de la sesión, *Edit* → **Network
-access**, con el host agregado en *Allowed domains* conservando la lista de
-gestores de paquetes. Pasos:
-https://code.claude.com/docs/en/cloud-environments#network-access
+**Actualizado el 05/10/2026 con la corrección de Angelo.** Los US$679.000 **no
+son pagos ejecutados**:
 
-Mientras no esté habilitado, esta es la comprobación para que la haga el
-equipo. **Solo mirar. No cargar ni modificar nada.**
+| Grupo | Importes | Suma | Qué es |
+|---|---|---:|---|
+| Con pagaré | 255.000 + 89.890 + 17.110 | **362.000** | compromiso documentado, ejecución por confirmar |
+| No ejecutados | 119.000 + 119.000 + 79.000 | **317.000** | anticipos futuros, fechas por confirmar |
 
-## Dónde mirar
+El **saldo de apertura documentado queda retirado**: estaba pensado para un
+total de pagos históricos sin detalle, y acá no hay pagos confirmados ni falta
+el detalle. Si la cartola confirma los US$362.000, cada importe entra como
+realización con su fecha real, que es más trazable que cualquier total de
+apertura.
 
-**Finanzas → Flujo Empresas → Allegria Foods → Parámetros → Temporada
-2026-2027 → Cerezas**, columna **Pagos al productor**. Hay cuatro lugares
-distintos donde un pago puede estar ya registrado:
+## El principio que ordena todo esto
 
-1. **Estimaciones** (las filas de anticipo con US$/kg): desplegar cada una y
-   mirar sus movimientos registrados, con fecha y monto.
-2. **Programas por contraparte** → tarjeta de Don Alberto, si existe → cada
-   cuota del calendario, y dentro de la cuota, sus movimientos.
-3. **Montos informados sin fecha verificada**, en la misma tarjeta: lo que ya
-   se haya cargado como informado.
-4. **Movimientos pendientes de conciliación** (la bandeja, al final de la
-   columna): movimientos con fecha, sin operación asignada.
+- **Evidencia de compromiso** (pagaré, contrato): justifica una **cuota**. Dice
+  cuánto hay que pagar.
+- **Evidencia de movimiento** (cartola, comprobante): justifica una
+  **realización**. Es lo único que convierte el compromiso en pago.
 
-Conviene además mirar los **programas archivados** (el enlace al pie de la
-columna): un movimiento de un programa archivado sigue descontando.
+Un pagaré no promueve una cuota a pago, por mucho que esté firmado.
 
-## Qué anotar, importe por importe
+## Comprobación 1 — ¿salieron los US$362.000 de la cuenta?
 
-| # | Importe US$ | ¿Aparece? | ¿Dónde (estimación / cuota / informado / bandeja)? | Fecha que muestra | Monto exacto que muestra |
+Es la única pregunta que puede convertir esos tres compromisos en pagos. En la
+cartola de la cuenta que corresponda:
+
+| # | Importe US$ | ¿Salió? | Fecha del cargo | Cuenta | Comprobante |
+|---|---:|---|---|---|---|
+| 1 | 255.000 | | | | |
+| 2 | 89.890 | | | | |
+| 3 | 17.110 | | | | |
+
+Si alguno salió por un monto distinto del comprometido, anotar el monto real:
+la realización se registra por lo que efectivamente se movió, y la diferencia
+contra la cuota queda a la vista. Si uno salió en dos partes, anotar las dos.
+
+Los otros tres (119.000, 119.000, 79.000) **no se consultan en la cartola**:
+están declarados como no ejecutados.
+
+## Comprobación 2 — ¿hay algo ya cargado en el sistema?
+
+Para no duplicar al cargar. No pude ejecutarla: la política de red de este
+entorno rechaza el host de Supabase (403 a CONNECT a
+`bywovqayuzodbzwsriet.supabase.co`). Para habilitarlo: menú del entorno cloud
+de la sesión → *Edit* → **Network access**, con ese host en *Allowed domains*
+conservando la lista de gestores de paquetes
+(https://code.claude.com/docs/en/cloud-environments#network-access).
+
+Mientras tanto, en **Finanzas → Flujo Empresas → Allegria Foods → Parámetros →
+Temporada 2026-2027 → Cerezas**, columna **Pagos al productor**, revisar los
+cuatro lugares donde puede estar algo ya cargado:
+
+1. **Estimaciones** (filas de anticipo con US$/kg) y sus movimientos.
+2. **Programas por contraparte** → tarjeta de Don Alberto, si existe → cuotas y
+   sus movimientos.
+3. **Montos informados sin fecha verificada** en esa tarjeta.
+4. **Movimientos pendientes de conciliación** (la bandeja).
+
+También los **programas archivados**: un movimiento de un programa archivado
+sigue descontando.
+
+| # | Importe US$ | ¿Aparece? | ¿Dónde? | Fecha que muestra | Monto exacto |
 |---|---:|---|---|---|---|
 | 1 | 255.000 | | | | |
 | 2 | 89.890 | | | | |
@@ -40,97 +72,35 @@ columna): un movimiento de un programa archivado sigue descontando.
 | 5 | 119.000 | | | | |
 | 6 | 79.000 | | | | |
 
-Dos precisiones para que la respuesta sirva:
+Dos criterios: si un importe aparece dos veces se anotan las dos, sin suponer
+duplicado; y un monto parecido pero distinto es un movimiento distinto hasta
+que la cartola diga lo contrario.
 
-- Si un importe aparece **dos veces**, anotar las dos, con su ubicación. No
-  asumir que una es duplicado: puede haber dos pagos del mismo monto.
-- Si aparece un monto **parecido pero no igual** (por ejemplo 119.500 en vez de
-  119.000), anotarlo como *parecido*, no como coincidencia. Un monto distinto
-  es un movimiento distinto hasta que la cartola diga lo contrario.
-- Anotar también cualquier movimiento al productor que **no** esté en la lista
-  de seis: puede ser uno de estos con otro importe, o uno adicional.
+## Efecto en el flujo, medido con el modelo
 
-## Importe neto del saldo de apertura
+Base del productor US$2.150.500 (tu cifra declarada), liquidación en Mar-27,
+mes de corte Oct-26, realizado **cero** porque nada está confirmado como
+pagado:
 
-El saldo de apertura solo debe incorporar lo que **no** esté ya registrado:
+| Opción de carga | Proyección | Total proyectado | Contra el compromiso |
+|---|---|---:|---:|
+| **(a)** seis cuotas sin fecha, reservadas (comportamiento por defecto) | Mar-27: 1.471.500 | **1.471.500** | **−679.000** |
+| **(b)** sin fecha, decidido "se paga en la liquidación" | Mar-27: 2.150.500 | 2.150.500 | 0 |
+| **(c)** con meses estimados | Nov-26 362.000 · Dec-26 119.000 · Jan-27 119.000 · Feb-27 79.000 · Mar-27 1.471.500 | 2.150.500 | 0 |
 
-```
-neto a incorporar = 679.000 − Σ (importes de los seis que ya estén
-                                 registrados como movimiento vigente)
-```
+La opción (a) deja US$679.000 **fuera de la proyección**: el compromiso se ve
+como *pendiente de calendarizar*, pero la caja proyectada sale mejor de lo que
+corresponde. Recomendado: **(b)** mientras no haya fechas, y pasar a **(c)**
+cuando lleguen.
 
-Un importe que figure como **informado sin fecha** no está registrado como
-movimiento: no descuenta hoy, así que **sí** entra en el neto (y ese
-antecedente se marca como cubierto por el saldo de apertura, para que no se
-convierta después por segunda vez).
+Si después la cartola confirma uno de los US$362.000, ese monto pasa de
+pendiente a realizado: deja de proyectarse en su mes y sigue descontando de la
+liquidación. El total no cambia; cambia el mes.
 
-Un importe que figure en la **bandeja de conciliación** tampoco descuenta hoy,
-pero sí es un movimiento real ya registrado: **no** entra en el neto. Se aplica
-a la operación cuando se sepa cuál, y mientras tanto el saldo de apertura no lo
-duplica.
+## Qué falta para cargar
 
-## Efecto en el flujo
+1. La cartola de los tres importes con pagaré (comprobación 1).
+2. La revisión de lo ya cargado (comprobación 2).
+3. Tu decisión entre (a), (b) y (c).
+4. Las fechas, cuando existan, para pasar a (c).
 
-Con tus cifras declaradas para el productor (costo total US$2.150.500 y
-US$679.000 informados como pagados; si siguen vigentes y corresponden al mismo
-alcance):
-
-```
-Liquidación proyectada hoy          = 2.150.500 − (lo ya registrado)
-Liquidación después de incorporar   = 2.150.500 − 679.000 = 1.471.500
-Mejora de la caja proyectada        = el neto a incorporar
-```
-
-El destino final es el mismo (US$1.471.500) cualquiera sea el resultado de la
-comprobación. Lo que cambia es **cuánto falta por incorporar**:
-
-| Resultado de la comprobación | Neto a incorporar | Liquidación hoy | Liquidación después |
-|---|---:|---:|---:|
-| Ninguno de los seis está registrado | 679.000 | 2.150.500 | 1.471.500 |
-| Solo el de 255.000 está registrado | 424.000 | 1.895.500 | 1.471.500 |
-| Los de 119.000 + 119.000 están registrados | 441.000 | 1.912.500 | 1.471.500 |
-| Los seis están registrados | **0** | 1.471.500 | 1.471.500 · **no se carga nada** |
-
-Mes afectado: **uno solo**, el que esté configurado como mes de liquidación
-del productor de la temporada (`mes_saldo_productor`; no lo leí de producción,
-hay que confirmarlo en pantalla). El resto de los meses no se mueve, porque un
-pago histórico no se proyecta. El saldo acumulado del horizonte mejora
-exactamente en el neto, desde ese mes en adelante.
-
-Dos resguardos del modelo que aplican acá:
-
-- Si el descuento superara el costo total, la liquidación no queda negativa:
-  queda en 0 y el exceso se muestra como **excedente real**, que es un saldo a
-  favor a reconocer, no una liquidación negativa.
-- Si Don Alberto no tiene **presupuesto asignado**, el descuento recae en la
-  liquidación del **bloque presupuestario**; con presupuesto asignado, en su
-  propia posición. El monto total es el mismo; cambia a quién se le atribuye.
-  Para que quede atribuido a él, hay que asignarle presupuesto primero.
-
-## Qué falta para poder cargarlo
-
-1. La tabla de comprobación de arriba, completa.
-2. El **documento** que respalda el total: cartola consolidada, acta o
-   confirmación escrita del productor por los US$679.000.
-3. Tu visto bueno al neto que resulte.
-
-Sin el punto 1 el neto no se puede calcular, y sin el punto 2 el saldo queda
-**provisional**: visible, sin afirmar que sea exigible.
-
-## Cómo evita duplicar cuando aparezca el detalle
-
-El saldo de apertura lleva su propio contador:
-
-```
-pendiente por identificar = monto documentado − Σ movimientos ya imputados contra él
-```
-
-Cada movimiento que se recupere se registra **contra** el saldo de apertura, y
-ese contador baja por el mismo monto. El descuento total de la liquidación no
-se mueve: lo que cambia es cuánto del total está identificado. Si lo
-identificado superara lo documentado, el exceso **no se recorta**: se marca para
-resolver a mano. El saldo de apertura no se borra nunca: queda con su
-documento, su usuario, su historial y el detalle que lo fue consumiendo.
-
-**Nada de esto está implementado todavía.** El mecanismo está diseñado; la
-implementación queda pendiente de tu revisión del neto.
