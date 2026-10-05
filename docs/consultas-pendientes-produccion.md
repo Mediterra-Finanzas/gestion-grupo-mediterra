@@ -7,8 +7,8 @@
 
 ## Estado al 2026-10-05
 
-**Recibidos:** V1–V9, D1–D5, R1–R4 y U1–U8 (análisis en `docs/revision-consultas-produccion-2026-10-05.md`).
-**Pendientes:** U9 (nueva), P1–P5 y el JSON completo de V8.
+**Recibidos:** V1–V9, D1–D5, R1–R4 y U1–U9 (análisis en `docs/revision-consultas-produccion-2026-10-05.md`).
+**Pendientes:** P1–P5 y el JSON completo de V8.
 
 ## Cómo no confundir las dos "PARTE 0"
 

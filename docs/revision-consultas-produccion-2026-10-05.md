@@ -119,11 +119,17 @@ El riesgo real es **escalar permisos**: `fn_mis_empresas()` (SECURITY DEFINER, e
 - `fn_mis_empresas` sigue funcionando con asignaciones hechas por el administrador;
 - la reversión deja todo como hoy.
 
+## Recibido (quinta entrega): U9
+
+- **Filas actuales [Seguro]:** `contab_asientos` 0, `contab_asientos_lineas` 0, `contab_empresas` **11**, `contab_plan_cuentas` **746**, `doc_lotes` 0, `cc_campos` 0, `cc_cuarteles` 0, `audit_log` 0.
+- **Exposición de hoy:** baja en confidencialidad, porque no hay asientos, lotes ni campos. **El riesgo está en la integridad:** quien se asigne una empresa puede **modificar el plan de cuentas** (política UPDATE) y **crear empresas, asientos y lotes** (políticas INSERT).
+- **El riesgo crece** en cuanto el módulo contable empiece a cargar asientos. La propuesta de cerrar las tablas de roles debería aplicarse **antes** de eso.
+- **Pendiente:** P5 (registro abierto o no) define quién puede tener sesión.
+
 ## Pendiente de producción
 
 | Código | Qué falta |
 |---|---|
-| **U9** | Conteo de filas de las tablas contables que dependen de `fn_mis_empresas` (`consulta_permisos_tablas_usuarios.sql` → U9) |
 | **P5** | Consola → Authentication → Sign In / Providers: si "Allow new users to sign up" está activo y si exige confirmar el correo |
 | **P1–P4** | Consola: último respaldo de plataforma, PITR, opciones de restauración y esquemas publicados |
 | V8 completo | JSON con la fila de `authenticator` sin cortar (no cambia la conclusión) |
