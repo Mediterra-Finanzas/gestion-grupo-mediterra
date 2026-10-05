@@ -41,7 +41,7 @@ import { configReajuste, faltantesReajuste, estadoReajuste } from "./condiciones
 //
 // En el candidato esta bandera va en true. En la rama de recuperacion, en
 // false. Es la UNICA diferencia entre las dos.
-export const ACTIVACIONES_NUEVAS_HABILITADAS = true;
+export const ACTIVACIONES_NUEVAS_HABILITADAS = false;   // VERSION DE RECUPERACION
 
 export function puedeCrearActivacion() {
   return ACTIVACIONES_NUEVAS_HABILITADAS
