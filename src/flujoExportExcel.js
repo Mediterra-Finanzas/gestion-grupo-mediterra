@@ -18,6 +18,7 @@ import { antRealizado, antPendiente } from './anticipos.js';
 import {
   normalizarPrograma, normalizarCuota, cuotaAcordado, cuotaRealizado, cuotaPendiente,
   estAcordado, estSustituido, estPendiente, esDato,
+  normalizarSaldo, resumenSaldo,
 } from './programas.js';
 import * as XLSXns from 'xlsx-js-style';
 const XLSX = XLSXns.utils ? XLSXns : (XLSXns.default || XLSXns);
@@ -1018,12 +1019,14 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
   const labelByIdx = {}; months.forEach(mo => { labelByIdx[mo.idx] = mo.label; });
   // Movement cols (mes/monto) por línea:
   const AC_M=8,AC_N=9, CO_M=10,CO_N=11, MT_M=12,MT_N=13, SP_M=14,SP_N=15,
-        LC_M=16,LC_N=17, RB_M=18,RB_N=19, AR_M=20,AR_N=21, LAST_COL=21;
+        LC_M=16,LC_N=17, RB_M=18,RB_N=19, AR_M=20,AR_N=21,
+        RE_M=22,RE_N=23, DE_M=24,DE_N=25, LAST_COL=25;
   const { cells, merges, wrows, put, rInicio } = iniciarParamSheet('⚙ Parámetros — Allegria Foods', 7);
   let r = rInicio;
   // sub-encabezado columnas fuente
   [['Ant.Cerezas',AC_M],['Costo Fruta',CO_M],['Materiales',MT_M],['Servicios',SP_M],
-   ['Liq.Ciruelas',LC_M],['Rebate',RB_M],['Arándanos',AR_M]].forEach(([t,c])=>{
+   ['Liq.Ciruelas',LC_M],['Rebate',RB_M],['Arándanos',AR_M],
+   ['Recup.anticipos',RE_M],['Devol.anticipos',DE_M]].forEach(([t,c])=>{
     put(r,c,{ t:'s', v:t, s:PS.colHdr }); put(r,c+1,{ t:'s', v:'US$', s:PS.colHdr });
   });
   r++;
@@ -1154,6 +1157,49 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
     });
   });
 
+  // ══ SALDOS A FAVOR ══
+  // Solo lo PROGRAMADO y no ejecutado llega al flujo. Lo ejecutado ya es caja
+  // y las compensaciones no generan movimiento bancario: van informadas.
+  const saldosTodos = [];
+  seasonKeys.forEach(sk => ['cerezas','ciruelas'].forEach(fr => {
+    (paramsAll[sk]?.[fr]?.saldos_favor || []).forEach(x => saldosTodos.push({ ...normalizarSaldo(x), _sk:sk, _fr:fr }));
+  }));
+  if (saldosTodos.length) {
+    secHdr('④ SALDOS A FAVOR — recuperación de productores y devolución a clientes');
+    colHdrs(['Temporada','Contraparte','Reconocido','Resuelto','Programado','Pendiente','Disponible']);
+    saldosTodos.forEach(sf => {
+      const r0 = r; const rs = resumenSaldo(sf);
+      put(r0,0,{ t:'s', v:sf._sk, s:PS.txt });
+      put(r0,1,{ t:'s', v:`${sf.lado === 'cliente' ? 'Cliente' : 'Productor'} · ${sf.contraparte||'sin nombre'} (${sf.estado})`, s:PS.txt });
+      put(r0,2,{ t:'n', v:rs.reconocido, s:PS.inNum });
+      put(r0,3,{ t:'n', v:rs.resuelto,   s:PS.der });
+      put(r0,4,{ t:'n', v:rs.programado, s:PS.der });
+      put(r0,5,{ t:'n', v:rs.pendienteReal, s:PS.derB });
+      put(r0,6,{ t:'n', v:rs.disponible, s:PS.der });
+      r++;
+      rs.aplicaciones.forEach(a => {
+        const rA = r; const mC = ref(rA,5);
+        const etq = a.tipo === 'recuperacion' ? 'Recuperación' : a.tipo === 'devolucion' ? 'Devolución' : 'Compensación';
+        put(rA,1,{ t:'s', v:`   ↳ ${etq} · ${a.estado}`, s:PS.txtSub });
+        put(rA,5,{ t:'n', v:Number(a.usd)||0, s:PS.inNum });
+        const proyecta = a.estado === 'programada' && !!a.mes &&
+                         (a.tipo === 'recuperacion' || a.tipo === 'devolucion');
+        if (proyecta) {
+          const M = a.tipo === 'recuperacion' ? RE_M : DE_M;
+          const N = a.tipo === 'recuperacion' ? RE_N : DE_N;
+          put(rA,M,{ t:'s', v:a.mes, s:PS.inTxt });
+          put(rA,N,{ t:'n', f:`${mC}`, v:Number(a.usd)||0, s:PS.movNum });
+        } else {
+          put(rA,6,{ t:'s', v:a.estado === 'ejecutada' ? 'ya es caja' :
+                             a.estado === 'aplicada' ? 'compensada, sin movimiento' :
+                             a.estado === 'reservada' ? 'reservada: no proyecta' : 'sin mes', s:PS.txtSub });
+        }
+        r++;
+      });
+    });
+    r++;
+  }
+
   const widths = [{wch:12},{wch:20},{wch:10},{wch:11},{wch:8},{wch:9},{wch:9},{wch:2}];
   for (let c=8;c<=LAST_COL;c++) widths[c] = { wch: (c%2===0?11:12) };
   const ws = finalizeParamSheet({ cells, merges, wrows, lastRow:r, lastCol:LAST_COL, colWidths:widths, freezeRow:5 });
@@ -1166,6 +1212,8 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
     'Liquidación Ciruelas':                                          { cellFormula: sf(LC_M, LC_N) },
     'Otros ingresos - Rebate exportación (cobro diferido)':          { cellFormula: sf(RB_M, RB_N) },
     'Arándanos Perú':                                                { cellFormula: sf(AR_M, AR_N) },
+    'Recuperación de anticipos a productores':                       { cellFormula: sf(RE_M, RE_N) },
+    'Devolución de anticipos a clientes':                            { cellFormula: sf(DE_M, DE_N) },
   } };
 }
 

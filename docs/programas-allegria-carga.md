@@ -114,13 +114,93 @@ rotula *proyectada*: el presupuesto no es deuda en firme.
   de contar en el realizado y la estimación de origen recupera su capacidad.
 - Volver una cuota a borrador no resucita como pendiente la parte ya cobrada.
 
-## Qué revisar
+## Cómo leer el resumen de cada lado
 
-El resumen de cada lado trae, en este orden: total estimado o definitivo,
-variación contra presupuesto, realizado, saldo total pendiente, anticipos
-pendientes, de ellos los **vencidos (fuera del acumulado)**, y la liquidación
-final proyectada. Más los avisos de excedente, sobre-sustitución, movimientos
-sin conciliar y operaciones fuera de presupuesto.
+```
+Venta (o retorno) de presupuesto / definitiva      ← base
+  variación contra presupuesto                      (solo si hay definitiva)
+Anticipos ya cobrados / pagados                     ← realizado
+Saldo económico pendiente                           = base − realizado
+  Anticipos pendientes
+    · vencidos, antes del corte                     NO entran al acumulado
+    · dentro del horizonte
+    · después del horizonte                         no tienen columna en el flujo
+    · sin fecha, pendientes de calendarizar
+  Liquidación (mes)                                 con su ubicación temporal
+    · compensaciones aplicadas que la reducen
+  Total calendarizado
+  Pendiente de calendarizar
+Excedente real                                      lo único que puede ser deuda
+Exceso de compromisos del calendario                aviso, no obligación
+```
+
+Las cuatro cubetas de fecha son excluyentes: ningún monto aparece dos veces ni
+desaparece. El **excedente real** es lo cobrado o pagado por sobre la base; el
+**exceso de compromisos** es el calendario pasándose, que no crea ninguna
+obligación. Son dos números distintos y nunca se suman.
+
+## Registros antiguos sin fecha
+
+Si tienes anticipos sin mes cargados de antes, aparece un aviso con su monto.
+Hoy esos montos están dentro de la liquidación, que es el tratamiento que la
+app venía dando, y **no cambia hasta que decidas**, uno por uno:
+
+- *sigue acordado sin fecha*: sale de la liquidación y queda pendiente de
+  calendarizar. La caja proyectada del mes de liquidación baja en ese monto.
+- *trasladar a liquidación*: queda como está hoy, pero ya declarado.
+
+La decisión se guarda con tu usuario, la fecha y el historial si cambias de
+opinión. Un anticipo nuevo sin fecha no se confunde con uno antiguo.
+
+## Saldos a favor
+
+Cuando una contraparte queda con **excedente real**, el bloque *Saldos a favor*
+permite reconocerlo. `+ Reconocer saldo` pide contraparte, monto y respaldo. Sin
+respaldo queda **provisional**: visible, sin afirmar que sea exigible. Con
+liquidación definitiva individual o documento, queda **reconocido**.
+
+Cada saldo muestra cuatro cifras distintas:
+
+```
+reconocido   el monto del excedente
+resuelto     movimientos ya ejecutados + compensaciones aplicadas
+programado   cuotas agendadas sin ejecutar + compensaciones reservadas
+pendiente    reconocido − resuelto        ← programar NO lo extingue
+disponible   pendiente − programado
+```
+
+Acciones:
+
+- **Recuperar del productor / Devolver al cliente**: agenda monto y mes. El
+  flujo lo proyecta en *Recuperación de anticipos a productores* (entrada) o
+  *Devolución de anticipos a clientes* (salida). Al registrar el movimiento
+  real, deja de proyectarse y pasa a *resuelto*.
+- **Compensar**: queda **reservada**, ocupando disponible y sin mover nada.
+  Al aplicarla contra una operación destino con saldo, reduce ese cobro o pago
+  una sola vez, sin movimiento bancario. Si el destino solo absorbe parte, el
+  remanente queda visible.
+- **Aplazar**: cambia el mes de una cuota agendada, con motivo y sin duplicarla.
+- **Anular**: libera la reserva. Una aplicación ya ejecutada no se anula desde
+  ahí: se corrige anulando su movimiento, con motivo.
+
+Las dos líneas nuevas del flujo son movimientos de caja y están marcadas como
+**no venta** y **no costo de fruta**: no son ventas nuevas ni modifican ningún
+anticipo histórico.
+
+## Presupuesto asignado por operación
+
+En la tarjeta de cada contraparte puedes asignarle una porción del presupuesto.
+Se **sugiere** desde kilos × precio, pero la confirmas tú. El panel muestra
+presupuesto global, asignado y remanente. Si la suma supera el presupuesto, la
+app pregunta si es una **ampliación** o prefieres **reasignar**: no recorta ni
+amplía sola.
+
+Asignar saca a la operación del bloque **entera**: su presupuesto, sus
+movimientos y sus pendientes. Con `importe definitivo` cargado, esa operación
+liquida con su propia base y su variación queda a la vista. Las posiciones no
+se netean entre contrapartes: si una cobró de más y otra debe, se ven las dos.
+
+## Qué revisar
 
 El pendiente vencido es el que quedó programado en un mes anterior al mes en
 curso: se proyecta antes del corte y **no entra al saldo acumulado**. No es
@@ -140,7 +220,8 @@ para *Costo Fruta Exportación* del lado productor.
 ## Verificación automática
 
 ```bash
-node src/programas.test.mjs                                   # modelo puro (76)
-CI=true npx react-scripts test --testPathPattern programas --watchAll=false
-OUT_DIR=/tmp/e2e-programas node scripts/e2e/programas-allegria.mjs   # navegador + Excel real
+node src/programas.test.mjs                                   # modelo puro (135)
+CI=true npx react-scripts test --watchAll=false               # suite completa
+VIDEO=1 OUT_DIR=/tmp/e2e node scripts/e2e/programas-allegria.mjs   # navegador + Excel real + video
+OUT_DIR=/tmp/reg node scripts/e2e/regresion-empresas.mjs      # las demás empresas
 ```

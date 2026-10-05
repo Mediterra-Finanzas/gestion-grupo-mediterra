@@ -22,6 +22,9 @@ import {
   estAcordado, estPendiente, estDisponible, estSobreSustituida,
   efectoImputacion, imputarMovimiento, moverRealizacion,
   archivarPrograma, tieneHistorial, nuevoMovimientoSinAsignar, esDato,
+  registrarDecisionSinFecha, normalizarSaldo, resumenSaldo, puedeReconocer,
+  agregarAplicacion, ejecutarAplicacion, aplicarCompensacion,
+  aplazarAplicacion, anularAplicacion,
 } from "./programas.js";
 import { realizacionesVigentes, anularRealizacion, normalizarAnticipo } from "./anticipos.js";
 
@@ -40,47 +43,79 @@ const hoyISO = () => {
 // ── Resumen de un lado, con las siete líneas acordadas ─────────────
 export function ResumenLado({ r, esCli, C, $$, mesLiq }) {
   if (!r) return null;
-  const L = ({ t, v, c, s }) => (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+  const L = ({ t, v, c, s, sangria }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, paddingLeft: sangria ? 10 : 0 }}>
       <span style={{ color: C.muted }}>{t}</span>
       <strong style={{ color: c || C.text }}>{s ? `${v}` : $$(v)}</strong>
     </div>
   );
+  const cub = r.cubetas || { vencido: 0, horizonte: 0, fuera_horizonte: 0, sin_fecha: 0 };
   return (
     <div style={{ fontSize: 10, color: C.muted, marginTop: 8, lineHeight: 1.75 }}>
-      <L t={`${esCli ? "Venta" : "Retorno al productor"} ${r.definitiva !== null ? "definitiva" : "estimada"}`} v={r.base} />
+      <L t={`${esCli ? "Venta" : "Retorno al productor"} ${r.definitiva !== null ? "definitiva" : "de presupuesto"}`} v={r.base} />
       {r.definitiva !== null && (
-        <L t="Variación contra presupuesto" v={`${r.variacionBase >= 0 ? "+" : ""}${$$(r.variacionBase)}`}
+        <L t="Variación contra presupuesto" sangria
+           v={`${r.variacionBase >= 0 ? "+" : ""}${$$(r.variacionBase)}`}
            c={Math.abs(r.variacionBase) < 0.5 ? C.muted2 : C.warning} s />
       )}
-      <L t={esCli ? "Anticipos ya cobrados" : "Anticipos ya pagados"} v={r.realizado} c={r.realizado > 0 ? C.success : C.muted2} />
-      <L t={esCli ? "Saldo total por cobrar" : "Saldo total por pagar"} v={r.saldoTotal} />
-      <div style={{ paddingLeft: 10, borderLeft: `2px solid ${C.border}`, marginTop: 2 }}>
-        <L t="Anticipos pendientes programados" v={r.pendientes} c={r.pendientes > 0 ? C.warning : C.muted2} />
-        {r.pendienteVencido > 0 && (
-          <L t="· de ellos, vencidos (fuera del acumulado)" v={r.pendienteVencido} c={C.danger} />
-        )}
-        <L t={`Liquidación final proyectada${mesLiq ? ` (${mesLiq})` : ""}`} v={r.liquidacion} />
+      <L t={esCli ? "Anticipos ya cobrados" : "Anticipos ya pagados"} v={r.realizado}
+         c={r.realizado > 0 ? C.success : C.muted2} />
+      <L t={`Saldo económico pendiente (${esCli ? "por cobrar" : "por pagar"})`} v={r.saldoEconomico} />
+
+      <div style={{ marginTop: 4, paddingTop: 4, borderTop: `1px dashed ${C.border}` }}>
+        <L t="Anticipos pendientes" v={r.pendientes} c={r.pendientes > 0 ? C.warning : C.muted2} />
+        {cub.vencido > 0 &&
+          <L t="· vencidos, antes del corte (no entran al acumulado)" v={cub.vencido} c={C.danger} sangria />}
+        {cub.horizonte > 0 &&
+          <L t="· dentro del horizonte" v={cub.horizonte} sangria />}
+        {cub.fuera_horizonte > 0 &&
+          <L t="· después del horizonte (no tienen columna en el flujo)" v={cub.fuera_horizonte} c={C.warning} sangria />}
+        {r.pendienteSinFechaReservado > 0 &&
+          <L t="· sin fecha, pendientes de calendarizar" v={r.pendienteSinFechaReservado} c={C.warning} sangria />}
+        <L t={`Liquidación ${r.ubicacionLiquidacionTexto || (mesLiq ? `(${mesLiq})` : "sin mes")}`} v={r.liquidacion} />
+        {r.compensadoAplicado > 0 &&
+          <L t="· compensaciones aplicadas que la reducen" v={r.compensadoAplicado} c={C.success} sangria />}
+        <L t="Total calendarizado" v={r.totalCalendarizado} />
+        {r.pendienteDeCalendarizar > 0 &&
+          <L t="Pendiente de calendarizar (sin fecha)" v={r.pendienteDeCalendarizar} c={C.warning} />}
       </div>
-      {r.pendienteSinMes > 0 && (
-        <div style={{ color: C.warning, marginTop: 3 }}>
-          {$$(r.pendienteSinMes)} de anticipos sin mes: no se proyectan y se {esCli ? "cobran" : "pagan"} en la liquidación.
+
+      {(r.excedenteReal > 0 || r.excesoCompromisos > 0) && (
+        <div style={{ marginTop: 4, paddingTop: 4, borderTop: `1px dashed ${C.border}` }}>
+          {r.excedenteReal > 0 && (
+            <>
+              <L t={`Excedente real (${esCli ? "cobrado" : "pagado"} por sobre la base)`} v={r.excedenteReal} c={C.danger} />
+              <div style={{ color: C.muted2, paddingLeft: 10 }}>
+                Es lo único que puede llegar a ser {esCli ? "una devolución al cliente" : "una recuperación del productor"},
+                y solo con respaldo. Si la base es presupuestaria, todavía no es deuda.
+              </div>
+            </>
+          )}
+          {r.excesoCompromisos > 0 && (
+            <>
+              <L t="Exceso de compromisos del calendario" v={r.excesoCompromisos} c={C.warning} />
+              <div style={{ color: C.muted2, paddingLeft: 10 }}>
+                El calendario compromete más de lo que esta operación soporta. Hay que revisar el calendario o la base:
+                no crea ninguna obligación.
+              </div>
+            </>
+          )}
         </div>
       )}
-      {r.excedente > 0 && (
-        <div style={{ color: C.danger, fontWeight: 700, marginTop: 3 }}>
-          Excedente de anticipos: {$$(r.excedente)} por sobre el {esCli ? "total de venta" : "retorno al productor"}.
-          <span style={{ color: C.muted2, fontWeight: 400 }}> La liquidación queda en $0 y el exceso no se compensa solo: decide si se devuelve, se imputa a otra temporada o si hay que corregir kilos o precio.</span>
+
+      {r.pendienteSinFechaEnLiquidacion > 0 && (
+        <div style={{ color: C.muted2, marginTop: 3 }}>
+          {$$(r.pendienteSinFechaEnLiquidacion)} de anticipos sin fecha están dentro de la liquidación.
         </div>
       )}
       {r.sobreSustitucion > 0 && (
         <div style={{ color: C.danger, marginTop: 3 }}>
-          Sobre-sustitución de {$$(r.sobreSustitucion)}: hay cuotas vigentes que reemplazan más estimación de la disponible. Hay que resolverlo a mano.
+          Sobre-sustitución de {$$(r.sobreSustitucion)}: hay cuotas vigentes que reemplazan más estimación de la disponible.
         </div>
       )}
       {r.sinAsignarUsd > 0 && (
         <div style={{ color: C.warning, marginTop: 3 }}>
-          {$$(r.sinAsignarUsd)} en movimientos pendientes de conciliación: no descuentan de esta liquidación hasta asignarlos.
+          {$$(r.sinAsignarUsd)} en movimientos pendientes de conciliación: no descuentan de esta liquidación.
         </div>
       )}
       {r.realizadoFuera > 0 && (
@@ -93,6 +128,26 @@ export function ResumenLado({ r, esCli, C, $$, mesLiq }) {
           {r.faltanDatos} cuota(s) vigente(s) sin datos suficientes: su acordado no se calcula y no se asume cero.
         </div>
       )}
+      {!r.cuadra && (
+        <div style={{ color: C.danger, marginTop: 3 }}>
+          El cuadre de esta columna no cierra. Revisa los avisos de arriba antes de usar la cifra.
+        </div>
+      )}
+      {(r.posiciones || []).length > 0 && (
+        <details style={{ marginTop: 5 }}>
+          <summary style={{ cursor: "pointer", color: C.muted2 }}>
+            {r.posiciones.length} operación(es) con posición propia · bloque presupuestario {$$(r.bloque?.base)}
+          </summary>
+          {r.posiciones.map(q => (
+            <div key={q.programaId} style={{ fontSize: 9, color: C.muted2, marginTop: 2 }}>
+              {q.contraparte || "sin nombre"} · base {$$(q.base)} · {esCli ? "cobrado" : "pagado"} {$$(q.realizado)} ·
+              {" "}liquidación {$$(q.liquidacion)}
+              {q.excedenteReal > 0 ? ` · excedente real ${$$(q.excedenteReal)}` : ""}
+              {q.variacionBase !== null ? ` · variación ${q.variacionBase >= 0 ? "+" : ""}${$$(q.variacionBase)}` : ""}
+            </div>
+          ))}
+        </details>
+      )}
     </div>
   );
 }
@@ -101,6 +156,8 @@ export function ResumenLado({ r, esCli, C, $$, mesLiq }) {
 export default function ProgramasPanel({
   programas = [], onChange, estimaciones = {}, onEstimaciones, resumenes = {},
   definitivas = {}, onDefinitiva, sinAsignar = [], onSinAsignar,
+  saldosFavor = [], onSaldosFavor, decisionesSinFecha = {}, onDecisionSinFecha,
+  modeloVersion = 1,
   kgFruta = 0, meses = [], readOnly = false, usuario = "", C, $$,
 }) {
   const lista = (Array.isArray(programas) ? programas : []).map(normalizarPrograma);
@@ -119,6 +176,11 @@ export default function ProgramasPanel({
             resumen={resumenes[lado]}
             definitiva={definitivas[lado] || null}
             onDefinitiva={v => onDefinitiva && onDefinitiva(lado, v)}
+            saldosFavor={(saldosFavor || []).filter(x => x && x.lado === lado)}
+            onSaldosFavor={next => onSaldosFavor && onSaldosFavor([
+              ...(saldosFavor || []).filter(x => x && x.lado !== lado), ...next])}
+            decisiones={decisionesSinFecha} onDecision={onDecisionSinFecha}
+            modeloVersion={modeloVersion}
             sinAsignar={(sinAsignar || []).filter(m => m && m.lado === lado)}
             onSinAsignar={next => onSinAsignar && onSinAsignar([
               ...(sinAsignar || []).filter(m => m && m.lado !== lado), ...next])}
@@ -132,7 +194,9 @@ export default function ProgramasPanel({
 
 function Columna({
   lado, programas, todos, estimaciones, onEstimaciones, resumen, definitiva, onDefinitiva,
-  sinAsignar, onSinAsignar, kgFruta, meses, readOnly, usuario, C, $$, setLista,
+  sinAsignar, onSinAsignar, saldosFavor = [], onSaldosFavor,
+  decisiones = {}, onDecision, modeloVersion = 1,
+  kgFruta, meses, readOnly, usuario, C, $$, setLista,
 }) {
   const esCli = lado === "cliente";
   const col = esCli ? C.green : C.red;
@@ -184,6 +248,9 @@ function Columna({
         )}
       </div>
 
+      <AvisoCompatibilidad avisos={resumen?.avisosCompatibilidad || []} decisiones={decisiones}
+        onDecision={onDecision} esCli={esCli} C={C} $$={$$} readOnly={readOnly} usuario={usuario} />
+
       <LiquidacionDefinitiva definitiva={definitiva} onDefinitiva={onDefinitiva} resumen={resumen}
         esCli={esCli} C={C} $$={$$} readOnly={readOnly} usuario={usuario} />
 
@@ -196,6 +263,7 @@ function Columna({
         {vivos.map(p => (
           <Tarjeta key={p.id} p={p} esCli={esCli} col={col} C={C} $$={$$} meses={meses}
             readOnly={readOnly} usuario={usuario} kgFruta={kgFruta}
+            presupuestoGlobal={resumen?.basePresupuesto || 0}
             estimaciones={estimaciones} onEstimaciones={onEstimaciones}
             todos={todos} setLista={setLista}
             onReemplazar={nuevo => reemplazar(p.id, nuevo)}
@@ -217,6 +285,9 @@ function Columna({
           ))}
         </div>
       )}
+
+      <SaldosFavorBloque saldos={saldosFavor} onSaldos={onSaldosFavor} esCli={esCli} C={C} $$={$$}
+        meses={meses} readOnly={readOnly} usuario={usuario} resumen={resumen} programas={programas} />
 
       {/* Bandeja de conciliación */}
       <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${C.border}` }}>
@@ -324,7 +395,7 @@ function LiquidacionDefinitiva({ definitiva, onDefinitiva, resumen, esCli, C, $$
 
 // ── Tarjeta de un programa ────────────────────────────────────────
 function Tarjeta({
-  p, esCli, col, C, $$, meses, readOnly, usuario, kgFruta,
+  p, esCli, col, C, $$, meses, readOnly, usuario, kgFruta, presupuestoGlobal = 0,
   estimaciones, onEstimaciones, todos, setLista, onReemplazar, onBorrar, onArchivar,
 }) {
   const [abierto, setAbierto] = useState(true);
@@ -342,6 +413,27 @@ function Tarjeta({
   }, 0);
 
   const upd = (patch) => onReemplazar({ ...p, ...patch });
+  // Presupuesto asignado: se sugiere desde kilos y precio, pero lo confirmas tú.
+  // Nunca se recorta ni se amplía solo.
+  const sugerencia = (esDato(p.kilos) && esDato(p.precio_usd_kg))
+    ? Number(p.kilos) * Number(p.precio_usd_kg) : null;
+  const asignadoOtros = (todos || []).filter(x => x.lado === p.lado && x.id !== p.id && !x.archivado)
+    .reduce((s2, x) => s2 + (esDato(x.presupuesto_asignado) ? Number(x.presupuesto_asignado) : 0), 0);
+  const asignadoTotal = asignadoOtros + (esDato(p.presupuesto_asignado) ? Number(p.presupuesto_asignado) : 0);
+  const remanente = presupuestoGlobal - asignadoTotal;
+  const confirmarAsignacion = (n) => {
+    const nuevoTotal = asignadoOtros + (Number(n) || 0);
+    if (nuevoTotal > presupuestoGlobal + 0.5) {
+      const dif = nuevoTotal - presupuestoGlobal;
+      if (!window.confirm(
+        `Las asignaciones sumarían ${$$(nuevoTotal)} contra ${$$(presupuestoGlobal)} de presupuesto: ` +
+        `${$$(dif)} de más.\n\n` +
+        `Aceptar = es una AMPLIACIÓN y la diferencia queda a la vista.\n` +
+        `Cancelar = prefiero REASIGNAR, bajando otra operación primero.\n\n` +
+        `En ningún caso se recorta ni se amplía el presupuesto solo.`)) return;
+    }
+    upd({ presupuesto_asignado: n });
+  };
   const updCuota = (id, patch) => onReemplazar({ ...p, cuotas: p.cuotas.map(c => c.id === id ? normalizarCuota({ ...c, ...patch }) : c) });
   const addCuota = () => onReemplazar({ ...p, cuotas: [...p.cuotas, normalizarCuota({
     id: nuevoIdCuota(), estado: "borrador", modalidad: "por_confirmar" })] });
@@ -451,6 +543,27 @@ function Tarjeta({
               <InputNumero formato="tasa" value={esDato(p.precio_usd_kg) ? p.precio_usd_kg : ""} placeholder="US$/kg"
                 disabled={readOnly} onChange={n => upd({ precio_usd_kg: n })} style={{ ...inSt, width: 80, textAlign: "right" }} />
             </Campo>
+            <Campo lbl="Presupuesto asignado a esta operación" C={C}>
+              <InputNumero formato="monto" value={esDato(p.presupuesto_asignado) ? p.presupuesto_asignado : ""}
+                placeholder={sugerencia != null ? `sugerido ${num(sugerencia)}` : "sin asignar"}
+                disabled={readOnly} onChange={n => confirmarAsignacion(n)}
+                style={{ ...inSt, width: 110, textAlign: "right" }} />
+            </Campo>
+            <Campo lbl="Importe definitivo (liquidación individual)" C={C}>
+              <InputNumero formato="monto" value={esDato(p.importe_definitivo) ? p.importe_definitivo : ""}
+                placeholder="sin liquidar" disabled={readOnly}
+                onChange={n => upd({ importe_definitivo: n })} style={{ ...inSt, width: 110, textAlign: "right" }} />
+            </Campo>
+          </div>
+          <div style={{ fontSize: 9, color: C.muted2, marginBottom: 6, lineHeight: 1.6 }}>
+            Presupuesto global {$$(presupuestoGlobal)} · asignado {$$(asignadoTotal)} ·
+            {" "}remanente <strong style={{ color: remanente < 0 ? C.danger : C.muted }}>{$$(remanente)}</strong>.
+            {esDato(p.presupuesto_asignado) && esDato(p.importe_definitivo) && (
+              <> Variación de esta operación: <strong style={{ color: C.warning }}>
+                {(Number(p.importe_definitivo) - Number(p.presupuesto_asignado)) >= 0 ? "+" : ""}
+                {$$(Number(p.importe_definitivo) - Number(p.presupuesto_asignado))}</strong>.</>
+            )}
+            {" "}Asignar saca a la operación del bloque entera: su presupuesto, sus movimientos y sus pendientes.
           </div>
           <div style={{ fontSize: 9, color: C.muted2, marginBottom: 6 }}>
             Los kilos se usan para calcular las cuotas en US$/kg. El precio no alimenta el flujo:
@@ -699,3 +812,219 @@ function Campo({ lbl, C, children }) {
     </div>
   );
 }
+
+// ── Registros antiguos sin fecha: decisión explícita ───────────────
+// Mientras no decidas, el flujo conserva el tratamiento de siempre.
+function AvisoCompatibilidad({ avisos, decisiones, onDecision, esCli, C, $$, readOnly, usuario }) {
+  if (!avisos.length) return null;
+  const total = avisos.reduce((s, a) => s + (Number(a.usd) || 0), 0);
+  const decidir = (a, trato) => {
+    const texto = trato === "acordado_sin_fecha"
+      ? `Dejarlo como anticipo acordado sin fecha.\n\n` +
+        `Sus ${$$(a.usd)} salen de la liquidación y quedan pendientes de calendarizar: ` +
+        `la caja proyectada del mes de liquidación baja en ese monto.`
+      : `Trasladarlo a la liquidación.\n\n` +
+        `Es el tratamiento que la app viene dando hoy: la cifra no cambia.`;
+    if (!window.confirm(`${texto}\n\n¿Confirmas?`)) return;
+    onDecision(registrarDecisionSinFecha(decisiones, a.id, trato, { usuario }));
+  };
+  return (
+    <div style={{ background: `${C.warning}14`, border: `1px solid ${C.warning}55`, borderRadius: 8,
+      padding: "7px 9px", marginBottom: 8, fontSize: 9, color: C.text, lineHeight: 1.6 }}>
+      <strong style={{ color: C.warning }}>
+        {avisos.length} registro(s) antiguo(s) sin fecha por {$$(total)}.
+      </strong>{" "}
+      Hoy sus montos están dentro de la liquidación, que es el tratamiento que la app venía dando.
+      Nada se migra solo: decide uno por uno.
+      {!readOnly && avisos.map(a => (
+        <div key={a.id} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 3 }}>
+          <span style={{ color: C.muted }}>{a.contraparte || "estimación sin contraparte"}</span>
+          <strong>{$$(a.usd)}</strong>
+          <button onClick={() => decidir(a, "acordado_sin_fecha")}
+            style={{ padding: "1px 7px", background: "transparent", border: `1px solid ${C.border}`,
+              borderRadius: 5, color: C.muted, cursor: "pointer", fontSize: 9 }}>sigue acordado sin fecha</button>
+          <button onClick={() => decidir(a, "trasladar_liquidacion")}
+            style={{ padding: "1px 7px", background: "transparent", border: `1px solid ${C.border}`,
+              borderRadius: 5, color: C.muted, cursor: "pointer", fontSize: 9 }}>trasladar a liquidación</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Saldos a favor ─────────────────────────────────────────────────
+function SaldosFavorBloque({ saldos, onSaldos, esCli, C, $$, meses, readOnly, usuario, resumen, programas }) {
+  const [draft, setDraft] = useState(null);
+  const lista = (saldos || []).map(normalizarSaldo);
+  const accionNombre = esCli ? "Devolver al cliente" : "Recuperar del productor";
+  const tipoMov = esCli ? "devolucion" : "recuperacion";
+
+  const reemplazar = (id, nuevo) => onSaldos(lista.map(x => (x.id === id ? nuevo : x)));
+  const puede = (s) => puedeReconocer({
+    importeDefinitivo: (resumen?.posiciones || []).find(q => q.programaId === s.programaId)?.importeDefinitivo ?? null,
+    respaldo: s.respaldo,
+  });
+
+  const programar = (s) => {
+    const r = resumenSaldo(s);
+    const txt = window.prompt(`${accionNombre}: monto en US$ (disponible ${Math.round(r.disponible)})`, "");
+    if (txt === null) return;
+    const usd = Number(String(txt).replace(/\./g, "").replace(",", ".")) || 0;
+    const mes = window.prompt(`Mes del movimiento (${meses.slice(0, 3).join(", ")}…)`, meses[0] || "");
+    if (mes === null) return;
+    try {
+      reemplazar(s.id, agregarAplicacion(s, { tipo: tipoMov, usd, mes, usuario }));
+    } catch (e) { window.alert(e.message); }
+  };
+  const compensar = (s) => {
+    const r = resumenSaldo(s);
+    const txt = window.prompt(`Compensar contra otra operación: monto (disponible ${Math.round(r.disponible)})`, "");
+    if (txt === null) return;
+    const usd = Number(String(txt).replace(/\./g, "").replace(",", ".")) || 0;
+    const destino = window.prompt("Operación destino (contraparte o temporada). Queda registrada como reserva:", "");
+    if (destino === null) return;
+    try {
+      reemplazar(s.id, agregarAplicacion(s, { tipo: "compensacion", usd,
+        destino: { nota: destino, contraparte: s.contraparte }, usuario }));
+    } catch (e) { window.alert(e.message); }
+  };
+  const ejecutar = (s, a) => {
+    const fecha = window.prompt("Fecha real del movimiento (AAAA-MM-DD):", hoyISO());
+    if (fecha === null) return;
+    try { reemplazar(s.id, ejecutarAplicacion(s, a.id, { fecha, usuario })); }
+    catch (e) { window.alert(e.message); }
+  };
+  const aplicar = (s, a) => {
+    const txt = window.prompt("Saldo de la operación destino que puede absorber la compensación:", "");
+    if (txt === null) return;
+    const saldoDestino = Number(String(txt).replace(/\./g, "").replace(",", ".")) || 0;
+    try {
+      const res = aplicarCompensacion(s, a.id, { saldoDestino, usuario });
+      window.alert(`Aplicada ${$$(res.absorbido)}.` +
+        (res.remanente > 0 ? `\n\nQuedan ${$$(res.remanente)} del saldo original, visibles como disponibles.` : ""));
+      reemplazar(s.id, res.saldo);
+    } catch (e) { window.alert(e.message); }
+  };
+  const aplazar = (s, a) => {
+    const mes = window.prompt("Nuevo mes:", a.mes || "");
+    if (mes === null) return;
+    const motivo = window.prompt("Motivo del aplazamiento:", "");
+    if (motivo === null) return;
+    try { reemplazar(s.id, aplazarAplicacion(s, a.id, { mes, motivo, usuario })); }
+    catch (e) { window.alert(e.message); }
+  };
+  const anular = (s, a) => {
+    const motivo = window.prompt("Motivo de la anulación:", "");
+    if (motivo === null) return;
+    try { reemplazar(s.id, anularAplicacion(s, a.id, { motivo, usuario })); }
+    catch (e) { window.alert(e.message); }
+  };
+
+  return (
+    <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${C.border}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10, color: C.muted, fontWeight: 700 }}>
+          Saldos a favor {esCli ? "del cliente" : "por recuperar del productor"}
+        </span>
+        {!readOnly && (
+          <button onClick={() => setDraft({ contraparte: "", usd: "", programaId: "", respaldo: "" })}
+            style={{ marginLeft: "auto", padding: "2px 8px", background: "transparent",
+              border: `1px dashed ${C.border}`, borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 9 }}>
+            + Reconocer saldo
+          </button>
+        )}
+      </div>
+      {lista.length === 0 && !draft && (
+        <div style={{ fontSize: 9, color: C.muted2, fontStyle: "italic" }}>Ninguno.</div>
+      )}
+      {lista.map(s => {
+        const r = resumenSaldo(s);
+        const p = puede(s);
+        return (
+          <div key={s.id} style={{ border: `1px solid ${C.border}`, borderRadius: 7, padding: "5px 7px", marginTop: 4, background: C.card }}>
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap", fontSize: 9, alignItems: "center" }}>
+              <strong style={{ color: C.text }}>{s.contraparte || "sin contraparte"}</strong>
+              <span style={{ color: C.muted }}>reconocido {$$(r.reconocido)}</span>
+              <span style={{ color: C.muted }}>resuelto <strong style={{ color: r.resuelto > 0 ? C.success : C.muted2 }}>{$$(r.resuelto)}</strong></span>
+              <span style={{ color: C.muted }}>programado <strong style={{ color: C.warning }}>{$$(r.programado)}</strong></span>
+              <span style={{ color: C.muted }}>pendiente <strong style={{ color: C.text }}>{$$(r.pendienteReal)}</strong></span>
+              <span style={{ color: C.muted }}>disponible <strong>{$$(r.disponible)}</strong></span>
+              <span style={{ fontSize: 8, color: s.estado === "reconocido" ? C.success : C.warning,
+                border: `1px solid ${C.border}`, borderRadius: 8, padding: "0 6px" }}>{s.estado.replace("_", " ")}</span>
+            </div>
+            {!p.puede && (
+              <div style={{ fontSize: 9, color: C.warning, marginTop: 2 }}>
+                Provisional: {p.motivo}. No se puede afirmar que sea una deuda exigible.
+              </div>
+            )}
+            {!readOnly && (
+              <div style={{ display: "flex", gap: 5, marginTop: 3, flexWrap: "wrap" }}>
+                <button onClick={() => programar(s)} style={btnMini(C)}>{accionNombre}</button>
+                <button onClick={() => compensar(s)} style={btnMini(C)}>Compensar (reserva)</button>
+              </div>
+            )}
+            {r.aplicaciones.map(a => (
+              <div key={a.id} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", fontSize: 9, marginTop: 2 }}>
+                <span style={{ color: C.muted }}>
+                  {a.tipo === "compensacion" ? "compensación" : a.tipo} {a.mes ? `· ${a.mes}` : ""} · {a.estado}
+                </span>
+                <strong>{$$(a.usd)}</strong>
+                {a.estado === "programada" && !readOnly && (
+                  <>
+                    <button onClick={() => ejecutar(s, a)} style={btnMini(C)}>registrar movimiento</button>
+                    <button onClick={() => aplazar(s, a)} style={btnMini(C)}>aplazar</button>
+                    <button onClick={() => anular(s, a)} style={btnMini(C)}>anular</button>
+                  </>
+                )}
+                {a.estado === "reservada" && !readOnly && (
+                  <>
+                    <button onClick={() => aplicar(s, a)} style={btnMini(C)}>aplicar al destino</button>
+                    <button onClick={() => anular(s, a)} style={btnMini(C)}>anular reserva</button>
+                  </>
+                )}
+                {a.estado === "reservada" && (
+                  <span style={{ color: C.muted2 }}>reservada: todavía no afecta la proyección</span>
+                )}
+                {a.estado === "ejecutada" && <span style={{ color: C.success }}>ya es caja</span>}
+                {a.estado === "aplicada" && <span style={{ color: C.success }}>reduce el destino, sin movimiento bancario</span>}
+              </div>
+            ))}
+          </div>
+        );
+      })}
+      {draft && !readOnly && (
+        <div style={{ marginTop: 5, display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+          <input type="text" placeholder="contraparte" value={draft.contraparte}
+            onChange={e => setDraft({ ...draft, contraparte: e.target.value })} style={inMini(C)} />
+          <InputNumero formato="monto" value={draft.usd} placeholder="US$"
+            onChange={n => setDraft({ ...draft, usd: n })} style={{ ...inMini(C), width: 100, textAlign: "right" }} />
+          <input type="text" placeholder="respaldo (documento/referencia)" value={draft.respaldo}
+            onChange={e => setDraft({ ...draft, respaldo: e.target.value })} style={{ ...inMini(C), minWidth: 150 }} />
+          <button onClick={() => {
+            if (!draft.contraparte.trim()) { window.alert("Identifica la contraparte."); return; }
+            if (!(Number(draft.usd) > 0)) { window.alert("Ingresa el monto del saldo."); return; }
+            const respaldo = draft.respaldo.trim()
+              ? { tipo: "documento", referencia: draft.respaldo.trim(), fecha: hoyISO() } : null;
+            onSaldos([...lista, normalizarSaldo({
+              lado: esCli ? "cliente" : "productor", contraparte: draft.contraparte.trim(),
+              usd: Number(draft.usd), respaldo, usuario, ts: new Date().toISOString(),
+              estado: respaldo ? "reconocido" : "provisional",
+            })]);
+            setDraft(null);
+          }} style={{ padding: "3px 9px", background: C.success, border: "none", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 9, fontWeight: 700 }}>
+            Guardar
+          </button>
+          <button onClick={() => setDraft(null)} style={btnMini(C)}>Cancelar</button>
+          <div style={{ flexBasis: "100%", fontSize: 9, color: C.muted2 }}>
+            Sin respaldo queda como <strong>provisional</strong>: visible, sin afirmar que es exigible.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const btnMini = (C) => ({ padding: "1px 7px", background: "transparent", border: `1px solid ${C.border}`,
+  borderRadius: 5, color: C.muted, cursor: "pointer", fontSize: 9 });
+const inMini = (C) => ({ padding: "3px 6px", background: C.card2, border: `1px solid ${C.border}`,
+  borderRadius: 6, color: C.text, fontSize: 10, outline: "none" });

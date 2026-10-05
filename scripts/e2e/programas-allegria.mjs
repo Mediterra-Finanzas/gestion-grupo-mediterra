@@ -59,8 +59,14 @@ page.on('requestfinished', async r => {
 // En el registro de un movimiento, aceptar = "estaba incluido en el total
 // acordado" y descartar = "es adicional al acuerdo".
 let imputarIncluido = true;
+const respuestas = [];                 // respuestas en cola para los prompt()
 page.on('dialog', d => {
-  const esPregunta = /estaba INCLUIDO en el total acordado/.test(d.message() || '');
+  const msg = d.message() || '';
+  if (d.type() === 'prompt') {
+    const v = respuestas.length ? respuestas.shift() : '';
+    return d.accept(v).catch(() => {});
+  }
+  const esPregunta = /estaba INCLUIDO en el total acordado/.test(msg);
   if (esPregunta && !imputarIncluido) return d.dismiss().catch(() => {});
   return d.accept().catch(() => {});
 });
@@ -124,9 +130,12 @@ await irAParametros();
 await esperar(800);
 await page.screenshot({ path: `${OUT}/programas/00-parametros-estimacion.png`, fullPage: true });
 const t0 = await texto();
-check('el panel muestra el saldo total por cobrar (1.480.000)', /Saldo total por cobrar\s*\$1,480,000/.test(t0),
-      (t0.match(/Saldo total por cobrar[^\n]*/) || [])[0]);
-check('y la liquidación final proyectada', /Liquidación final proyectada \(Mar-27\)\s*\$1,400,000/.test(t0));
+check('el panel muestra el saldo económico pendiente (1.480.000)',
+      /Saldo económico pendiente \(por cobrar\)\s*\$1,480,000/.test(t0),
+      (t0.match(/Saldo económico[^\n]*/) || [])[0]);
+check('la liquidación con su ubicación temporal', /Liquidación \(Mar-27\)\s*\$1,400,000/.test(t0));
+check('y el total calendarizado', /Total calendarizado\s*\$1,480,000/.test(t0));
+check('el rótulo mezclado ya no aparece', !/Excedente de anticipos/.test(t0));
 
 // ── 1 · cargar un cliente con una cuota que sustituye 30.000 ──────
 console.log('\n=== 1 · cliente con cuota vigente que sustituye 30.000 ===');
@@ -285,6 +294,59 @@ check('Dec-26 proyecta el pendiente de la cuota (8.000)', costoFinal['Dec-26'] =
 check('y el saldo al productor baja a 580.000', costoFinal['Mar-27'] === 580000,
       `Mar-27 ${costoFinal['Mar-27']}`);
 
+// ── 3c · saldo a favor: reconocer, programar, ejecutar ────────────
+console.log('\n=== 3c · saldo a favor del productor ===');
+await irAParametros();
+await esperar(700);
+const colProd2 = page.locator('xpath=//span[normalize-space(text())="Productores"]/ancestor::div[2]').first();
+await colProd2.getByRole('button', { name: /\+ Reconocer saldo/ }).first().click();
+await esperar(500);
+const bloqueSaldo = page.locator('input[placeholder="respaldo (documento/referencia)"]').first()
+  .locator('xpath=ancestor::div[1]');
+await bloqueSaldo.locator('input[placeholder="contraparte"]').first().fill('Productor Sintético P');
+await bloqueSaldo.locator('input[placeholder="US$"]').first().fill('40000');
+await bloqueSaldo.locator('input[placeholder="respaldo (documento/referencia)"]').first().fill('LIQ-QA-001');
+await bloqueSaldo.getByRole('button', { name: 'Guardar' }).first().click();
+await esperar(1000);
+const tS = await texto();
+check('el saldo queda reconocido con su respaldo',
+      /reconocido\s*\$40,000/.test(tS) && /disponible\s*\$40,000/.test(tS),
+      (tS.match(/reconocido\s*\$[\d,]+/g) || []).join(' | '));
+
+// programar dos recuperaciones de 20.000
+respuestas.push('20000', 'Nov-26');
+await colProd2.getByRole('button', { name: /Recuperar del productor/ }).first().click();
+await esperar(900);
+respuestas.push('20000', 'Dec-26');
+await colProd2.getByRole('button', { name: /Recuperar del productor/ }).first().click();
+await esperar(900);
+const tS2 = await texto();
+check('programar no extingue: pendiente 40.000, programado 40.000, disponible 0',
+      /pendiente\s*\$40,000/.test(tS2) && /programado\s*\$40,000/.test(tS2) && /disponible\s*\$0/.test(tS2),
+      (tS2.match(/(pendiente|programado|disponible|resuelto)\s*\$[\d,]+/g) || []).join(' | '));
+await page.screenshot({ path: `${OUT}/programas/05-saldo-programado.png`, fullPage: true });
+
+const recupProg = await leerLinea('Recuperación de anticipos a productores');
+console.log('  recuperación →', JSON.stringify(recupProg));
+check('el flujo proyecta las dos cuotas programadas',
+      recupProg['Nov-26'] === 20000 && recupProg['Dec-26'] === 20000,
+      JSON.stringify(recupProg));
+
+// ejecutar la primera
+await irAParametros();
+await esperar(700);
+respuestas.push('2026-11-20');
+await page.getByRole('button', { name: 'registrar movimiento' }).first().click();
+await esperar(1200);
+const tS3 = await texto();
+check('tras ejecutar: resuelto 20.000 y pendiente 20.000',
+      /resuelto\s*\$20,000/.test(tS3) && /pendiente\s*\$20,000/.test(tS3),
+      (tS3.match(/(pendiente|programado|disponible|resuelto)\s*\$[\d,]+/g) || []).join(' | '));
+await page.screenshot({ path: `${OUT}/programas/06-saldo-ejecutado.png`, fullPage: true });
+const recupTras = await leerLinea('Recuperación de anticipos a productores');
+check('la cuota ejecutada deja de proyectarse y queda la otra',
+      recupTras['Nov-26'] === 0 && recupTras['Dec-26'] === 20000, JSON.stringify(recupTras));
+
 // ── 4 · Excel recalculado de verdad ───────────────────────────────
 console.log('\n=== 4 · Excel recalculado con LibreOffice ===');
 const [dl] = await Promise.all([
@@ -302,6 +364,11 @@ console.log(`  (${rec.formulasBorradas} fórmulas sin caché, recalculadas de ve
 MESES.forEach(m => {
   const v = ws[`${colDe(m)}${fIng}`]?.v;
   check(`Excel ${m} = pantalla (${adicional[m]})`, Math.round(v || 0) === adicional[m], `${v} vs ${adicional[m]}`);
+});
+const fRec = filaDe('Recuperación de anticipos a productores');
+MESES.forEach(m => {
+  const v = ws[`${colDe(m)}${fRec}`]?.v;
+  check(`Excel recuperación ${m} = pantalla (${recupTras[m]})`, Math.round(v || 0) === recupTras[m], `${v} vs ${recupTras[m]}`);
 });
 const fCost = filaDe('Costo Fruta Exportación');
 MESES.forEach(m => {

@@ -294,6 +294,7 @@ export function registrarDecisionSinFecha(decisiones, itemId, trato, { usuario =
 export function cuadrePosicion({
   etiqueta = "", base = 0, realizado = 0, pendientes = [],
   mesLiquidacion = "", mIdx = () => -1, mesIdxActual = -1,
+  compensaciones = 0,          // saldos a favor APLICADOS contra esta posición
 } = {}) {
   const cubetas = { vencido: 0, horizonte: 0, fuera_horizonte: 0, sin_fecha: 0 };
   const sinFechaEnLiquidacion = [];
@@ -314,7 +315,11 @@ export function cuadrePosicion({
   const compromisos = cubetas.vencido + cubetas.horizonte + cubetas.fuera_horizonte + cubetas.sin_fecha;
   const saldoEconomico = Math.max(0, n(base) - n(realizado));
   const excedenteReal  = Math.max(0, n(realizado) - n(base));
-  const liquidacion    = Math.max(0, n(base) - n(realizado) - compromisos);
+  // Una compensación aplicada reduce lo que se cobra o paga en el destino.
+  // No toca la base (la venta o el retorno no cambian) ni genera movimiento
+  // bancario: por eso entra acá y una sola vez.
+  const compensado = n(compensaciones);
+  const liquidacion    = Math.max(0, n(base) - n(realizado) - compromisos - compensado);
   const excesoCompromisos = Math.max(0, n(realizado) + compromisos - n(base)) - excedenteReal;
 
   const ubicacionLiq = cubetaTemporal(mesLiquidacion, mIdx, mesIdxActual);
@@ -324,7 +329,7 @@ export function cuadrePosicion({
   const pendienteDeCalendarizar = cubetas.sin_fecha + (liqCalendarizada ? 0 : liquidacion);
 
   return {
-    etiqueta, base: n(base), realizado: n(realizado),
+    etiqueta, base: n(base), realizado: n(realizado), compensado,
     saldoEconomico, excedenteReal, excesoCompromisos,
     compromisos, cubetas, detalle, sinFechaEnLiquidacion,
     liquidacion, liquidacionMes: mesLiquidacion || "", ubicacionLiquidacion: ubicacionLiq,
@@ -334,7 +339,7 @@ export function cuadrePosicion({
     // dentro del horizonte. Lo vencido se proyecta antes del corte y NO entra
     // al saldo acumulado; lo de fuera del horizonte no tiene columna.
     cajaEnHorizonte: cubetas.horizonte + (ubicacionLiq === "horizonte" ? liquidacion : 0),
-    cuadra: Math.abs(saldoEconomico - (totalCalendarizado + pendienteDeCalendarizar - excesoCompromisos)) < 0.005,
+    cuadra: Math.abs(saldoEconomico - (totalCalendarizado + pendienteDeCalendarizar + compensado - excesoCompromisos)) < 0.005,
   };
 }
 
@@ -346,7 +351,9 @@ export function resumenLado({
   kgFruta = 0, basePresupuesto = 0, liquidacionDefinitiva = null,
   mIdx = () => -1, mesIdxActual = -1, sinAsignar = [], mesLiquidacion = "",
   modeloVersion = 1, decisionesSinFecha = {},
+  saldosFavor = [], temporada = null, fruta = null,
 } = {}) {
+  const compDestino = compensacionesPorDestino(saldosFavor, { temporada, fruta, lado });
   const ests = (Array.isArray(estimaciones) ? estimaciones : []).map(normalizarAnticipo);
   const progs = programasDeLado(programas, lado).filter(p => !p.archivado);
   const dentro = progs.filter(p => !p.fueraPresupuesto);
@@ -407,6 +414,7 @@ export function resumenLado({
       etiqueta: p.contraparte || "sin nombre", base,
       realizado: realizadoDe([p]), pendientes: pendientesDeCuotas([p]),
       mesLiquidacion: p.mes_liquidacion || mesLiquidacion, mIdx, mesIdxActual,
+      compensaciones: compDestino[p.id] || 0,
     });
     return {
       ...q, programaId: p.id, contraparte: p.contraparte,
@@ -433,6 +441,7 @@ export function resumenLado({
     realizado: ests.reduce((s, e) => s + antRealizado(e), 0) + realizadoDe(delBloque),
     pendientes: [...pendientesDeEstimaciones(), ...pendientesDeCuotas(delBloque)],
     mesLiquidacion, mIdx, mesIdxActual,
+    compensaciones: compDestino.__bloque__ || 0,
   });
 
   // ── Totales del lado: SUMA de posiciones, sin neteo ──────────────
@@ -491,6 +500,9 @@ export function resumenLado({
     cubetas: { vencido: cub("vencido"), horizonte: cub("horizonte"),
                fuera_horizonte: cub("fuera_horizonte"), sin_fecha: cub("sin_fecha") },
     avisosCompatibilidad,
+    compensadoAplicado: sum(q => q.compensado),
+    saldosFavor: (Array.isArray(saldosFavor) ? saldosFavor : [])
+      .map(normalizarSaldo).filter(x => x.lado === lado),
     cuadra: todas.every(q => q.cuadra),
   };
 }
@@ -801,4 +813,25 @@ export function baseDesdeDocumento({ neto, deducciones = [] } = {}) {
   // Validación: deshacer el cálculo tiene que devolver el neto del documento.
   const cuadra = Math.abs((base - devuelve) - Number(neto)) < 0.005;
   return { base, devuelve, faltantes: [], cuadra };
+}
+
+/**
+ * Compensaciones APLICADAS que reducen el cobro o pago de un destino.
+ * Solo las aplicadas: una reserva no reduce nada. Cada una cuenta una vez.
+ */
+export function compensacionesPorDestino(saldos, { temporada = null, fruta = null, lado = null } = {}) {
+  const porPrograma = {};         // programaId | "__bloque__" → usd
+  (Array.isArray(saldos) ? saldos : []).map(normalizarSaldo).forEach(s => {
+    s.aplicaciones.forEach(a => {
+      if (a.anulada || a.tipo !== "compensacion" || a.estado !== "aplicada") return;
+      const d = a.destino || {};
+      if (temporada && d.temporada && d.temporada !== temporada) return;
+      if (fruta && d.fruta && d.fruta !== fruta) return;
+      const ladoDestino = d.lado || s.lado;
+      if (lado && ladoDestino !== lado) return;
+      const k = d.programaId || "__bloque__";
+      porPrograma[k] = (porPrograma[k] || 0) + n(a.usd);
+    });
+  });
+  return porPrograma;
 }

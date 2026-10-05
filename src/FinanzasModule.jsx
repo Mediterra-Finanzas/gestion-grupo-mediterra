@@ -22,7 +22,7 @@ import {
 } from './anticipos.js';
 import { generarMeses } from './horizonte.js';
 import {
-  movimientosLado, resumenLado, normalizarPrograma, normalizarCuota,
+  movimientosLado, resumenLado, movimientosSaldos, normalizarPrograma, normalizarCuota,
   cuotaAcordado, cuotaPendiente, cuotaRealizado, estPendiente, estDisponible,
   estSobreSustituida, efectoImputacion, imputarMovimiento, moverRealizacion,
   archivarPrograma, tieneHistorial, nuevoIdPrograma, nuevoIdCuota, esDato,
@@ -472,6 +472,11 @@ export function calcAllegria(params) {
   const cost = { cerezas:Z65(), ciruelas:Z65(), arandanos:Z65() };
   const mat  = { cerezas:Z65(), ciruelas:Z65(), arandanos:Z65() };
   const srv  = { cerezas:Z65(), ciruelas:Z65(), arandanos:Z65() };
+  // Saldos a favor: recuperación de anticipos a productores (entrada de caja)
+  // y devolución de anticipos a clientes (salida). Son movimientos de caja
+  // propios, no ventas ni costo de fruta.
+  const recup = { cerezas:Z65(), ciruelas:Z65(), arandanos:Z65() };
+  const devol = { cerezas:Z65(), ciruelas:Z65(), arandanos:Z65() };
   SEASON_KEYS.forEach(sk => {
     if (!params?.[sk]) return;
     FRUTAS.forEach(f => {
@@ -509,13 +514,23 @@ export function calcAllegria(params) {
       // liquidación = base − realizado − pendientes en el mes de liquidación.
       // Sin programas cargados, el resultado es el mismo de siempre.
       const progs = Array.isArray(p.programas) ? p.programas : [];
+      const saldos = Array.isArray(p.saldos_favor) ? p.saldos_favor : [];
       const proyectar = (lado, estimaciones, base, mesLiq, definitiva, destino) => {
         movimientosLado({
           estimaciones, programas: progs, lado, kgFruta: kg,
           basePresupuesto: base, liquidacionDefinitiva: definitiva || null,
           mIdx, mesIdxActual: -1, mesLiquidacion: mesLiq || "",
+          modeloVersion: p.modelo_version || 1,
+          decisionesSinFecha: p.decisiones_sin_fecha || {},
+          saldosFavor: saldos, temporada: sk, fruta: f,
         }).movimientos.forEach(m => { const i = mIdx(m.mes); if (i>=0) destino[f][i] += m.usd; });
       };
+      // Recuperaciones y devoluciones programadas y todavía no ejecutadas.
+      movimientosSaldos(saldos, { mIdx }).forEach(m => {
+        const i = mIdx(m.mes); if (i<0) return;
+        if (m.tipo === "recuperacion") recup[f][i] += m.usd;
+        else if (m.tipo === "devolucion") devol[f][i] += m.usd;
+      });
       proyectar("cliente",   p.anticipos_cliente||[],   kg*fob,
                 p.mes_liquidacion||"",    p.liq_definitiva_cliente,   ing);
       proyectar("productor", p.anticipos_productor||[], kg*precioNetoProd,
@@ -536,7 +551,7 @@ export function calcAllegria(params) {
       }
     });
   });
-  return { ing, cost, mat, srv };
+  return { ing, cost, mat, srv, recup, devol };
 }
 
 function semanaDeDate(d) {
@@ -1533,7 +1548,8 @@ function calcRebateAllegria(params) {
 }
 
 export function buildAllegria(params, allegraComisionArandanos) {
-  const { ing, cost, mat, srv } = calcAllegria(params);
+  const { ing, cost, mat, srv, recup, devol } = calcAllegria(params);
+  const sumaFrutas = (o) => FRUTAS.reduce((acc, f) => acc.map((v,i) => v + (o[f]?.[i]||0)), Z65());
   const arandanosProy = calcComisionArandanosArr(allegraComisionArandanos);
   const rebateProy    = calcRebateAllegria(params);
   return {
@@ -1547,6 +1563,7 @@ export function buildAllegria(params, allegraComisionArandanos) {
         {label:"Ingresos por Paltas",           proy:Z65()},
         {label:"Liquidación Ciruelas",          proy:[...ing.ciruelas],  formula:true},
         {label:"Otros ingresos - Rebate exportación (cobro diferido)", proy:[...rebateProy], formula:true},
+        {label:"Recuperación de anticipos a productores", proy:sumaFrutas(recup), formula:true, noEsVenta:true},
       ]},
       { cat:"egr_var", label:"Egresos Operacionales", signo:-1, lines:[
         {label:"Comisión Exportadora",               proy:Z65()},
@@ -1555,6 +1572,7 @@ export function buildAllegria(params, allegraComisionArandanos) {
         {label:"Seguros Exportación",                proy:Z65()},
         {label:"Servicios de Packing",               proy:[...srv.cerezas],   formula:true},
         {label:"Servicios Terceros / Arriendo Bodegas", proy:Z65()},
+        {label:"Devolución de anticipos a clientes", proy:sumaFrutas(devol), formula:true, noEsCosto:true},
       ]},
       { cat:"egr_fijo", label:"Costos Fijos / SG&A", signo:-1, lines:[
         {label:"Remuneración Administración", proy:ext([17316, 17316, 17316, 17316, 12982, 12982, 14860, 14860, 14860, 12694, 12694, 10816, 10816, 12982, 32303, 17835, 13371, 13371, 15306, 15306, 15306, 13075, 13075, 11140, 11140, 13371, 33272, 18371, 13773, 13773, 15765, 15765, 15765, 13467, 13467, 11475, 11475, 13773, 34270, 18922, 14186, 14186, 16238, 16238, 16238, 13871, 13871, 11819, 11819, 14186, 35298, 19489, 14611, 14611, 16725, 16725, 16725, 14287, 14287, 12174, 12174, 14611, 36357, 0])},
@@ -2162,6 +2180,9 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
     basePresupuesto: base, liquidacionDefinitiva: definitiva || null,
     mIdx, mesIdxActual, mesLiquidacion: mesLiq || "",
     sinAsignar: (p.movimientos_sin_asignar||[]).filter(m=>m&&m.lado===lado),
+    modeloVersion: p.modelo_version || 1,
+    decisionesSinFecha: p.decisiones_sin_fecha || {},
+    saldosFavor: p.saldos_favor || [], temporada: seasonKey, fruta,
   });
   const resCli  = resLado("cliente",   p.anticipos_cliente,   totalIng,
                           p.mes_liquidacion,     p.liq_definitiva_cliente);
@@ -2342,6 +2363,11 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
           onDefinitiva={(lado,v)=>upd(lado==="cliente"?"liq_definitiva_cliente":"liq_definitiva_productor",v)}
           sinAsignar={p.movimientos_sin_asignar||[]}
           onSinAsignar={v=>upd("movimientos_sin_asignar",v)}
+          saldosFavor={p.saldos_favor||[]}
+          onSaldosFavor={v=>upd("saldos_favor",v)}
+          decisionesSinFecha={p.decisiones_sin_fecha||{}}
+          onDecisionSinFecha={v=>upd("decisiones_sin_fecha",v)}
+          modeloVersion={p.modelo_version||1}
           kgFruta={kg}
           meses={mesesSel}
           readOnly={readOnly}
