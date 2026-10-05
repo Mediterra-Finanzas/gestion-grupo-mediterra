@@ -716,5 +716,84 @@ const pos = (o) => cuadrePosicion({ mIdx: mIdxReal, mesIdxActual: CORTE, ...o })
   check("(133) los otros ajustes quedan descontados", aprox(conOtros.base,450000));
 }
 
+
+// ═══ ETAPA 3 · origen del excedente y compensación con destino real ═══
+import {
+  excedentePorReconocer, reconocerDesdePosicion, inconsistenciasSaldos,
+  destinosCompensacion, previaCompensacion, saldosDePosicion,
+} from "./programas.js";
+
+{
+  const posicion = { programaId: "pP", contraparte: "P", lado: "productor",
+    base: 200000, realizado: 240000, excedenteReal: 40000, liquidacion: 0 };
+  const e0 = excedentePorReconocer(posicion, []);
+  check("(134) el excedente por reconocer sale del cuadre", aprox(e0.porReconocer, 40000));
+
+  const s1 = reconocerDesdePosicion(posicion, [], { usd: 25000, usuario: "qa" });
+  check("(135) reconocer deja constancia del origen",
+    s1.origen.tipo === "liquidacion_individual" && s1.origen.programaId === "pP" &&
+    aprox(s1.origen.base, 200000) && aprox(s1.usd, 25000) && s1.estado === "reconocido");
+  const e1 = excedentePorReconocer(posicion, [s1]);
+  check("(136) y descuenta lo ya reconocido", aprox(e1.yaReconocido, 25000) && aprox(e1.porReconocer, 15000));
+
+  let err = null;
+  try { reconocerDesdePosicion(posicion, [s1], { usd: 20000 }); } catch (e) { err = e; }
+  check("(137) no se reconoce dos veces el mismo excedente", !!err, err?.message?.slice(0, 60));
+
+  const s2 = reconocerDesdePosicion(posicion, [s1], { usuario: "qa" });   // sin monto = el resto
+  check("(138) sin monto reconoce exactamente lo que queda", aprox(s2.usd, 15000));
+  check("(139) los dos saldos quedan ligados a su posición",
+    saldosDePosicion([s1, s2], "pP").length === 2);
+
+  // La liquidación se corrige y el excedente baja: inconsistencia a resolver
+  const corregida = { ...posicion, base: 230000, realizado: 240000, excedenteReal: 10000 };
+  const inc = inconsistenciasSaldos([corregida], [s1, s2]);
+  check("(140) si el excedente se achica, la inconsistencia se detecta",
+    inc.length === 1 && aprox(inc[0].sobra, 30000), JSON.stringify(inc[0]?.sobra));
+  const programado = agregarAplicacion(s1, { tipo: "recuperacion", usd: 25000, mes: MES_FUTURO, usuario: "qa" });
+  const conMovimiento = ejecutarAplicacion(programado, programado.aplicaciones[0].id, { fecha: "2026-12-01" });
+  check("(141a) el movimiento quedó ejecutado", aprox(resumenSaldo(conMovimiento).resuelto, 25000));
+  const incMov = inconsistenciasSaldos([corregida], [conMovimiento, s2]);
+  check("(141) la inconsistencia nombra lo ya movido y no lo borra",
+    incMov.length === 1 && aprox(incMov[0].resuelto, 25000) &&
+    incMov[0].mensaje.includes("no se borran") &&
+    resumenSaldo(conMovimiento).aplicaciones.length === 1,
+    incMov[0]?.mensaje);
+  check("(142) sin excedente no se puede reconocer nada",
+    (() => { try { reconocerDesdePosicion({ ...posicion, excedenteReal: 0 }, [], { usd: 1 }); return false; }
+             catch (e) { return true; } })());
+}
+
+{
+  // Destinos de compensación: salen del cuadre, no se escriben a mano
+  const resumen = {
+    posiciones: [
+      { programaId: "pA", contraparte: "A", liquidacion: 0, liquidacionMes: MES_FUTURO },
+      { programaId: "pB", contraparte: "B", liquidacion: 100000, liquidacionMes: MES_FUTURO_2 },
+    ],
+    bloque: { etiqueta: "Bloque presupuestario", liquidacion: 300000, liquidacionMes: MES_LIQ },
+  };
+  const d = destinosCompensacion(resumen, { excluirProgramaId: "pA" });
+  check("(143) solo se ofrecen destinos con saldo que absorber",
+    d.length === 2 && d[0].programaId === "pB" && aprox(d[0].absorbe, 100000) && d[1].programaId === null);
+
+  const saldo = normalizarSaldo({ id: "s9", lado: "productor", contraparte: "A", usd: 40000, estado: "reconocido" });
+  const pv = previaCompensacion({ saldo, destino: d[0], usd: 40000 });
+  check("(144) la previa muestra los dos lados y el mes que cambia",
+    pv.valido && aprox(pv.aplicado, 40000) && aprox(pv.remanenteSaldo, 0) &&
+    aprox(pv.remanenteDestino, 60000) && pv.cambioFlujo[0].mes === MES_FUTURO_2 &&
+    aprox(pv.cambioFlujo[0].delta, -40000));
+
+  const pvParcial = previaCompensacion({ saldo, destino: { etiqueta: "C", absorbe: 15000, mes: MES_FUTURO }, usd: 40000 });
+  check("(145) si el destino absorbe menos, el remanente del saldo queda visible",
+    aprox(pvParcial.aplicado, 15000) && aprox(pvParcial.remanenteSaldo, 25000));
+
+  const conReserva = agregarAplicacion(saldo, { tipo: "compensacion", usd: 40000,
+    destino: { programaId: "pB" }, usuario: "qa" });
+  const pvSinCupo = previaCompensacion({ saldo: conReserva, destino: d[0], usd: 10000 });
+  check("(146) una reserva vigente ocupa disponible y bloquea otra aplicación",
+    pvSinCupo.valido === false && pvSinCupo.motivo.includes("disponibles"));
+}
+
 console.log(`\n${fallos === 0 ? "TODOS LOS TESTS PASARON ✓" : `${fallos} TEST(S) FALLARON ✗`}`);
 process.exit(fallos === 0 ? 0 : 1);

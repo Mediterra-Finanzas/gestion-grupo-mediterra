@@ -18,7 +18,7 @@ import { antRealizado, antPendiente } from './anticipos.js';
 import {
   normalizarPrograma, normalizarCuota, cuotaAcordado, cuotaRealizado, cuotaPendiente,
   estAcordado, estSustituido, estPendiente, esDato,
-  normalizarSaldo, resumenSaldo,
+  normalizarSaldo, resumenSaldo, compensacionesPorDestino,
 } from './programas.js';
 import * as XLSXns from 'xlsx-js-style';
 const XLSX = XLSXns.utils ? XLSXns : (XLSXns.default || XLSXns);
@@ -530,36 +530,89 @@ function helpersAnticipo(put, getR, setR) {
 function bloqueLiquidacionLado({
   estimaciones, programas, lado, kgFruta, kgC, helpers, put, getR, setR,
   mesCol, monCol, baseF, baseV, definitiva, mesLiq, etiqueta, etiquetaTot,
+  saldosFavor = [], temporada = null, fruta = null,
 }) {
   const { hdrAnticipo, filaAnticipo, filaCuota, filasLiquidacion } = helpers;
   const progs = (programas||[]).map(normalizarPrograma).filter(p => p.lado === lado && !p.archivado);
   const dentro = progs.filter(p => !p.fueraPresupuesto);
   const fuera  = progs.filter(p => p.fueraPresupuesto);
-  const descs = [];
+  // Una operación sale del bloque ENTERA cuando tiene presupuesto asignado o
+  // liquidación definitiva: su base, sus cuotas y sus movimientos.
+  const individual = dentro.filter(p => esDato(p.presupuesto_asignado) || esDato(p.importe_definitivo));
+  const delBloque  = dentro.filter(p => !(esDato(p.presupuesto_asignado) || esDato(p.importe_definitivo)));
+  const comp = compensacionesPorDestino(saldosFavor, { temporada, fruta, lado });
 
-  const ests = estimaciones || [];
-  if (ests.length) hdrAnticipo(`↳ estimaciones ${lado === 'cliente' ? 'de cobro' : 'de pago'}`);
-  ests.forEach(e => {
-    const sus = estSustituido(e, programas);
-    descs.push(filaAnticipo(e, kgC, kgFruta, mesCol, monCol, 'Estimación', sus));
-  });
-
-  dentro.forEach(p => {
+  const bloquePrograma = (p, baseFormula, baseValor, etiquetaLiq) => {
     const rP = getR();
     const kiC = ref(rP,3);
     put(rP,1,{ t:'s', v:`↳ ${lado === 'cliente' ? 'Cliente' : 'Productor'} · ${p.contraparte||'sin nombre'}`, s:PS.colHdr });
     put(rP,2,{ t:'s', v:'kilos →', s:PS.txtSub });
     put(rP,3,{ t:'n', v:Number(p.kilos)||0, s:PS.inKg });
     setR(getR()+1);
+    const descs = [];
     if (p.cuotas.length) hdrAnticipo('   ↳ calendario');
     p.cuotas.forEach(c => descs.push(
       filaCuota(normalizarCuota(c), kiC, Number(p.kilos)||0, mesCol, monCol, `Cuota ${p.contraparte||''}`.trim())));
+    const compUsd = Number(comp[p.id]) || 0;
+    if (compUsd > 0) {
+      const rC = getR();
+      put(rC,1,{ t:'s', v:'   ↳ Compensación aplicada', s:PS.txtSub });
+      put(rC,5,{ t:'n', v:compUsd, s:PS.inNum });
+      setR(getR()+1);
+      descs.push({ f:`${ref(rC,5)}`, v:compUsd });
+    }
+    return { descs, baseFormula, baseValor, etiquetaLiq };
+  };
+
+  // ── Posiciones individuales ──────────────────────────────────────
+  let presupuestoRetirado = 0;
+  individual.forEach(p => {
+    const baseValor = esDato(p.importe_definitivo) ? Number(p.importe_definitivo)
+                    : Number(p.presupuesto_asignado) || 0;
+    presupuestoRetirado += esDato(p.presupuesto_asignado) ? Number(p.presupuesto_asignado) : 0;
+    const b = bloquePrograma(p, `${baseValor}`, baseValor, `${etiqueta} · ${p.contraparte||''}`.trim());
+    filasLiquidacion({
+      totalF: b.baseFormula, totalV: b.baseValor, descs: b.descs,
+      mesLiq: p.mes_liquidacion || mesLiq, mesCol, monCol,
+      etiqueta: b.etiquetaLiq, etiquetaTot,
+    });
+    if (esDato(p.presupuesto_asignado) && esDato(p.importe_definitivo)) {
+      const rV = getR();
+      put(rV,1,{ t:'s', v:'   ↳ Variación vs presupuesto asignado', s:PS.txtSub });
+      put(rV,4,{ t:'n', v:Number(p.importe_definitivo) - Number(p.presupuesto_asignado), s:PS.der });
+      setR(getR()+1);
+    }
   });
 
+  // ── Bloque residual ──────────────────────────────────────────────
+  const descsBloque = [];
+  const ests = estimaciones || [];
+  if (ests.length) hdrAnticipo(`↳ estimaciones ${lado === 'cliente' ? 'de cobro' : 'de pago'}`);
+  ests.forEach(e => {
+    const sus = estSustituido(e, programas);
+    descsBloque.push(filaAnticipo(e, kgC, kgFruta, mesCol, monCol, 'Estimación', sus));
+  });
+  delBloque.forEach(p => {
+    const b = bloquePrograma(p, null, 0, null);
+    b.descs.forEach(d => descsBloque.push(d));
+  });
+  const compBloque = Number(comp.__bloque__) || 0;
+  if (compBloque > 0) {
+    const rC = getR();
+    put(rC,1,{ t:'s', v:'   ↳ Compensación aplicada al bloque', s:PS.txtSub });
+    put(rC,5,{ t:'n', v:compBloque, s:PS.inNum });
+    setR(getR()+1);
+    descsBloque.push({ f:`${ref(rC,5)}`, v:compBloque });
+  }
+  const baseBloqueF = definitiva
+    ? `${Number(definitiva)}${presupuestoRetirado ? `-${presupuestoRetirado}` : ''}`
+    : (presupuestoRetirado ? `(${baseF})-${presupuestoRetirado}` : baseF);
+  const baseBloqueV = (definitiva ? Number(definitiva) : baseV) - presupuestoRetirado;
   filasLiquidacion({
-    totalF: definitiva ? `${Number(definitiva)}` : baseF,
-    totalV: definitiva ? Number(definitiva) : baseV,
-    descs, mesLiq, mesCol, monCol, etiqueta, etiquetaTot,
+    totalF: baseBloqueF, totalV: baseBloqueV, descs: descsBloque,
+    mesLiq, mesCol, monCol,
+    etiqueta: individual.length ? `${etiqueta} · bloque presupuestario` : etiqueta,
+    etiquetaTot,
   });
 
   if (definitiva) {
@@ -572,7 +625,7 @@ function bloqueLiquidacionLado({
   // Fuera de presupuesto: informativo, sin movimiento ni descuento.
   fuera.forEach(p => {
     const rF = getR();
-    const realizado = p.cuotas.reduce((s,c)=>s+cuotaRealizado(c),0);
+    const realizado = p.cuotas.reduce((s2,c)=>s2+cuotaRealizado(c),0);
     put(rF,1,{ t:'s', v:`   ↳ ${p.contraparte||'sin nombre'} — fuera de presupuesto`, s:PS.txtSub });
     put(rF,2,{ t:'s', v:'no entra al flujo', s:PS.txtSub });
     put(rF,5,{ t:'n', v:realizado, s:PS.inNum });
@@ -1063,6 +1116,7 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
       mesCol:AC_M, monCol:AC_N, baseF:`${kgC}*${fobC}`, baseV:kg*fob,
       definitiva:p.liq_definitiva_cliente?.total || null,
       mesLiq:p.mes_liquidacion, etiqueta:'Liquidación', etiquetaTot:'Venta total',
+      saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'cerezas',
     });
     // ── productor → Costo Fruta (CO) ──
     // Base = retorno neto: FOB × (1 − desc%) − materiales − servicios.
@@ -1074,6 +1128,7 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
       mesCol:CO_M, monCol:CO_N, baseF:netoF, baseV:netoV,
       definitiva:p.liq_definitiva_productor?.total || null,
       mesLiq:p.mes_saldo_productor, etiqueta:'Saldo productor', etiquetaTot:'Costo neto total',
+      saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'cerezas',
     });
     // materiales (dist_mat) → MT: kg×matUSD×pct/100
     (p.dist_mat||[]).forEach(d => {
@@ -1109,6 +1164,7 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
       mesCol:LC_M, monCol:LC_N, baseF:`${kgC}*${fobC}`, baseV:kg*fob,
       definitiva:p.liq_definitiva_cliente?.total || null,
       mesLiq:p.mes_liquidacion, etiqueta:'Liquidación', etiquetaTot:'Venta total',
+      saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'ciruelas',
     });
   });
   r++;
@@ -1169,26 +1225,30 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
     colHdrs(['Temporada','Contraparte','Reconocido','Resuelto','Programado','Pendiente','Disponible']);
     saldosTodos.forEach(sf => {
       const r0 = r; const rs = resumenSaldo(sf);
+      const cRec = ref(r0,2), cRes = ref(r0,3), cPro = ref(r0,4), cPen = ref(r0,5);
       put(r0,0,{ t:'s', v:sf._sk, s:PS.txt });
       put(r0,1,{ t:'s', v:`${sf.lado === 'cliente' ? 'Cliente' : 'Productor'} · ${sf.contraparte||'sin nombre'} (${sf.estado})`, s:PS.txt });
       put(r0,2,{ t:'n', v:rs.reconocido, s:PS.inNum });
-      put(r0,3,{ t:'n', v:rs.resuelto,   s:PS.der });
-      put(r0,4,{ t:'n', v:rs.programado, s:PS.der });
-      put(r0,5,{ t:'n', v:rs.pendienteReal, s:PS.derB });
-      put(r0,6,{ t:'n', v:rs.disponible, s:PS.der });
       r++;
+      const desde = r;
       rs.aplicaciones.forEach(a => {
-        const rA = r; const mC = ref(rA,5);
+        const rA = r;
         const etq = a.tipo === 'recuperacion' ? 'Recuperación' : a.tipo === 'devolucion' ? 'Devolución' : 'Compensación';
         put(rA,1,{ t:'s', v:`   ↳ ${etq} · ${a.estado}`, s:PS.txtSub });
-        put(rA,5,{ t:'n', v:Number(a.usd)||0, s:PS.inNum });
+        // Resuelto: lo ejecutado y lo compensado ya aplicado. Programado: lo
+        // agendado sin ejecutar y las reservas. Las dos columnas se suman
+        // arriba, así el archivo recalcula igual que la app.
+        const resuelve  = a.estado === 'ejecutada' || a.estado === 'aplicada';
+        const programa  = a.estado === 'programada' || a.estado === 'reservada';
+        put(rA,3,{ t:'n', v: resuelve ? Number(a.usd)||0 : 0, s:PS.der });
+        put(rA,4,{ t:'n', v: programa ? Number(a.usd)||0 : 0, s:PS.der });
         const proyecta = a.estado === 'programada' && !!a.mes &&
                          (a.tipo === 'recuperacion' || a.tipo === 'devolucion');
         if (proyecta) {
           const M = a.tipo === 'recuperacion' ? RE_M : DE_M;
           const N = a.tipo === 'recuperacion' ? RE_N : DE_N;
           put(rA,M,{ t:'s', v:a.mes, s:PS.inTxt });
-          put(rA,N,{ t:'n', f:`${mC}`, v:Number(a.usd)||0, s:PS.movNum });
+          put(rA,N,{ t:'n', f:`${ref(rA,4)}`, v:Number(a.usd)||0, s:PS.movNum });
         } else {
           put(rA,6,{ t:'s', v:a.estado === 'ejecutada' ? 'ya es caja' :
                              a.estado === 'aplicada' ? 'compensada, sin movimiento' :
@@ -1196,6 +1256,13 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
         }
         r++;
       });
+      const hasta = r - 1;
+      const rango = (col) => hasta >= desde
+        ? `SUM(${ref(desde,col)}:${ref(hasta,col)})` : '0';
+      put(r0,3,{ t:'n', f:rango(3), v:rs.resuelto,   s:PS.der });
+      put(r0,4,{ t:'n', f:rango(4), v:rs.programado, s:PS.der });
+      put(r0,5,{ t:'n', f:`MAX(0,${cRec}-${cRes})`, v:rs.pendienteReal, s:PS.derB });
+      put(r0,6,{ t:'n', f:`MAX(0,${cPen}-${cPro})`, v:rs.disponible, s:PS.der });
     });
     r++;
   }

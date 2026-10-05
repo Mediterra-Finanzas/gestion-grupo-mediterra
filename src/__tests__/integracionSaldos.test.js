@@ -326,3 +326,79 @@ describe('Excel con posiciones y saldos', () => {
     expect(textos.some(t => t.includes('ya es caja'))).toBe(true);
   });
 });
+
+// ═══ 6. Usuario de solo lectura ════════════════════════════════════
+// Un usuario sin permiso de edición no puede registrar, reconocer,
+// programar, ejecutar, compensar, anular ni decidir compatibilidad.
+describe('solo lectura', () => {
+  const React = require('react');
+  const { render, screen } = require('@testing-library/react');
+  require('@testing-library/jest-dom');
+  const { ParamsFruta } = require('../FinanzasModule.jsx');
+
+  const params = {
+    "2026-2027": { cerezas: {
+      kg: 500000, fob_usd_kg: 1, desc_exp_pct: 0, mat_usd_kg: 0, srv_usd_kg: 0,
+      anticipos_cliente: [{ id: 'e1', mes: '', usd_kg: 0.1, realizaciones: [] }],   // antiguo sin fecha
+      mes_liquidacion: MES_LIQ,
+      anticipos_productor: [], mes_saldo_productor: MES_LIQ, dist_mat: [], dist_srv: [],
+      programas: [{ id: 'p1', lado: 'productor', contraparte: 'P', kilos: 100000,
+        presupuesto_asignado: 100000, importe_definitivo: 50000, mes_liquidacion: MES_A,
+        cuotas: [{ id: 'c1', mes: MES_A, modalidad: 'monto', monto: 60000, estado: 'vigente',
+          realizaciones: [{ id: 'r1', fecha: '2026-08-01', usd: 60000 }] }] }],
+      saldos_favor: [{ id: 's1', lado: 'productor', contraparte: 'P', usd: 10000, estado: 'reconocido',
+        origen: { tipo: 'liquidacion_individual', programaId: 'p1', base: 50000, realizado: 60000, excedenteReal: 10000 },
+        aplicaciones: [{ id: 'a1', tipo: 'recuperacion', usd: 5000, mes: MES_A, estado: 'programada' }] }],
+    } },
+  };
+  const pintar = (readOnly) => render(
+    React.createElement(ParamsFruta, { seasonKey: "2026-2027", fruta: "cerezas",
+      params, setParams: () => {}, readOnly }));
+
+  const BOTONES = [
+    /\+ Agregar cliente/, /\+ Agregar productor/, /\+ Reconocer saldo/,
+    /Recuperar del productor/, /Compensar/, /registrar movimiento/, /aplazar/, /anular/,
+    /sigue acordado sin fecha/, /trasladar a liquidación/,
+    /\+ Registrar pago sin operación identificada/, /\+ Cargar liquidación definitiva/,
+  ];
+
+  test('con permiso de edición los controles están', () => {
+    pintar(false);
+    BOTONES.forEach(re => expect(screen.queryAllByRole('button', { name: re }).length).toBeGreaterThan(0));
+  });
+
+  test('en solo lectura no hay ningún control de acción', () => {
+    pintar(true);
+    BOTONES.forEach(re => expect(screen.queryAllByRole('button', { name: re }).length).toBe(0));
+  });
+
+  test('en solo lectura las cifras sí se ven', () => {
+    pintar(true);
+    expect(document.body.textContent).toMatch(/Saldo económico pendiente/);
+    expect(document.body.textContent).toMatch(/reconocido \$10,000/);
+    expect(document.body.textContent).toMatch(/Excedente real/);
+  });
+});
+
+// ═══ 7. La hoja Parametros arma las posiciones, no un solo bloque ══
+describe('hoja Parametros con posiciones', () => {
+  test('cada operación individual trae su propia liquidación y su variación', () => {
+    const p = base({ programas: [prog({ id: 'pA', contraparte: 'Cliente A',
+      presupuesto_asignado: 200000, importe_definitivo: 180000, mes_liquidacion: MES_A, cuotas: [] })] });
+    const PARAMS = { paramsAllegria: p, allegraComisionArandanos: { cobros: [] } };
+    const empresas = buildEmpresas(p, PARAMS.allegraComisionArandanos);
+    const file = path.join(OUT_DIR, 'posiciones.xlsx');
+    fs.mkdirSync(OUT_DIR, { recursive: true });
+    exportarFlujoEmpresa({ emp: empresas['Allegria Foods'], empName: 'Allegria Foods',
+                           saldoIni: 0, fileName: file, params: PARAMS });
+    const ws = XLSX.readFile(file, { cellFormula: true }).Sheets['Parametros'];
+    const textos = Object.keys(ws).filter(k => /^[A-Z]+\d+$/.test(k))
+      .map(k => ws[k]?.v).filter(v => typeof v === 'string');
+    expect(textos.some(t => t.includes('Liquidación · Cliente A'))).toBe(true);
+    expect(textos.some(t => t.includes('bloque presupuestario'))).toBe(true);
+    expect(textos.some(t => t.includes('Variación vs presupuesto asignado'))).toBe(true);
+    // La base del bloque descuenta el presupuesto retirado, por fórmula viva.
+    const formulas = Object.keys(ws).map(k => ws[k]?.f).filter(Boolean);
+    expect(formulas.some(f => /-200000/.test(f))).toBe(true);
+  });
+});

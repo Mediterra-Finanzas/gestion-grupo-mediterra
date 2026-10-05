@@ -24,7 +24,8 @@ import {
   archivarPrograma, tieneHistorial, nuevoMovimientoSinAsignar, esDato,
   registrarDecisionSinFecha, normalizarSaldo, resumenSaldo, puedeReconocer,
   agregarAplicacion, ejecutarAplicacion, aplicarCompensacion,
-  aplazarAplicacion, anularAplicacion,
+  aplazarAplicacion, anularAplicacion, inconsistenciasSaldos,
+  excedentePorReconocer, reconocerDesdePosicion, destinosCompensacion, previaCompensacion,
 } from "./programas.js";
 import { realizacionesVigentes, anularRealizacion, normalizarAnticipo } from "./anticipos.js";
 
@@ -287,7 +288,7 @@ function Columna({
       )}
 
       <SaldosFavorBloque saldos={saldosFavor} onSaldos={onSaldosFavor} esCli={esCli} C={C} $$={$$}
-        meses={meses} readOnly={readOnly} usuario={usuario} resumen={resumen} programas={programas} />
+        meses={meses} readOnly={readOnly} usuario={usuario} resumen={resumen} />
 
       {/* Bandeja de conciliación */}
       <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${C.border}` }}>
@@ -853,71 +854,126 @@ function AvisoCompatibilidad({ avisos, decisiones, onDecision, esCli, C, $$, rea
 }
 
 // ── Saldos a favor ─────────────────────────────────────────────────
-function SaldosFavorBloque({ saldos, onSaldos, esCli, C, $$, meses, readOnly, usuario, resumen, programas }) {
-  const [draft, setDraft] = useState(null);
+// Sin prompts del navegador: formularios con campos identificados, validación
+// y vista previa del efecto antes de guardar. El saldo del destino de una
+// compensación sale del mismo cuadre que alimenta el flujo, nunca a mano.
+function SaldosFavorBloque({ saldos, onSaldos, esCli, C, $$, meses, readOnly, usuario, resumen }) {
+  const [form, setForm] = useState(null);     // {modo, saldoId?, aplicacionId?, ...}
   const lista = (saldos || []).map(normalizarSaldo);
   const accionNombre = esCli ? "Devolver al cliente" : "Recuperar del productor";
   const tipoMov = esCli ? "devolucion" : "recuperacion";
+  const posiciones = resumen?.posiciones || [];
+  const inconsistencias = inconsistenciasSaldos(posiciones, lista);
 
   const reemplazar = (id, nuevo) => onSaldos(lista.map(x => (x.id === id ? nuevo : x)));
-  const puede = (s) => puedeReconocer({
-    importeDefinitivo: (resumen?.posiciones || []).find(q => q.programaId === s.programaId)?.importeDefinitivo ?? null,
-    respaldo: s.respaldo,
-  });
+  const cerrar = () => setForm(null);
+  const campo = { padding: "3px 6px", background: C.card2, border: `1px solid ${C.border}`,
+                  borderRadius: 6, color: C.text, fontSize: 10, outline: "none" };
 
-  const programar = (s) => {
-    const r = resumenSaldo(s);
-    const txt = window.prompt(`${accionNombre}: monto en US$ (disponible ${Math.round(r.disponible)})`, "");
-    if (txt === null) return;
-    const usd = Number(String(txt).replace(/\./g, "").replace(",", ".")) || 0;
-    const mes = window.prompt(`Mes del movimiento (${meses.slice(0, 3).join(", ")}…)`, meses[0] || "");
-    if (mes === null) return;
+  // ── Reconocer ────────────────────────────────────────────────────
+  const candidatas = posiciones
+    .map(q => ({ ...q, ...excedentePorReconocer(q, lista) }))
+    .filter(q => q.porReconocer > 0.005);
+
+  const guardarReconocimiento = () => {
     try {
-      reemplazar(s.id, agregarAplicacion(s, { tipo: tipoMov, usd, mes, usuario }));
+      if (form.fuente === "posicion") {
+        const q = candidatas.find(x => x.programaId === form.programaId);
+        if (!q) { window.alert("Elige la operación con excedente."); return; }
+        // Revalida contra el estado actual: el excedente pudo cambiar.
+        onSaldos([...lista, reconocerDesdePosicion(q, lista,
+          { usd: Number(form.usd) || q.porReconocer, usuario, nota: form.nota })]);
+      } else {
+        if (!form.contraparte.trim()) { window.alert("Identifica la contraparte."); return; }
+        if (!(Number(form.usd) > 0)) { window.alert("Ingresa el monto del saldo."); return; }
+        if (!form.referencia.trim() || !form.fecha) {
+          window.alert("Un reconocimiento por documento necesita referencia y fecha.\n\n" +
+            "Sin eso queda provisional, no reconocido."); 
+        }
+        const conRespaldo = !!(form.referencia.trim() && form.fecha);
+        onSaldos([...lista, normalizarSaldo({
+          lado: esCli ? "cliente" : "productor", contraparte: form.contraparte.trim(),
+          usd: Number(form.usd), estado: conRespaldo ? "reconocido" : "provisional",
+          origen: conRespaldo
+            ? { tipo: "documento", referencia: form.referencia.trim(), fecha: form.fecha }
+            : { tipo: "sin_respaldo" },
+          respaldo: conRespaldo ? { tipo: "documento", referencia: form.referencia.trim(), fecha: form.fecha } : null,
+          nota: form.nota, usuario, ts: new Date().toISOString(), aplicaciones: [],
+        })]);
+      }
+      cerrar();
     } catch (e) { window.alert(e.message); }
   };
-  const compensar = (s) => {
-    const r = resumenSaldo(s);
-    const txt = window.prompt(`Compensar contra otra operación: monto (disponible ${Math.round(r.disponible)})`, "");
-    if (txt === null) return;
-    const usd = Number(String(txt).replace(/\./g, "").replace(",", ".")) || 0;
-    const destino = window.prompt("Operación destino (contraparte o temporada). Queda registrada como reserva:", "");
-    if (destino === null) return;
+
+  // ── Programar recuperación / devolución ──────────────────────────
+  const guardarProgramacion = () => {
+    const s = lista.find(x => x.id === form.saldoId);
     try {
-      reemplazar(s.id, agregarAplicacion(s, { tipo: "compensacion", usd,
-        destino: { nota: destino, contraparte: s.contraparte }, usuario }));
+      reemplazar(s.id, agregarAplicacion(s, { tipo: tipoMov, usd: Number(form.usd) || 0,
+        mes: form.mes, motivo: form.nota, usuario }));
+      cerrar();
     } catch (e) { window.alert(e.message); }
   };
-  const ejecutar = (s, a) => {
-    const fecha = window.prompt("Fecha real del movimiento (AAAA-MM-DD):", hoyISO());
-    if (fecha === null) return;
-    try { reemplazar(s.id, ejecutarAplicacion(s, a.id, { fecha, usuario })); }
-    catch (e) { window.alert(e.message); }
-  };
-  const aplicar = (s, a) => {
-    const txt = window.prompt("Saldo de la operación destino que puede absorber la compensación:", "");
-    if (txt === null) return;
-    const saldoDestino = Number(String(txt).replace(/\./g, "").replace(",", ".")) || 0;
+
+  // ── Compensar ────────────────────────────────────────────────────
+  const destinos = form?.saldoId
+    ? destinosCompensacion(resumen, { excluirProgramaId: lista.find(x => x.id === form.saldoId)?.programaId })
+    : [];
+  const destinoSel = destinos.find(d => String(d.programaId) === String(form?.destinoId));
+  const previa = form?.modo === "compensar" && form.saldoId
+    ? previaCompensacion({ saldo: lista.find(x => x.id === form.saldoId), destino: destinoSel,
+                           usd: Number(form.usd) || 0 })
+    : null;
+  const guardarCompensacion = () => {
+    const s = lista.find(x => x.id === form.saldoId);
+    if (!destinoSel) {
+      // Sin destino identificado: reserva pendiente de aplicación, sin tocar el flujo.
+      if (!window.confirm("Sin operación destino identificada queda como RESERVA pendiente de aplicación:\n\n" +
+        "ocupa saldo disponible y no reduce ningún flujo hasta que la apliques.\n\n¿Confirmas?")) return;
+      try {
+        reemplazar(s.id, agregarAplicacion(s, { tipo: "compensacion", usd: Number(form.usd) || 0,
+          destino: { nota: form.nota || "sin destino identificado" }, motivo: form.nota, usuario }));
+        cerrar();
+      } catch (e) { window.alert(e.message); }
+      return;
+    }
+    if (!previa?.valido) { window.alert(previa?.motivo || "Revisa el monto."); return; }
     try {
-      const res = aplicarCompensacion(s, a.id, { saldoDestino, usuario });
-      window.alert(`Aplicada ${$$(res.absorbido)}.` +
-        (res.remanente > 0 ? `\n\nQuedan ${$$(res.remanente)} del saldo original, visibles como disponibles.` : ""));
+      reemplazar(s.id, agregarAplicacion(s, { tipo: "compensacion", usd: Number(form.usd) || 0,
+        destino: { programaId: destinoSel.programaId, etiqueta: destinoSel.etiqueta, mes: destinoSel.mes },
+        motivo: form.nota, usuario }));
+      cerrar();
+    } catch (e) { window.alert(e.message); }
+  };
+
+  // ── Aplicar una reserva ──────────────────────────────────────────
+  const aplicarReserva = (s, a) => {
+    const d = destinosCompensacion(resumen, { excluirProgramaId: s.programaId })
+      .find(x => String(x.programaId) === String(a.destino?.programaId));
+    if (!a.destino?.programaId && !d) {
+      window.alert("Esta reserva no tiene operación destino identificada.\n\n" +
+        "Para aplicarla, primero anúlala y vuelve a reservarla eligiendo el destino.");
+      return;
+    }
+    if (!d) {
+      window.alert("La operación destino ya no tiene saldo que absorber.\n\n" +
+        "Puede haber cambiado por un cobro, un pago u otra compensación. Revisa antes de aplicar.");
+      return;
+    }
+    const pv = previaCompensacion({ saldo: s, destino: d, usd: a.usd });
+    if (!window.confirm(
+      `Aplicar la compensación.\n\n` +
+      `Origen: ${s.contraparte} · disponible ${$$(pv.origen.disponible)}\n` +
+      `Destino: ${d.etiqueta} · puede absorber ${$$(d.absorbe)}${d.mes ? ` (${d.mes})` : ""}\n` +
+      `Monto a aplicar: ${$$(pv.aplicado)}\n\n` +
+      `Queda en el saldo: ${$$(pv.remanenteSaldo)}\n` +
+      `Queda en el destino: ${$$(pv.remanenteDestino)}\n` +
+      `Flujo: ${d.mes || "sin mes"} baja ${$$(pv.aplicado)}\n\n¿Confirmas?`)) return;
+    try {
+      // Revalida con el saldo del destino tomado del cuadre actual.
+      const res = aplicarCompensacion(s, a.id, { saldoDestino: d.absorbe, usuario });
       reemplazar(s.id, res.saldo);
     } catch (e) { window.alert(e.message); }
-  };
-  const aplazar = (s, a) => {
-    const mes = window.prompt("Nuevo mes:", a.mes || "");
-    if (mes === null) return;
-    const motivo = window.prompt("Motivo del aplazamiento:", "");
-    if (motivo === null) return;
-    try { reemplazar(s.id, aplazarAplicacion(s, a.id, { mes, motivo, usuario })); }
-    catch (e) { window.alert(e.message); }
-  };
-  const anular = (s, a) => {
-    const motivo = window.prompt("Motivo de la anulación:", "");
-    if (motivo === null) return;
-    try { reemplazar(s.id, anularAplicacion(s, a.id, { motivo, usuario })); }
-    catch (e) { window.alert(e.message); }
   };
 
   return (
@@ -927,19 +983,38 @@ function SaldosFavorBloque({ saldos, onSaldos, esCli, C, $$, meses, readOnly, us
           Saldos a favor {esCli ? "del cliente" : "por recuperar del productor"}
         </span>
         {!readOnly && (
-          <button onClick={() => setDraft({ contraparte: "", usd: "", programaId: "", respaldo: "" })}
+          <button onClick={() => setForm({ modo: "reconocer", fuente: candidatas.length ? "posicion" : "documento",
+            programaId: candidatas[0]?.programaId || "", usd: "", contraparte: "", referencia: "", fecha: hoyISO(), nota: "" })}
             style={{ marginLeft: "auto", padding: "2px 8px", background: "transparent",
               border: `1px dashed ${C.border}`, borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 9 }}>
             + Reconocer saldo
           </button>
         )}
       </div>
-      {lista.length === 0 && !draft && (
+
+      {inconsistencias.map(x => (
+        <div key={x.programaId} style={{ background: `${C.danger}14`, border: `1px solid ${C.danger}55`,
+          borderRadius: 7, padding: "6px 8px", marginTop: 4, fontSize: 9, color: C.text }}>
+          <strong style={{ color: C.danger }}>Inconsistencia en {x.contraparte}.</strong> {x.mensaje}
+          {" "}Resuélvelo corrigiendo la liquidación, anulando lo que no corresponda o devolviendo lo movido de más.
+          No se borra ninguna aplicación ya realizada.
+        </div>
+      ))}
+
+      {lista.length === 0 && !form && (
         <div style={{ fontSize: 9, color: C.muted2, fontStyle: "italic" }}>Ninguno.</div>
       )}
+
       {lista.map(s => {
         const r = resumenSaldo(s);
-        const p = puede(s);
+        // El respaldo quedó grabado en el origen al reconocerlo. Si nació de
+        // una liquidación individual, no hay que volver a buscarlo.
+        const p = s.origen?.tipo === "liquidacion_individual"
+          ? { puede: true, motivo: "liquidación individual" }
+          : puedeReconocer({
+              importeDefinitivo: posiciones.find(q => q.programaId === s.programaId)?.importeDefinitivo ?? null,
+              respaldo: s.respaldo,
+            });
         return (
           <div key={s.id} style={{ border: `1px solid ${C.border}`, borderRadius: 7, padding: "5px 7px", marginTop: 4, background: C.card }}>
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap", fontSize: 9, alignItems: "center" }}>
@@ -952,6 +1027,13 @@ function SaldosFavorBloque({ saldos, onSaldos, esCli, C, $$, meses, readOnly, us
               <span style={{ fontSize: 8, color: s.estado === "reconocido" ? C.success : C.warning,
                 border: `1px solid ${C.border}`, borderRadius: 8, padding: "0 6px" }}>{s.estado.replace("_", " ")}</span>
             </div>
+            <div style={{ fontSize: 9, color: C.muted2, marginTop: 1 }}>
+              Origen: {s.origen?.tipo === "liquidacion_individual"
+                ? `liquidación individual · base ${$$(s.origen.base)} · ${esCli ? "cobrado" : "pagado"} ${$$(s.origen.realizado)}`
+                : s.origen?.tipo === "documento"
+                  ? `documento ${s.origen.referencia} del ${s.origen.fecha}`
+                  : "sin respaldo"}
+            </div>
             {!p.puede && (
               <div style={{ fontSize: 9, color: C.warning, marginTop: 2 }}>
                 Provisional: {p.motivo}. No se puede afirmar que sea una deuda exigible.
@@ -959,27 +1041,34 @@ function SaldosFavorBloque({ saldos, onSaldos, esCli, C, $$, meses, readOnly, us
             )}
             {!readOnly && (
               <div style={{ display: "flex", gap: 5, marginTop: 3, flexWrap: "wrap" }}>
-                <button onClick={() => programar(s)} style={btnMini(C)}>{accionNombre}</button>
-                <button onClick={() => compensar(s)} style={btnMini(C)}>Compensar (reserva)</button>
+                <button onClick={() => setForm({ modo: "programar", saldoId: s.id, usd: "", mes: meses[0] || "", nota: "" })}
+                  style={btnMini(C)}>{accionNombre}</button>
+                <button onClick={() => setForm({ modo: "compensar", saldoId: s.id, usd: "", destinoId: "", nota: "" })}
+                  style={btnMini(C)}>Compensar</button>
               </div>
             )}
             {r.aplicaciones.map(a => (
               <div key={a.id} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", fontSize: 9, marginTop: 2 }}>
                 <span style={{ color: C.muted }}>
-                  {a.tipo === "compensacion" ? "compensación" : a.tipo} {a.mes ? `· ${a.mes}` : ""} · {a.estado}
+                  {a.tipo === "compensacion" ? "compensación" : a.tipo}{a.mes ? ` · ${a.mes}` : ""} · {a.estado}
+                  {a.destino?.etiqueta ? ` → ${a.destino.etiqueta}` : ""}
                 </span>
                 <strong>{$$(a.usd)}</strong>
                 {a.estado === "programada" && !readOnly && (
                   <>
-                    <button onClick={() => ejecutar(s, a)} style={btnMini(C)}>registrar movimiento</button>
-                    <button onClick={() => aplazar(s, a)} style={btnMini(C)}>aplazar</button>
-                    <button onClick={() => anular(s, a)} style={btnMini(C)}>anular</button>
+                    <button onClick={() => setForm({ modo: "ejecutar", saldoId: s.id, aplicacionId: a.id, fecha: hoyISO(), nota: "" })}
+                      style={btnMini(C)}>registrar movimiento</button>
+                    <button onClick={() => setForm({ modo: "aplazar", saldoId: s.id, aplicacionId: a.id, mes: a.mes || meses[0] || "", nota: "" })}
+                      style={btnMini(C)}>aplazar</button>
+                    <button onClick={() => setForm({ modo: "anular", saldoId: s.id, aplicacionId: a.id, nota: "" })}
+                      style={btnMini(C)}>anular</button>
                   </>
                 )}
                 {a.estado === "reservada" && !readOnly && (
                   <>
-                    <button onClick={() => aplicar(s, a)} style={btnMini(C)}>aplicar al destino</button>
-                    <button onClick={() => anular(s, a)} style={btnMini(C)}>anular reserva</button>
+                    <button onClick={() => aplicarReserva(s, a)} style={btnMini(C)}>aplicar al destino</button>
+                    <button onClick={() => setForm({ modo: "anular", saldoId: s.id, aplicacionId: a.id, nota: "" })}
+                      style={btnMini(C)}>anular reserva</button>
                   </>
                 )}
                 {a.estado === "reservada" && (
@@ -992,31 +1081,196 @@ function SaldosFavorBloque({ saldos, onSaldos, esCli, C, $$, meses, readOnly, us
           </div>
         );
       })}
-      {draft && !readOnly && (
-        <div style={{ marginTop: 5, display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
-          <input type="text" placeholder="contraparte" value={draft.contraparte}
-            onChange={e => setDraft({ ...draft, contraparte: e.target.value })} style={inMini(C)} />
-          <InputNumero formato="monto" value={draft.usd} placeholder="US$"
-            onChange={n => setDraft({ ...draft, usd: n })} style={{ ...inMini(C), width: 100, textAlign: "right" }} />
-          <input type="text" placeholder="respaldo (documento/referencia)" value={draft.respaldo}
-            onChange={e => setDraft({ ...draft, respaldo: e.target.value })} style={{ ...inMini(C), minWidth: 150 }} />
-          <button onClick={() => {
-            if (!draft.contraparte.trim()) { window.alert("Identifica la contraparte."); return; }
-            if (!(Number(draft.usd) > 0)) { window.alert("Ingresa el monto del saldo."); return; }
-            const respaldo = draft.respaldo.trim()
-              ? { tipo: "documento", referencia: draft.respaldo.trim(), fecha: hoyISO() } : null;
-            onSaldos([...lista, normalizarSaldo({
-              lado: esCli ? "cliente" : "productor", contraparte: draft.contraparte.trim(),
-              usd: Number(draft.usd), respaldo, usuario, ts: new Date().toISOString(),
-              estado: respaldo ? "reconocido" : "provisional",
-            })]);
-            setDraft(null);
-          }} style={{ padding: "3px 9px", background: C.success, border: "none", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 9, fontWeight: 700 }}>
-            Guardar
-          </button>
-          <button onClick={() => setDraft(null)} style={btnMini(C)}>Cancelar</button>
-          <div style={{ flexBasis: "100%", fontSize: 9, color: C.muted2 }}>
-            Sin respaldo queda como <strong>provisional</strong>: visible, sin afirmar que es exigible.
+
+      {/* ── Formularios ─────────────────────────────────────────── */}
+      {form && !readOnly && (
+        <div style={{ marginTop: 6, padding: "7px 8px", background: C.cardAlt, border: `1px solid ${C.border}`,
+          borderRadius: 7, fontSize: 9 }}>
+          {form.modo === "reconocer" && (
+            <>
+              <div style={{ fontWeight: 700, color: C.text, marginBottom: 4 }}>Reconocer un saldo a favor</div>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                <select value={form.fuente} onChange={e => setForm({ ...form, fuente: e.target.value })} style={campo}>
+                  <option value="posicion">desde una liquidación individual con excedente</option>
+                  <option value="documento">desde un documento que lo reconoce</option>
+                </select>
+                {form.fuente === "posicion" ? (
+                  <>
+                    <select value={form.programaId} onChange={e => setForm({ ...form, programaId: e.target.value })} style={campo}>
+                      <option value="">— operación —</option>
+                      {candidatas.map(q => (
+                        <option key={q.programaId} value={q.programaId}>
+                          {q.contraparte} · excedente {Math.round(q.excedenteReal).toLocaleString("es-CL")} · por reconocer {Math.round(q.porReconocer).toLocaleString("es-CL")}
+                        </option>
+                      ))}
+                    </select>
+                    {candidatas.length === 0 && (
+                      <span style={{ color: C.warning }}>
+                        Ninguna operación tiene excedente real por reconocer. Carga su liquidación definitiva primero.
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <input type="text" placeholder="contraparte" value={form.contraparte}
+                      onChange={e => setForm({ ...form, contraparte: e.target.value })} style={campo} />
+                    <input type="text" placeholder="referencia del documento" value={form.referencia}
+                      onChange={e => setForm({ ...form, referencia: e.target.value })} style={{ ...campo, minWidth: 140 }} />
+                    <input type="date" value={form.fecha}
+                      onChange={e => setForm({ ...form, fecha: e.target.value })} style={campo} />
+                  </>
+                )}
+                <InputNumero formato="monto" value={form.usd} placeholder="US$"
+                  onChange={n => setForm({ ...form, usd: n })} style={{ ...campo, width: 100, textAlign: "right" }} />
+              </div>
+              {form.fuente === "posicion" && form.programaId && (() => {
+                const q = candidatas.find(x => x.programaId === form.programaId);
+                if (!q) return null;
+                return (
+                  <div style={{ color: C.muted2, marginTop: 3 }}>
+                    {q.contraparte}: base {$$(q.base)} · {esCli ? "cobrado" : "pagado"} {$$(q.realizado)} ·
+                    {" "}excedente real <strong style={{ color: C.danger }}>{$$(q.excedenteReal)}</strong> ·
+                    {" "}ya reconocido {$$(q.yaReconocido)} · <strong>por reconocer {$$(q.porReconocer)}</strong>.
+                    {" "}Dejar el monto vacío reconoce todo lo que queda.
+                  </div>
+                );
+              })()}
+            </>
+          )}
+
+          {form.modo === "programar" && (() => {
+            const s = lista.find(x => x.id === form.saldoId); const r = resumenSaldo(s);
+            const usd = Number(form.usd) || 0;
+            return (
+              <>
+                <div style={{ fontWeight: 700, color: C.text, marginBottom: 4 }}>
+                  {accionNombre} · {s.contraparte}
+                </div>
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                  <InputNumero formato="monto" value={form.usd} placeholder="US$"
+                    onChange={n => setForm({ ...form, usd: n })} style={{ ...campo, width: 100, textAlign: "right" }} />
+                  <select value={form.mes} onChange={e => setForm({ ...form, mes: e.target.value })} style={campo}>
+                    {meses.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                  <input type="text" placeholder="nota" value={form.nota}
+                    onChange={e => setForm({ ...form, nota: e.target.value })} style={{ ...campo, minWidth: 120 }} />
+                </div>
+                <div style={{ color: usd > r.disponible ? C.danger : C.muted2, marginTop: 3 }}>
+                  Disponible {$$(r.disponible)}. {usd > 0 && usd <= r.disponible
+                    ? `El flujo sumará ${$$(usd)} en ${form.mes}, como ${esCli ? "egreso" : "ingreso"}. ` +
+                      `El saldo pendiente sigue en ${$$(r.pendienteReal)}: programar no lo extingue.`
+                    : usd > r.disponible ? "El monto supera lo disponible." : ""}
+                </div>
+              </>
+            );
+          })()}
+
+          {form.modo === "compensar" && (() => {
+            const s = lista.find(x => x.id === form.saldoId); const r = resumenSaldo(s);
+            return (
+              <>
+                <div style={{ fontWeight: 700, color: C.text, marginBottom: 4 }}>Compensar · {s.contraparte}</div>
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                  <InputNumero formato="monto" value={form.usd} placeholder="US$"
+                    onChange={n => setForm({ ...form, usd: n })} style={{ ...campo, width: 100, textAlign: "right" }} />
+                  <select value={form.destinoId} onChange={e => setForm({ ...form, destinoId: e.target.value })} style={campo}>
+                    <option value="">— sin destino identificado (solo reserva) —</option>
+                    {destinos.map(d => (
+                      <option key={String(d.programaId)} value={String(d.programaId)}>
+                        {d.etiqueta} · puede absorber {Math.round(d.absorbe).toLocaleString("es-CL")}{d.mes ? ` (${d.mes})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <input type="text" placeholder="respaldo del acuerdo" value={form.nota}
+                    onChange={e => setForm({ ...form, nota: e.target.value })} style={{ ...campo, minWidth: 130 }} />
+                </div>
+                <div style={{ color: C.muted2, marginTop: 3, lineHeight: 1.6 }}>
+                  Origen {s.contraparte}: disponible {$$(r.disponible)} · pendiente {$$(r.pendienteReal)}.<br />
+                  {previa && destinoSel ? (
+                    <>
+                      Destino {previa.destino.etiqueta}: puede absorber {$$(previa.destino.absorbe)}
+                      {previa.destino.mes ? ` en ${previa.destino.mes}` : ""}.<br />
+                      Se aplicarían <strong>{$$(previa.aplicado)}</strong> · queda en el saldo {$$(previa.remanenteSaldo)} ·
+                      {" "}queda en el destino {$$(previa.remanenteDestino)}.<br />
+                      {previa.cambioFlujo.map(c => (
+                        <span key={c.mes}>Flujo: {c.mes} baja {$$(-c.delta)}.</span>
+                      ))}
+                      {!previa.valido && <span style={{ color: C.danger }}> {previa.motivo}</span>}
+                    </>
+                  ) : (
+                    <span style={{ color: C.warning }}>
+                      Sin destino identificado queda como reserva: ocupa disponible y no reduce ningún flujo.
+                    </span>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+
+          {form.modo === "ejecutar" && (
+            <>
+              <div style={{ fontWeight: 700, color: C.text, marginBottom: 4 }}>Registrar el movimiento real</div>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                <input type="date" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} style={campo} />
+                <input type="text" placeholder="referencia / cartola" value={form.nota}
+                  onChange={e => setForm({ ...form, nota: e.target.value })} style={{ ...campo, minWidth: 140 }} />
+              </div>
+              <div style={{ color: C.muted2, marginTop: 3 }}>
+                Al registrarlo deja de proyectarse en el flujo y pasa a resuelto. El saldo pendiente baja por el mismo monto.
+              </div>
+            </>
+          )}
+
+          {form.modo === "aplazar" && (
+            <>
+              <div style={{ fontWeight: 700, color: C.text, marginBottom: 4 }}>Aplazar la cuota</div>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                <select value={form.mes} onChange={e => setForm({ ...form, mes: e.target.value })} style={campo}>
+                  {meses.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <input type="text" placeholder="motivo (obligatorio)" value={form.nota}
+                  onChange={e => setForm({ ...form, nota: e.target.value })} style={{ ...campo, minWidth: 160 }} />
+              </div>
+              <div style={{ color: C.muted2, marginTop: 3 }}>
+                Cambia el mes de esta cuota, con su motivo en el historial. No la duplica ni toca lo ya ejecutado.
+              </div>
+            </>
+          )}
+
+          {form.modo === "anular" && (
+            <>
+              <div style={{ fontWeight: 700, color: C.text, marginBottom: 4 }}>Anular la programación</div>
+              <input type="text" placeholder="motivo (obligatorio)" value={form.nota}
+                onChange={e => setForm({ ...form, nota: e.target.value })} style={{ ...campo, minWidth: 200 }} />
+              <div style={{ color: C.muted2, marginTop: 3 }}>
+                Libera la reserva y deja el saldo disponible otra vez. No revierte ningún movimiento ya realizado.
+              </div>
+            </>
+          )}
+
+          <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
+            <button onClick={() => {
+              const s = lista.find(x => x.id === form.saldoId);
+              try {
+                if (form.modo === "reconocer") return guardarReconocimiento();
+                if (form.modo === "programar") return guardarProgramacion();
+                if (form.modo === "compensar") return guardarCompensacion();
+                if (form.modo === "ejecutar") {
+                  reemplazar(s.id, ejecutarAplicacion(s, form.aplicacionId, { fecha: form.fecha, usuario }));
+                  return cerrar();
+                }
+                if (form.modo === "aplazar") {
+                  reemplazar(s.id, aplazarAplicacion(s, form.aplicacionId, { mes: form.mes, motivo: form.nota, usuario }));
+                  return cerrar();
+                }
+                if (form.modo === "anular") {
+                  reemplazar(s.id, anularAplicacion(s, form.aplicacionId, { motivo: form.nota, usuario }));
+                  return cerrar();
+                }
+              } catch (e) { window.alert(e.message); }
+            }} style={{ padding: "3px 10px", background: C.success, border: "none", borderRadius: 6,
+              color: "#fff", cursor: "pointer", fontSize: 9, fontWeight: 700 }}>Guardar</button>
+            <button onClick={cerrar} style={btnMini(C)}>Cancelar</button>
           </div>
         </div>
       )}

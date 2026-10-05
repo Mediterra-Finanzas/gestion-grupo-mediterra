@@ -835,3 +835,120 @@ export function compensacionesPorDestino(saldos, { temporada = null, fruta = nul
   });
   return porPrograma;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// ORIGEN DEL EXCEDENTE Y DOBLE RECONOCIMIENTO
+//
+// Un saldo a favor no se "escribe": nace de un excedente real demostrable.
+// Dos fuentes válidas:
+//   · una posición con liquidación individual cuyo realizado supera su base;
+//   · un documento que reconoce el saldo, con referencia y fecha.
+// Lo ya reconocido no se puede volver a reconocer, y si el excedente que lo
+// originó se achica (se corrigió la liquidación, se anuló un anticipo) la
+// inconsistencia se muestra y hay que resolverla: nunca se borra una
+// aplicación realizada ni queda disponible ficticio.
+// ═══════════════════════════════════════════════════════════════════
+
+/** Saldos vigentes nacidos de una posición concreta. */
+export function saldosDePosicion(saldos, programaId) {
+  return (Array.isArray(saldos) ? saldos : []).map(normalizarSaldo)
+    .filter(s => s.origen?.tipo === "liquidacion_individual" && s.origen?.programaId === programaId);
+}
+
+/**
+ * Cuánto excedente de esa posición queda por reconocer.
+ * `excedenteReal` viene del mismo cuadre que alimenta el flujo.
+ */
+export function excedentePorReconocer(posicion, saldos) {
+  const exc = n(posicion?.excedenteReal);
+  const yaReconocido = saldosDePosicion(saldos, posicion?.programaId).reduce((t, s) => t + n(s.usd), 0);
+  return { excedenteReal: exc, yaReconocido, porReconocer: Math.max(0, exc - yaReconocido) };
+}
+
+/**
+ * Inconsistencias entre lo reconocido y el excedente que lo originó.
+ * Se detectan, se muestran y se resuelven a mano.
+ */
+export function inconsistenciasSaldos(posiciones, saldos) {
+  const out = [];
+  (Array.isArray(posiciones) ? posiciones : []).forEach(q => {
+    const { excedenteReal, yaReconocido } = excedentePorReconocer(q, saldos);
+    if (yaReconocido > excedenteReal + 0.005) {
+      const sobra = yaReconocido - excedenteReal;
+      const deEsa = saldosDePosicion(saldos, q.programaId);
+      const resuelto = deEsa.reduce((t, s) => t + resumenSaldo(s).resuelto, 0);
+      out.push({
+        programaId: q.programaId, contraparte: q.contraparte || q.etiqueta,
+        excedenteReal, yaReconocido, sobra, resuelto,
+        // Lo ya ejecutado no se borra: hay que decidir qué se hace con él.
+        mensaje: `Se reconocieron ${Math.round(yaReconocido)} de excedente y hoy la posición solo muestra ` +
+                 `${Math.round(excedenteReal)}. Sobran ${Math.round(sobra)} por resolver` +
+                 (resuelto > 0 ? `, con ${Math.round(resuelto)} ya movidos que no se borran.` : "."),
+      });
+    }
+  });
+  return out;
+}
+
+/** Crea un saldo a favor a partir de una posición, sin reconocer dos veces. */
+export function reconocerDesdePosicion(posicion, saldos, { usd, usuario = "", nota = "" } = {}) {
+  const { porReconocer, excedenteReal } = excedentePorReconocer(posicion, saldos);
+  if (excedenteReal <= 0) {
+    throw new Error("Esta operación no tiene excedente real: no hay saldo que reconocer.");
+  }
+  const monto = esDato(usd) ? Number(usd) : porReconocer;
+  if (monto <= 0) throw new Error("El monto a reconocer tiene que ser mayor que cero.");
+  if (monto > porReconocer + 0.005) {
+    throw new Error(`Solo quedan ${Math.round(porReconocer)} por reconocer de esta operación ` +
+      `(excedente ${Math.round(excedenteReal)}). Lo ya reconocido no se reconoce de nuevo.`);
+  }
+  return normalizarSaldo({
+    lado: posicion.lado || "productor", contraparte: posicion.contraparte || "",
+    programaId: posicion.programaId, usd: monto, estado: "reconocido",
+    origen: { tipo: "liquidacion_individual", programaId: posicion.programaId,
+              base: posicion.base, realizado: posicion.realizado, excedenteReal },
+    nota, usuario, ts: new Date().toISOString(), aplicaciones: [],
+  });
+}
+
+/**
+ * Destinos posibles de una compensación, con el saldo que cada uno puede
+ * absorber tomado del MISMO cuadre que alimenta el flujo. Nada se escribe
+ * a mano.
+ */
+export function destinosCompensacion(resumenLadoDestino, { excluirProgramaId = null } = {}) {
+  const out = [];
+  (resumenLadoDestino?.posiciones || []).forEach(q => {
+    if (excluirProgramaId && q.programaId === excluirProgramaId) return;
+    out.push({ programaId: q.programaId, etiqueta: q.contraparte || q.etiqueta,
+               absorbe: n(q.liquidacion), mes: q.liquidacionMes || "" });
+  });
+  const b = resumenLadoDestino?.bloque;
+  if (b && n(b.liquidacion) > 0) {
+    out.push({ programaId: null, etiqueta: "Bloque presupuestario",
+               absorbe: n(b.liquidacion), mes: b.liquidacionMes || "" });
+  }
+  return out.filter(d => d.absorbe > 0);
+}
+
+/**
+ * Vista previa de una compensación antes de confirmar: los dos lados, los
+ * remanentes y los meses del flujo que cambian.
+ */
+export function previaCompensacion({ saldo, destino, usd }) {
+  const s = normalizarSaldo(saldo);
+  const r = resumenSaldo(s);
+  const monto = n(usd);
+  const absorbe = Math.min(monto, n(destino?.absorbe));
+  return {
+    origen: { contraparte: s.contraparte, disponible: r.disponible, pendiente: r.pendienteReal },
+    destino: { etiqueta: destino?.etiqueta || "", absorbe: n(destino?.absorbe), mes: destino?.mes || "" },
+    monto, aplicado: absorbe, remanenteSaldo: Math.max(0, r.disponible - absorbe),
+    remanenteDestino: Math.max(0, n(destino?.absorbe) - absorbe),
+    cambioFlujo: destino?.mes ? [{ mes: destino.mes, delta: -absorbe }] : [],
+    valido: monto > 0 && absorbe > 0 && monto <= r.disponible + 0.005,
+    motivo: monto <= 0 ? "El monto tiene que ser mayor que cero."
+      : monto > r.disponible + 0.005 ? `Solo hay ${Math.round(r.disponible)} disponibles.`
+      : absorbe <= 0 ? "La operación destino no tiene saldo que absorber." : "",
+  };
+}

@@ -294,58 +294,114 @@ check('Dec-26 proyecta el pendiente de la cuota (8.000)', costoFinal['Dec-26'] =
 check('y el saldo al productor baja a 580.000', costoFinal['Mar-27'] === 580000,
       `Mar-27 ${costoFinal['Mar-27']}`);
 
-// ── 3c · saldo a favor: reconocer, programar, ejecutar ────────────
-console.log('\n=== 3c · saldo a favor del productor ===');
+// ── 3c · liquidación individual, excedente y saldo a favor ────────
+console.log('\n=== 3c · presupuesto asignado, liquidación definitiva y excedente ===');
+await irAParametros();
+await esperar(700);
+
+// OJO: las dos columnas tienen los mismos rótulos, así que hay que acotar el
+// xpath a la columna del productor.
+const colP = page.locator('xpath=//span[normalize-space(text())="Productores"]/ancestor::div[2]').first();
+const ponerCampoEn = async (scope, etiqueta, valor) => {
+  const el = scope.locator(`xpath=.//div[normalize-space(text())="${etiqueta}"]/following::input[1]`).first();
+  await el.click(); await esperar(80);
+  await el.fill(String(valor));
+  await el.evaluate(e => e.blur());
+  await esperar(300);
+};
+
+// Asignar presupuesto a la operación del productor y cargar su definitiva.
+// Pagado 12.000 contra una definitiva de 8.000 → excedente real 4.000.
+await ponerCampoEn(colP, 'Presupuesto asignado a esta operación', 100000);
+await ponerCampoEn(colP, 'Importe definitivo (liquidación individual)', 8000);
+await esperar(900);
+const tL = await texto();
+check('la operación muestra su variación presupuestaria',
+      /Variación de esta operación:\s*-\$92,000/.test(tL),
+      (tL.match(/Variación de esta operación:[^\n]*/) || [])[0]);
+check('y el excedente real aparece separado del exceso de compromisos',
+      /Excedente real \(pagado por sobre la base\)\s*\$4,000/.test(tL),
+      (tL.match(/Excedente real[^\n]*\$[\d,]+/g) || []).join(' | '));
+await page.screenshot({ path: `${OUT}/programas/05-liquidacion-individual.png`, fullPage: true });
+
+const costoIndiv = await leerLinea('Costo Fruta Exportación');
+console.log('  costo con operación individual →', JSON.stringify(costoIndiv));
+// bloque = 650.000 − 100.000 asignados = 550.000 − 50.000 de estimación = 500.000
+check('la operación sale ENTERA del bloque: el resto liquida 500.000',
+      costoIndiv['Mar-27'] === 500000, String(costoIndiv['Mar-27']));
+// La cuota vigente SIGUE siendo un compromiso y se proyecta: la definitiva
+// cambia la base y la liquidación, no el calendario acordado. El desajuste
+// aparece como exceso de compromisos, no como deuda.
+check('la cuota vigente sigue proyectando su pendiente',
+      costoIndiv['Dec-26'] === 8000, String(costoIndiv['Dec-26']));
+check('y el desajuste se informa como exceso de compromisos (8.000)',
+      /Exceso de compromisos del calendario\s*\$8,000/.test(tL),
+      (tL.match(/Exceso de compromisos[^\n]*\$[\d,]+/g) || []).join(' | '));
+
+// ── reconocer el excedente DESDE la posición ──────────────────────
 await irAParametros();
 await esperar(700);
 const colProd2 = page.locator('xpath=//span[normalize-space(text())="Productores"]/ancestor::div[2]').first();
 await colProd2.getByRole('button', { name: /\+ Reconocer saldo/ }).first().click();
-await esperar(500);
-const bloqueSaldo = page.locator('input[placeholder="respaldo (documento/referencia)"]').first()
-  .locator('xpath=ancestor::div[1]');
-await bloqueSaldo.locator('input[placeholder="contraparte"]').first().fill('Productor Sintético P');
-await bloqueSaldo.locator('input[placeholder="US$"]').first().fill('40000');
-await bloqueSaldo.locator('input[placeholder="respaldo (documento/referencia)"]').first().fill('LIQ-QA-001');
-await bloqueSaldo.getByRole('button', { name: 'Guardar' }).first().click();
+await esperar(600);
+const formRec = page.locator('xpath=//div[contains(text(),"Reconocer un saldo a favor")]/ancestor::div[1]');
+await formRec.locator('select').first().selectOption('posicion');
+await esperar(300);
+const opciones = await formRec.locator('select').nth(1).locator('option').allInnerTexts();
+check('la operación con excedente aparece como origen',
+      opciones.some(o => /excedente 4.000/.test(o) || /excedente 4,000/.test(o)), opciones.join(' | '));
+await formRec.locator('select').nth(1).selectOption({ index: 1 });
+await esperar(300);
+await formRec.getByRole('button', { name: 'Guardar' }).first().click();
 await esperar(1000);
-const tS = await texto();
-check('el saldo queda reconocido con su respaldo',
-      /reconocido\s*\$40,000/.test(tS) && /disponible\s*\$40,000/.test(tS),
-      (tS.match(/reconocido\s*\$[\d,]+/g) || []).join(' | '));
+const tR = await texto();
+check('el saldo nace con su origen trazado',
+      /reconocido\s*\$4,000/.test(tR) && /liquidación individual/.test(tR),
+      (tR.match(/Origen:[^\n]*/) || [])[0]);
+check('no queda excedente por reconocer dos veces',
+      !/por reconocer\s*\$4,000/.test(tR));
 
-// programar dos recuperaciones de 20.000
-respuestas.push('20000', 'Nov-26');
+// ── programar la recuperación y ejecutarla ────────────────────────
 await colProd2.getByRole('button', { name: /Recuperar del productor/ }).first().click();
-await esperar(900);
-respuestas.push('20000', 'Dec-26');
-await colProd2.getByRole('button', { name: /Recuperar del productor/ }).first().click();
-await esperar(900);
-const tS2 = await texto();
-check('programar no extingue: pendiente 40.000, programado 40.000, disponible 0',
-      /pendiente\s*\$40,000/.test(tS2) && /programado\s*\$40,000/.test(tS2) && /disponible\s*\$0/.test(tS2),
-      (tS2.match(/(pendiente|programado|disponible|resuelto)\s*\$[\d,]+/g) || []).join(' | '));
-await page.screenshot({ path: `${OUT}/programas/05-saldo-programado.png`, fullPage: true });
+await esperar(500);
+const formProg = page.locator('xpath=//div[contains(., "Recuperar del productor ·")][contains(@style,"font-weight")]/ancestor::div[1]');
+await formProg.locator('input[inputmode=decimal]').first().fill('4000');
+await formProg.locator('input[inputmode=decimal]').first().evaluate(e => e.blur());
+await formProg.locator('select').first().selectOption('Nov-26');
+await esperar(300);
+const tP = await texto();
+check('la previa dice que programar no extingue el saldo',
+      /programar no lo extingue/.test(tP));
+await formProg.getByRole('button', { name: 'Guardar' }).first().click();
+await esperar(1000);
+const tP2 = await texto();
+check('programado 4.000 y disponible 0',
+      /programado\s*\$4,000/.test(tP2) && /disponible\s*\$0/.test(tP2),
+      (tP2.match(/(programado|disponible|resuelto|pendiente)\s*\$[\d,]+/g) || []).join(' | '));
+await page.screenshot({ path: `${OUT}/programas/06-saldo-programado.png`, fullPage: true });
 
 const recupProg = await leerLinea('Recuperación de anticipos a productores');
-console.log('  recuperación →', JSON.stringify(recupProg));
-check('el flujo proyecta las dos cuotas programadas',
-      recupProg['Nov-26'] === 20000 && recupProg['Dec-26'] === 20000,
-      JSON.stringify(recupProg));
+check('el flujo proyecta la recuperación programada',
+      recupProg['Nov-26'] === 4000, JSON.stringify(recupProg));
 
-// ejecutar la primera
 await irAParametros();
 await esperar(700);
-respuestas.push('2026-11-20');
 await page.getByRole('button', { name: 'registrar movimiento' }).first().click();
+await esperar(600);
+const formEj = page.locator('xpath=//div[contains(text(),"Registrar el movimiento real")]/ancestor::div[1]');
+await formEj.locator('input[type=date]').first().fill('2026-11-20');
+await formEj.locator('input[placeholder="referencia / cartola"]').first().fill('QA recuperación');
+await formEj.getByRole('button', { name: 'Guardar' }).first().click();
 await esperar(1200);
-const tS3 = await texto();
-check('tras ejecutar: resuelto 20.000 y pendiente 20.000',
-      /resuelto\s*\$20,000/.test(tS3) && /pendiente\s*\$20,000/.test(tS3),
-      (tS3.match(/(pendiente|programado|disponible|resuelto)\s*\$[\d,]+/g) || []).join(' | '));
-await page.screenshot({ path: `${OUT}/programas/06-saldo-ejecutado.png`, fullPage: true });
+const tE = await texto();
+check('tras ejecutar: resuelto 4.000 y pendiente 0',
+      /resuelto\s*\$4,000/.test(tE) && /pendiente\s*\$0/.test(tE),
+      (tE.match(/(programado|disponible|resuelto|pendiente)\s*\$[\d,]+/g) || []).join(' | '));
+await page.screenshot({ path: `${OUT}/programas/07-saldo-ejecutado.png`, fullPage: true });
 const recupTras = await leerLinea('Recuperación de anticipos a productores');
-check('la cuota ejecutada deja de proyectarse y queda la otra',
-      recupTras['Nov-26'] === 0 && recupTras['Dec-26'] === 20000, JSON.stringify(recupTras));
+check('la cuota ejecutada deja de proyectarse',
+      recupTras['Nov-26'] === 0, JSON.stringify(recupTras));
+const costoTrasLiq = await leerLinea('Costo Fruta Exportación');
 
 // ── 4 · Excel recalculado de verdad ───────────────────────────────
 console.log('\n=== 4 · Excel recalculado con LibreOffice ===');
@@ -373,8 +429,25 @@ MESES.forEach(m => {
 const fCost = filaDe('Costo Fruta Exportación');
 MESES.forEach(m => {
   const v = ws[`${colDe(m)}${fCost}`]?.v;
-  check(`Excel productor ${m} = pantalla (${costoFinal[m]})`, Math.round(v || 0) === costoFinal[m], `${v} vs ${costoFinal[m]}`);
+  check(`Excel productor ${m} = pantalla (${costoTrasLiq[m]})`, Math.round(v || 0) === costoTrasLiq[m], `${v} vs ${costoTrasLiq[m]}`);
 });
+
+// ── sección de saldos a favor, RECALCULADA ────────────────────────
+const wsP2 = rec.wb.Sheets['Parametros'];
+const filaSaldo = Object.keys(wsP2).filter(k => /^B\d+$/.test(k))
+  // La fila del SALDO lleva el estado entre paréntesis; la del programa dice "↳".
+  .find(k => typeof wsP2[k]?.v === 'string' && wsP2[k].v.includes('Productor Sintético P (')); 
+check('la hoja Parametros trae la fila del saldo', !!filaSaldo, filaSaldo);
+if (filaSaldo) {
+  const n = filaSaldo.slice(1);
+  const val = (col) => wsP2[`${col}${n}`]?.v;
+  console.log(`  saldo recalculado → reconocido ${val('C')} resuelto ${val('D')} programado ${val('E')} pendiente ${val('F')} disponible ${val('G')}`);
+  check('Excel: reconocido 4.000', Math.round(val('C')||0) === 4000, String(val('C')));
+  check('Excel: resuelto 4.000 (fórmula recalculada)', Math.round(val('D')||0) === 4000, String(val('D')));
+  check('Excel: programado 0', Math.round(val('E')||0) === 0, String(val('E')));
+  check('Excel: pendiente 0', Math.round(val('F')||0) === 0, String(val('F')));
+  check('Excel: disponible 0', Math.round(val('G')||0) === 0, String(val('G')));
+}
 const wsP = rec.wb.Sheets['Parametros'];
 const textosP = Object.keys(wsP).filter(k => /^[A-Z]+\d+$/.test(k)).map(k => wsP[k]?.v).filter(v => typeof v === 'string');
 check('la hoja Parametros nombra la contraparte', textosP.some(t => t.includes('Cliente Sintético A')));
@@ -401,8 +474,8 @@ const tras = await leerLinea('Anticipo Cerezas');
 check('tras recargar, el flujo del cliente es idéntico', JSON.stringify(tras) === JSON.stringify(adicional),
       `${JSON.stringify(tras)} vs ${JSON.stringify(adicional)}`);
 const trasProd = await leerLinea('Costo Fruta Exportación');
-check('y el del productor también', JSON.stringify(trasProd) === JSON.stringify(costoFinal),
-      `${JSON.stringify(trasProd)} vs ${JSON.stringify(costoFinal)}`);
+check('y el del productor también', JSON.stringify(trasProd) === JSON.stringify(costoTrasLiq),
+      `${JSON.stringify(trasProd)} vs ${JSON.stringify(costoTrasLiq)}`);
 await page.screenshot({ path: `${OUT}/programas/03-recarga.png`, fullPage: true });
 
 await ctx.close();
