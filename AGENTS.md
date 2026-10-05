@@ -266,6 +266,11 @@ Reglas que no hay que romper:
   y verifica, sin duplicar. Un refresco fallido conserva lo ya cargado (`aplicarRefresco`). Riesgo abierto:
   sesiones con código anterior escriben sin condición hasta recargar. Tests: `node src/nominasPersistencia.test.mjs`,
   `scripts/e2e/nomina-condicionado.mjs`.
+- **Propuesta NO aplicada — la base exige la versión leída** (`docs/nominas-version-obligatoria.md`): función
+  `nominas_guardar(id, valor, versión|null)` + trigger `trg_nominas_exigir_version` que rechaza a la llave pública
+  cualquier otra escritura de `nominas_<empresa>` (incluidas pestañas con código antiguo y la rama sin parche). Requiere
+  `supabase/propuesta_nominas_version_obligatoria_cliente.patch`. Prueba local: `scripts/nominas-cas/prueba.mjs`.
+  Respaldos existentes (solo lectura, sin contenido): `supabase/consulta_respaldos_existentes.sql`.
 - **Anular nómina/línea con pago vigente** → `ResolverPagosVinculados`: conservar
   (`anotarPago`) o anular el pago, con motivo; si Créditos no confirma, no se anula.
 - Revisión previa al merge y verificación del prepago: `docs/creditos-revision-pre-merge.md`.

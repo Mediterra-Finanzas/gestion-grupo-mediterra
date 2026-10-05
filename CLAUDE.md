@@ -268,6 +268,11 @@ Reglas que no hay que romper:
   y verifica, sin duplicar. Un refresco fallido conserva lo ya cargado (`aplicarRefresco`). Riesgo abierto:
   sesiones con código anterior escriben sin condición hasta recargar. Tests: `node src/nominasPersistencia.test.mjs`,
   `scripts/e2e/nomina-condicionado.mjs`.
+- **Propuesta NO aplicada — la base exige la versión leída** (`docs/nominas-version-obligatoria.md`): función
+  `nominas_guardar(id, valor, versión|null)` + trigger `trg_nominas_exigir_version` que rechaza a la llave pública
+  cualquier otra escritura de `nominas_<empresa>` (incluidas pestañas con código antiguo y la rama sin parche). Requiere
+  `supabase/propuesta_nominas_version_obligatoria_cliente.patch`. Prueba local: `scripts/nominas-cas/prueba.mjs`.
+  Respaldos existentes (solo lectura, sin contenido): `supabase/consulta_respaldos_existentes.sql`.
 - **Anular nómina/línea con pago vigente** → `ResolverPagosVinculados`: conservar
   (`anotarPago`) o anular el pago, con motivo; si Créditos no confirma, no se anula.
 - Revisión previa al merge y verificación del prepago: `docs/creditos-revision-pre-merge.md`.
@@ -489,6 +494,7 @@ OUT_DIR=/tmp/e2e node scripts/e2e/nomina-credito.mjs   # Nómina ↔ crédito en
 OUT_DIR=/tmp/ng node scripts/e2e/nomina-guardado.mjs   # Nóminas: guardado rechazado (sello / red / 500) y transiciones
 node src/nominasPersistencia.test.mjs       # fusión y guardado condicionado de Nóminas (puro)
 OUT_DIR=/tmp/nc node scripts/e2e/nomina-condicionado.mjs   # Nóminas: dos pestañas, cargas fallidas, 409, respuesta perdida
+POSTGREST_BIN=/ruta/postgrest node scripts/nominas-cas/prueba.mjs   # propuesta: la base exige la versión leída (Postgres+PostgREST locales)
 OUT_DIR=/tmp/vp node scripts/e2e/vista-previa-creditos.mjs   # vista previa de Créditos con datos simulados (Excel recalculado)
 OUT_DIR=/tmp/e2e node scripts/e2e/apertura-sin-cambios.mjs   # abrir con registros antiguos no los modifica
 node scripts/vista-previa/armar.mjs --build && node scripts/vista-previa/servir.mjs   # vista previa funcional en http://localhost:4180

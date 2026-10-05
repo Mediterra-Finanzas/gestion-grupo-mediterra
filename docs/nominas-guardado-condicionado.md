@@ -202,6 +202,6 @@ Defecto encontrado por la prueba en navegador y corregido: un refresco de fondo 
 
 ### Pendiente
 
-1. **Sesiones con código anterior** (punto 10): decidir cómo impedir que sobrescriban antes de desplegar. Desplegar fuera de horario reduce el riesgo, no lo elimina.
+1. **Sesiones con código anterior** (punto 10): decidir cómo impedir que sobrescriban antes de desplegar. Desplegar fuera de horario reduce el riesgo, no lo elimina. Propuesta (no aplicada): `docs/nominas-version-obligatoria.md` — la base exige la versión leída vía la función `nominas_guardar`; requiere el parche de cliente.
 2. Borrar sola la copia local al reabrir cuando coincide con el servidor (hoy se ofrece y se elimina a mano).
 3. Horario de despliegue: no fijado.
