@@ -25,140 +25,178 @@ Las definiciones comerciales **no bloquean** nada del bloque A. Tener WLH
 definido tampoco autoriza por sí mismo la carga: va con el resto, cuando
 revises esta propuesta actualizada.
 
-## 1. WLH — definido
+## 1. Cuadre del lado cliente
 
-Confirmado por Angelo el 05/10/2026:
+### Corrección de lo que entregué antes
 
-- Los US$599.960 recibidos **corresponden a esta campaña**.
-- Las tres cuotas de US$160.000 (30/11/2026, 15/12/2026, 10/01/2027) **siguen
-  pendientes**.
-- Son **adicionales** a lo recibido: realizado US$599.960 + calendario futuro
-  US$480.000 = **US$1.079.960** de anticipos realizados y previstos.
+Los **US$2.745.040** que presenté eran el residual de la base global
+considerando **solo WLH**, no la liquidación final de Allegria. Dicho mal, daba
+a entender que era la cifra de cierre del lado cliente. No lo es: es lo que
+queda de la base después de WLH y nada más.
 
-Los cobros históricos **no** se cruzan contra las tres cuotas futuras: ninguna
-queda marcada como cumplida por ellos.
+Faltaba además el cobro de **SNF: US$161.920 del 24/09/2026**, que reemplaza el
+importe antes informado de US$169.000 (no es otro cobro).
 
-### Cómo se carga
+### Residual con lo definido hasta hoy
 
-| Qué | Cómo |
+```
+base presupuesto                3.825.000
+(−) WLH realizado                 599.960
+(−) WLH futuro                    480.000
+(−) SNF realizado                 161.920
+= residual                      2.583.120   ← antes de otros anticipos futuros o ajustes
+```
+
+Verificado ejecutando el modelo: realizado US$761.880, futuro US$480.000,
+residual **US$2.583.120**. Es un residual intermedio, no una liquidación final:
+faltan los calendarios de SNF y TUNGSHING.
+
+### Cuadre completo, con todo el calendario cargado
+
+Si se cargan los tres calendarios comerciales completos (los que entregaste),
+el modelo da esto, con mes de corte Oct-26:
+
+| Contraparte | Realizado | Futuro con fecha | Detalle del futuro |
+|---|---:|---:|---|
+| WLH | 599.960 | 480.000 | Nov-26, Dec-26, Jan-27 · 160.000 cada uno |
+| SNF | 161.920 | 415.420 | Nov-26 161.920 · Dec-26 69.250 + 115.000 · Jan-27 69.250 |
+| TUNGSHING | 0 | 551.400 | Oct-26 138.000 · Nov-26 138.000 · Dec-26 82.800 + 110.400 · Jan-27 82.200 |
+| **Total** | **761.880** | **1.446.820** | |
+
+```
+base 3.825.000 − realizado 761.880 − futuro 1.446.820 = liquidación 1.616.300
+realizado 761.880 + proyectado 3.063.120 = 3.825.000   ← la base, exacta
+```
+
+Proyección mes a mes: Oct-26 138.000 · Nov-26 459.920 · Dec-26 537.450 ·
+Jan-27 311.450 · Mar-27 1.616.300 (liquidación). La identidad cierra contra la
+base: **nada se cuenta dos veces y nada desaparece**.
+
+Dos cosas que ese cuadre **no** afirma: que TUNGSHING vaya a cobrar los
+US$138.000 de Oct-26 (declarado no llegado: al cargarse con esa fecha quedaría
+**vencido**, no cobrado), y que cada contraparte quepa en lo que debe (falta la
+base individual de cada una).
+
+### Estimaciones que todavía permanecen — el riesgo de contar dos veces
+
+Las filas actuales de anticipos (`anticipos_cliente`) son **estimaciones sin
+contraparte**. Si se cargan los calendarios **sin declarar qué estimación
+reemplaza cada cuota**, el mismo compromiso se proyecta dos veces: una por la
+estimación y otra por la cuota.
+
+El mecanismo existe y es explícito: cada cuota declara **cuánto** de cada
+estimación consume (*pendiente que reemplaza estimación*). La app avisa y marca
+la **sobre-sustitución** si se declara más de lo disponible, y no la recorta
+sola.
+
+Lo que falta para llenarlo es la lista de estimaciones hoy cargadas, que no
+pude leer (la red del entorno bloquea Supabase). Con esa lista se completa:
+
+| Estimación actual (mes · US$/kg · acordado) | Cuota que la reemplaza | Monto que consume |
+|---|---|---|
+| | | |
+
+**Hasta que esa tabla esté llena, cargar calendarios es riesgoso.** El orden
+correcto es: leer las estimaciones vigentes, declarar la sustitución cuota por
+cuota, y recién entonces activar las cuotas.
+
+### Advertencia que se conserva
+
+La liquidación individual de **WLH no está validada**: sin kilos ni precio
+propios, su realizado y su calendario descuentan del bloque, y no se puede
+comprobar si los US$1.079.960 caben en lo que WLH debe. Medido: con una base
+individual de US$900.000 aparecería un **exceso de compromisos de US$179.960**.
+La falta de base individual **no impide** preparar el calendario global; sí
+impide dar por validada la liquidación de WLH.
+
+## 1b. Registro de los cobros históricos — ahora explícito
+
+El mecanismo de cuota contenedora quedó implementado con marca propia:
+`historico: true`.
+
+| Requisito | Cómo se cumple |
 |---|---|
-| 15/07/2026 · US$362.000 | realización, con su fecha real y monto fijo |
-| 24/08/2026 · US$39.980 | realización |
-| 16/09/2026 · US$197.980 | realización |
-| 30/11/2026 · US$160.000 | cuota **vigente**, mes de flujo Nov-26 |
-| 15/12/2026 · US$160.000 | cuota **vigente**, mes de flujo Dec-26 |
-| 10/01/2027 · US$160.000 | cuota **vigente**, mes de flujo Jan-27 |
+| Identificarse como registro de anticipos históricos | Se rotula **«registro de anticipos históricos»** en pantalla y **«Anticipos históricos (ya en caja · no proyecta)»** en el Excel. No tiene selector de estado, ni mes de flujo, ni modalidad editable |
+| No aparentar un acuerdo pendiente | Se dibuja aparte, con borde punteado y la leyenda *no es un acuerdo pendiente · no proyecta · no se puede activar*. No muestra acordado ni pendiente |
+| No poder activarse accidentalmente | `normalizarCuota` lo **fuerza a borrador siempre**. Probado forzando `estado:"vigente"` y `monto:599.960` en el dato: la proyección no cambia en ningún mes |
+| Guardar los tres movimientos una sola vez | Probado: realizado US$599.960 exacto, un movimiento por fecha |
+| Conservar las fechas | Probado: 2026-07-15, 2026-08-24, 2026-09-16 |
+| No alterar las cuotas futuras | Probado: las tres de US$160.000 siguen proyectando en sus meses |
 
-Las tres realizaciones van en una cuota contenedora en **borrador y sin mes**:
-así el realizado descuenta (la plata ya está en caja) sin que esa cuota
-proyecte nada ni toque el calendario futuro. Modalidad *por confirmar*: no se
-inventa tarifa ni kilos.
+Pruebas: modelo (167)-(173) y `integracionSaldos.test.js` → *«registro de
+anticipos históricos»* (3 pruebas, incluida la del Excel).
 
-### Lo que la app muestra con esas cifras
+## 2. Don Alberto — compromisos, no pagos
 
-Verificado ejecutando el modelo (`resumenLado` / `movimientosLado`), con el
-presupuesto global del lado cliente en US$3.825.000 y mes de corte Oct-26:
+| Grupo | Importes | Suma | Estado declarado |
+|---|---|---:|---|
+| Con pagaré | 255.000 + 89.890 + 17.110 | **362.000** | compromiso documentado · **ejecución por confirmar** |
+| No ejecutados | 119.000 + 119.000 + 79.000 | **317.000** | confirmados como **no ejecutados** |
+
+### Lo que no se puede declarar todavía
+
+El realizado de Don Alberto es **cero en el estado de carga propuesto**, y eso
+es provisional, no una conclusión: mientras no se vea la cartola, no se sabe si
+los US$362.000 salieron de la cuenta. **No se descarta incorporar pagos
+históricos**: si la cartola los confirma, cada importe entra como realización
+con su fecha real y deja de proyectarse en su mes. El saldo de apertura no
+aplica con los datos de hoy (hay detalle y no hay pagos confirmados), pero
+vuelve a la mesa si alguna vez aparece un total documentado sin detalle.
+
+Las dos evidencias no se mezclan: el **pagaré** justifica una cuota (cuánto hay
+que pagar); la **cartola** justifica una realización (que se pagó). Un pagaré
+no promueve una cuota a pago.
+
+### Los vencimientos de los pagarés sirven de calendario
+
+Si los pagarés establecen fechas de pago, **esas fechas son el calendario** de
+las tres cuotas: se cargan como mes de flujo y dejan de ser "sin fecha".
+
+Si ya vencieron sin pagarse, la app los muestra **vencidos** y exige
+reprogramación explícita. Medido con el modelo (corte Oct-26, vencimientos
+Aug-26 y Sep-26):
 
 ```
-realizado ................ 599.960
-pendiente con fecha ...... 480.000   → Nov-26, Dec-26 y Jan-27, 160.000 cada uno
-liquidación .............. 2.745.040  (= 3.825.000 − 1.079.960)
-excedente real ........... 0
-exceso de compromisos .... 0
+vencido antes del corte ....... 344.890   (255.000 Aug-26 + 89.890 Sep-26)
+dentro del horizonte .......... 17.110
+liquidación ................... 1.788.500
+caja en el horizonte .......... 1.805.610  ← el vencido NO entra al acumulado
 ```
 
-### La advertencia que se mantiene
+El vencido se proyecta antes del corte, queda listado como tal y no se llama
+flujo futuro. Nadie lo mueve solo: se reprograma a mano.
 
-WLH **no tiene base individual**: sin presupuesto asignado ni importe
-definitivo propio, su realizado y su calendario descuentan del **bloque
-presupuestario**, no de una liquidación suya. Dicho de otro modo: no se puede
-afirmar que los US$1.079.960 caben dentro de lo que WLH debe, porque no está
-cargado cuánto debe.
+### Sin fechas: la proyección queda incompleta, y se dice
 
-El efecto de esa falta, medido con el modelo:
+**Retiro la recomendación anterior.** No corresponde trasladar los US$679.000 a
+la liquidación de marzo: eso solo vale si efectivamente se acordó pagar ahí, y
+no está acordado.
 
-| Base individual de WLH | Liquidación | Excedente real | Exceso de compromisos |
-|---|---:|---:|---:|
-| sin base (cae al bloque) | 2.745.040 | 0 | 0 |
-| US$1.500.000 | 2.745.040 | 0 | 0 |
-| US$900.000 | 2.925.000 | 0 | **179.960** |
+El tratamiento por defecto es dejarlos **sin calendarizar**, con el compromiso
+visible al lado del flujo y la advertencia explícita:
 
-Con una base de US$900.000, los compromisos se pasan en US$179.960 y la app lo
-muestra como **exceso de compromisos** (aviso del calendario), no como deuda:
-lo realizado, US$599.960, todavía cabe en esa base. Mientras no cargues kilos y
-precio de WLH, ese control no puede funcionar.
+| | |
+|---|---:|
+| Compromiso total con el productor | 2.150.500 |
+| Proyectado en el horizonte | **1.471.500** |
+| **Sin calendarizar: la proyección está incompleta por** | **679.000** |
 
-## 2. Don Alberto — corregido: no son pagos ejecutados
+Si hace falta un **escenario provisional de caja**, se cargan fechas estimadas
+marcadas como tales: cada cuota lleva la casilla **«fecha estimada»**, proyecta
+igual, y el total que descansa en fechas estimadas se informa aparte
+(`proyeccionEstimada`) en pantalla y rotulado *· fecha estimada* en el Excel.
+El calendario contractual (la fecha prevista del acuerdo) **no se toca**.
 
-Corrección de Angelo del 05/10/2026, que cambia el tratamiento por completo:
+Las tres opciones, medidas:
 
-| Grupo | Importes | Suma | Qué es | Evidencia |
-|---|---|---:|---|---|
-| Con pagaré | 255.000 + 89.890 + 17.110 | **362.000** | compromiso documentado | **pagaré** — evidencia de compromiso, NO de pago |
-| No ejecutados | 119.000 + 119.000 + 79.000 | **317.000** | anticipos futuros | ninguna; fechas por confirmar |
-| | | **679.000** | | |
-
-255.000 + 89.890 + 17.110 = 362.000 · 119.000 + 119.000 + 79.000 = 317.000 ·
-362.000 + 317.000 = 679.000
-
-### Las dos evidencias no se mezclan
-
-- **Evidencia de compromiso** (pagaré, contrato, acuerdo escrito): justifica una
-  **cuota del calendario**. Dice cuánto se debe pagar, no que se haya pagado.
-- **Evidencia de movimiento** (cartola, comprobante de transferencia): justifica
-  una **realización**. Es lo único que convierte un compromiso en pago.
-
-Un pagaré **nunca** promueve una cuota a realización. Falta confirmar en la
-cartola si los US$362.000 salieron efectivamente de la cuenta.
-
-### Qué se cae de la propuesta anterior
-
-El **saldo de apertura documentado** queda **retirado**. Estaba diseñado para un
-total de pagos históricos sin detalle, y acá no hay tal cosa: nada está
-confirmado como pagado, y del detalle sí tenemos los seis importes. Si la
-cartola confirma los US$362.000, cada uno entra como realización con su fecha
-real, que es el camino normal y más trazable. El saldo de apertura no se usa.
-
-La cifra US$1.471.500 sobrevive, pero **cambia de significado**: ya no es "lo
-que queda después de pagar 679.000", sino "lo que queda en la liquidación
-después de los 679.000 de anticipos **comprometidos y no pagados**".
-
-### Cómo se carga
-
-Los seis van como **cuotas del programa de Don Alberto**, todas vigentes, con
-realizado en **cero**:
-
-| Cuota | Monto | Respaldo | Mes de flujo |
-|---|---:|---|---|
-| 1 | 255.000 | pagaré | por confirmar |
-| 2 | 89.890 | pagaré | por confirmar |
-| 3 | 17.110 | pagaré | por confirmar |
-| 4 | 119.000 | — | por confirmar |
-| 5 | 119.000 | — | por confirmar |
-| 6 | 79.000 | — | por confirmar |
-
-### La decisión que falta, con su efecto medido
-
-Sin fechas, hay tres formas de tratarlos y **no dan el mismo flujo**. Medido
-con el modelo, base del productor US$2.150.500 y liquidación en Mar-27:
-
-| Opción | Proyección | Total proyectado | Contra el compromiso |
+| Opción | Proyección | Total | Incompletitud declarada |
 |---|---|---:|---:|
-| **(a)** sin fecha, reservado (lo que hace por defecto un registro nuevo) | Mar-27: 1.471.500 | **1.471.500** | **−679.000** |
-| **(b)** sin fecha, decidido "se paga en la liquidación" | Mar-27: 2.150.500 | 2.150.500 | 0 |
-| **(c)** con meses estimados cargados | Nov-26 362.000 · Dec-26 119.000 · Jan-27 119.000 · Feb-27 79.000 · Mar-27 1.471.500 | 2.150.500 | 0 |
+| **Por defecto** · sin calendarizar | Mar-27: 1.471.500 | 1.471.500 | **679.000**, a la vista |
+| **Escenario provisional** · fechas estimadas marcadas | sus meses + Mar-27 1.471.500 | 2.150.500 | 0, con el rótulo de estimada |
+| **Acordar pagar en la liquidación** | Mar-27: 2.150.500 | 2.150.500 | 0 | 
 
-**Lo incómodo**: la opción (a), que es el comportamiento por defecto, deja
-US$679.000 **fuera de la proyección**. El compromiso queda visible como
-*pendiente de calendarizar*, pero la caja proyectada sale US$679.000 mejor de
-lo que corresponde. Es exactamente el riesgo inverso al que te advertí cuando
-estos importes se trataban como pagos informados.
-
-Recomiendo **(b)** mientras no haya fechas: no subestima la salida, concentra
-el pago en el mes de liquidación y la decisión queda registrada con tu usuario
-y la fecha. Al llegar las fechas reales se pasa a **(c)**, cuota por cuota, y
-cada mes queda en su lugar. La opción (a) solo si prefieres que el flujo
-muestre únicamente lo calendarizado, asumiendo el aviso.
+La tercera **solo** si lo acuerdas con el productor; no es un default ni un
+atajo para que cuadre la caja.
 
 ## 3. Kilos y tarifas — las dos modalidades ya funcionan
 
@@ -253,35 +291,48 @@ cambios en Allegria Service.
 | 7 | Los formularios reemplazaron los prompts del navegador | **Resuelto en esta pantalla** | `grep -c "window.prompt" src/ProgramasComerciales.jsx` → **0**. Se convirtieron a formularios en línea: archivar un programa con motivo, anular un movimiento con motivo (panel de programas) y anular un movimiento de una estimación (`FinanzasModule.jsx`). **Limitación**: quedan `window.prompt` en otras pantallas del módulo (créditos, escenarios, nóminas), fuera del alcance de esta entrega. Los `window.confirm` se conservan a propósito: son los que muestran el efecto numérico antes de confirmar |
 | 8 | Los permisos de solo lectura tienen pruebas propias | **Resuelto** | `src/__tests__/integracionSaldos.test.js` → `describe('solo lectura')`: con permiso de edición los 15 controles están; en solo lectura ninguno existe; y las cifras sí se ven. La lista incluye los controles nuevos (`+ Registrar monto informado sin fecha`, `completar con su fecha`, `Archivar`) |
 
-## 7. Tabla única de pendientes
+## 7. Los cuatro datos que faltan
 
-| Pendiente | Acción concreta | Responsable | Información que falta | ¿Bloquea esta entrega? |
-|---|---|---|---|---|
-| ~~Conciliación del calendario de WLH~~ | **resuelto** 05/10: realizado 599.960 + futuro 480.000, adicionales | — | — | No |
-| Base individual de WLH | cargar kilos y precio, o presupuesto asignado | **Angelo** | kilos y US$/kg de WLH | No, pero sin eso el control de exceso no funciona |
-| Confirmar si los US$362.000 con pagaré salieron de la cuenta | revisar cartola de los tres importes | **Angelo** (con el equipo) | fechas y comprobantes de salida | No. Hasta entonces son cuotas, no pagos |
-| Fechas de las seis cuotas de Don Alberto | confirmar el calendario pactado | **Angelo** | fecha de cada cuota | No, pero obliga a elegir la opción (a), (b) o (c) |
-| Decisión del tratamiento sin fecha | elegir (a), (b) o (c) de la sección 2 | **Angelo** | tu decisión | No. Recomendado: (b) |
-| Verificar que ninguna de las seis cuotas ya esté cargada | revisar en pantalla antes de cargar | **Angelo** / **Claude** con red habilitada | estado actual de la fila `finanzas` | No, pero condiciona la carga |
-| ~~Saldo de apertura documentado~~ | **retirado**: no hay pagos históricos que incorporar | — | — | No |
-| Kilos y tarifas por contraparte | cargar los acordados | **Angelo** | kilos y US$/kg (o monto fijo) por programa | No. Lo que falta queda marcado, nunca en 0 |
-| Cerima, GFP, Ideal Fruits | crear los tres programas sin cuotas | **Claude**, cuando autorices la carga | nombres exactos y kilos si los hay | No |
-| Costos de ciruelas sin línea de flujo | decidir imputación contable y conectar | **Angelo** decide · **Claude** implementa | a qué líneas del flujo van | No. Avisado en pantalla |
-| Anticipos de Allpa Perú | decidir adelanto propio vs financiamiento | **Angelo** | criterio | No. Fuera de alcance |
-| Anticipos de Allegria Service | confirmar si existen | **Angelo** | hecho comercial | No. Fuera de alcance |
-| Merge a `main` y despliegue | ejecutar el procedimiento de `docs/publicacion-allegria.md` | **Angelo** autoriza · **Claude** ejecuta | tu visto bueno | — |
+Agrupados, sin nada más:
+
+| # | Dato | Para qué | Si falta |
+|---|---|---|---|
+| 1 | ¿Se transfirieron los primeros **US$362.000** de Don Alberto? | convertir los tres compromisos con pagaré en realizaciones, con su fecha | siguen como cuotas; el realizado queda en cero y no se afirma que se pagó |
+| 2 | **Fechas de vencimiento de los pagarés** | calendarizar esas tres cuotas; si ya vencieron, mostrarlas vencidas y reprogramarlas | quedan sin calendarizar y la proyección se declara incompleta |
+| 3 | **Fechas previstas de los US$317.000** no ejecutados | calendarizar las otras tres cuotas | igual que arriba |
+| 4 | **Base comercial individual de WLH** (kilos y precio, o presupuesto asignado) | validar su liquidación individual y que el control de exceso funcione | el calendario global se puede preparar igual, con la advertencia de que su liquidación no está validada |
+
+Dos pendientes operativos que no son datos comerciales y que condicionan la
+carga: la lista de **estimaciones hoy cargadas** (para declarar qué reemplaza
+cada cuota y no contar dos veces) y la revisión de que ninguna cuota ya exista.
+Las dos requieren leer el sistema; la red del entorno me lo impide, así que las
+hace el equipo en pantalla o se habilita el host.
+
+## 8. Tabla de pendientes del proyecto
+
+| Pendiente | Acción | Responsable | ¿Bloquea? |
+|---|---|---|---|
+| Los cuatro datos de la sección 7 | entregarlos | **Angelo** / equipo | No bloquean la publicación; sí la carga |
+| Lista de estimaciones vigentes y sustituciones | leer en pantalla y declarar cuota por cuota | **Angelo** / equipo · **Claude** completa | Sí para cargar calendarios sin duplicar |
+| Kilos y tarifas del resto de contrapartes | cargar los acordados | **Angelo** | No |
+| Cerima, GFP, Ideal Fruits | crear los tres programas sin cuotas | **Claude**, al autorizar la carga | No |
+| Costos de ciruelas sin línea de flujo | decidir imputación y conectar | **Angelo** decide · **Claude** implementa | No |
+| Allpa Perú y Allegria Service | decidir / confirmar | **Angelo** | No. Fuera de alcance |
+| Merge y despliegue | `docs/publicacion-allegria.md` | **Angelo** autoriza · **Claude** ejecuta | — |
 
 ## Qué pasa si cargas todo esto
 
-Lado cliente: WLH suma US$599.960 de realizado y US$480.000 de pendiente con
-fecha; la liquidación del bloque baja a US$2.745.040. La proyección **cambia**
-respecto de hoy: aparecen 160.000 en Nov-26, Dec-26 y Jan-27.
+**Lado cliente**, con los tres calendarios completos: realizado US$761.880,
+futuro con fecha US$1.446.820, residual US$1.616.300, y la identidad cierra
+contra la base de US$3.825.000. La proyección cambia respecto de hoy en Oct-26,
+Nov-26, Dec-26 y Jan-27. Requiere antes declarar las sustituciones de
+estimaciones.
 
-Lado productor: con la opción (b), los US$679.000 quedan dentro de la
-liquidación de Mar-27 y el total proyectado es US$2.150.500. Con la opción (a),
-el total proyectado sería US$1.471.500 y habría US$679.000 fuera de la
-proyección.
+**Lado productor**: con el tratamiento por defecto, los US$679.000 quedan sin
+calendarizar y el flujo proyecta US$1.471.500, con la incompletitud de
+US$679.000 declarada en pantalla.
 
-Dos cosas que siguen sin poder afirmarse: que los US$1.079.960 de WLH caben en
-lo que WLH debe (falta su base individual), y que los US$362.000 con pagaré
-salieron de la cuenta (falta la cartola).
+Tres cosas que seguirán sin poder afirmarse: que los US$362.000 con pagaré
+salieron de la cuenta, que los US$1.079.960 de WLH caben en lo que WLH debe, y
+que el US$138.000 de TUNGSHING de Oct-26 se vaya a cobrar (está declarado como
+no llegado: cargado con esa fecha quedaría vencido).

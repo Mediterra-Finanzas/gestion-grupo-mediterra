@@ -494,7 +494,11 @@ function helpersAnticipo(put, getR, setR) {
     const vigente = c.estado === 'vigente';
     const acordado = cuotaAcordado(c, kilosNum).valor;
     const pend = vigente ? (cuotaPendiente(c, kilosNum) || 0) : 0;
-    put(rA,1,{ t:'s', v:`   ↳ ${etiqueta}${vigente ? '' : ` (${c.estado})`}`, s:PS.txtSub });
+    // Rótulos que tienen que viajar al archivo: un registro de anticipos
+    // históricos no es un acuerdo pendiente, y un mes estimado no es pactado.
+    const rotulo = c.historico ? 'Anticipos históricos (ya en caja · no proyecta)'
+                 : `${etiqueta}${vigente ? '' : ` (${c.estado})`}${c.mes_estimado ? ' · fecha estimada' : ''}`;
+    put(rA,1,{ t:'s', v:`   ↳ ${rotulo}`, s:PS.txtSub });
     put(rA,2,{ t:'s', v:c.cerrado?'Cerrado':'Abierto', s:PS.inTxt });
     if (c.modalidad === 'usd_kg') {
       put(rA,3,{ t:'n', v:Number(c.usd_kg)||0, s:PS.inUsd });

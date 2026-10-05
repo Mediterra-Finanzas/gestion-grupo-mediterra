@@ -475,6 +475,10 @@ function Tarjeta({
   const updCuota = (id, patch) => onReemplazar({ ...p, cuotas: p.cuotas.map(c => c.id === id ? normalizarCuota({ ...c, ...patch }) : c) });
   const addCuota = () => onReemplazar({ ...p, cuotas: [...p.cuotas, normalizarCuota({
     id: nuevoIdCuota(), estado: "borrador", modalidad: "por_confirmar" })] });
+  // Un solo registro histórico por programa, en borrador por construcción.
+  const addHistorico = () => onReemplazar({ ...p, cuotas: [normalizarCuota({
+    id: nuevoIdCuota(), historico: true, modalidad: "por_confirmar",
+    nota: `anticipos históricos ${p.contraparte || ""}`.trim() }), ...p.cuotas] });
   const delCuota = (c) => {
     if ((c.realizaciones || []).length > 0) {
       window.alert(`Esta cuota tiene ${$$(cuotaRealizado(c))} registrados. Anula los movimientos antes de borrarla.`);
@@ -670,11 +674,21 @@ function Tarjeta({
                 onAnular={reaId => anular(c.id, reaId)} />
             ))}
             {!readOnly && (
-              <button onClick={addCuota}
-                style={{ alignSelf: "flex-start", padding: "3px 9px", background: "transparent", border: `1px dashed ${C.border}`,
-                  borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 10 }}>
-                + Agregar cuota al calendario
-              </button>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button onClick={addCuota}
+                  style={{ padding: "3px 9px", background: "transparent", border: `1px dashed ${C.border}`,
+                    borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 10 }}>
+                  + Agregar cuota al calendario
+                </button>
+                {!p.cuotas.some(c => c.historico) && (
+                  <button onClick={addHistorico}
+                    title="Para los anticipos ya cobrados o pagados de esta contraparte. No es un acuerdo pendiente y no proyecta."
+                    style={{ padding: "3px 9px", background: "transparent", border: `1px dashed ${C.border}`,
+                      borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 10 }}>
+                    + Registro de anticipos históricos
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -872,6 +886,55 @@ function Cuota({
     onUpd({ sustituye: usd > 0 ? [...otras, { estimacionId, usd }] : otras });
   };
 
+  // Registro de anticipos históricos: no es un acuerdo pendiente. Se muestra
+  // distinto, sin selector de estado y sin mes de flujo, para que no se
+  // confunda con una cuota ni pueda activarse.
+  if (c.historico) {
+    return (
+      <div style={{ border: `1px dashed ${C.muted2}66`, borderRadius: 7, padding: "6px 8px",
+        background: `${C.muted2}0d` }}>
+        <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
+          {chip("registro de anticipos históricos", C.muted)}
+          <span style={{ fontSize: 10, color: C.muted }}>
+            {esCli ? "ya cobrado" : "ya pagado"} <strong style={{ color: C.success }}>{$$(re)}</strong>
+            {" "}en {reas.length} movimiento{reas.length === 1 ? "" : "s"}
+          </span>
+          <span style={{ fontSize: 9, color: C.muted2 }}>
+            no es un acuerdo pendiente · no proyecta · no se puede activar
+          </span>
+          {!readOnly && (
+            <button onClick={onRegistrar} style={{ marginLeft: "auto", padding: "2px 8px",
+              background: `${C.primary}14`, border: `1px solid ${C.primary}55`, borderRadius: 6,
+              color: C.primary, cursor: "pointer", fontSize: 9, fontWeight: 700 }}>
+              + Agregar {esCli ? "cobro histórico" : "pago histórico"}
+            </button>
+          )}
+        </div>
+        <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2 }}>
+          {reas.map(x => (
+            <div key={x.id} style={{ fontSize: 9, color: C.muted, display: "flex", gap: 7, flexWrap: "wrap" }}>
+              <span>{x.fecha}</span><strong style={{ color: C.text }}>{$$(x.usd)}</strong>
+              {x.nota && <span style={{ color: C.muted2, fontStyle: "italic" }}>{x.nota}</span>}
+              {!readOnly && (
+                <button onClick={() => onAnular(x.id)} style={{ background: "transparent", border: "none",
+                  color: C.muted2, cursor: "pointer", fontSize: 9, textDecoration: "underline" }}>anular</button>
+              )}
+            </div>
+          ))}
+          {reas.length === 0 && (
+            <div style={{ fontSize: 9, color: C.muted2, fontStyle: "italic" }}>
+              Sin movimientos cargados todavía.
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize: 9, color: C.muted2, marginTop: 4, lineHeight: 1.6 }}>
+          Lo cargado acá descuenta de la liquidación porque ya se movió, y no afecta
+          ninguna cuota del calendario futuro.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ border: `1px solid ${vigente ? `${C.success}44` : C.border}`, borderRadius: 7, padding: "6px 8px", background: C.card2 }}>
       <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
@@ -905,6 +968,15 @@ function Cuota({
           style={{ ...selSt, color: vigente ? C.success : C.muted }}>
           {Object.entries(ESTADO_LBL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
+        {c.mes && (readOnly ? (c.mes_estimado ? chip("fecha estimada", C.warning) : null) : (
+          <label style={{ fontSize: 9, color: c.mes_estimado ? C.warning : C.muted2,
+            display: "flex", alignItems: "center", gap: 3, cursor: "pointer" }}
+            title="El mes de flujo es una estimación nuestra, no una fecha pactada. Proyecta igual, pero queda rotulado y contado aparte.">
+            <input type="checkbox" checked={!!c.mes_estimado}
+              onChange={() => onUpd({ mes_estimado: !c.mes_estimado })} />
+            fecha estimada
+          </label>
+        ))}
         {!readOnly && (
           <button onClick={onRegistrar}
             style={{ padding: "2px 8px", background: `${C.primary}14`, border: `1px solid ${C.primary}55`,

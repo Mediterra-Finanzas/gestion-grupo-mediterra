@@ -312,6 +312,23 @@ Reglas que no hay que romper:
   bancario.
 - **Vencido aparte**: el pendiente programado antes del mes en curso se proyecta
   antes del corte y NO entra al saldo acumulado; nunca se llama flujo futuro.
+- **Registro de anticipos históricos** (`cuota.historico`): los anticipos ya
+  cobrados o pagados de una contraparte se guardan en una cuota marcada
+  `historico`, que `normalizarCuota` **fuerza a borrador siempre** (no se
+  activa ni editando el dato). Su realizado descuenta porque ya se movió, no
+  proyecta nada propio y no toca las cuotas del calendario. Se rotula como tal
+  en pantalla y en el Excel. No admite `mes_estimado`.
+- **Fecha estimada** (`cuota.mes_estimado`): el mes de flujo es una estimación
+  nuestra, no una fecha pactada. Proyecta igual, pero se rotula en pantalla y
+  en el Excel y se totaliza aparte (`resumenLado().proyeccionEstimada`), para
+  no presentar como calendario lo que es un supuesto. La fecha prevista del
+  acuerdo no se toca.
+- **Un compromiso no es un pago**: evidencia de compromiso (pagaré, contrato)
+  justifica una CUOTA; evidencia de movimiento (cartola, comprobante)
+  justifica una REALIZACIÓN. Nada promueve lo primero a lo segundo
+  automáticamente. Un pendiente sin fecha no se traslada solo a la liquidación:
+  o se calendariza, o se declara que la proyección está incompleta por ese
+  monto.
 - **Antecedentes**: un monto informado sin fecha verificada
   (`programa.antecedentes[]`) existe, se ve y **no** cuenta como realizado, no
   se proyecta, no descuenta de ninguna liquidación y no se declara conciliado

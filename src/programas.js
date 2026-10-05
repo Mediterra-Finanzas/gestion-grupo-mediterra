@@ -68,11 +68,20 @@ export const ESTADOS_CUOTA = ["borrador", "vigente", "anulada"];
 // ── Normalización ─────────────────────────────────────────────────
 export function normalizarCuota(c) {
   const base = normalizarAnticipo(c || {});
+  // `historico` = registro de anticipos ya cobrados o pagados, no un acuerdo.
+  // Se fuerza a borrador SIEMPRE: no puede activarse ni por error ni editando
+  // el dato a mano, así que nunca genera una segunda proyección.
+  const historico = !!base.historico;
+  const estadoPedido = ESTADOS_CUOTA.includes(base.estado) ? base.estado : "borrador";
   return {
     ...base,
     id: base.id || nuevoIdCuota(),
     modalidad: MODALIDADES.includes(base.modalidad) ? base.modalidad : "por_confirmar",
-    estado: ESTADOS_CUOTA.includes(base.estado) ? base.estado : "borrador",
+    historico,
+    // `mes_estimado` = el mes de flujo es una estimación nuestra, no una fecha
+    // pactada. Proyecta, pero queda rotulado y contado aparte.
+    mes_estimado: !!base.mes_estimado && !historico,
+    estado: historico ? "borrador" : estadoPedido,
     fecha_prevista: base.fecha_prevista || "",
     mes: base.mes || "",
     usd_kg: esDato(base.usd_kg) ? Number(base.usd_kg) : null,
@@ -382,6 +391,7 @@ export function resumenLado({
           usd: pend, tratoActual: "en_liquidacion" });
       }
       out.push({ tipo: "cuota", id: c.id, mes: c.mes, usd: pend, trato,
+                 estimada: !!c.mes_estimado,
                  contraparte: p.contraparte, programaId: p.id });
     }));
     return out;
@@ -500,6 +510,14 @@ export function resumenLado({
     cubetas: { vencido: cub("vencido"), horizonte: cub("horizonte"),
                fuera_horizonte: cub("fuera_horizonte"), sin_fecha: cub("sin_fecha") },
     avisosCompatibilidad,
+    // Parte de la proyección que descansa en fechas ESTIMADAS, no pactadas.
+    proyeccionEstimada: detalle.filter(d => d.estimada).reduce((t, d) => t + d.usd, 0),
+    // Registros históricos: cuotas marcadas `historico`, con su realizado.
+    historicos: progs.flatMap(p => p.cuotas.filter(c => c.historico).map(c => ({
+      programaId: p.id, contraparte: p.contraparte, cuotaId: c.id,
+      realizado: cuotaRealizado(c),
+      movimientos: realizacionesVigentes(c).map(x => ({ id: x.id, fecha: x.fecha, usd: x.usd })),
+    }))),
     // Informativo: NO entra en realizado, pendientes ni liquidación.
     antecedentes: resumenAntecedentes(programas, lado),
     compensadoAplicado: sum(q => q.compensado),

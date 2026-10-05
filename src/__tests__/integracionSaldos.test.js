@@ -457,3 +457,56 @@ describe('antecedentes informados sin fecha', () => {
     expect(Math.round(suma(serie))).toBe(500000 - 255000);
   });
 });
+
+// ═══ 8. Registro de anticipos históricos y fechas estimadas ════════
+describe('registro de anticipos históricos', () => {
+  const wlh = (over = {}) => base({ programas: [{
+    id: 'pWLH', lado: 'cliente', contraparte: 'WLH', kilos: null, mes_liquidacion: MES_LIQ,
+    cuotas: [
+      { id: 'cHist', historico: true, modalidad: 'por_confirmar', mes: '',
+        realizaciones: [
+          { id: 'h1', fecha: '2026-07-15', usd: 100000 },
+          { id: 'h2', fecha: '2026-08-24', usd: 50000 },
+        ] },
+      { id: 'w1', estado: 'vigente', modalidad: 'monto', monto: 60000, mes: MES_A, ...over },
+    ],
+  }] });
+
+  test('lo histórico descuenta una vez y no proyecta; la cuota futura queda intacta', () => {
+    const serie = ing(wlh());
+    expect(Math.round(serie[iMes(MES_A)])).toBe(60000);                 // solo la cuota futura
+    expect(Math.round(serie[iMes(MES_LIQ)])).toBe(500000 - 150000 - 60000);
+    expect(Math.round(suma(serie))).toBe(500000 - 150000);              // 150.000 ya en caja
+  });
+
+  test('ni forzando estado y monto en el dato genera otra proyección', () => {
+    const forzado = base({ programas: [{
+      id: 'pWLH', lado: 'cliente', contraparte: 'WLH', kilos: null, mes_liquidacion: MES_LIQ,
+      cuotas: [
+        { id: 'cHist', historico: true, estado: 'vigente', modalidad: 'monto', monto: 150000,
+          mes: MES_B, realizaciones: [
+            { id: 'h1', fecha: '2026-07-15', usd: 100000 },
+            { id: 'h2', fecha: '2026-08-24', usd: 50000 }] },
+        { id: 'w1', estado: 'vigente', modalidad: 'monto', monto: 60000, mes: MES_A },
+      ],
+    }] });
+    expect(ing(forzado).map(x => Math.round(x))).toEqual(ing(wlh()).map(x => Math.round(x)));
+    expect(Math.round(ing(forzado)[iMes(MES_B)])).toBe(0);
+  });
+
+  test('una fecha estimada proyecta igual pero el Excel la rotula', () => {
+    const p = wlh({ mes_estimado: true });
+    expect(Math.round(ing(p)[iMes(MES_A)])).toBe(60000);
+    const PARAMS = { paramsAllegria: p, allegraComisionArandanos: { cobros: [] } };
+    const empresas = buildEmpresas(p, PARAMS.allegraComisionArandanos);
+    const file = path.join(OUT_DIR, 'historico.xlsx');
+    fs.mkdirSync(OUT_DIR, { recursive: true });
+    exportarFlujoEmpresa({ emp: empresas['Allegria Foods'], empName: 'Allegria Foods',
+                           saldoIni: 0, fileName: file, params: PARAMS });
+    const ws = XLSX.readFile(file, { cellFormula: true }).Sheets['Parametros'];
+    const textos = Object.keys(ws).filter(k => /^[A-Z]+\d+$/.test(k))
+      .map(k => ws[k]?.v).filter(v => typeof v === 'string');
+    expect(textos.some(t => t.includes('Anticipos históricos (ya en caja · no proyecta)'))).toBe(true);
+    expect(textos.some(t => t.includes('fecha estimada'))).toBe(true);
+  });
+});

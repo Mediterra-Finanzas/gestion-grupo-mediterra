@@ -911,5 +911,78 @@ import {
 }
 
 
+// ═══ ETAPA 6 · registro histórico y fechas estimadas ═══
+import { normalizarCuota as normCuota } from "./programas.js";
+
+{
+  // WLH: tres cobros ya recibidos + tres cuotas futuras de 160.000.
+  const wlh = () => ({
+    id: "pWLH", lado: "cliente", contraparte: "WLH", kilos: null,
+    mes_liquidacion: MES_LIQ,
+    cuotas: [
+      { id: "cHist", historico: true, modalidad: "por_confirmar", mes: "",
+        nota: "anticipos históricos WLH",
+        realizaciones: [
+          { id: "h1", fecha: "2026-07-15", usd: 362000 },
+          { id: "h2", fecha: "2026-08-24", usd: 39980 },
+          { id: "h3", fecha: "2026-09-16", usd: 197980 },
+        ] },
+      { id: "w1", estado: "vigente", modalidad: "monto", monto: 160000, mes: MES_FUTURO },
+      { id: "w2", estado: "vigente", modalidad: "monto", monto: 160000, mes: MES_FUTURO_2 },
+    ],
+  });
+  const opts = (progs) => ({ programas: progs, lado: "cliente", basePresupuesto: 3825000,
+    mIdx: mIdxReal, mesIdxActual: cortReal(), mesLiquidacion: MES_LIQ,
+    modeloVersion: MODELO_VERSION });
+
+  const r = resumenLado(opts([wlh()]));
+  check("(167) los tres movimientos históricos se cuentan UNA vez",
+    aprox(r.realizado, 599960), String(r.realizado));
+  check("(168) y conservan sus fechas",
+    r.historicos[0].movimientos.map(m => m.fecha).join("|") === "2026-07-15|2026-08-24|2026-09-16",
+    JSON.stringify(r.historicos[0].movimientos));
+  check("(169) el registro histórico no proyecta nada propio",
+    aprox(r.pendientes, 320000) && r.detalle.every(d => d.id !== "cHist"),
+    `pendientes ${r.pendientes}`);
+  check("(170) las cuotas futuras quedan intactas",
+    r.detalle.filter(d => aprox(d.usd, 160000)).length === 2);
+
+  // No se puede activar: ni editando el estado a mano en el dato.
+  const forzado = normCuota({ ...wlh().cuotas[0], estado: "vigente" });
+  check("(171) un registro histórico se fuerza a borrador: no se activa ni a mano",
+    forzado.estado === "borrador" && forzado.historico === true);
+  const progForzado = wlh();
+  progForzado.cuotas[0] = { ...progForzado.cuotas[0], estado: "vigente", modalidad: "monto", monto: 599960 };
+  const r2 = resumenLado(opts([progForzado]));
+  check("(172) y con monto y estado forzados tampoco genera otra proyección",
+    aprox(r2.pendientes, 320000) && aprox(r2.realizado, 599960) &&
+    aprox(r2.liquidacion, r.liquidacion),
+    `pend ${r2.pendientes} · liq ${r2.liquidacion} vs ${r.liquidacion}`);
+  check("(173) un histórico no admite marca de fecha estimada",
+    normCuota({ historico: true, mes_estimado: true }).mes_estimado === false);
+
+  // Fechas estimadas: proyectan, pero se cuentan aparte.
+  const conEstimada = wlh();
+  conEstimada.cuotas[1] = { ...conEstimada.cuotas[1], mes_estimado: true };
+  const r3 = resumenLado(opts([conEstimada]));
+  check("(174) una fecha estimada proyecta igual",
+    aprox(r3.pendientes, 320000), String(r3.pendientes));
+  check("(175) pero queda separada como proyección sobre fecha estimada",
+    aprox(r3.proyeccionEstimada, 160000) && aprox(r.proyeccionEstimada, 0),
+    `${r3.proyeccionEstimada} vs ${r.proyeccionEstimada}`);
+
+  // Cuadre global del lado cliente con SNF realizado incluido.
+  const snf = { id: "pSNF", lado: "cliente", contraparte: "SNF", kilos: null,
+    mes_liquidacion: MES_LIQ, cuotas: [
+      { id: "sHist", historico: true, modalidad: "por_confirmar", mes: "",
+        realizaciones: [{ id: "s1", fecha: "2026-09-24", usd: 161920 }] }] };
+  const r4 = resumenLado(opts([wlh(), snf]));
+  check("(176) realizado del lado = 599.960 + 161.920",
+    aprox(r4.realizado, 761880), String(r4.realizado));
+  check("(177) el residual descuenta realizado y futuro una sola vez",
+    aprox(r4.liquidacion, 3825000 - 761880 - 320000), String(r4.liquidacion));
+}
+
+
 console.log(`\n${fallos === 0 ? "TODOS LOS TESTS PASARON ✓" : `${fallos} TEST(S) FALLARON ✗`}`);
 process.exit(fallos === 0 ? 0 : 1);

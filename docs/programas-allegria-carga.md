@@ -91,6 +91,28 @@ Si todavía no sabes a qué operación corresponde el movimiento:
 `+ Registrar cobro sin operación identificada`. Queda en la bandeja de
 conciliación, visible, **sin descontar de ninguna liquidación**.
 
+### 3b. Anticipos ya cobrados o pagados
+
+`+ Registro de anticipos históricos` en la tarjeta, uno por contraparte. Ahí
+van los cobros o pagos anteriores con su fecha real y su monto: descuentan de
+la liquidación porque ya se movieron, **no proyectan nada** y **no tocan las
+cuotas del calendario**.
+
+No es un acuerdo pendiente y no se puede activar: queda en borrador por
+construcción, sin selector de estado ni mes de flujo. En el Excel se rotula
+*Anticipos históricos (ya en caja · no proyecta)*.
+
+### 3c. Fechas estimadas
+
+La casilla **fecha estimada** de una cuota dice que ese mes de flujo es un
+supuesto nuestro, no una fecha pactada. Proyecta igual, queda rotulada en
+pantalla y en el Excel, y el total que descansa en fechas estimadas se informa
+aparte. La fecha prevista del acuerdo no se modifica.
+
+Sirve para ver la caja con un calendario tentativo sin ensuciar el contrato. Un
+pendiente sin fecha, en cambio, no proyecta: el panel declara que la proyección
+está incompleta por ese monto.
+
 ### 4b. Montos informados sin fecha verificada
 
 Cuando la contraparte informa pagos o cobros por un monto y no hay fecha ni
@@ -248,7 +270,7 @@ para *Costo Fruta Exportación* del lado productor.
 ## Verificación automática
 
 ```bash
-node src/programas.test.mjs                                   # modelo puro (162)
+node src/programas.test.mjs                                   # modelo puro (177)
 CI=true npx react-scripts test --watchAll=false               # suite completa
 VIDEO=1 OUT_DIR=/tmp/e2e node scripts/e2e/programas-allegria.mjs   # navegador + Excel real + video
 OUT_DIR=/tmp/reg node scripts/e2e/regresion-empresas.mjs      # las demás empresas
