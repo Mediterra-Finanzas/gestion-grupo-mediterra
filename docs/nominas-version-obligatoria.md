@@ -133,6 +133,6 @@ No hay datos que deshacer: la propuesta no modifica filas ni el esquema.
 
 ## Lo que falta antes de aplicar
 
-1. JSON completo de la consulta 7 (código de los triggers) y resultados de la PARTE 0 (incluidas 0.5–0.8). Con eso hay que repetir **las dos** pruebas locales con esos triggers.
+1. ~~Código de los triggers (V1) y PARTE 0~~ **Recibidos 2026-10-05**: los triggers existentes solo actúan sobre `main`, ninguna función publicada elude el control, no hay vistas ni variables `mediterra.` (`docs/revision-consultas-produccion-2026-10-05.md`). Las pruebas locales corren ahora con esos triggers y con los límites de tiempo por rol de producción. Falta P4 (esquemas publicados) para cerrar V5/V6/V9.
 2. Validación final sobre el commit exacto que se vaya a desplegar.
-3. Autorización y hora de la pausa (`docs/nominas-activacion.md`), después de revisar las consultas de `docs/consultas-pendientes-produccion.md` y los respaldos disponibles.
+3. Autorización y hora de la pausa (`docs/nominas-activacion.md`), después de revisar los respaldos disponibles (R1, R2, P1–P3).

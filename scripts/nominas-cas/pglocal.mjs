@@ -59,6 +59,11 @@ export async function levantarBaseLocal({ pgPort = 54333, pgrstPort = 3914 } = {
     create policy cd_anon_auth_select on public.calendario_data as permissive for select to authenticated, anon using ((id !~~ 'backup%'::text) and (id !~~ 'main_pre_restore%'::text));
     create policy cd_anon_auth_update on public.calendario_data as permissive for update to authenticated, anon using ((id !~~ 'backup%'::text) and (id !~~ 'main_pre_restore%'::text)) with check ((id !~~ 'backup%'::text) and (id !~~ 'main_pre_restore%'::text));
     create policy cd_service_all on public.calendario_data as permissive for all to service_role using (true) with check (true);`);
+  // Los dos triggers que YA existen en producción (copia exacta, consulta V1 del 2026-10-05).
+  const trgProd = psqlTexto(fs.readFileSync(path.join(RAIZ, 'supabase/produccion_triggers_existentes.sql'), 'utf8'));
+  if (!trgProd.ok) throw new Error('No se pudieron crear los triggers de producción: ' + trgProd.salida.slice(0, 300));
+  // Límites de tiempo por rol como en producción (consulta V8 del 2026-10-05).
+  psql(`alter role anon set statement_timeout = '3s'; alter role authenticated set statement_timeout = '8s';`);
   const SECRETO = 'prueba-local-solo-para-tests-0123456789abcdef';
   const b64u = (x) => Buffer.from(JSON.stringify(x)).toString('base64url');
   const jwt = (p) => { const h = b64u({ alg: 'HS256', typ: 'JWT' }), q = b64u(p); return `${h}.${q}.${crypto.createHmac('sha256', SECRETO).update(`${h}.${q}`).digest('base64url')}`; };

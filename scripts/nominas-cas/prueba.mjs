@@ -18,9 +18,9 @@
      · caminos para eludir el control: función SECURITY DEFINER publicada, vista
        actualizable, variable fijada por rol, set_config falsa en public (K, B3b);
      · la foto de verificación de la activación (supabase/verificar_activacion_nominas.sql, L).
-   No reproduce los dos triggers que ya existen en producción
-   (trg_cd_scrub_main, trg_guard_main_no_user_shrink): su código completo está
-   pendiente (consulta 7). Hay que repetir esta prueba con ellos antes de aplicar.
+   Incluye los dos triggers que ya existen en producción (trg_cd_scrub_main,
+   trg_guard_main_no_user_shrink), copiados de la consulta V1 del 2026-10-05
+   (supabase/produccion_triggers_existentes.sql), y comprueba que conviven (M).
 
      POSTGREST_BIN=/ruta/postgrest node scripts/nominas-cas/prueba.mjs
    ───────────────────────────────────────────────────────────────────────── */
@@ -74,6 +74,10 @@ psql(`create role anon nologin; create role authenticated nologin; create role s
   create policy cd_anon_auth_select on public.calendario_data as permissive for select to authenticated, anon using ((id !~~ 'backup%'::text) and (id !~~ 'main_pre_restore%'::text));
   create policy cd_anon_auth_update on public.calendario_data as permissive for update to authenticated, anon using ((id !~~ 'backup%'::text) and (id !~~ 'main_pre_restore%'::text)) with check ((id !~~ 'backup%'::text) and (id !~~ 'main_pre_restore%'::text));
   create policy cd_service_all on public.calendario_data as permissive for all to service_role using (true) with check (true);`);
+// Los dos triggers que YA existen en producción (copia exacta de la consulta V1, 2026-10-05).
+{ const t = psqlTexto(fs.readFileSync(path.join(RAIZ, 'supabase/produccion_triggers_existentes.sql'), 'utf8')); if (!t.ok) { console.error(t.salida); process.exit(2); } }
+// Límites de tiempo por rol como en producción (consulta V8 del 2026-10-05).
+psql(`alter role anon set statement_timeout = '3s'; alter role authenticated set statement_timeout = '8s';`);
 const SECRETO = 'prueba-local-solo-para-tests-0123456789abcdef';
 const b64u = (x) => Buffer.from(JSON.stringify(x)).toString('base64url');
 const jwt = (p) => { const h = b64u({ alg: 'HS256', typ: 'JWT' }), q = b64u(p); return `${h}.${q}.${crypto.createHmac('sha256', SECRETO).update(`${h}.${q}`).digest('base64url')}`; };
@@ -345,6 +349,26 @@ await T.patch('nominas_osiris', v, texto('Osiris', [nom('A', { notas: 'cambio' }
 const f3 = psqlTexto(VERIF);
 check('L2. Si alguien guarda entre dos fotos, la huella total cambia (así se detecta que la pausa no se respetó)', totalDe(f3.salida) !== totalDe(f1.salida));
 check('L3. La foto informa función existente y trigger activo (O)', /\n1\|O\s*$/.test('\n' + f3.salida.trim().split('\n').pop()) || /(^|\n)1\|O(\n|$)/.test(f3.salida), f3.salida.trim().split('\n').pop());
+
+// ═══ M. Convivencia con los triggers que ya existen en producción ══════
+sembrar();
+psql(`insert into calendario_data (id, value, updated_at) values ('main', '{"usuarios":[{"email":"a@x.cl","pin":"1111"},{"email":"b@x.cl"}],"estados":{}}', now())
+  on conflict (id) do update set value = excluded.value`);
+r = await fetch(`${BASE}/rest/v1/calendario_data`, { method: 'POST', headers: { ...H(ANON), Prefer: 'resolution=merge-duplicates' },
+  body: JSON.stringify({ id: 'main', value: { usuarios: [{ email: 'a@x.cl', pin: '9999' }, { email: 'b@x.cl' }], estados: {}, pinsPersonalizados: { a: 1 } } }) });
+const mainV = JSON.parse(psql(`select value::text from calendario_data where id = 'main'`));
+check('M1. Con la propuesta activa, trg_cd_scrub_main sigue limpiando "main" (sin pin ni pinsPersonalizados)',
+  r.ok && !('pinsPersonalizados' in mainV) && mainV.usuarios.every((u) => !('pin' in u)), `HTTP ${r.status}`);
+r = await fetch(`${BASE}/rest/v1/calendario_data?id=eq.main`, { method: 'PATCH', headers: H(ANON), body: JSON.stringify({ value: { usuarios: [{ email: 'a@x.cl' }], estados: {} } }) });
+cuerpo = await r.text();
+check('M2. trg_guard_main_no_user_shrink sigue impidiendo quitar usuarios de "main"', r.status === 400 && /ROSTER_ANTISHRINK/.test(cuerpo), `HTTP ${r.status}`);
+v = (await T.leer('nominas_osiris')).version;
+g = await T.patch('nominas_osiris', v, texto('Osiris', [nom('A', { notas: 'con triggers de producción' }), nom('B')]));
+check('M3. Las nóminas se guardan por la función con los tres triggers activos; formato texto intacto',
+  g.ok && nominasDe('nominas_osiris')[0].notas === 'con triggers de producción' && psql(`select jsonb_typeof(value) from calendario_data where id='nominas_osiris'`) === 'string');
+r = await upsertAntiguo('nominas_osiris', texto('Osiris', []));
+check('M4. Y el upsert antiguo sigue rechazado', r.status === 400 && nominasDe('nominas_osiris').length === 2);
+check('M5. Están los tres triggers en la tabla', psql(`select string_agg(tgname, ',' order by tgname) from pg_trigger where tgrelid = 'public.calendario_data'::regclass and not tgisinternal`) === 'trg_cd_scrub_main,trg_guard_main_no_user_shrink,trg_nominas_exigir_version');
 
 // ═══ J. Consulta de respaldos (solo lectura, sin contenido) ═════════════
 psql(`insert into calendario_data (id, value, updated_at) values

@@ -5,6 +5,11 @@
 > Guardar cada resultado con *Export → Copy as JSON* y enviarlo con su **código** (V1, D2…).
 > La autorización y el horario de activación quedan pendientes hasta revisar estos resultados y los respaldos.
 
+## Estado al 2026-10-05
+
+**Recibidos:** V1–V9, D2 y D3 (análisis en `docs/revision-consultas-produccion-2026-10-05.md`).
+**Pendientes:** D1 (llegó la consulta, no el resultado), D4, D5, R1, R2, U1–U5, P1–P4 y el JSON completo de V8.
+
 ## Cómo no confundir las dos "PARTE 0"
 
 Hay dos propuestas **separadas**, y cada una tiene su propia PARTE 0:

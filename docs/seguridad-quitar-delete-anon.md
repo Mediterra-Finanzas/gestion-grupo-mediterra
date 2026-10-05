@@ -90,3 +90,11 @@ Usa Postgres 16 y PostgREST 12 locales, con los roles y permisos por defecto de 
   - PATCH condicionado, upsert, creación de filas y SELECT siguen funcionando;
   - la llave de servicio sí puede borrar.
 - **Reversión:** restaura el estado anterior.
+
+## Resultados de producción recibidos (2026-10-05)
+
+- **D2:** `anon` y `authenticated` tienen además **TRUNCATE**, REFERENCES y TRIGGER sobre `calendario_data`. TRUNCATE vacía la tabla completa ignorando RLS y los triggers de fila. Hoy no es alcanzable por la API **[Probable]**, pero sobra. **Propuesta a evaluar (no incluida todavía en el SQL):** retirar también TRUNCATE, REFERENCES y TRIGGER a la llave pública en la misma PARTE 1.
+- **D3:** sin BYPASSRLS ni roles heredados.
+- **D1:** pendiente: llegó la consulta, no el resultado. **D4, D5:** pendientes.
+- Detalle: `docs/revision-consultas-produccion-2026-10-05.md`.
+
