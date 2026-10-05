@@ -72,3 +72,17 @@ where n.nspname not in ('pg_catalog', 'information_schema')
   and p.prokind in ('f', 'p')
   and p.prosrc ~* '(osi_auth_rate_limit|osi_user_empresa|rbac_roles|rbac_usuarios_roles|user_osiris_accounts|usuarios_empresa)'
 order by 1, 2;
+
+-- U6. Qué depende de estas tablas: políticas RLS de CUALQUIER tabla que usen
+--     las funciones de roles o estas tablas. Dice qué datos protege (o deja de
+--     proteger) el contenido de rbac_usuarios_roles / usuarios_empresa.
+select schemaname as esquema, tablename as tabla, policyname as politica, cmd as operacion, roles
+from pg_policies
+where coalesce(qual, '') || ' ' || coalesce(with_check, '')
+      ~* '(fn_mis_empresas|osi_current_empresa|osi_current_rol|rbac_usuarios_roles|rbac_roles|usuarios_empresa)'
+order by 1, 2, 3;
+
+-- U7. Cuántas filas tienen hoy las tablas abiertas (solo el conteo).
+select 'rbac_roles' as tabla, count(*) as filas from public.rbac_roles
+union all select 'rbac_usuarios_roles', count(*) from public.rbac_usuarios_roles
+union all select 'usuarios_empresa', count(*) from public.usuarios_empresa;

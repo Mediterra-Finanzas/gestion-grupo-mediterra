@@ -31,16 +31,57 @@ Lo que se **comprobó en local** usando esos resultados está marcado; lo que si
 | **D2** | `anon` y `authenticated` tienen DELETE, INSERT, REFERENCES, SELECT, TRIGGER, **TRUNCATE** y UPDATE sobre `calendario_data` (lo mismo que `postgres` y `service_role`) | **[Seguro]** La llave pública tiene permiso de **vaciar la tabla completa** (TRUNCATE). TRUNCATE ignora RLS y no dispara los triggers de fila, tampoco el de esta propuesta. Hoy **no es alcanzable por la API** **[Probable]**: PostgREST no ofrece TRUNCATE y, según V6, ninguna función publicada ejecuta SQL arbitrario. Igual es un permiso que sobra. Se propone retirarlo (y REFERENCES/TRIGGER) **dentro de la propuesta DELETE, no en esta** |
 | **D3** | `anon`/`authenticated`: sin BYPASSRLS, sin superusuario, sin roles heredados | Los permisos efectivos son los de D2 + políticas |
 
+## Recibido (segunda entrega, mismo día)
+
+### D — Propuesta DELETE
+
+| Código | Resultado | Conclusión |
+|---|---|---|
+| **D1** | 5 políticas: `cd_anon_auth_{select,insert,update,delete}` para `{anon,authenticated}` con `id !~~ 'backup%' AND id !~~ 'main_pre_restore%'`; `cd_service_all` para `service_role` | Igual a lo leído el 2026-10-01: la foto para revertir la propuesta DELETE está confirmada |
+| **D3** | Sin BYPASSRLS, sin superusuario, sin roles heredados | Confirmado |
+| **D4** | 0 filas | Sin vistas sobre `calendario_data` (coincide con V7) |
+| **D5** | 0 filas | Ninguna función de ningún esquema menciona `calendario_data`. La app escribe esa tabla solo directamente por la API |
+
+### R — Respaldos dentro de la base
+
+| Código | Resultado |
+|---|---|
+| **R2** | 28 filas `backup_*`: la más antigua del 2026-05-01 y **la más reciente del 2026-09-02 11:53 UTC**, 87 MB en total. 1 fila `main_pre_restore_20260616` de 2.610 bytes |
+| **R1** | Diarios del 2026-08-01 al 2026-09-02 (~3,6–3,8 MB cada uno) con días faltantes (08-02/03, 08-07/08/09, 08-22/23, 08-29), más mensuales del 06-01 (951 kB) y 05-01 (43 kB) |
+
+**Lo incómodo [Seguro]:**
+- **El respaldo más reciente dentro de la base tiene 33 días** (2 de septiembre). Todo lo cargado después solo se puede recuperar desde los respaldos de **plataforma** de Supabase (P1–P3, todavía sin confirmar).
+- **Dos respaldos están vacíos (64 bytes): `backup_2026-07-01` y `backup_2026-08-11`.** El del 1 de julio era el mensual de julio, así que **no hay ningún respaldo utilizable de julio**.
+- `main_pre_restore_20260616` pesa 2.610 bytes: es solo la fila `main` antes de la restauración del 16 de junio, no un respaldo completo.
+- Los `backup_*` contienen copias de `main` y `pins` (credenciales) **[Probable]**: así funcionaba el generador `auto-v3`. Las políticas los ocultan a la llave pública. La decisión sobre su conservación queda pendiente y separada.
+
+**Siguiente consulta:** **R3/R4** (`consulta_respaldos_existentes.sql`, secciones 3 y 4) para saber qué filas trae el respaldo del 2 de septiembre (solo nombres y tamaños), en particular si incluye las nóminas.
+
+### U — Tablas de usuarios y roles (tema aparte de Nóminas y de DELETE)
+
+| Tabla | RLS | Llave pública sin sesión (`anon`) | Con sesión (`authenticated`) | Conclusión |
+|---|---|---|---|---|
+| `rbac_roles` | **apagado** | leer, crear, modificar, borrar y vaciar | ídem | **Abierta** |
+| `rbac_usuarios_roles` | **apagado** | leer, crear, modificar, borrar y vaciar | ídem | **Abierta** |
+| `usuarios_empresa` | **apagado** | leer, crear, modificar, borrar y vaciar | ídem | **Abierta** |
+| `osi_user_empresa` | activo | nada | permisos de tabla, pero solo existe la política SELECT de su propia fila | Protegida |
+| `user_osiris_accounts` | activo, sin políticas | nada | permisos de tabla, pero sin políticas = todo denegado | Protegida (solo `service_role`) |
+| `osi_auth_rate_limit` | activo | nada | nada | Protegida |
+
+**[Seguro]** Las tres tablas abiertas están en el esquema `public`, que la API publica. Con la llave de la app, que está dentro del código que descarga cualquier navegador, **cualquiera puede leerlas, modificarlas o borrarlas por la API**. No guardan claves ni correos (U4: ids, empresa, rol, activo).
+
+El riesgo real es **escalar permisos**: `fn_mis_empresas()` (SECURITY DEFINER, ejecutable por anon) decide a qué empresas tiene acceso un usuario leyendo `rbac_usuarios_roles`. Quien inserte una fila ahí se daría acceso a otras empresas en todo lo que use esa función. **Qué protege exactamente lo dice U6**, y U7 da el conteo de filas. Mientras no lleguen, el impacto es **[Suponiendo]**.
+
+**No se corrigió nada.** La corrección probable es activar RLS en esas tres tablas y retirar los permisos de `anon`: `fn_mis_empresas` es SECURITY DEFINER y seguiría funcionando. Se propondrá **después de ver U6**, en una propuesta propia, sin mezclarla con Nóminas ni con DELETE.
+
 ## Pendiente de producción
 
 | Código | Qué falta |
 |---|---|
-| **D1** | Enviar el **resultado** (JSON), no la consulta |
-| **D4, D5** | No recibidos |
-| **R1, R2** | Respaldos existentes: no recibidos |
-| **U1–U5** | Tablas de usuarios y roles: no recibidos |
-| **P1–P4** | Consola: último respaldo de plataforma, PITR, opciones de restauración, **esquemas publicados** (si hay otros además de `public` y `graphql_public`, hay que repetir V5, V6 y V9 con ellos) |
-| V8 completo | La fila de `authenticator` quedó cortada en la captura (`lock_timeout…`). No cambia la conclusión, pero conviene el JSON completo |
+| **R3, R4** | Contenido (solo nombres y tamaños) del respaldo del 2 de septiembre |
+| **U6, U7** | Qué políticas dependen de las tablas de roles abiertas, y cuántas filas tienen |
+| **P1–P4** | Consola: último respaldo de plataforma, PITR, opciones de restauración y esquemas publicados |
+| V8 completo | JSON con la fila de `authenticator` sin cortar (no cambia la conclusión) |
 
 ## Observaciones fuera de esta propuesta (no se corrigen aquí)
 

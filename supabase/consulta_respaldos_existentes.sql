@@ -30,3 +30,18 @@ from public.calendario_data
 where id like 'backup%' or id like 'main_pre_restore%'
 group by 1
 order by 1;
+
+-- 3. Qué contiene el respaldo MÁS RECIENTE (solo los nombres de sus claves y
+--    el tamaño de cada una; NO el contenido). Sirve para saber si incluye las
+--    filas de nóminas y finanzas.
+select k as clave, pg_size_pretty(pg_column_size(c.value -> k)::bigint) as tamano
+from public.calendario_data c, jsonb_object_keys(c.value) k
+where c.id = (select max(id) from public.calendario_data where id like 'backup\_%' and pg_column_size(value) > 1000)
+order by k;
+
+-- 4. Si el respaldo más reciente guarda las filas dentro de "tablas": qué filas
+--    trae y el tamaño de cada una (sin contenido). Si da 0 filas, usar solo la 3.
+select k as fila_respaldada, pg_size_pretty(pg_column_size(c.value -> 'tablas' -> k)::bigint) as tamano
+from public.calendario_data c, jsonb_object_keys(case when jsonb_typeof(c.value -> 'tablas') = 'object' then c.value -> 'tablas' else '{}'::jsonb end) k
+where c.id = (select max(id) from public.calendario_data where id like 'backup\_%' and pg_column_size(value) > 1000)
+order by k;

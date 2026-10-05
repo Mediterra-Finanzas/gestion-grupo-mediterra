@@ -7,8 +7,8 @@
 
 ## Estado al 2026-10-05
 
-**Recibidos:** V1–V9, D2 y D3 (análisis en `docs/revision-consultas-produccion-2026-10-05.md`).
-**Pendientes:** D1 (llegó la consulta, no el resultado), D4, D5, R1, R2, U1–U5, P1–P4 y el JSON completo de V8.
+**Recibidos:** V1–V9, D1–D5, R1, R2 y U1–U5 (análisis en `docs/revision-consultas-produccion-2026-10-05.md`).
+**Pendientes:** R3, R4, U6, U7 (nuevas, de seguimiento), P1–P4 y el JSON completo de V8.
 
 ## Cómo no confundir las dos "PARTE 0"
 
@@ -44,11 +44,15 @@ Copiar **solo** el bloque indicado: el texto desde el comentario `-- N.N` hasta 
 | **D6** | ídem → **0.6** | Código de una función de D5. Hay que **reemplazar el nombre** y quitar el `--` inicial | Revisarlas |
 | **R1** | `consulta_respaldos_existentes.sql` → **1** | Cada fila `backup_*` / `main_pre_restore*`: id, fecha, tamaño (sin contenido) | Qué respaldo recuperable existe |
 | **R2** | ídem → **2** | Resumen por tipo: cantidad, más antiguo, más reciente | Ídem |
+| **R3** | ídem → **3** | Claves del respaldo más reciente y su tamaño (sin contenido) | Saber qué filas trae, en particular las nóminas |
+| **R4** | ídem → **4** | Filas guardadas dentro de "tablas" en ese respaldo, con su tamaño | Ídem (si el formato es por "tablas") |
 | **U1** | `consulta_permisos_tablas_usuarios.sql` → **U1** | Si cada tabla existe, RLS activo/forzado, filas aproximadas, dueño | Tema aparte: acceso a datos de usuarios |
 | **U2** | ídem → **U2** | Qué pueden hacer `anon`/`authenticated` en cada tabla (leer, crear, modificar, borrar, vaciar) | Ídem |
 | **U3** | ídem → **U3** | Políticas RLS de cada tabla | Ídem |
 | **U4** | ídem → **U4** | Columnas y tipos (sin valores) | Saber si hay correos, hashes o tokens expuestos |
 | **U5** | ídem → **U5** | Funciones que usan esas tablas y si la llave pública las ejecuta | Candidatas a revisar; también alimenta V5 |
+| **U6** | ídem → **U6** | Políticas de CUALQUIER tabla que dependan de las funciones o tablas de roles | Qué datos quedan expuestos si alguien altera `rbac_usuarios_roles` |
+| **U7** | ídem → **U7** | Conteo de filas de las 3 tablas abiertas | Dimensionar |
 
 ## Fuera del SQL Editor (en la consola de Supabase)
 

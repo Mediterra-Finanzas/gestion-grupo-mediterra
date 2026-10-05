@@ -372,7 +372,7 @@ check('M5. Están los tres triggers en la tabla', psql(`select string_agg(tgname
 
 // ═══ J. Consulta de respaldos (solo lectura, sin contenido) ═════════════
 psql(`insert into calendario_data (id, value, updated_at) values
-  ('backup_2026-09-02', '{"main":{"pin":"SECRETO-DE-PRUEBA-123"}}', '2026-09-02T03:00:00Z'),
+  ('backup_2026-09-02', '{"main":{"pin":"SECRETO-DE-PRUEBA-123"},"relleno":"${'x'.repeat(1500)}"}', '2026-09-02T03:00:00Z'),
   ('backup_2026-08-31', '{"x":"SECRETO-DE-PRUEBA-123"}', '2026-08-31T03:00:00Z'),
   ('main_pre_restore_1756000000', '{"pins":"SECRETO-DE-PRUEBA-123"}', '2026-08-24T10:00:00Z')`);
 foto = huella();
@@ -382,6 +382,7 @@ check('J1. Consulta de respaldos: lista los 3 respaldos (el más reciente primer
   p.ok && /^backup_2026-09-02\|backup_\*\|2026-09-02/.test(lineasResp[0]) && lineasResp.some((l) => /^backup_\*\|2\|/.test(l)) && lineasResp.some((l) => /^main_pre_restore\*\|1\|/.test(l)) && huella() === foto,
   p.ok ? '' : p.salida.slice(0, 200));
 check('J2. No muestra contenido ni credenciales (la marca de prueba no aparece en la salida)', p.ok && !/SECRETO/.test(p.salida));
+check('J3. Secciones 3 y 4: claves del respaldo más reciente con tamaño (main), sin contenido', p.ok && /(^|\n)main\|/.test(p.salida) && !/SECRETO/.test(p.salida));
 
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nPropuesta "versión obligatoria" de Nóminas: todos los casos OK');
 process.exit(fallos ? 1 : 0);
