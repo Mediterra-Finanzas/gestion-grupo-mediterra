@@ -135,6 +135,16 @@ left join pg_database d on d.oid = s.setdatabase
 where r.rolname in ('anon', 'authenticated', 'authenticator', 'service_role') or s.setrole = 0
 order by 1;
 
+-- 0.9 Permisos de la llave pública sobre los esquemas publicados: si puede CREAR
+--     objetos en public, podría intentar suplantar funciones del sistema (las dos
+--     funciones de esta propuesta fijan search_path = pg_catalog primero).
+select n.nspname as esquema, r.rolname as rol,
+       has_schema_privilege(r.rolname, n.nspname, 'usage')  as puede_usar,
+       has_schema_privilege(r.rolname, n.nspname, 'create') as puede_crear
+from pg_namespace n cross join pg_roles r
+where n.nspname in ('public', 'graphql_public') and r.rolname in ('anon', 'authenticated')
+order by 1, 2;
+
 -- PARTE 1 — FUNCIÓN nominas_guardar (inerte hasta desplegar el cliente nuevo).
 -- Ejecutar el bloque completo de una vez. Se aborta si algo no calza.
 begin;

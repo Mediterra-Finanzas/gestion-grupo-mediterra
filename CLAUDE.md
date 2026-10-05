@@ -275,6 +275,11 @@ Reglas que no hay que romper:
   coordinada y trigger ANTES del despliegue: `docs/nominas-activacion.md`. `scripts/e2e/fake.mjs` emula la función y la
   regla del trigger (activa por defecto). Pruebas: `scripts/nominas-cas/prueba.mjs` (SQL) y
   `scripts/e2e/nomina-base-real.mjs` (navegador contra Postgres+PostgREST locales con el SQL tal cual).
+  Consultas de lectura pendientes en producción (listado único V/D/R/P): `docs/consultas-pendientes-produccion.md`.
+- **"📤 Restaurar" comprueba cada fila** (`src/restaurarRespaldo.js`): informa restauradas y fallidas con su motivo;
+  ante un resultado parcial dice "RESTAURACIÓN PARCIAL" (nunca éxito). Tests: `node src/restaurarRespaldo.test.mjs`,
+  `scripts/e2e/restaurar-parcial.mjs` (navegador contra base local con el trigger). Observación NO corregida: restaura
+  las filas objeto como texto JSON (comportamiento previo).
   Respaldos existentes (solo lectura, sin contenido): `supabase/consulta_respaldos_existentes.sql`.
 - **Anular nómina/línea con pago vigente** → `ResolverPagosVinculados`: conservar
   (`anotarPago`) o anular el pago, con motivo; si Créditos no confirma, no se anula.
@@ -499,6 +504,8 @@ node src/nominasPersistencia.test.mjs       # fusión y guardado condicionado de
 OUT_DIR=/tmp/nc node scripts/e2e/nomina-condicionado.mjs   # Nóminas: dos pestañas, cargas fallidas, 409, respuesta perdida
 POSTGREST_BIN=/ruta/postgrest node scripts/nominas-cas/prueba.mjs   # propuesta: la base exige la versión leída (Postgres+PostgREST locales)
 POSTGREST_BIN=/ruta/postgrest OUT_DIR=/tmp/nbr node scripts/e2e/nomina-base-real.mjs   # Nóminas en navegador contra base local real con nominas_guardar
+node src/restaurarRespaldo.test.mjs         # restauración con respuestas comprobadas (puro)
+POSTGREST_BIN=/ruta/postgrest OUT_DIR=/tmp/rp node scripts/e2e/restaurar-parcial.mjs   # "Restaurar" con resultado parcial (navegador + base local)
 OUT_DIR=/tmp/vp node scripts/e2e/vista-previa-creditos.mjs   # vista previa de Créditos con datos simulados (Excel recalculado)
 OUT_DIR=/tmp/e2e node scripts/e2e/apertura-sin-cambios.mjs   # abrir con registros antiguos no los modifica
 node scripts/vista-previa/armar.mjs --build && node scripts/vista-previa/servir.mjs   # vista previa funcional en http://localhost:4180

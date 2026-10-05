@@ -95,7 +95,7 @@ La base no puede ver el filtro `&updated_at=eq.…` de un PATCH: un trigger solo
    - confirmar que no tocan `id`, `value` ni `updated_at` de las filas `nominas_*`;
    - repetir la prueba con ellos.
 4. **Funciones y vistas expuestas: revisado lo que se puede revisar sin producción.** Ver "Permisos y caminos de elusión". Lo que depende de qué existe en producción queda en la PARTE 0 (0.5–0.8), pendiente de sus resultados.
-5. **[Seguro] El botón "📤 Restaurar" de administración** escribe con la llave pública y siempre informa éxito: con el trigger activo las filas de nóminas serían rechazadas sin que lo diga. Restaurar nóminas solo desde el SQL Editor (ver `docs/nominas-activacion.md`).
+5. **El botón "📤 Restaurar" de administración** escribe con la llave pública. Antes siempre informaba éxito; **corregido en la rama**: comprueba cada fila y, ante un resultado parcial, dice cuáles fallaron (las de nóminas, "rechazada por la protección"). Las nóminas se restauran desde el SQL Editor.
 
 ## Permisos y caminos de elusión
 
@@ -135,4 +135,4 @@ No hay datos que deshacer: la propuesta no modifica filas ni el esquema.
 
 1. JSON completo de la consulta 7 (código de los triggers) y resultados de la PARTE 0 (incluidas 0.5–0.8). Con eso hay que repetir **las dos** pruebas locales con esos triggers.
 2. Validación final sobre el commit exacto que se vaya a desplegar.
-3. Autorización y hora de la pausa (`docs/nominas-activacion.md`).
+3. Autorización y hora de la pausa (`docs/nominas-activacion.md`), después de revisar las consultas de `docs/consultas-pendientes-produccion.md` y los respaldos disponibles.

@@ -16,6 +16,7 @@ import AvisoPersistencia from "./AvisoPersistencia.jsx";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
 import { credencialPreservada } from "./data/credencialPreservada";
+import { restaurarFilas, mensajeRestauracion } from './restaurarRespaldo.js';
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
 // En vez de pantalla blanca, muestra botón de actualizar
@@ -1589,19 +1590,16 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
                     alert("❌ Archivo inválido. No es un respaldo de Mediterra Hub.");
                     return;
                   }
-                  let restauradas = 0;
-                  const tablas = Object.entries(backup.tablas);
-                  for(const [id, tabla] of tablas) {
-                    const value = typeof tabla.data === "string" ? tabla.data : JSON.stringify(tabla.data);
-                    await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-                      method:"POST",
-                      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
-                        "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-                      body:JSON.stringify({id, value, updated_at:new Date().toISOString()})
-                    });
-                    restauradas++;
-                  }
-                  alert(`✅ Respaldo restaurado exitosamente.\n\n${restauradas} tablas restauradas.\nFecha del respaldo: ${backup.fecha}\n\nLa página se recargará ahora.`);
+                  // Cada fila se comprueba: se informa cuáles quedaron y cuáles no
+                  // (src/restaurarRespaldo.js). Nunca "exitoso" ante un resultado parcial.
+                  const r = await restaurarFilas(backup, (id, value) => fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+                    method:"POST",
+                    headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
+                      "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
+                    body:JSON.stringify({id, value, updated_at:new Date().toISOString()})
+                  }));
+                  if(r.fallidas.length) console.error("[Restaurar] filas NO restauradas:", r.fallidas);
+                  alert(mensajeRestauracion(r, backup.fecha));
                   window.location.reload();
                 } catch(err) {
                   alert("❌ Error al restaurar: " + err.message);
