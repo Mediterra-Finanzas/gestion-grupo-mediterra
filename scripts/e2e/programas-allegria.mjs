@@ -44,7 +44,11 @@ fin.allegria_params = { '2026-2027': { cerezas: {
 } } };
 store.finanzas.value = fin;
 
-const { browser, page } = await abrirApp(store);
+// VIDEO=1 graba el recorrido completo, para revisarlo sin tocar producción.
+const grabar = process.env.VIDEO === '1';
+const { browser, ctx, page } = await abrirApp(store, grabar
+  ? { ctxOpts: { recordVideo: { dir: path.join(OUT, 'programas', 'video'), size: { width: 1800, height: 1150 } } } }
+  : {});
 const escapadas = [];
 page.on('requestfinished', async r => {
   if (!r.url().includes('bywovqayuzodbzwsriet.supabase.co')) return;
@@ -118,6 +122,7 @@ const costoBase = await leerLinea('Costo Fruta Exportación');
 
 await irAParametros();
 await esperar(800);
+await page.screenshot({ path: `${OUT}/programas/00-parametros-estimacion.png`, fullPage: true });
 const t0 = await texto();
 check('el panel muestra el saldo total por cobrar (1.480.000)', /Saldo total por cobrar\s*\$1,480,000/.test(t0),
       (t0.match(/Saldo total por cobrar[^\n]*/) || [])[0]);
@@ -169,6 +174,7 @@ check('y la estimación queda con 50.000 disponibles', /disponible\s*\$50,000/.t
       (t1.match(/disponible[^\n]*/g) || []).join(' | '));
 await page.screenshot({ path: `${OUT}/programas/01-cuota-vigente.png`, fullPage: true });
 
+await page.screenshot({ path: `${OUT}/programas/01b-flujo-con-cuota.png`, fullPage: true });
 const conCuota = await leerLinea('Anticipo Cerezas');
 console.log('  pantalla →', JSON.stringify(conCuota));
 check('Oct-26 proyecta la cuota (40.000)', conCuota['Oct-26'] === 40000, String(conCuota['Oct-26']));
@@ -228,6 +234,7 @@ const t3 = await texto();
 check('el acuerdo sube a 50.000 y el pendiente se conserva',
       /Total acordado\s*\$50,000/.test(t3) && /Pendiente\s*\$25,000/.test(t3),
       (t3.match(/Total acordado\s*\$[\d,]+/g) || []).join(' | '));
+await page.screenshot({ path: `${OUT}/programas/03-cobro-adicional.png`, fullPage: true });
 const adicional = await leerLinea('Anticipo Cerezas');
 console.log('  pantalla →', JSON.stringify(adicional));
 check('Oct-26 sigue en 25.000: el adicional no bajó el pendiente', adicional['Oct-26'] === 25000, String(adicional['Oct-26']));
@@ -267,6 +274,7 @@ await refP.fill('QA pago productor');
 await formP.getByRole('button', { name: 'Guardar' }).first().click();
 await esperar(1400);
 
+await page.screenshot({ path: `${OUT}/programas/04-pago-productor.png`, fullPage: true });
 const costoFinal = await leerLinea('Costo Fruta Exportación');
 console.log('  costo →', JSON.stringify(costoFinal));
 check('el pago al productor no tocó el lado cliente',
@@ -330,7 +338,9 @@ check('y el del productor también', JSON.stringify(trasProd) === JSON.stringify
       `${JSON.stringify(trasProd)} vs ${JSON.stringify(costoFinal)}`);
 await page.screenshot({ path: `${OUT}/programas/03-recarga.png`, fullPage: true });
 
+await ctx.close();
 await browser.close();
+if (grabar) console.log(`video en ${path.join(OUT, 'programas', 'video')}`);
 console.log(`\npeticiones escapadas a producción: ${escapadas.length}`);
 console.log(fallos === 0
   ? 'OK: estimación, sustitución parcial y cobro real cuadran en pantalla y en el Excel'

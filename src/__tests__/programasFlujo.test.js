@@ -274,7 +274,12 @@ describe('anticipos adicionales · cliente y productor', () => {
     expect(Math.round(suma(v))).toBe(380000);                   // mismo total
   });
 
-  test('cambiar los kilos no mueve el histórico recibido', () => {
+  // Dos cosas distintas que conviene no confundir:
+  //  · kilos DEL PROGRAMA → solo cambian el acordado de sus cuotas en US$/kg.
+  //    La base de venta (kg de la fruta × FOB) no se mueve.
+  //  · kg de la FRUTA → cambia la base, y el saldo se recalcula entero.
+  // En los dos casos el histórico ya recibido queda intacto.
+  test('cambiar los kilos DEL PROGRAMA no mueve la base ni el histórico', () => {
     const conKilos = (kilos) => ({ "2026-2027": { cerezas: {
       kg: 500000, fob_usd_kg: 1, desc_exp_pct: 0, mat_usd_kg: 0, srv_usd_kg: 0,
       anticipos_cliente: [], mes_liquidacion: "Mar-27",
@@ -293,5 +298,27 @@ describe('anticipos adicionales · cliente y productor', () => {
     expect(Math.round(b[iMes("Mar-27")])).toBe(380000);
     expect(Math.round(suma(a))).toBe(380000);
     expect(Math.round(suma(b))).toBe(380000);
+  });
+
+  test('cambiar los kg de la FRUTA sí recalcula la base y el saldo', () => {
+    const conKgFruta = (kg) => ({ "2026-2027": { cerezas: {
+      kg, fob_usd_kg: 1, desc_exp_pct: 0, mat_usd_kg: 0, srv_usd_kg: 0,
+      anticipos_cliente: [], mes_liquidacion: "Mar-27",
+      anticipos_productor: [], mes_saldo_productor: "Mar-27", dist_mat: [], dist_srv: [],
+      programas: [{ id: "p1", lado: "cliente", contraparte: "X", kilos: 500000, cuotas: [
+        { id: "c1", mes: "Nov-26", modalidad: "monto", monto: 150000, estado: "vigente",
+          realizaciones: [{ id: "r1", fecha: "2026-08-01", usd: 120000 }] }]}],
+    } } });
+    const a = ing(conKgFruta(500000));      // base 500.000
+    const b = ing(conKgFruta(400000));      // base 400.000
+    expect(Math.round(a[iMes("Nov-26")])).toBe(30000);      // el pendiente no depende de la base
+    expect(Math.round(b[iMes("Nov-26")])).toBe(30000);
+    expect(Math.round(a[iMes("Mar-27")])).toBe(350000);     // 500.000 − 120.000 − 30.000
+    expect(Math.round(b[iMes("Mar-27")])).toBe(250000);     // 400.000 − 120.000 − 30.000
+    expect(Math.round(suma(a))).toBe(380000);               // saldo total por cobrar
+    expect(Math.round(suma(b))).toBe(280000);               // recalculado: 100.000 menos
+    // El histórico recibido es el mismo en los dos: 120.000 ya cobrados.
+    expect(Math.round(500000 - suma(a))).toBe(120000);
+    expect(Math.round(400000 - suma(b))).toBe(120000);
   });
 });
