@@ -164,8 +164,15 @@ siguen valiendo, y la integración no toca ese código.
 
 ## 10 · Estado y secuencia
 
-Local, sin push ni despliegue. T3 ya está publicado y este candidato está integrado sobre esa
-base, a la espera de tu autorización.
+**Publicado.** `70c2903` → `9ddd063` por fast-forward, 2026-10-01.
+
+| | |
+|---|---|
+| Deployment | `dpl_EbXsJEp7uzPdXUS23MwK91npgmdX`, commit `9ddd063e` por metadatos, READY, con los aliases de producción |
+| Recuperación | `dpl_8MpD89YZwaaiidy2RVBDyRS8Z1d8`, commit `70c29032` |
+| Comprobado en vivo | El dominio sirve `main.faa078b5.js`, que trae los textos del paquete; la aplicación carga. **No se inició sesión y no se completó ningún cliente real** |
+| Ventana | Confirmaron Allegria Service y Mediterra One antes del push; Rendición de gastos por acuerdo vigente; Frisku con excepción del CFO. Detalle en el registro de ventanas, ventana 7 |
+| Cómo se usa | `RECORRIDO-PAIS-CONSTITUCION.md` |
 
 **Suite completa: 1.386 pasan, 24 saltadas, 1 falla** — `paramsFrutaAnticipos`, atada a la fecha del
 carril de anticipos, que falla igual en `main` sin este cambio. Build `CI=true`:

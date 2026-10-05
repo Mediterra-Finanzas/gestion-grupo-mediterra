@@ -33,6 +33,8 @@ import {
   estadoBeneficio, faltantesBeneficio, consumoCupo, configBeneficio,
   estadoReajuste, faltantesReajuste, configReajuste, previsualizarReajuste,
   ACCION, netoNoDefinitivo, territorioDe,
+  reajusteOperativo, contratosConReajusteSinDefinir,
+  REAJUSTE_APLICANDO, REAJUSTE_MARCADO_SIN_DEFINICION, REAJUSTE_REGISTRADO_SIN_APLICAR,
 } from "./osiris/condicionesConfigurables";
 import {
   PAISES_CONSTITUCION, paisConstitucionDe, declararPaisConstitucion,
@@ -7456,7 +7458,7 @@ async function exportarContratos(filtrado) {
     "Lleva Multa","Mín. Há Contrato",
     "Anexos",
     "Contract Fee","Tipo Fee","Monto Fee US$",
-    "Royalty/Planta US$","Royalty Comercial US$/Há","Sujeto Inflación","Mes Facturación RC",
+    "Royalty/Planta US$","Royalty Comercial US$/Há","Reajuste (efecto real)","Mes Facturación RC",
     "Doc. Contrato","Qué falta","Notas"
   ];
   const rows = filtrado.map(r=>{
@@ -7501,7 +7503,11 @@ async function exportarContratos(filtrado) {
     r.tipoContractFee==="Sin Contract Fee"?"—":(r.montoContractFee||0),
     r.valorRoyaltyPlanta||"",
     r.valorRoyaltyComercial||"",
-    r.royaltyInflacion?"Sí":"No",
+    (()=>{ const ro=reajusteOperativo(r);
+      return ro.estado===REAJUSTE_APLICANDO ? ("Aplicando "+ro.pct+" %/año")
+        : ro.estado===REAJUSTE_MARCADO_SIN_DEFINICION ? "Marcado sin definición — NO se aplica"
+        : ro.estado===REAJUSTE_REGISTRADO_SIN_APLICAR ? "Registrado — todavía NO se aplica"
+        : "Sin reajuste"; })(),
     r.mesFacuracionRC||"",
     r.linkContrato?"Sí":"⚠ Falta",
     falta.length?falta.join(", "):"OK",
@@ -8994,6 +9000,21 @@ Motivo del retiro:`, "");
                     </div>
                   )}
                 </div>
+                {/* La casilla marcada sin porcentaje calculaba factor 1 en silencio:
+                    la pantalla decia "Sujeto a Inflacion" y no se reajustaba nada.
+                    Esto lo dice. No cambia ningun importe. */}
+                {(()=>{
+                  const ro = reajusteOperativo(r);
+                  if(!ro.aviso) return null;
+                  return (
+                    <div style={{gridColumn:"1 / -1",marginTop:8,fontSize:10,lineHeight:1.6,
+                      background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,
+                      borderRadius:8,padding:"8px 12px",color:C.am||"#854d0e"}}>
+                      <strong>{ro.titulo}.</strong> {ro.aviso}
+                      {ro.detalle?<div style={{marginTop:4,color:C.muted}}>{ro.detalle}</div>:null}
+                    </div>
+                  );
+                })()}
               </div>
               {/* Modelo de ingresos: legacy vs OC del vivero */}
               <div style={{marginTop:14,padding:"12px 16px",borderRadius:12,border:`1px solid ${(r.modeloIngresos==="oc")?C.azul:C.border}`,background:(r.modeloIngresos==="oc")?(C.infoBg||C.cardAlt):C.cardAlt}}>
@@ -9830,9 +9851,24 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                 {/* RC derivado */}
                 <div style={{background:C.card,border:`1px solid ${C.warning}`,borderRadius:10,padding:14,marginBottom:14}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
-                    <div style={{fontSize:13,fontWeight:800,color:C.text}}>📈 Royalty Comercial <span style={{fontSize:10,fontWeight:500,color:C.muted}}>(paga el cliente)</span> {inflPct>0?<span style={{fontSize:10,color:C.am}}>· inflación {N(inflPct)}%/año</span>:null}</div>
+                    <div style={{fontSize:13,fontWeight:800,color:C.text}}>📈 Royalty Comercial <span style={{fontSize:10,fontWeight:500,color:C.muted}}>(paga el cliente)</span> {inflPct>0
+                      ? <span style={{fontSize:10,color:C.am}}>· inflación {N(inflPct)}%/año</span>
+                      : (reajusteOperativo(r).estado!==REAJUSTE_APLICANDO && reajusteOperativo(r).aviso
+                          ? <span style={{fontSize:10,color:C.am}}>· sin reajuste aplicado</span>
+                          : null)}</div>
                     <div style={{fontSize:11,color:C.muted}}>Fact total: <strong style={{color:C.text}}>${N(rcFact.toFixed(2))}</strong> · Neto: <strong style={{color:C.success}}>${N(rcCobro.toFixed(2))}</strong></div>
                   </div>
+                  {(()=>{
+                    const ro = reajusteOperativo(r);
+                    if(!ro.aviso) return null;
+                    return (
+                      <div style={{fontSize:10,lineHeight:1.6,marginBottom:10,
+                        background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,
+                        borderRadius:8,padding:"7px 11px",color:C.am||"#854d0e"}}>
+                        <strong>Estos montos no llevan reajuste.</strong> {ro.aviso}
+                      </div>
+                    );
+                  })()}
                   {/* Bloques de cobro RC: há + temporada de inicio (modo simple, declarado por el usuario) */}
                   {(()=>{
                     const cohortesRC = r.rcCohortes||[];
@@ -10257,6 +10293,14 @@ La orden conserva sus despachos, facturas y cuotas. Queda registrado quién la a
                   📈 Sujeto a Inflación
                 </label>
               </div>
+              {form.royaltyInflacion&&(
+                <div style={{gridColumn:"1 / -1",fontSize:10,lineHeight:1.6,padding:"7px 11px",borderRadius:8,
+                  background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,color:C.am||"#854d0e"}}>
+                  Marcar esta casilla <strong>no aplica ningún reajuste por sí sola</strong>. Mientras no
+                  se cargue el porcentaje, el contrato factura el valor base sin ajustar. El porcentaje
+                  se carga en la ficha del contrato, después de crearlo.
+                </div>
+              )}
             </div>
             {/* Modelo de ingresos del contrato nuevo */}
             <div style={{marginTop:12,padding:"12px 14px",borderRadius:10,border:`1px solid ${(form.modeloIngresos||"oc")==="oc"?C.azul:C.border}`,background:(form.modeloIngresos||"oc")==="oc"?(C.azulBg||C.cardAlt):C.cardAlt}}>
@@ -10518,6 +10562,19 @@ La orden conserva sus despachos, facturas y cuotas. Queda registrado quién la a
 
   return(
     <div>
+      {(()=>{
+        // Cuantos contratos dicen "sujeto a inflacion" y no reajustan nada.
+        const sinDef = contratosConReajusteSinDefinir(data);
+        if(!sinDef.length) return null;
+        return (
+          <div style={{fontSize:10,lineHeight:1.6,marginBottom:12,padding:"8px 12px",borderRadius:8,
+            background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,color:C.am||"#854d0e"}}>
+            <strong>{sinDef.length===1?"Un contrato esta marcado":`${sinDef.length} contratos estan marcados`} como sujetos a inflacion y no se les esta aplicando ningun reajuste</strong>, por falta de definicion:
+            no tienen porcentaje ni indice cargado. Sus importes son los del valor base, sin ajustar.
+            Esto no cambia nada: describe lo que el motor ya venia haciendo.
+          </div>
+        );
+      })()}
       <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
         {[[data.length,"Total contratos",C.azul,C.azulBg],[totalFirmados,"Firmados completos",C.verde,C.verdeBg],[data.length-totalFirmados,"Pendientes firma",C.am,C.amBg]].map(([v,l,c,bg])=>(
           <div key={l} style={{background:C.card,borderRadius:12,padding:"12px 18px",flex:1,minWidth:120,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,boxShadow:C.shadow}}>
@@ -10650,7 +10707,17 @@ La orden conserva sus despachos, facturas y cuotas. Queda registrado quién la a
                 <td style={{padding:"9px 12px",textAlign:"center",fontSize:12}}>{r.valorRoyaltyPlanta?`$${r.valorRoyaltyPlanta}/pl`:"—"}</td>
                 <td style={{padding:"9px 12px",textAlign:"center",fontSize:12}}>
                   {r.valorRoyaltyComercial?`$${r.valorRoyaltyComercial}/há`:"—"}
-                  {r.royaltyInflacion?<span style={{fontSize:9,color:C.am,marginLeft:4}}>+IPC</span>:null}
+                  {/* Decia "+IPC" por tener la casilla puesta, sin mirar si habia
+                      porcentaje. Al lado del importe, eso afirma un ajuste que no ocurre. */}
+                  {(()=>{
+                    const ro = reajusteOperativo(r);
+                    if(ro.estado===REAJUSTE_APLICANDO)
+                      return <span style={{fontSize:9,color:C.am,marginLeft:4}}>+{N(ro.pct)}%/año</span>;
+                    if(ro.estado===REAJUSTE_MARCADO_SIN_DEFINICION)
+                      return <span title="Marcado como sujeto a inflación, sin porcentaje ni índice: no se aplica ningún reajuste."
+                        style={{fontSize:9,color:C.muted2,marginLeft:4,textDecoration:"underline dotted"}}>sin ajustar</span>;
+                    return null;
+                  })()}
                 </td>
                 <td style={{padding:"9px 12px",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
                   <button onClick={()=>{setSel(r.id);setVista("detalle");setSec("empresa");}}
