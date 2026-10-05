@@ -86,3 +86,18 @@ order by 1, 2, 3;
 select 'rbac_roles' as tabla, count(*) as filas from public.rbac_roles
 union all select 'rbac_usuarios_roles', count(*) from public.rbac_usuarios_roles
 union all select 'usuarios_empresa', count(*) from public.usuarios_empresa;
+
+-- U8. Condición exacta (código, no datos) de las políticas que listó U6, y si
+--     la llave pública tiene permisos de tabla sobre cada una. Sirve para saber
+--     qué función de roles usa cada política y si anon puede llegar a ellas.
+select p.tablename as tabla, p.policyname as politica, p.cmd as operacion, p.roles,
+       p.qual as condicion_usando, p.with_check as condicion_al_escribir,
+       c.relrowsecurity as rls_activo,
+       has_table_privilege('anon', c.oid, 'select') as anon_puede_leer,
+       has_table_privilege('anon', c.oid, 'insert') or has_table_privilege('anon', c.oid, 'update')
+         or has_table_privilege('anon', c.oid, 'delete') as anon_puede_escribir
+from pg_policies p
+join pg_class c on c.relname = p.tablename and c.relnamespace = p.schemaname::regnamespace
+where coalesce(p.qual, '') || ' ' || coalesce(p.with_check, '')
+      ~* '(fn_mis_empresas|osi_current_empresa|osi_current_rol|rbac_usuarios_roles|rbac_roles|usuarios_empresa)'
+order by 1, 2;

@@ -74,12 +74,37 @@ El riesgo real es **escalar permisos**: `fn_mis_empresas()` (SECURITY DEFINER, e
 
 **No se corrigió nada.** La corrección probable es activar RLS en esas tres tablas y retirar los permisos de `anon`: `fn_mis_empresas` es SECURITY DEFINER y seguiría funcionando. Se propondrá **después de ver U6**, en una propuesta propia, sin mezclarla con Nóminas ni con DELETE.
 
+## Recibido (tercera entrega)
+
+### U6 / U7 — Qué depende de las tablas de roles
+
+- **U7 [Seguro]:** `rbac_roles` tiene 5 filas, `rbac_usuarios_roles` 0 y `usuarios_empresa` 0.
+- **U6 [Seguro]:** 57 políticas de otras tablas mencionan las funciones o tablas de roles:
+  - **Contables y documentales** (`contab_asientos`, `contab_asientos_lineas`, `contab_empresas`, `contab_plan_cuentas`, `doc_lotes`, `cc_campos`, `cc_cuarteles`, `audit_log` como tabla): para `authenticated`, leer/crear/modificar.
+  - **Osiris**: unas 38 tablas `osi_*` (contratos, facturas, pagos, cobranza, plantaciones, viveros…) con políticas **ALL** para el rol **`public`**, es decir, cualquier rol, incluido `anon`; más `osi_config` y `osi_audit_log`.
+
+**Qué significa:**
+- Hoy `rbac_usuarios_roles` está vacía: `fn_mis_empresas()` no devuelve empresas a nadie y las políticas que la usen no dan acceso **[Probable]**.
+- Como esa tabla está **abierta a escritura para la llave pública**, alguien podría insertar una fila "usuario X → empresa Y" y abrirse acceso a los datos contables de esa empresa.
+- Qué tablas usan exactamente `fn_mis_empresas` y cuáles usan las funciones `osi_current_*`, que leen otra tabla (`osi_user_empresa`, protegida), **no lo dice U6**: falta la condición de cada política (**U8**). Mientras tanto, el alcance es **[Suponiendo]**.
+
+**Las políticas `osi_*` para el rol `public`.** Si su condición es del tipo "empresa = `osi_current_empresa()`", `anon` no obtiene nada: sin sesión la función devuelve vacío **[Probable]**. Si la condición es otra, podría ser un acceso abierto a datos de Osiris. **U8** lo responde.
+
+### R3 / R4 — Contenido del respaldo del 2 de septiembre
+
+- **R3 [Seguro]:** el respaldo guarda las filas como claves de primer nivel (`fecha` + una clave por fila). Por eso **R4 devuelve 0 filas**, que es lo esperado.
+- Incluye **todas las filas de nóminas** (las 9 por empresa, `nominas`, `nominas_correlativos`, `nominas_tipos_doc`, `nominas_v2_done`), además de `finanzas` y sus escenarios, `rendiciones`, `osiris`, EEFF y mayores 2026, maestros y Frisku.
+- **También incluye `main` (84 kB) y `pins` (7,4 kB)**: se confirma que los respaldos guardan copias de credenciales (hashes de PIN).
+- **Tamaños:** los de R3 son del valor **sin comprimir**; los de V4 (filas actuales) son **comprimidos**. No sirven para comparar si una fila creció o se achicó.
+- **Otras filas en producción:** existen `direct_test`, `direct_test_now`, `jwt_test` y `pub_test`, que parecen pruebas antiguas. No se tocan.
+
+**Conclusión de respaldos:** el 2 de septiembre es un punto de recuperación **completo** para todas las filas de `calendario_data`, incluidas las nóminas. Lo posterior depende de los respaldos de plataforma (P1–P3).
+
 ## Pendiente de producción
 
 | Código | Qué falta |
 |---|---|
-| **R3, R4** | Contenido (solo nombres y tamaños) del respaldo del 2 de septiembre |
-| **U6, U7** | Qué políticas dependen de las tablas de roles abiertas, y cuántas filas tienen |
+| **U8** | Condición de cada política de U6 y si `anon` tiene permisos sobre esas tablas (`consulta_permisos_tablas_usuarios.sql` → U8) |
 | **P1–P4** | Consola: último respaldo de plataforma, PITR, opciones de restauración y esquemas publicados |
 | V8 completo | JSON con la fila de `authenticator` sin cortar (no cambia la conclusión) |
 

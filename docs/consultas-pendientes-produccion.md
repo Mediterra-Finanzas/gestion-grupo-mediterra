@@ -7,8 +7,8 @@
 
 ## Estado al 2026-10-05
 
-**Recibidos:** V1–V9, D1–D5, R1, R2 y U1–U5 (análisis en `docs/revision-consultas-produccion-2026-10-05.md`).
-**Pendientes:** R3, R4, U6, U7 (nuevas, de seguimiento), P1–P4 y el JSON completo de V8.
+**Recibidos:** V1–V9, D1–D5, R1–R4 y U1–U7 (análisis en `docs/revision-consultas-produccion-2026-10-05.md`).
+**Pendientes:** U8 (nueva), P1–P4 y el JSON completo de V8.
 
 ## Cómo no confundir las dos "PARTE 0"
 
@@ -53,6 +53,7 @@ Copiar **solo** el bloque indicado: el texto desde el comentario `-- N.N` hasta 
 | **U5** | ídem → **U5** | Funciones que usan esas tablas y si la llave pública las ejecuta | Candidatas a revisar; también alimenta V5 |
 | **U6** | ídem → **U6** | Políticas de CUALQUIER tabla que dependan de las funciones o tablas de roles | Qué datos quedan expuestos si alguien altera `rbac_usuarios_roles` |
 | **U7** | ídem → **U7** | Conteo de filas de las 3 tablas abiertas | Dimensionar |
+| **U8** | ídem → **U8** | Condición de cada política de U6 y permisos de `anon` sobre esas tablas | Saber si alguna tabla queda abierta a la llave pública |
 
 ## Fuera del SQL Editor (en la consola de Supabase)
 

@@ -18,13 +18,14 @@ const huella = () => db.psql(`select md5(string_agg(t::text, '|')) from (select 
 const antes = huella();
 const sql = fs.readFileSync(path.join(RAIZ, 'supabase/consulta_permisos_tablas_usuarios.sql'), 'utf8');
 const bloques = sql.split(/\n(?=-- U\d\.)/).slice(1);
-check('0. El archivo tiene 7 bloques U1–U7', bloques.length === 7);
+check('0. El archivo tiene 8 bloques U1–U8', bloques.length === 8);
 db.psql(`create function public.fn_mis_empresas() returns setof uuid language sql security definer as $f$ select null::uuid $f$;
   create table public.zz_contable (id int, empresa uuid); alter table public.zz_contable enable row level security;
   create policy p_emp on public.zz_contable for select to authenticated using (empresa in (select public.fn_mis_empresas()));`);
 const salidas = bloques.slice(0, 6).map((b) => db.psqlTexto(b));
 db.psql(`create table public.usuarios_empresa (id int); insert into public.usuarios_empresa values (1), (2);`);
 salidas.push(db.psqlTexto(bloques[6]));
+salidas.push(db.psqlTexto(bloques[7]));
 salidas.forEach((s, i) => check(`U${i + 1}. corre sin error`, s.ok, s.ok ? '' : s.salida.slice(0, 200)));
 const todo = salidas.map((s) => s.salida).join('\n');
 check('U1. informa la tabla inexistente (usuarios_empresa → existe f) y RLS de rbac_roles activo', /usuarios_empresa\|f\|/.test(salidas[0].salida) && /rbac_roles\|t\|t\|f\|/.test(salidas[0].salida));
@@ -34,6 +35,7 @@ check('U4. lista columnas (correo, hash_pin) sin valores', /correo/.test(salidas
 check('U5. detecta la función SECURITY DEFINER que usa rbac_usuarios_roles', /zz_tiene_rol\|[^\n]*\|t\|/.test(salidas[4].salida));
 check('U6. lista la política de otra tabla que depende de fn_mis_empresas', /zz_contable\|p_emp\|SELECT/.test(salidas[5].salida));
 check('U7. cuenta filas (2 en usuarios_empresa, 1 en rbac_roles) sin mostrarlas', /usuarios_empresa\|2/.test(salidas[6].salida) && /rbac_roles\|1/.test(salidas[6].salida));
+check('U8. muestra la condición de la política (fn_mis_empresas) y si anon puede leer la tabla', /zz_contable\|p_emp\|SELECT\|[^\n]*fn_mis_empresas[^\n]*\|t\|f\|f/.test(salidas[7].salida), salidas[7].salida.trim().slice(0, 160));
 check('Ningún bloque muestra contenido (correo ni hash de prueba)', !/secreto@prueba|HASH-SECRETO/.test(todo));
 check('No cambia datos', huella() === antes);
 db.cerrar();
