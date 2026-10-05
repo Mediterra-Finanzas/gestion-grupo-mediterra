@@ -137,9 +137,14 @@ describe("4 · no deja crear activaciones nuevas", () => {
     expect(r2(f["2027/2028"].montoFact)).toBe(125910);
   });
 
-  test("desactivar una existente SI se puede: no queda atrapada", () => {
+  test("desactivar una existente SI se puede, con las mismas exigencias", () => {
+    // No queda atrapada, pero tampoco se apaga de un clic: permiso, motivo y
+    // confirmacion explicita, igual que en el candidato.
     const ct = CONTRATO({ reajusteActivacion: ACTIVACION });
-    const res = desactivar(ct, "Motivo sintetico", "prueba");
+    expect(desactivar(ct, { motivo: "Motivo sintetico" }).ok).toBe(false);          // falta confirmar
+    expect(desactivar(ct, { motivo: "", confirmado: true }).ok).toBe(false);        // falta motivo
+    expect(desactivar(ct, { motivo: "x", confirmado: true, puedeEditar: false }).ok).toBe(false);  // sin permiso
+    const res = desactivar(ct, { motivo: "Motivo sintetico", usuario: "prueba", confirmado: true });
     expect(res.ok).toBe(true);
     expect(porTemp(filas(res.contrato))["2027/2028"].montoFact).toBe(125910);
   });
