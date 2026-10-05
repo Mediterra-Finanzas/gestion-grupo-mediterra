@@ -54,6 +54,7 @@ export const SIN_ACTIVAR = "sinActivar";
 export const ACTIVADO = "activado";
 export const NO_ACTIVABLE = "noActivable";
 export const CONFLICTO_CON_ANTIGUA = "conflictoConAntigua";
+export const MODIFICACION_PENDIENTE = "modificacionPendiente";
 
 // Qué fecha gobierna la tasa. Ninguna es el default: hay que declararla y
 // respaldarla. `null` significa "sin resolver", no "la de cobro".
@@ -209,6 +210,102 @@ export function reglaFechaAplicable(ct) {
   return { definida: true, regla, respaldo, motivo: "" };
 }
 
+// ── Sello de los terminos economicos ──────────────────────────────────────
+//
+// Al activar se sella CON QUE terminos se activo: porcentaje, fecha de
+// referencia y regla de fecha. Editar despues cualquiera de los tres NO
+// recalcula: seria mover plata por editar un antecedente. El sello sigue
+// gobernando y la diferencia queda como modificacion economica pendiente de
+// confirmar explicitamente.
+//
+// Ese flujo de confirmacion NO entra en este paquete, asi que la modificacion
+// queda bloqueada mientras el reajuste este activo.
+export function sellarTerminos(cfg, act) {
+  return {
+    pct: cfg.pct,
+    fechaReferencia: txt(act.fechaReferencia),
+    reglaFecha: txt(act.reglaFecha),
+  };
+}
+
+export function terminosVigentes(ct) {
+  const cfg = configReajuste(ct);
+  const act = (ct && ct.reajusteActivacion) || {};
+  return sellarTerminos(cfg, act);
+}
+
+export function diferenciasConElSello(ct) {
+  const act = (ct && ct.reajusteActivacion) || {};
+  const sello = act.sello;
+  if (!sello) return { hay: false, campos: [], sello: null, vigentes: terminosVigentes(ct) };
+  const v = terminosVigentes(ct);
+  const campos = [];
+  if (String(sello.pct) !== String(v.pct)) campos.push({ campo: "porcentaje", sellado: sello.pct, actual: v.pct });
+  if (txt(sello.fechaReferencia) !== txt(v.fechaReferencia))
+    campos.push({ campo: "fecha de referencia", sellado: sello.fechaReferencia, actual: v.fechaReferencia });
+  if (txt(sello.reglaFecha) !== txt(v.reglaFecha))
+    campos.push({ campo: "regla de fecha", sellado: sello.reglaFecha, actual: v.reglaFecha });
+  return { hay: campos.length > 0, campos, sello, vigentes: v };
+}
+
+// Con el reajuste activo, estos tres campos no se editan desde la pantalla de
+// antecedentes. Cambiarlos es una modificacion economica y necesita su propio
+// flujo, que no esta en este paquete.
+export function puedeEditarTerminos(ct) {
+  const e = estadoActivacion(ct);
+  if (e.estado === ACTIVADO || e.estado === MODIFICACION_PENDIENTE) {
+    return {
+      puede: false,
+      campos: ["porcentaje", "fecha de referencia", "regla de fecha"],
+      motivo: "El reajuste esta activo. Cambiar el porcentaje, la fecha de referencia o la regla de " +
+        "fecha mueve importes, asi que es una modificacion economica y no una edicion de antecedentes. " +
+        "Ese flujo (vista previa fila por fila y confirmacion explicita) no esta en este paquete: " +
+        "para modificar, primero hay que desactivar, que tambien es una operacion economica.",
+    };
+  }
+  return { puede: true, campos: [], motivo: "" };
+}
+
+// Crear una activacion. En la version de recuperacion se RECHAZA en la accion,
+// no solo ocultando un boton.
+export function activar(ct, datos) {
+  const permiso = puedeCrearActivacion();
+  if (!permiso.puede) return { ok: false, motivo: permiso.motivo, contrato: ct };
+  const d = datos || {};
+  const cfg = configReajuste(ct);
+  if (estadoReajuste(ct) !== "confirmado")
+    return { ok: false, motivo: "El antecedente no esta confirmado.", contrato: ct };
+  const act = {
+    activado: true,
+    fechaReferencia: txt(d.fechaReferencia),
+    respaldo: txt(d.respaldo),
+    reglaFecha: txt(d.reglaFecha),
+    reglaFechaRespaldo: txt(d.reglaFechaRespaldo),
+    usuario: txt(d.usuario),
+    fecha: txt(d.fecha) || new Date().toISOString().slice(0, 10),
+  };
+  act.sello = sellarTerminos(cfg, act);
+  return { ok: true, motivo: "", contrato: Object.assign({}, ct, { reajusteActivacion: act }) };
+}
+
+// Desactivar es una operacion economica propia, no un efecto secundario.
+export function desactivar(ct, motivo, usuario) {
+  const act = (ct && ct.reajusteActivacion) || {};
+  if (!act.activado) return { ok: false, motivo: "No hay una activacion vigente.", contrato: ct };
+  if (!txt(motivo)) return { ok: false, motivo: "Desactivar mueve importes: hace falta un motivo.", contrato: ct };
+  return {
+    ok: true, motivo: "",
+    contrato: Object.assign({}, ct, {
+      reajusteActivacion: Object.assign({}, act, {
+        activado: false,
+        desactivadoMotivo: txt(motivo),
+        desactivadoPor: txt(usuario),
+        desactivadoFecha: new Date().toISOString().slice(0, 10),
+      }),
+    }),
+  };
+}
+
 export function estadoActivacion(ct) {
   const cfg = configReajuste(ct);
   const act = (ct && ct.reajusteActivacion) || {};
@@ -270,11 +367,30 @@ export function estadoActivacion(ct) {
     };
   }
 
-  return {
-    estado: ACTIVADO, activo: true, motivo: "",
-    fechaReferencia: txt(act.fechaReferencia), respaldo: txt(act.respaldo),
-    usuario: txt(act.usuario), fecha: txt(act.fecha), pct: cfg.pct, regla,
+  // El sello manda sobre los campos editables: una edicion posterior del
+  // antecedente no mueve importes por si sola.
+  const dif = diferenciasConElSello(ct);
+  const sello = act.sello || null;
+  const base = {
+    fechaReferencia: sello ? txt(sello.fechaReferencia) : txt(act.fechaReferencia),
+    pct: sello ? sello.pct : cfg.pct,
+    reglaSellada: sello ? txt(sello.reglaFecha) : regla.regla,
+    respaldo: txt(act.respaldo), usuario: txt(act.usuario), fecha: txt(act.fecha),
+    regla: Object.assign({}, regla, { regla: sello ? txt(sello.reglaFecha) : regla.regla }),
   };
+
+  if (dif.hay) {
+    return Object.assign({
+      estado: MODIFICACION_PENDIENTE, activo: true,
+      motivo: "Se edito " + dif.campos.map((c) => c.campo).join(", ") + " despues de activar. " +
+        "**Los importes NO cambiaron**: sigue aplicandose lo sellado al activar. Aplicar la " +
+        "modificacion es una operacion economica aparte, con vista previa y confirmacion, y " +
+        "no esta en este paquete.",
+      diferencias: dif.campos,
+    }, base);
+  }
+
+  return Object.assign({ estado: ACTIVADO, activo: true, motivo: "" }, base);
 }
 
 // ── Qué le pasaría a una fila ─────────────────────────────────────────────
