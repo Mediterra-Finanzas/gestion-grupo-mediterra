@@ -146,10 +146,14 @@ describe("3 · las cuatro fechas son distintas y ninguna manda por defecto", () 
     expect(c.fechas.emision.toISOString().slice(0, 10)).not.toBe(d.fechas.inicioPeriodoServicio.toISOString().slice(0, 10));
   });
 
-  test('elegir "pago" vuelve la regla inaplicable, y hay que decirlo', () => {
-    // Hallazgo: si la fecha que manda es la de pago, toda fila que tenga fecha
-    // de pago es TAMBIÉN una fila con antecedente de cobro, así que queda
-    // protegida y no se recalcula. La regla "pago" no puede aplicarse a nada.
+  test('con regla "pago", la proteccion de filas limita el mecanismo', () => {
+    // Corrección: la fecha del primer pago que FIJA el aniversario contractual
+    // no es la fecha de pago de la fila que se recalcula. Son cosas distintas.
+    // Lo que sí se observa, y es lo único que esta prueba afirma: si la regla
+    // declarada toma la fecha de pago DE LA FILA, esa misma fila queda
+    // protegida por tener antecedente de cobro, así que el mecanismo no la
+    // alcanza. No prueba que una regla contractual basada en un pago sea
+    // inaplicable, y ese caso no se resuelve ni se implementa acá.
     const porPago = CT(REAJ(), Object.assign({}, ACT_OK, { reglaFecha: "pago", fechaReferencia: "2026-07-01" }));
     const conPago = reajusteDeFila(porPago, FILA("2028/2029", 100), { antecedentes: { fechaPago: "2029-04-01" } });
     expect(conPago.intocable).toBe(true);

@@ -36,6 +36,7 @@ import {
   reajusteOperativo, contratosConReajusteSinDefinir,
   REAJUSTE_APLICANDO, REAJUSTE_MARCADO_SIN_DEFINICION, REAJUSTE_REGISTRADO_SIN_APLICAR,
 } from "./osiris/condicionesConfigurables";
+import { reajusteDeFila as reajusteActivadoDeFila } from "./osiris/reajusteAplicado";
 import {
   PAISES_CONSTITUCION, paisConstitucionDe, declararPaisConstitucion,
   indicioDesdeDocumentos, divergenciaConPaisIdentificacion, clientesPorRevisar,
@@ -7257,6 +7258,20 @@ function derivarRoyaltyPlantaDesdeContratos(ctData, ocsByCt) {
   return out;
 }
 
+// El reajuste ACTIVADO es el unico camino por el que este motor puede mover
+// un monto del royalty comercial. Si no hay activacion efectiva, si la fila
+// esta protegida por antecedentes de cobro, o si la regla del aniversario
+// dentro del periodo no esta resuelta, devuelve el monto tal cual.
+//
+// La configuracion antigua (royaltyInflacion + rcInflacionPct) sigue su propio
+// camino, intacto: cuando esta operando, la activacion queda en conflicto y
+// esta funcion no hace nada.
+function montoConReajusteActivado(ct, temporada, montoBase, pago) {
+  const r = reajusteActivadoDeFila(ct, {temporada, montoFact: montoBase},
+    {mesCobro: ct && ct.rcMesCobro, antecedentes: pago});
+  return (r.aplica && !r.bloqueado && !r.intocable) ? r.ajustado : montoBase;
+}
+
 function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
   // Por cada temporada × contrato genera un registro
   const out = [];
@@ -7333,8 +7348,9 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
           inflPct,
           factorInfl: vphInfl>0 ? vphInfl/valorPorHa : 1,
           valorPorHaInfl: vphInfl,
-          montoFact: monto,
-          montoCobro: monto * retFactorNeto(ct),
+          montoFact: montoConReajusteActivado(ct, temp, monto, pago),
+          montoCobro: montoConReajusteActivado(ct, temp, monto, pago) * retFactorNeto(ct),
+          reajusteActivado: reajusteActivadoDeFila(ct, {temporada:temp, montoFact:monto}, {mesCobro, antecedentes:pago}),
           whtPct: retEstadoDe(ct).pct,
           retEstado: retEstadoDe(ct).estado, retPct: retEstadoDe(ct).pct,
           netoValidado: retEstadoDe(ct).validado, retEtiqueta: retEstadoDe(ct).etiqueta,
