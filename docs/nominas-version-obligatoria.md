@@ -1,12 +1,15 @@
 # Nóminas: la base exige la versión leída — propuesta
 
-> **Estado (2026-10-05): PROPUESTA, NO APLICADA.** Probada solo en local, con Postgres 16 + PostgREST 12
-> y datos de prueba. No hay cambios de permisos, triggers ni escrituras en producción. El PR sigue en borrador.
+> **Estado (2026-10-05): SQL PROPUESTO, NO APLICADO EN PRODUCCIÓN. Cliente aplicado en la rama** (sin despliegue
+> ni merge). Probado solo en local con Postgres 16 + PostgREST 12 y datos de prueba. El PR sigue en borrador.
 >
-> - SQL: `supabase/propuesta_nominas_version_obligatoria.sql`
-> - Reversión: `supabase/propuesta_nominas_version_obligatoria_reversion.sql`
-> - Cliente (parche **no aplicado**): `supabase/propuesta_nominas_version_obligatoria_cliente.patch`
-> - Prueba: `POSTGREST_BIN=/ruta/postgrest node scripts/nominas-cas/prueba.mjs` — 42/42 casos OK. Control negativo: con el trigger desactivado fallan 8 casos.
+> - SQL: `supabase/propuesta_nominas_version_obligatoria.sql` · reversión: `…_reversion.sql`
+> - Cliente: `src/nominasTransporteRpc.js` (la app guarda nóminas solo por `nominas_guardar`)
+> - Procedimiento de activación: `docs/nominas-activacion.md` · foto de verificación: `supabase/verificar_activacion_nominas.sql`
+> - Pruebas: `scripts/nominas-cas/prueba.mjs` (SQL por la API REST, 51 casos) y `scripts/e2e/nomina-base-real.mjs`
+>   (la app en el navegador contra la base local con el SQL aplicado tal cual, __NBR__ casos, 3 corridas seguidas).
+>   Controles negativos: sin el trigger fallan 8 casos; con la regla anterior (solo rol de conexión, `public` antes que
+>   `pg_catalog`) fallan K1 y K3.
 
 ## Problema
 
@@ -33,7 +36,7 @@ La base no puede ver el filtro `&updated_at=eq.…` de un PATCH: un trigger solo
      Cuando no escribe, el cliente relee y combina con la lógica ya probada (`guardarFila`).
    - **Seguridad:** es `SECURITY INVOKER`, así que corre con los permisos y las políticas RLS de quien llama y no amplía nada.
    - **Validaciones:** exige el mismo formato de hoy, es decir, texto JSON con la lista `nominas`. Solo acepta filas de nóminas por empresa.
-2. **Trigger `trg_nominas_exigir_version`** (BEFORE INSERT OR UPDATE): para los roles `anon` y `authenticated`, rechaza toda escritura de una fila `nominas_<empresa>` que no venga de la función.
+2. **Trigger `trg_nominas_exigir_version`** (BEFORE INSERT OR UPDATE): rechaza toda escritura de una fila `nominas_<empresa>` que no venga de la función cuando el rol de la conexión es `anon`/`authenticated` **o** la petición llegó con una llave de esos roles (JWT), aunque pase por una función `SECURITY DEFINER` (caso K1).
    - **Cómo reconoce a la función:** ella marca la fila autorizada con una variable de la transacción (`set_config(..., true)`). La llave pública no puede fijar esa variable por su cuenta: `set_config` no está expuesta (caso E7).
    - **Error que devuelve:** HTTP 400 `MEDITERRA_NOMINAS_SIN_VERSION: … recárgala`.
 
@@ -53,8 +56,8 @@ La base no puede ver el filtro `&updated_at=eq.…` de un PATCH: un trigger solo
 | Pestaña con código de **producción** (upsert sin condición) | Pisa la fila completa | **Rechazada** (400), no escribe nada (C1) |
 | Pestaña con código de producción **creando** una fila nueva | La crea | **Rechazada**: no crea (C2) |
 | Escritura a la fila antigua `nominas` (desvío del código antiguo cuando falla "¿ya se migró?") | La reescribe | **Rechazada**: solo lectura (C3) |
-| Rama actual **sin** el parche (PATCH con filtro / POST) | Funciona | **Rechazada** (C4, C5). **El parche de cliente es obligatorio** |
-| Cliente con el parche (función) | — | Funciona: combina, conflictos, respuesta perdida (F1–F5) |
+| Versión anterior de la rama (PATCH con filtro / POST) | Funciona | **Rechazada** (C4, C5). Por eso el cliente nuevo usa la función |
+| Cliente de la rama (función) | — | Funciona: combina, conflictos, respuesta perdida (F1–F5 y E2E en navegador) |
 | Panel de migración de nóminas (upsert) | Funciona | Rechazado. La migración ya se hizo (`nominas_v2_done` existe) |
 | `nominas_correlativos`, `nominas_tipos_doc`, `nominas_v2_done`, `finanzas` y el resto | Igual | **Sin cambio** (D1) |
 | SQL Editor (`postgres`) y `service_role` (restauraciones) | Igual | **Sin cambio**: la regla aplica solo a la llave pública (D2, D3) |
@@ -85,25 +88,32 @@ La base no puede ver el filtro `&updated_at=eq.…` de un PATCH: un trigger solo
 
    Mitigaciones:
    - el detector de versión nueva (`checkNewDeploy`, cada 30 s) recarga solas las pestañas ocultas y muestra un aviso en las visibles;
-   - pedir al equipo que recargue al activar;
+   - la pausa coordinada con cierre de todas las pestañas antes de activar (`docs/nominas-activacion.md`);
    - revisar en Supabase → Logs → API las respuestas 400 sobre `calendario_data` posteriores a la activación, que identifican escrituras rechazadas **[Probable]**: el registro guarda ruta y estado, no el cuerpo.
 2. **No es una barrera de seguridad.** Quien tenga la llave pública puede leer la versión y escribir mediante la función. La propuesta protege la **consistencia** (nadie pisa sin haber visto lo último), no el acceso. DELETE sigue abierto para `anon`; eso va por la propuesta separada.
 3. **Triggers existentes no reproducidos.** `trg_cd_scrub_main` y `trg_guard_main_no_user_shrink` no están en la prueba local porque falta su código completo (consulta 7). Antes de aplicar hay que:
    - confirmar que no tocan `id`, `value` ni `updated_at` de las filas `nominas_*`;
    - repetir la prueba con ellos.
-4. **Funciones y vistas expuestas.** Si alguna función ya publicada en el esquema `public` ejecutara SQL arbitrario, podría fijar la variable de autorización. Eso queda pendiente de la revisión de funciones y vistas accesibles de la parte 0.
+4. **Funciones y vistas expuestas: revisado lo que se puede revisar sin producción.** Ver "Permisos y caminos de elusión". Lo que depende de qué existe en producción queda en la PARTE 0 (0.5–0.8), pendiente de sus resultados.
+5. **[Seguro] El botón "📤 Restaurar" de administración** escribe con la llave pública y siempre informa éxito: con el trigger activo las filas de nóminas serían rechazadas sin que lo diga. Restaurar nóminas solo desde el SQL Editor (ver `docs/nominas-activacion.md`).
 
-## Implementación (orden)
+## Permisos y caminos de elusión
 
-| Paso | Qué | Efecto en usuarios | Ventana de riesgo |
+| Camino | Riesgo | Tratamiento | Prueba |
 |---|---|---|---|
-| 0 | PARTE 0 (solo lectura) + revisión de triggers/funciones | Ninguno | — |
-| 1 | PARTE 1: crear la función | Ninguno: nadie la llama todavía; el código antiguo sigue igual (B6) | — |
-| 2 | Desplegar el cliente: rama + parche | Pestañas nuevas guardan por la función (B7) | Las pestañas viejas aún pueden pisar, igual que hoy |
-| 3 | PARTE 2: activar el trigger, **minutos** después del despliegue | Pestañas viejas: rechazadas | Se cierra la ventana del paso 2 |
-| 4 | PARTE 3: verificación | Ninguno (ROLLBACK) | — |
+| La función `nominas_guardar` | Que amplíe permisos | `SECURITY INVOKER`: corre con los permisos y RLS de quien llama. `EXECUTE` revocado a `PUBLIC` y dado solo a anon, authenticated y service_role. Solo acepta filas de nóminas por empresa y el formato de hoy | E5, E6 |
+| La variable de autorización (`mediterra.nominas_cas`) | Que la llave pública la fije sin la función | Es local a la transacción y la función la limpia al terminar. `set_config` no está publicada por la API | E7 |
+| Variable fijada por rol (`alter role anon set mediterra…`) | Activaría el permiso para toda sesión | La PARTE 1 se aborta si existe; PARTE 0.8 la muestra | B3b |
+| Función `SECURITY DEFINER` publicada que escriba `calendario_data` | Corre como su dueño (postgres) y esquivaba la regla basada solo en el rol de conexión | El trigger mira también el rol del JWT de la petición | **K1** (falla con la regla anterior), K1b |
+| Vista actualizable sobre `calendario_data` | Otro camino de escritura | El trigger de la tabla se dispara igual | K2 |
+| Objeto malicioso en `public` con nombre de función del sistema (`set_config`) | Suplantación por `search_path` | `search_path = pg_catalog, public, pg_temp` en ambas funciones | **K3** (falla con `public` primero) |
+| Funciones con SQL dinámico ya existentes en producción | Podrían fijar la variable | No se puede saber sin producción: PARTE 0.5 (lista con marcas) y 0.6 (código completo) | K4 (la PARTE 0 detecta una función así) |
+| Escritura directa a la tabla por GraphQL (`/graphql/v1`) | Otro camino de escritura | Pasa por INSERT/UPDATE con el JWT: el trigger aplica **[Probable]**, no probado (no hay pg_graphql local) | — |
+| `TRUNCATE` / `DELETE` | No son escrituras de fila con versión | Fuera de esta propuesta. DELETE va en la propuesta separada. Los privilegios TRUNCATE de anon se deben revisar en esa misma propuesta (no se mezclan) | — |
 
-**¿Por qué no activar antes de desplegar?** Entre la activación y el despliegue, **nadie** podría guardar nóminas, ni siquiera quien recargó. Con el código antiguo, esas ediciones también se perderían en silencio. El orden 1 → 2 → 3 deja una ventana corta, la del despliegue de Vercel más los minutos que se decidan, en que se mantiene el riesgo de hoy.
+## Implementación
+
+El orden cambió respecto de la primera versión de esta propuesta: **el trigger se activa durante una pausa coordinada y ANTES del despliegue**, de modo que no queda ninguna ventana de operación normal entre ambos. Procedimiento paso a paso, verificación y criterios de reversión: **`docs/nominas-activacion.md`**.
 
 **PARTE 3** corre como `anon` dentro de una transacción que termina en `ROLLBACK`:
 - usa filas ficticias;
@@ -123,9 +133,6 @@ No hay datos que deshacer: la propuesta no modifica filas ni el esquema.
 
 ## Lo que falta antes de aplicar
 
-1. JSON completo de la consulta 7 (código de los triggers) y resultados de la parte 0. Con eso hay que repetir la prueba con esos triggers.
-2. **Validación final sobre la versión que se vaya a desplegar.**
-   - La prueba en navegador `scripts/e2e/nomina-condicionado.mjs` usa hoy PATCH/POST.
-   - Con el parche, el Supabase falso de `scripts/e2e/fake.mjs` necesita soportar `/rpc/nominas_guardar`. **No está hecho.**
-   - El parche aplica limpio sobre la rama y compila (`CI=true npm run build`), pero no se ha probado en el navegador.
-3. Decidir el horario de activación (paso 3) y el aviso al equipo para recargar.
+1. JSON completo de la consulta 7 (código de los triggers) y resultados de la PARTE 0 (incluidas 0.5–0.8). Con eso hay que repetir **las dos** pruebas locales con esos triggers.
+2. Validación final sobre el commit exacto que se vaya a desplegar.
+3. Autorización y hora de la pausa (`docs/nominas-activacion.md`).

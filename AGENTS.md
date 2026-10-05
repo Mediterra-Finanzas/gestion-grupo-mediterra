@@ -266,10 +266,13 @@ Reglas que no hay que romper:
   y verifica, sin duplicar. Un refresco fallido conserva lo ya cargado (`aplicarRefresco`). Riesgo abierto:
   sesiones con código anterior escriben sin condición hasta recargar. Tests: `node src/nominasPersistencia.test.mjs`,
   `scripts/e2e/nomina-condicionado.mjs`.
-- **Propuesta NO aplicada — la base exige la versión leída** (`docs/nominas-version-obligatoria.md`): función
-  `nominas_guardar(id, valor, versión|null)` + trigger `trg_nominas_exigir_version` que rechaza a la llave pública
-  cualquier otra escritura de `nominas_<empresa>` (incluidas pestañas con código antiguo y la rama sin parche). Requiere
-  `supabase/propuesta_nominas_version_obligatoria_cliente.patch`. Prueba local: `scripts/nominas-cas/prueba.mjs`.
+- **Versión obligatoria (SQL NO aplicado en producción)** (`docs/nominas-version-obligatoria.md`): función
+  `nominas_guardar(id, valor, versión|null)` + trigger `trg_nominas_exigir_version` que rechaza a la llave pública (rol de
+  conexión o JWT) cualquier otra escritura de `nominas_<empresa>`. **La app de la rama ya guarda nóminas SOLO por la
+  función** (`src/nominasTransporteRpc.js`): desplegarla exige la PARTE 1 aplicada antes. Activación con pausa
+  coordinada y trigger ANTES del despliegue: `docs/nominas-activacion.md`. `scripts/e2e/fake.mjs` emula la función y la
+  regla del trigger (activa por defecto). Pruebas: `scripts/nominas-cas/prueba.mjs` (SQL) y
+  `scripts/e2e/nomina-base-real.mjs` (navegador contra Postgres+PostgREST locales con el SQL tal cual).
   Respaldos existentes (solo lectura, sin contenido): `supabase/consulta_respaldos_existentes.sql`.
 - **Anular nómina/línea con pago vigente** → `ResolverPagosVinculados`: conservar
   (`anotarPago`) o anular el pago, con motivo; si Créditos no confirma, no se anula.
@@ -434,7 +437,7 @@ git push origin main
 - RLS Supabase mediterra-calendario (vulnerabilidad de seguridad pendiente de fix sequential). Verificado 2026-10-02:
   RLS ACTIVO en `calendario_data` pero con políticas abiertas a `anon` (leer/crear/modificar/BORRAR todo salvo
   `backup*`/`main_pre_restore*`). Propuesta NO aplicada para quitar DELETE: `docs/seguridad-quitar-delete-anon.md`.
-- Nóminas: guardado condicionado a la versión leída — implementado en la rama, sin desplegar: `docs/nominas-guardado-condicionado.md`.
+- Nóminas: guardado condicionado a la versión leída — implementado en la rama (vía `nominas_guardar`), sin desplegar: `docs/nominas-guardado-condicionado.md`, activación `docs/nominas-activacion.md`.
 - Módulo EEFF (Etapa 1: carga balance + P&L con análisis comparativo Real vs Ppto vs Año Anterior) — esperar Excel de plantilla de Angelo
 
 ## Estructura típica de un archivo de módulo

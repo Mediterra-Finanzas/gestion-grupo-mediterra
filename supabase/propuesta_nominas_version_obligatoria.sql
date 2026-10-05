@@ -28,13 +28,18 @@
 --     esquema de la tabla. No toca nominas_correlativos, nominas_tipos_doc,
 --     nominas_v2_done ni ninguna otra fila.
 --   · No afecta al SQL Editor ni a service_role (restauraciones del
---     administrador): la regla aplica solo a los roles anon y authenticated.
+--     administrador): la regla aplica a los roles anon y authenticated, y a
+--     toda petición que llegue con la llave pública aunque pase por una función
+--     SECURITY DEFINER.
 --
--- PARTES (se ejecutan POR SEPARADO y en orden; ver el documento):
---   PARTE 0 — Comprobaciones previas (solo lectura).
---   PARTE 1 — Función nominas_guardar (inerte: nadie la usa hasta desplegar el cliente).
---   [desplegar el cliente que llama a la función]
+-- PARTES (se ejecutan POR SEPARADO y en orden; procedimiento completo en
+-- docs/nominas-activacion.md):
+--   PARTE 0 — Comprobaciones previas (solo lectura), incluidas funciones,
+--             vistas y variables que podrían eludir el control.
+--   PARTE 1 — Función nominas_guardar (inerte: el código de producción no la usa).
+--   [pausa coordinada del trabajo en Nóminas]
 --   PARTE 2 — Activación: trigger que exige pasar por la función.
+--   [despliegue del cliente que llama a la función]
 --   PARTE 3 — Verificación (transacción que termina en ROLLBACK: no deja cambios).
 --   Reversión: supabase/propuesta_nominas_version_obligatoria_reversion.sql
 -- ─────────────────────────────────────────────────────────────────────────
@@ -78,6 +83,58 @@ where id like 'nominas%'
 order by id;
 
 
+-- 0.5 Funciones que la llave pública puede ejecutar en los esquemas que publica
+--     la API (por defecto public y graphql_public; agregar los que figuren en
+--     Dashboard → Settings → API → Exposed schemas). Las columnas de marca son un
+--     FILTRO para priorizar, no una prueba: revisar el código completo (0.6) de
+--     toda función SECURITY DEFINER, con SQL dinámico, que fije variables o que
+--     toque calendario_data. Cualquiera de ellas podría saltarse el control.
+select n.nspname as esquema, p.proname as funcion,
+       pg_get_function_identity_arguments(p.oid) as argumentos,
+       p.prosecdef as security_definer, l.lanname as lenguaje,
+       has_function_privilege('anon', p.oid, 'execute') as anon_ejecuta,
+       has_function_privilege('authenticated', p.oid, 'execute') as authenticated_ejecuta,
+       p.prosrc ~* '\mexecute\M'                      as marca_sql_dinamico,
+       p.prosrc ~* 'set_config|\mset\s+(local\s+)?\w+\.' as marca_fija_variables,
+       p.prosrc ~* 'calendario_data'                   as marca_calendario_data,
+       coalesce(array_to_string(p.proconfig, ', '), '') as configuracion
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+join pg_language l on l.oid = p.prolang
+where n.nspname in ('public', 'graphql_public')
+  and p.prokind in ('f', 'p')
+  and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'))
+order by (p.prosecdef or p.prosrc ~* '\mexecute\M|set_config|calendario_data') desc, n.nspname, p.proname;
+
+-- 0.6 Código completo de las funciones de 0.5 que sean SECURITY DEFINER o que
+--     tengan alguna marca (para revisarlas una por una).
+select n.nspname as esquema, p.proname as funcion, pg_get_functiondef(p.oid) as codigo
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname in ('public', 'graphql_public') and p.prokind in ('f', 'p')
+  and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'))
+  and (p.prosecdef or p.prosrc ~* '\mexecute\M|set_config|calendario_data')
+order by 1, 2;
+
+-- 0.7 Vistas o tablas que dependan de calendario_data (una vista actualizable
+--     permitiría escribir por otro camino) y si la llave pública puede escribir en ellas.
+select distinct v.relnamespace::regnamespace as esquema, v.relname as objeto, v.relkind as tipo,
+       has_table_privilege('anon', v.oid, 'insert') or has_table_privilege('anon', v.oid, 'update') as anon_escribe,
+       has_table_privilege('authenticated', v.oid, 'insert') or has_table_privilege('authenticated', v.oid, 'update') as authenticated_escribe
+from pg_depend d
+join pg_rewrite r on r.oid = d.objid
+join pg_class v on v.oid = r.ev_class
+where d.refobjid = 'public.calendario_data'::regclass and v.oid <> 'public.calendario_data'::regclass;
+
+-- 0.8 Variables fijadas por rol (incluida la configuración de PostgREST en
+--     authenticator, p. ej. pgrst.db_pre_request). Ningún valor debe mencionar
+--     "mediterra." (eso activaría el permiso de la función para toda la sesión).
+select coalesce(r.rolname, '(todos)') as rol, d.datname as base, s.setconfig as configuracion
+from pg_db_role_setting s
+left join pg_roles r on r.oid = s.setrole
+left join pg_database d on d.oid = s.setdatabase
+where r.rolname in ('anon', 'authenticated', 'authenticator', 'service_role') or s.setrole = 0
+order by 1;
+
 -- PARTE 1 — FUNCIÓN nominas_guardar (inerte hasta desplegar el cliente nuevo).
 -- Ejecutar el bloque completo de una vez. Se aborta si algo no calza.
 begin;
@@ -93,6 +150,9 @@ begin
                    and c.conkey = array[(select attnum from pg_attribute
                         where attrelid = 'public.calendario_data'::regclass and attname = 'id')]::int2[]) then
     raise exception 'ABORTADO: calendario_data.id no es único (revisar PARTE 0.3)';
+  end if;
+  if exists (select 1 from pg_db_role_setting where array_to_string(setconfig, ',') ~* 'mediterra\.') then
+    raise exception 'ABORTADO: hay una variable "mediterra." fijada por rol (revisar PARTE 0.8)';
   end if;
 end $$;
 
@@ -115,7 +175,7 @@ $$;
 -- "conflicto"/"existe"/"no_existe" no escriben nada: el cliente relee y combina.
 create function public.nominas_guardar(p_id text, p_value jsonb, p_version_leida timestamptz default null)
 returns jsonb language plpgsql security invoker
-set search_path = public, pg_catalog
+set search_path = pg_catalog, public, pg_temp
 as $$
 declare
   v_nueva timestamptz;
@@ -179,8 +239,9 @@ commit;
 notify pgrst, 'reload schema';   -- PostgREST publica la función /rest/v1/rpc/nominas_guardar
 
 
--- PARTE 2 — ACTIVACIÓN (después de desplegar el cliente que usa nominas_guardar).
--- Desde aquí, la llave pública ya no puede escribir nominas_<empresa> sin la versión.
+-- PARTE 2 — ACTIVACIÓN. Durante la PAUSA coordinada, ANTES de desplegar el cliente
+-- (procedimiento: docs/nominas-activacion.md). Desde aquí, la llave pública ya no
+-- puede escribir nominas_<empresa> sin la versión.
 begin;
 
 do $$
@@ -196,11 +257,18 @@ end $$;
 
 create function public.nominas_exigir_version()
 returns trigger language plpgsql
-set search_path = public, pg_catalog
+set search_path = pg_catalog, public, pg_temp
 as $$
 begin
-  -- SQL Editor (postgres) y service_role quedan fuera: restauraciones del administrador.
-  if current_user not in ('anon', 'authenticated') then
+  -- Quién escribe: el rol de la conexión (current_user) Y el rol de la llave con
+  -- que llegó la petición (JWT de PostgREST). Mirar ambos impide que una función
+  -- SECURITY DEFINER (corre como su dueño, p. ej. postgres) escriba nóminas sin
+  -- versión cuando la llama la llave pública. Quedan fuera solo el SQL Editor
+  -- (postgres, sin JWT) y service_role: restauraciones del administrador.
+  if current_user not in ('anon', 'authenticated')
+     and coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role',
+                  nullif(current_setting('request.jwt.claim.role', true), ''), '')
+         not in ('anon', 'authenticated') then
     return new;
   end if;
   if new.id = 'nominas' or (tg_op = 'UPDATE' and old.id = 'nominas') then

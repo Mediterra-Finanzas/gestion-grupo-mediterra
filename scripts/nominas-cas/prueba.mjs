@@ -15,6 +15,9 @@
        la regla, la verificación (PARTE 3) y la reversión;
      · la consulta de respaldos (supabase/consulta_respaldos_existentes.sql):
        lista fechas y tamaños sin mostrar contenido.
+     · caminos para eludir el control: función SECURITY DEFINER publicada, vista
+       actualizable, variable fijada por rol, set_config falsa en public (K, B3b);
+     · la foto de verificación de la activación (supabase/verificar_activacion_nominas.sql, L).
    No reproduce los dos triggers que ya existen en producción
    (trg_cd_scrub_main, trg_guard_main_no_user_shrink): su código completo está
    pendiente (consulta 7). Hay que repetir esta prueba con ellos antes de aplicar.
@@ -152,6 +155,10 @@ check('B2. PARTE 0 informa qué filas quedan protegidas (osiris/mediterra), cuá
   && /nominas_correlativos\|.*sin cambio/.test(p.salida) && /nominas_tipos_doc\|.*sin cambio/.test(p.salida) && /nominas_v2_done\|.*sin cambio/.test(p.salida));
 p = psqlTexto(parte2);
 check('B3. PARTE 2 antes de la PARTE 1: se ABORTA sin crear nada', !p.ok && /ABORTADO: falta la PARTE 1/.test(p.salida) && psql(`select count(*) from pg_trigger where tgname='trg_nominas_exigir_version'`) === '0');
+psql(`alter role anon set mediterra.nominas_cas = 'nominas_osiris'`);
+p = psqlTexto(parte1);
+check('B3b. PARTE 1 se ABORTA si algún rol tiene fijada una variable "mediterra." (activaría el permiso para toda la sesión)', !p.ok && /PARTE 0\.8/.test(p.salida) && psql(`select count(*) from pg_proc where proname='nominas_guardar'`) === '0');
+psql(`alter role anon reset mediterra.nominas_cas`);
 p = psqlTexto(parte1); await recargarEsquema();
 check('B4. PARTE 1 (función) se aplica', p.ok, p.ok ? '' : p.salida.slice(0, 300));
 p = psqlTexto(parte1);
@@ -283,6 +290,61 @@ r = await rpc({ p_id: 'nominas_osiris', p_value: texto('Osiris', []), p_version_
 check('H3. Nivel 2: la función desaparece (el cliente nuevo ya no podría guardar: revertir el cliente ANTES)', p.ok && r.status === 404 && psql(`select count(*) from pg_proc where proname like 'nominas\\_%'`) === '0', `HTTP ${r.status}`);
 r = await upsertAntiguo('finanzas', JSON.stringify({ a: 3 }));
 check('H4. Tras la reversión completa, el resto de la tabla funciona normal', r.ok);
+
+// ═══ K. Caminos para eludir el control (con la propuesta activa) ═══════
+// La sección H revirtió todo: se vuelve a aplicar la propuesta tal cual.
+p = psqlTexto(parte1); await recargarEsquema();
+const p2k = psqlTexto(parte2);
+check('K0. La propuesta se vuelve a aplicar después de revertirla (PARTE 1 + PARTE 2)', p.ok && p2k.ok, (p.ok ? '' : p.salida.slice(0, 150)) + (p2k.ok ? '' : p2k.salida.slice(0, 150)));
+sembrar();
+// K1. Función SECURITY DEFINER (dueño postgres) publicada que escribe en calendario_data.
+psql(`create function public.zz_definer_escribe(p_id text, p_txt text) returns void language sql security definer set search_path = pg_catalog, public as $f$
+  insert into public.calendario_data (id, value, updated_at) values (p_id, to_jsonb(p_txt), now())
+  on conflict (id) do update set value = excluded.value, updated_at = excluded.updated_at $f$;
+  grant execute on function public.zz_definer_escribe(text, text) to anon, service_role;`);
+await recargarEsquema();
+foto = huella();
+r = await fetch(`${BASE}/rest/v1/rpc/zz_definer_escribe`, { method: 'POST', headers: H(ANON), body: JSON.stringify({ p_id: 'nominas_osiris', p_txt: texto('Osiris', []) }) });
+cuerpo = await r.text();
+check('K1. Una función SECURITY DEFINER llamada con la llave pública NO puede escribir nóminas sin versión (se mira el rol del JWT)',
+  r.status === 400 && /MEDITERRA_NOMINAS_SIN_VERSION/.test(cuerpo) && huella() === foto, `HTTP ${r.status}`);
+r = await fetch(`${BASE}/rest/v1/rpc/zz_definer_escribe`, { method: 'POST', headers: H(SERV), body: JSON.stringify({ p_id: 'nominas_osiris', p_txt: texto('Osiris', [nom('A', { notas: 'restauración' })]) }) });
+check('K1b. La misma función llamada con service_role (administrador) sí escribe', r.ok && nominasDe('nominas_osiris')[0].notas === 'restauración', `HTTP ${r.status}`);
+// K2. Vista actualizable sobre calendario_data publicada a la llave pública.
+sembrar();
+psql(`create view public.zz_vista as select * from public.calendario_data; grant select, insert, update on public.zz_vista to anon;`);
+await recargarEsquema();
+foto = huella();
+r = await fetch(`${BASE}/rest/v1/zz_vista?id=eq.nominas_osiris`, { method: 'PATCH', headers: H(ANON), body: JSON.stringify({ value: texto('Osiris', []) }) });
+const rv2 = await fetch(`${BASE}/rest/v1/zz_vista`, { method: 'POST', headers: { ...H(ANON), Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify({ id: 'nominas_mediterra', value: texto('Mediterra', []) }) });
+check('K2. Escribir por una vista actualizable (dueño postgres) tampoco pasa: el trigger de la tabla igual rechaza', r.status === 400 && rv2.status >= 400 && huella() === foto, `HTTP ${r.status} / ${rv2.status}`);
+// K3. Una función maliciosa "set_config" en public no reemplaza a la del sistema (search_path con pg_catalog primero).
+psql(`create function public.set_config(text, text, boolean) returns text language sql as $f$ select 'falsa'::text $f$; grant execute on function public.set_config(text, text, boolean) to anon;`);
+await recargarEsquema();
+v = (await T.leer('nominas_osiris')).version;
+g = await T.patch('nominas_osiris', v, texto('Osiris', [nom('A', { notas: 'con set_config falsa en public' }), nom('B')]));
+check('K3. Una set_config falsa en public no altera la función (usa la del sistema): guarda normal', g.ok && nominasDe('nominas_osiris')[0].notas === 'con set_config falsa en public', JSON.stringify(g));
+// K4. La PARTE 0 marca la función peligrosa y la vista.
+p = psqlTexto(parte0);
+check('K4. PARTE 0 lista la función SECURITY DEFINER que toca calendario_data, su código, la vista actualizable y no cambia datos',
+  p.ok && /\npublic\|zz_definer_escribe\|[^\n]*\|t\|sql\|t\|/.test(p.salida) && /CREATE OR REPLACE FUNCTION public\.zz_definer_escribe/.test(p.salida) && /\npublic\|zz_vista\|v\|t\|/.test(p.salida),
+  p.ok ? '' : p.salida.slice(0, 200));
+psql(`drop function public.zz_definer_escribe(text, text); drop view public.zz_vista; drop function public.set_config(text, text, boolean);`);
+await recargarEsquema();
+
+// ═══ L. Foto de verificación para la activación (solo lectura) ══════════
+sembrar();
+const VERIF = fs.readFileSync(path.join(RAIZ, 'supabase/verificar_activacion_nominas.sql'), 'utf8');
+foto = huella();
+const f1 = psqlTexto(VERIF), f2 = psqlTexto(VERIF);
+const totalDe = (salida) => (salida.split('\n').find((l) => /^\d+\|.*\|[0-9a-f]{32}$/.test(l)) || '').split('|').pop();
+check('L1. Foto de nóminas: lista cada fila con cantidad de nóminas y huella, sin contenido; dos fotos seguidas son idénticas; no cambia datos',
+  f1.ok && f2.ok && /\nnominas_osiris\|[^\n]*\|string\|2\|[0-9a-f]{32}/.test('\n' + f1.salida) && !/notas|Proveedor/.test(f1.salida) && totalDe(f1.salida) && totalDe(f1.salida) === totalDe(f2.salida) && huella() === foto);
+v = (await T.leer('nominas_osiris')).version;
+await T.patch('nominas_osiris', v, texto('Osiris', [nom('A', { notas: 'cambio' }), nom('B')]));
+const f3 = psqlTexto(VERIF);
+check('L2. Si alguien guarda entre dos fotos, la huella total cambia (así se detecta que la pausa no se respetó)', totalDe(f3.salida) !== totalDe(f1.salida));
+check('L3. La foto informa función existente y trigger activo (O)', /\n1\|O\s*$/.test('\n' + f3.salida.trim().split('\n').pop()) || /(^|\n)1\|O(\n|$)/.test(f3.salida), f3.salida.trim().split('\n').pop());
 
 // ═══ J. Consulta de respaldos (solo lectura, sin contenido) ═════════════
 psql(`insert into calendario_data (id, value, updated_at) values
