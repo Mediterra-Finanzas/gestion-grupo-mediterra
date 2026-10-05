@@ -11,7 +11,8 @@
 
 import { derivarRoyaltyComercialDesdeContratos } from "../OsirisModule";
 import {
-  activar, desactivar, puedeCrearActivacion, puedeEditarTerminos,
+  activar, desactivar, puedeDesactivar, previsualizarDesactivacion,
+  puedeCrearActivacion, puedeEditarTerminos,
   diferenciasConElSello, estadoActivacion, terminosVigentes,
   ACTIVADO, MODIFICACION_PENDIENTE, ACTIVACIONES_NUEVAS_HABILITADAS,
 } from "./reajusteAplicado";
@@ -149,18 +150,42 @@ describe("4 · las filas con factura o pago siguen protegidas", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-describe("5 · desactivar es una acción con condiciones", () => {
+describe("5 · desactivar exige permiso, vista previa y confirmacion", () => {
   const activo = ACTIVO();
+  const FILAS = [{ temporada: "2026/2027", montoFact: 125910 }, { temporada: "2027/2028", montoFact: 125910 }];
+
+  test("sin permiso de edicion, bloqueada", () => {
+    expect(puedeDesactivar(activo, { puedeEditar: false }).puede).toBe(false);
+    expect(desactivar(activo, { motivo: "x", confirmado: true, puedeEditar: false }).ok).toBe(false);
+  });
 
   test("exige un motivo", () => {
-    const r = desactivar(activo, "", "prueba");
+    const r = desactivar(activo, { motivo: "", confirmado: true });
     expect(r.ok).toBe(false);
     expect(r.motivo).toMatch(/hace falta un motivo/);
   });
 
-  test("con motivo, deja rastro y devuelve los importes a la base", () => {
-    const r = desactivar(activo, "Se anulo el respaldo del primer pago", "prueba");
+  test("exige confirmacion explicita, no alcanza el motivo", () => {
+    const r = desactivar(activo, { motivo: "Se anulo el respaldo" });
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toMatch(/confirmacion explicita/);
+    expect(r.contrato.reajusteActivacion.activado).toBe(true);   // no apago nada
+  });
+
+  test("la vista previa dice fila por fila cuanto baja", () => {
+    const pd = previsualizarDesactivacion(activo, FILAS, {});
+    expect(pd.filasQueBajan).toBe(1);                 // la primera no cumple periodo
+    const f2 = pd.detalle.find((d) => d.temporada === "2027/2028");
+    expect(r2(f2.conReajuste)).toBeCloseTo(128428.2, 2);
+    expect(r2(f2.sinReajuste)).toBe(125910);
+    expect(r2(f2.diferencia)).toBeCloseTo(-2518.2, 2);
+    expect(r2(pd.diferencia)).toBeCloseTo(-2518.2, 2);
+  });
+
+  test("con permiso, motivo y confirmacion: deja rastro y vuelve a la base", () => {
+    const r = desactivar(activo, { motivo: "Se anulo el respaldo del primer pago", usuario: "prueba", confirmado: true, impacto: -2518.2 });
     expect(r.ok).toBe(true);
+    expect(r.contrato.reajusteActivacion.desactivadoImpacto).toBeCloseTo(-2518.2, 2);
     expect(r.contrato.reajusteActivacion.activado).toBe(false);
     expect(r.contrato.reajusteActivacion.desactivadoMotivo).toMatch(/respaldo/);
     expect(r.contrato.reajusteActivacion.desactivadoPor).toBe("prueba");
@@ -170,7 +195,7 @@ describe("5 · desactivar es una acción con condiciones", () => {
   });
 
   test("no se puede desactivar lo que no está activo", () => {
-    expect(desactivar(CONTRATO(), "x", "prueba").ok).toBe(false);
+    expect(desactivar(CONTRATO(), { motivo: "x", confirmado: true }).ok).toBe(false);
   });
 });
 

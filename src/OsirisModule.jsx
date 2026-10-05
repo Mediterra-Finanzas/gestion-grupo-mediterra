@@ -10002,10 +10002,23 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                           {!permiso.puede
                             ? <span style={{fontSize:10,color:C.danger,fontWeight:700}}>{permiso.motivo}</span>
                             : act.activo
-                            ? <button disabled={!can} onClick={()=>{
-                                const motivo = window.prompt("Desactivar mueve importes. \u00bfPor que se desactiva?");
+                            ? <button disabled={!can||!puedeDesactivar(r,{puedeEditar:can}).puede} onClick={()=>{
+                                // Desactivar exige lo mismo que activar: permiso,
+                                // vista previa del impacto y confirmacion explicita.
+                                const permiso = puedeDesactivar(r,{puedeEditar:can});
+                                if(!permiso.puede){ window.alert(permiso.motivo); return; }
+                                const pd = previsualizarDesactivacion(r, rcRows, {mesCobro:r.rcMesCobro, antecedentesDe:antes});
+                                const lineas = pd.detalle.filter(x=>x.diferencia<0)
+                                  .map(x=>`${x.temporada}: $${N(x.conReajuste.toFixed(2))} → $${N(x.sinReajuste.toFixed(2))}`).join("\n");
+                                const motivo = window.prompt(
+                                  "Desactivar devuelve importes a la base.\n\n"+lineas+
+                                  "\n\nFilas que bajan: "+pd.filasQueBajan+
+                                  "\nSe deja de aplicar: US$ "+Math.abs(pd.diferencia).toFixed(2)+
+                                  "\n\nPor que se desactiva? (obligatorio)");
                                 if(!motivo||!motivo.trim()) return;
-                                const res = desactivarReajuste(r, motivo, (window.__usuarioOsiris||""));
+                                const ok = window.confirm("Confirmas desactivar y dejar de aplicar US$ "+Math.abs(pd.diferencia).toFixed(2)+"?");
+                                if(!ok) return;
+                                const res = desactivarReajuste(r,{motivo, usuario:(window.__usuarioOsiris||""), confirmado:true, impacto:pd.diferencia, puedeEditar:can});
                                 if(!res.ok){ window.alert(res.motivo); return; }
                                 upd(r.id,"reajusteActivacion",res.contrato.reajusteActivacion);
                               }} style={{background:C.dangerBg,color:C.danger,border:`1px solid ${C.danger}`,borderRadius:8,padding:"6px 14px",cursor:can?"pointer":"default",fontSize:11,fontWeight:700}}>
