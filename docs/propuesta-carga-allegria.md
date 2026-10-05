@@ -52,6 +52,13 @@ reformulación del calendario, o cobros que no pertenecen a este calendario.
 Y, en el otro sentido, de cada movimiento recibido: si corresponde a una cuota
 de este calendario, a una operación anterior, o queda por identificar.
 
+### Estado al 05/10/2026
+
+Las cuatro definiciones volvieron **sin marcar** (los corchetes de opciones
+tal cual). No se eligió ninguna por defecto. Entonces, para las tres cuotas y
+para el destino de los US$599.960, el estado es **por confirmar**, y no se
+registra ninguna asociación entre movimientos y cuotas.
+
 ### Mientras no esté resuelto
 
 - Las tres cuotas se cargan en **borrador**: no proyectan ni sustituyen nada.
