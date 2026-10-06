@@ -23,9 +23,11 @@
 
 ## Criterio global de aprobación (todos obligatorios)
 
-1. **Cero contacto con producción:**
-   - el `updated_at` de `pins`, `usuarios`, `main` y `audit_log` en producción, leído antes y después de cada sesión de pruebas, es idéntico;
-   - el registro de red del navegador no muestra el host de producción.
+1. **Cero contacto con producción**, demostrado por las rutas de salida, no solo por los datos:
+   - **Configuración:** las variables del entorno Preview apuntan solo a staging (`SUPABASE_URL`, `REACT_APP_SUPA_URL`, `DESTINOS_PERMITIDOS`) y no hay ninguna llave de producción en ese entorno. La revisión se hace por nombre y host, sin ver valores.
+   - **Navegador:** el registro de red completo de cada recorrido (HTTP y WebSocket) no muestra el host de producción.
+   - **Servidor:** la guardia de destinos (`api/_destinos.js`) rechaza y registra `[destino-no-autorizado]` cualquier salida fuera de la lista. En los logs de funciones de la Preview no aparece ninguna salida a producción.
+   - **Complementario:** `updated_at` de `pins`, `usuarios`, `main` y `audit_log` en producción, idéntico antes y después. **No demuestra ausencia de lecturas**; solo descarta escrituras.
 2. **Cero salidas fuera de la lista:**
    - el navegador solo llega al origen de la Preview, al Supabase de staging y a Google Fonts;
    - el servidor solo llega a staging y a `smtp.office365.com`;
