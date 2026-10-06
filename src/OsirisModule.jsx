@@ -39,6 +39,7 @@ import {
 import {
   reajusteDeFila as reajusteActivadoDeFila, estadoActivacion, previsualizarActivacion,
   puedeCrearActivacion, puedeEditarTerminos, activar as activarReajuste, desactivar as desactivarReajuste,
+  puedeDesactivar, previsualizarDesactivacion, historialActivacion, identidadDe,
   antecedentesDeCobro, REGLAS_FECHA,
   ACTIVADO as REAJ_ACTIVADO, MODIFICACION_PENDIENTE as REAJ_MODIF_PENDIENTE,
   CONFLICTO_CON_ANTIGUA as REAJ_CONFLICTO, SIN_ACTIVAR as REAJ_SIN_ACTIVAR,
@@ -7272,10 +7273,18 @@ function derivarRoyaltyPlantaDesdeContratos(ctData, ocsByCt) {
 // La configuracion antigua (royaltyInflacion + rcInflacionPct) sigue su propio
 // camino, intacto: cuando esta operando, la activacion queda en conflicto y
 // esta funcion no hace nada.
-function montoConReajusteActivado(ct, temporada, montoBase, pago) {
+function reajusteDeTemporada(ct, temporada, montoBase, pago) {
   const r = reajusteActivadoDeFila(ct, {temporada, montoFact: montoBase},
     {mesCobro: ct && ct.rcMesCobro, antecedentes: pago});
-  return (r.aplica && !r.bloqueado && !r.intocable) ? r.ajustado : montoBase;
+  const seAplica = r.aplica && !r.bloqueado && !r.intocable;
+  return {
+    // H8: la fila lleva de donde sale el numero, para que cuadre en pantalla.
+    base: montoBase,
+    factor: seAplica ? r.factor : 1,
+    ajuste: seAplica ? +(r.ajustado - montoBase).toFixed(2) : 0,
+    total: seAplica ? r.ajustado : montoBase,
+    detalle: r,
+  };
 }
 
 function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
@@ -7339,6 +7348,10 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
         const tieneOv = haOv!==undefined && haOv!==null && String(haOv).trim()!=="" && !isNaN(Number(haOv));
         const ha = tieneOv ? Number(haOv) : haDeriv;
         const monto = tieneOv ? ha * vphInfl : montoDeriv;
+        // El reajuste se calcula sobre el monto QUE SE VA A COBRAR, incluido el
+        // override manual de hectareas. Si se calculara sobre el derivado, un
+        // override dejaria el ajuste descolgado del importe.
+        const rj = reajusteDeTemporada(ct, temp, monto, pago);
         out.push({
           id: `rc_${ct.id}_${temp.replace("/","")}`,
           ctId: ct.id,
@@ -7354,9 +7367,12 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
           inflPct,
           factorInfl: vphInfl>0 ? vphInfl/valorPorHa : 1,
           valorPorHaInfl: vphInfl,
-          montoFact: montoConReajusteActivado(ct, temp, monto, pago),
-          montoCobro: montoConReajusteActivado(ct, temp, monto, pago) * retFactorNeto(ct),
-          reajusteActivado: reajusteActivadoDeFila(ct, {temporada:temp, montoFact:monto}, {mesCobro, antecedentes:pago}),
+          montoFact: rj.total,
+          montoCobro: rj.total * retFactorNeto(ct),
+          montoBaseSinReajuste: rj.base,
+          reajusteFactor: rj.factor,
+          reajusteAjuste: rj.ajuste,
+          reajusteActivado: rj.detalle,
           whtPct: retEstadoDe(ct).pct,
           retEstado: retEstadoDe(ct).estado, retPct: retEstadoDe(ct).pct,
           netoValidado: retEstadoDe(ct).validado, retEtiqueta: retEstadoDe(ct).etiqueta,
@@ -7386,11 +7402,16 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
     const temps = temporadasEntre(inicioTemp, ct.fechaTermino);
     temps.forEach((temp, tempIdx) => {
       const factorInfl = Math.pow(1 + inflPct/100, tempIdx);
-      const montoFact = haTotal * valorPorHa * factorInfl;
-      const montoCobro = montoFact * retFactorNeto(ct);
+      const montoSinReajuste = haTotal * valorPorHa * factorInfl;
       // Pagos guardados por temporada en el contrato
       const pagosKey = ct.rcPagos || {};
       const pago = pagosKey[temp] || {};
+      // H2: esta rama (plantaciones x temporadas) tambien aplica el reajuste
+      // activado. Antes no lo hacia, y es la rama por la que van los contratos
+      // sin cohortes declaradas, Olmos incluido.
+      const rjL = reajusteDeTemporada(ct, temp, montoSinReajuste, pago);
+      const montoFact = rjL.total;
+      const montoCobro = montoFact * retFactorNeto(ct);
       out.push({
         id: `rc_${ct.id}_${temp.replace("/","")}`,
         ctId: ct.id,
@@ -7404,6 +7425,10 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
         valorPorHaInfl: valorPorHa * factorInfl,
         montoFact,
         montoCobro,
+        montoBaseSinReajuste: rjL.base,
+        reajusteFactor: rjL.factor,
+        reajusteAjuste: rjL.ajuste,
+        reajusteActivado: rjL.detalle,
         whtPct: retEstadoDe(ct).pct,
         retEstado: retEstadoDe(ct).estado, retPct: retEstadoDe(ct).pct,
         netoValidado: retEstadoDe(ct).validado, retEtiqueta: retEstadoDe(ct).etiqueta,
@@ -9722,7 +9747,17 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                         style={{...inp,width:78,textAlign:"right",borderColor:x.haAjustada?C.am:C.border,fontWeight:x.haAjustada?700:400,color:x.haAjustada?C.am:C.text}}/>
                     : N((x.haTotal||0).toFixed(2))}{x.haAjustada?<div style={{fontSize:9,color:C.muted2}}>der: {N((x.haDeriv||0).toFixed(2))}</div>:null}</td>
                   <td style={{padding:"5px 8px",textAlign:"right"}}>${N((x.valorPorHaInfl||0).toFixed(2))}{x.factorInfl>1?<span style={{fontSize:9,color:C.am,display:"block"}}>×{x.factorInfl.toFixed(3)}</span>:null}</td>
-                  <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(x.montoFact.toFixed(2))}</td>
+                  {/* H8: el importe tiene que poder verificarse en pantalla.
+                      Cuando hay reajuste aplicado se muestra de donde sale:
+                      base + ajuste = total, con el factor. */}
+                  <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>
+                    ${N(x.montoFact.toFixed(2))}
+                    {x.reajusteAjuste>0?(
+                      <span style={{display:"block",fontSize:9,fontWeight:500,color:C.am||"#854d0e"}}>
+                        base ${N(Number(x.montoBaseSinReajuste||0).toFixed(2))} + ajuste ${N(Number(x.reajusteAjuste).toFixed(2))} (x{Number(x.reajusteFactor||1).toFixed(4)})
+                      </span>
+                    ):null}
+                  </td>
                   <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(x.montoCobro.toFixed(2))}</td>
                   <td style={{padding:"5px 8px"}}>{can&&!parciales.length?<input value={x.fechaEst||""} type="date" onChange={e=>updRcPago(x.temporada,"fechaEst",e.target.value)} style={inp}/>:(parciales.length?"—":(x.fechaEst||"—"))}</td>
                   <td style={{padding:"5px 8px",textAlign:"center"}}>{!parciales.length&&editable&&can?<input type="checkbox" checked={!!x.pagado} onChange={e=>updRcPago(x.temporada,"pagado",e.target.checked)}/>:(parciales.length?"—":(x.pagado?"✓":"—"))}</td>
@@ -9898,7 +9933,14 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                     const permiso = puedeCrearActivacion();
                     const edit = puedeEditarTerminos(r);
                     const antes = (f)=>((r.rcPagos||{})[f.temporada]||null);
-                    const prev = previsualizarActivacion(r, rcRows, {mesCobro: r.rcMesCobro, antecedentesDe: antes});
+                    // H3: `rcRows` YA trae el reajuste aplicado cuando la activacion
+                    // esta vigente. Partir de ahi componia el factor dos veces y
+                    // mostraba un "antes" y una "diferencia" que no eran los reales.
+                    // La base se recalcula con la activacion apagada: es exactamente
+                    // lo que el sistema guardaria y calcularia.
+                    const rcRowsBase = derivarRoyaltyComercialDesdeContratos(
+                      [{...r, reajusteActivacion: {...(r.reajusteActivacion||{}), activado:false}}], ocsByCt);
+                    const prev = previsualizarActivacion(r, rcRowsBase, {mesCobro: r.rcMesCobro, antecedentesDe: antes});
                     const ra = r.reajusteActivacion||{};
                     const upA = (campo,val)=>{ if(!can) return; upd(r.id,"reajusteActivacion",{...(r.reajusteActivacion||{}),[campo]:val}); };
                     const col = act.estado===REAJ_ACTIVADO ? C.success
@@ -9997,17 +10039,17 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                           diferencia aplicada: <strong>${N(prev.diferenciaAplicada.toFixed(2))}</strong>
                         </div>
 
-                        {/* Acciones. Activar y desactivar son operaciones economicas. */}
+                        {/* Acciones. Activar y desactivar son operaciones economicas:
+                            permiso dentro de la accion, identidad canonica, vista
+                            previa y confirmacion explicita. */}
                         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                          {!permiso.puede
-                            ? <span style={{fontSize:10,color:C.danger,fontWeight:700}}>{permiso.motivo}</span>
-                            : act.activo
+                          {act.activo
                             ? <button disabled={!can||!puedeDesactivar(r,{puedeEditar:can}).puede} onClick={()=>{
-                                // Desactivar exige lo mismo que activar: permiso,
-                                // vista previa del impacto y confirmacion explicita.
-                                const permiso = puedeDesactivar(r,{puedeEditar:can});
-                                if(!permiso.puede){ window.alert(permiso.motivo); return; }
-                                const pd = previsualizarDesactivacion(r, rcRows, {mesCobro:r.rcMesCobro, antecedentesDe:antes});
+                                const pm = puedeDesactivar(r,{puedeEditar:can});
+                                if(!pm.puede){ window.alert(pm.motivo); return; }
+                                const ident = identidadDe(usuarioActual);
+                                if(!ident.valida){ window.alert(ident.motivo); return; }
+                                const pd = previsualizarDesactivacion(r, rcRowsBase, {mesCobro:r.rcMesCobro, antecedentesDe:antes});
                                 const lineas = pd.detalle.filter(x=>x.diferencia<0)
                                   .map(x=>`${x.temporada}: $${N(x.conReajuste.toFixed(2))} → $${N(x.sinReajuste.toFixed(2))}`).join("\n");
                                 const motivo = window.prompt(
@@ -10018,30 +10060,49 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                 if(!motivo||!motivo.trim()) return;
                                 const ok = window.confirm("Confirmas desactivar y dejar de aplicar US$ "+Math.abs(pd.diferencia).toFixed(2)+"?");
                                 if(!ok) return;
-                                const res = desactivarReajuste(r,{motivo, usuario:(window.__usuarioOsiris||""), confirmado:true, impacto:pd.diferencia, puedeEditar:can});
+                                const res = desactivarReajuste(r,{motivo, usuarioActual, confirmado:true, impacto:pd.diferencia, puedeEditar:can});
                                 if(!res.ok){ window.alert(res.motivo); return; }
                                 upd(r.id,"reajusteActivacion",res.contrato.reajusteActivacion);
                               }} style={{background:C.dangerBg,color:C.danger,border:`1px solid ${C.danger}`,borderRadius:8,padding:"6px 14px",cursor:can?"pointer":"default",fontSize:11,fontWeight:700}}>
                                 Desactivar
                               </button>
+                            : !permiso.puede
+                            ? <span style={{fontSize:10,color:C.danger,fontWeight:700}}>{permiso.motivo}</span>
                             : <button disabled={!can} onClick={()=>{
-                                const res = activarReajuste(r, r.reajusteActivacion||{});
-                                if(!res.ok){ window.alert(res.motivo); return; }
-                                const p = previsualizarActivacion(res.contrato, rcRows, {mesCobro: r.rcMesCobro, antecedentesDe: antes});
+                                const ident = identidadDe(usuarioActual);
+                                if(!ident.valida){ window.alert(ident.motivo); return; }
                                 const ok = window.confirm(
                                   "Activar el reajuste cambia importes.\n\n"+
-                                  "Filas que cambian: "+p.filasQueCambian+"\n"+
-                                  "Protegidas por factura o pago: "+p.filasIntocables+"\n"+
-                                  "Bloqueadas por regla pendiente: "+p.filasBloqueadasPorReglaPendiente+"\n"+
-                                  "Diferencia que se aplica: US$ "+p.diferenciaAplicada.toFixed(2)+"\n\n"+
-                                  "\u00bfConfirmas?");
+                                  "Filas que cambian: "+prev.filasQueCambian+"\n"+
+                                  "Protegidas por factura o pago: "+prev.filasIntocables+"\n"+
+                                  "Bloqueadas por regla pendiente: "+prev.filasBloqueadasPorReglaPendiente+"\n"+
+                                  "Diferencia que se aplica: US$ "+prev.diferenciaAplicada.toFixed(2)+"\n\n"+
+                                  "Confirmas?");
                                 if(!ok) return;
+                                const res = activarReajuste(r, {...(r.reajusteActivacion||{}),
+                                  puedeEditar: can, usuarioActual, confirmado: true,
+                                  impacto: prev.diferenciaAplicada});
+                                if(!res.ok){ window.alert(res.motivo); return; }
                                 upd(r.id,"reajusteActivacion",res.contrato.reajusteActivacion);
                               }} style={{background:C.success,color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:can?"pointer":"default",fontSize:11,fontWeight:700}}>
                                 Activar el reajuste
                               </button>}
-                          {act.estado===REAJ_ACTIVADO&&<span style={{fontSize:10,color:C.muted}}>Sellado: {act.pct} % · desde {act.fechaReferencia} · por {act.reglaSellada}</span>}
+                          {act.activo&&<span style={{fontSize:10,color:C.muted}}>Sellado: {act.pct} % \u00b7 desde {act.fechaReferencia} \u00b7 por {act.reglaSellada}</span>}
                         </div>
+                        {/* Historial de activaciones y desactivaciones de ESTE contrato. */}
+                        {historialActivacion(r).length>0&&(
+                          <div style={{marginTop:8,fontSize:10,color:C.muted,lineHeight:1.6}}>
+                            <strong>Historial:</strong>
+                            {historialActivacion(r).map((h,i)=>(
+                              <div key={i}>
+                                {h.fecha} \u00b7 {h.evento} \u00b7 {h.autor}
+                                {h.sello?` \u00b7 ${h.sello.pct} % desde ${h.sello.fechaReferencia}`:""}
+                                {h.impactoConfirmado!==null&&h.impactoConfirmado!==undefined?` \u00b7 impacto US$ ${N(Number(h.impactoConfirmado).toFixed(2))}`:""}
+                                {h.motivo?` \u00b7 ${h.motivo}`:""}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}

@@ -26,11 +26,16 @@ const sePuedeCrear = ACTIVACIONES_NUEVAS_HABILITADAS;
 const dCrear = sePuedeCrear ? describe : describe.skip;
 // Contrato ya activado, sin pasar por la accion: sirve en las dos versiones.
 const ACTIVO = () => CONTRATO({ reajusteActivacion: ACTIVACION });
+// activar() exige permiso, identidad canonica y confirmacion explicita.
+const USUARIO = { nombre: "Prueba Sintetica", email: "prueba@invalid" };
+const ACT_ARGS = Object.assign({}, DATOS_ACTIVACION, {
+  usuarioActual: USUARIO, puedeEditar: true, confirmado: true,
+});
 
 // ══════════════════════════════════════════════════════════════════
 dCrear("1 · activar sella los términos", () => {
   test("la acción deja el sello con porcentaje, fecha y regla", () => {
-    const res = activar(CONTRATO(), DATOS_ACTIVACION);
+    const res = activar(CONTRATO(), ACT_ARGS);
     expect(res.ok).toBe(true);
     expect(res.contrato.reajusteActivacion.sello).toEqual({
       pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio",
@@ -39,7 +44,7 @@ dCrear("1 · activar sella los términos", () => {
 
   test("no activa si el antecedente no está confirmado", () => {
     const sinConfirmar = CONTRATO({ reajuste: { tipo: "porcentaje", pct: 2, desde: "2026-07-01", referencia: "x" } });
-    const res = activar(sinConfirmar, DATOS_ACTIVACION);
+    const res = activar(sinConfirmar, ACT_ARGS);
     expect(res.ok).toBe(false);
     expect(res.motivo).toMatch(/no esta confirmado/);
   });
@@ -47,12 +52,12 @@ dCrear("1 · activar sella los términos", () => {
   test("activar no muta el contrato original", () => {
     const ct = CONTRATO();
     const copia = JSON.parse(JSON.stringify(ct));
-    activar(ct, DATOS_ACTIVACION);
+    activar(ct, ACT_ARGS);
     expect(ct).toEqual(copia);
   });
 
   test("el contrato activado calcula la tabla conocida", () => {
-    const f = porTemp(filas(activar(CONTRATO(), DATOS_ACTIVACION).contrato));
+    const f = porTemp(filas(activar(CONTRATO(), ACT_ARGS).contrato));
     Object.keys(TABLA_CANDIDATO).forEach((t) => expect(r2(f[t].montoFact)).toBe(r2(TABLA_CANDIDATO[t])));
   });
 });
@@ -183,12 +188,12 @@ describe("5 · desactivar exige permiso, vista previa y confirmacion", () => {
   });
 
   test("con permiso, motivo y confirmacion: deja rastro y vuelve a la base", () => {
-    const r = desactivar(activo, { motivo: "Se anulo el respaldo del primer pago", usuario: "prueba", confirmado: true, impacto: -2518.2 });
+    const r = desactivar(activo, { motivo: "Se anulo el respaldo del primer pago", usuarioActual: USUARIO, confirmado: true, impacto: -2518.2 });
     expect(r.ok).toBe(true);
     expect(r.contrato.reajusteActivacion.desactivadoImpacto).toBeCloseTo(-2518.2, 2);
     expect(r.contrato.reajusteActivacion.activado).toBe(false);
     expect(r.contrato.reajusteActivacion.desactivadoMotivo).toMatch(/respaldo/);
-    expect(r.contrato.reajusteActivacion.desactivadoPor).toBe("prueba");
+    expect(r.contrato.reajusteActivacion.desactivadoPor).toBe("Prueba Sintetica");
     expect(r.contrato.reajusteActivacion.fechaReferencia).toBe("2026-07-01");   // no se pierde
     const f = porTemp(filas(r.contrato));
     expect(r2(f["2027/2028"].montoFact)).toBe(125910);
@@ -204,6 +209,6 @@ dCrear("6 · en el candidato se pueden crear activaciones", () => {
   test("la bandera está en true y la acción lo permite", () => {
     expect(ACTIVACIONES_NUEVAS_HABILITADAS).toBe(true);
     expect(puedeCrearActivacion().puede).toBe(true);
-    expect(activar(CONTRATO(), DATOS_ACTIVACION).ok).toBe(true);
+    expect(activar(CONTRATO(), ACT_ARGS).ok).toBe(true);
   });
 });
