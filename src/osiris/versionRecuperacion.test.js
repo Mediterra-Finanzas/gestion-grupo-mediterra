@@ -144,7 +144,8 @@ describe("4 · no deja crear activaciones nuevas", () => {
     expect(desactivar(ct, { motivo: "Motivo sintetico" }).ok).toBe(false);          // falta confirmar
     expect(desactivar(ct, { motivo: "", confirmado: true }).ok).toBe(false);        // falta motivo
     expect(desactivar(ct, { motivo: "x", confirmado: true, puedeEditar: false }).ok).toBe(false);  // sin permiso
-    const res = desactivar(ct, { motivo: "Motivo sintetico", usuario: "prueba", confirmado: true });
+    expect(desactivar(ct, { motivo: "x", confirmado: true }).ok).toBe(false);                      // sin identidad
+    const res = desactivar(ct, { motivo: "Motivo sintetico", usuarioActual: { nombre: "Prueba Sintetica" }, confirmado: true });
     expect(res.ok).toBe(true);
     expect(porTemp(filas(res.contrato))["2027/2028"].montoFact).toBe(125910);
   });
