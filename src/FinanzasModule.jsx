@@ -59,7 +59,7 @@ function mesesTemporada(seasonKey) {
   return (s && s.months && s.months.length) ? s.months : MESES_65;
 }
 
-const SEMANAS_MES = {
+export const SEMANAS_MES = {
   "Apr-26":["S14","S15","S16","S17"],
   "May-26":["S18","S19","S20","S21"],"Jun-26":["S22","S23","S24","S25"],
   "Jul-26":["S27","S28","S29","S30"],"Aug-26":["S31","S32","S33","S34"],
@@ -548,7 +548,7 @@ function mesDeDate(d) {
 // ═══════════════════════════════════════════════════════════════════
 // CRÉDITOS
 // ═══════════════════════════════════════════════════════════════════
-const CREDITOS_DEFAULT = [
+export const CREDITOS_DEFAULT = [
   {n:1,empresa:"Allegria Foods",acreedor:"Zelun",tipo_inst:"Privado",monto:120000,f_venc:"2026-11-30",tipo_cr:"Bullet",tasa:"",cuota:120000,pagado:false},
   {n:2,empresa:"Allegria Foods",acreedor:"Yiannis",tipo_inst:"Privado",monto:117000,f_venc:"2026-11-30",tipo_cr:"Bullet",tasa:"",cuota:117000,pagado:false},
   {n:3,empresa:"Allegria Foods",acreedor:"Fresion",tipo_inst:"Privado",monto:136000,f_venc:"2026-11-30",tipo_cr:"Bullet",tasa:"",cuota:136000,pagado:false},
@@ -613,10 +613,19 @@ const CREDITOS_TRIM = {
   saldos:  [8355763,7761667,7667292,6513894,5946569,5287401,5270076,4652751,4102751,3881315,3881315,3881315],
 };
 
-// Calcula array proy[64] de pagos de préstamos desde CREDITOS para una empresa
-// Coloca cada cuota en el índice del mes de vencimiento (semana más aproximada)
-function calcPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
-  const arr = Z65();
+// Cuotas de préstamos de una empresa, una por evento de pago, con su mes y su
+// semana. Es la ÚNICA fuente de las cuotas: el total mensual de la línea, la
+// vista semanal y el desglose por acreedor se derivan de acá, así la suma de
+// semanas es siempre el total del mes (antes la vista semanal ponía una sola
+// cuota al vencimiento e ignoraba "Cuotas Mensuales" y créditos de socio).
+// Las reglas de mes son las históricas de calcPrestamosEmpresa, sin cambios.
+export function cuotasPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
+  const out = [];
+  const agregar = (c, fecha, mes, monto) => {
+    const i = mIdx(mes);
+    if(i < 0) return;
+    out.push({ acreedor: c.acreedor, mes, i, sem: semanaEnMes(fecha, mes), monto });
+  };
   creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
     // Crédito de socio: cada cuota_total (interés + amortización) en su mes.
     if(c.tipo_credito === "socio") {
@@ -624,8 +633,7 @@ function calcPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
       filas.forEach(f => {
         const mes = mesDeDate(f.fecha);
         if(!mes || mes.includes("NaN")) return;
-        const i = mIdx(mes);
-        if(i >= 0 && f.cuota_total > 0) arr[i] += f.cuota_total;
+        if(f.cuota_total > 0) agregar(c, f.fecha, mes, f.cuota_total);
       });
       return;
     }
@@ -643,18 +651,32 @@ function calcPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
       fecha.setMonth(fecha.getMonth() + 1);
       while(fecha <= fin) {
         const mes = `${MN[fecha.getMonth()]}-${String(fecha.getFullYear()).slice(2)}`;
-        const i = mIdx(mes);
-        if(i >= 0) arr[i] += cuota;
+        agregar(c, new Date(fecha), mes, cuota);
         fecha.setMonth(fecha.getMonth() + 1);
       }
     } else {
       // Bullet y otros: una cuota al vencimiento
       const mes = mesDeDate(c.f_venc);
       if(!mes || mes.includes("NaN")) return;
-      const i = mIdx(mes);
-      if(i >= 0) arr[i] += cuota;
+      agregar(c, c.f_venc, mes, cuota);
     }
   });
+  return out;
+}
+
+// Semana (etiqueta de SEMANAS_MES) de una fecha dentro de su mes. Si la semana
+// ISO cae fuera de la lista del mes, va a la última semana del mes (misma
+// regla que se usaba para el vencimiento).
+function semanaEnMes(fecha, mes) {
+  const sem = semanaDeDate(fecha);
+  const sems = SEMANAS_MES[mes] || [];
+  return sems.includes(sem) ? sem : (sems[sems.length-1] || sem);
+}
+
+// Calcula array proy[64] de pagos de préstamos desde CREDITOS para una empresa
+export function calcPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
+  const arr = Z65();
+  cuotasPrestamosEmpresa(empresa, creditos).forEach(q => { arr[q.i] += q.monto; });
   return arr;
 }
 
@@ -675,15 +697,6 @@ function calcIngresosPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   return arr;
 }
 
-// Retorna { mes: { semana: monto } } para posicionar en semana exacta de vencimiento
-// Si la semana calculada no está en SEMANAS_MES del mes, usa la última semana del mes
-function semanaVencimientoEnMes(f_venc) {
-  const mes = mesDeDate(f_venc);
-  const sem = semanaDeDate(f_venc);
-  const semsDelMes = SEMANAS_MES[mes] || [];
-  // Si la semana está en el mes → usarla; si no → usar la última semana del mes
-  return { mes, sem: semsDelMes.includes(sem) ? sem : (semsDelMes[semsDelMes.length-1] || sem) };
-}
 
 // ── Genera cuotas de renovación para créditos renovables ya pagados ──────────
 // Usa cuotas_renovacion:[{mes,anio,monto}] para fechas exactas
@@ -855,42 +868,32 @@ function calcIngresoRenovacionDesglose(empresa, creditos=CREDITOS_DEFAULT) {
   });
   return byAcreedor;
 }
-function calcPrestamosSemanasEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
+export function calcPrestamosSemanasEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const bySemana = {}; // { "Nov-26": { "S47": 120000 } }
-  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
-    if(!c.f_venc || !c.cuota) return;
-    const { mes, sem } = semanaVencimientoEnMes(c.f_venc);
-    const monto = Number(c.cuota)||0;
-    if(!bySemana[mes]) bySemana[mes] = {};
-    bySemana[mes][sem] = (bySemana[mes][sem]||0) + monto;
+  cuotasPrestamosEmpresa(empresa, creditos).forEach(q => {
+    if(!bySemana[q.mes]) bySemana[q.mes] = {};
+    bySemana[q.mes][q.sem] = (bySemana[q.mes][q.sem]||0) + q.monto;
   });
   return bySemana;
 }
 
-// Retorna { acreedor: proy[64] } desglosado por institución
-function calcPrestamosDesglose(empresa, creditos=CREDITOS_DEFAULT) {
+// Retorna { acreedor: proy[64] } desglosado por institución (suma = calcPrestamosEmpresa)
+export function calcPrestamosDesglose(empresa, creditos=CREDITOS_DEFAULT) {
   const byAcreedor = {};
-  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
-    if(!c.f_venc || !c.cuota) return;
-    const mes = mesDeDate(c.f_venc);
-    const i   = mIdx(mes);
-    if(i < 0) return;
-    if(!byAcreedor[c.acreedor]) byAcreedor[c.acreedor] = Z65();
-    byAcreedor[c.acreedor][i] += Number(c.cuota)||0;
+  cuotasPrestamosEmpresa(empresa, creditos).forEach(q => {
+    if(!byAcreedor[q.acreedor]) byAcreedor[q.acreedor] = Z65();
+    byAcreedor[q.acreedor][q.i] += q.monto;
   });
   return byAcreedor;
 }
 
 // Retorna { acreedor: { mes: { semana: monto } } } para vista semanal exacta
-function calcPrestamosDesgloseSemanasEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
+export function calcPrestamosDesgloseSemanasEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const bySemana = {}; // { "Zelun": { "Nov-26": { "S47": 120000 } } }
-  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
-    if(!c.f_venc || !c.cuota) return;
-    const { mes, sem } = semanaVencimientoEnMes(c.f_venc);
-    const monto = Number(c.cuota)||0;
-    if(!bySemana[c.acreedor]) bySemana[c.acreedor] = {};
-    if(!bySemana[c.acreedor][mes]) bySemana[c.acreedor][mes] = {};
-    bySemana[c.acreedor][mes][sem] = (bySemana[c.acreedor][mes][sem]||0) + monto;
+  cuotasPrestamosEmpresa(empresa, creditos).forEach(q => {
+    if(!bySemana[q.acreedor]) bySemana[q.acreedor] = {};
+    if(!bySemana[q.acreedor][q.mes]) bySemana[q.acreedor][q.mes] = {};
+    bySemana[q.acreedor][q.mes][q.sem] = (bySemana[q.acreedor][q.mes][q.sem]||0) + q.monto;
   });
   return bySemana;
 }
@@ -6157,6 +6160,36 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     return total;
   },[addedLines]);
 
+  // ── Importe semanal de UNA línea (padre + subLines) ─────────────────
+  // ÚNICA fuente para la vista semanal: la fila de la línea, el subtotal de su
+  // categoría, el Flujo Neto de la semana y el Saldo acumulado salen de acá.
+  // Regla vigente, sin cambios: semanas cargadas mandan; sin desglose, el mes
+  // va a S1 (base/parámetros) o a la última semana (override mensual antiguo y
+  // subLines mensuales). Préstamos sin override: cada cuota en su semana real,
+  // desde el mismo cálculo que el total mensual; si por cualquier motivo no
+  // cuadrara con el mes, se usa la regla de S1 para no descuadrar.
+  const prestamosSemanas = useMemo(
+    () => calcPrestamosSemanasEmpresa(empNombre, creditosData),
+    [empNombre, creditosData]
+  );
+  const valorLineaSemana = useCallback((cat, line, idx, semIdx, isLastInMonth) => {
+    let prop = getProySemana(cat, line.label, idx, semIdx, isLastInMonth);
+    if(line.formula && line.label.includes("Préstamos")) {
+      const ov = overridesDeLinea(proyOverrides, emp, cat, line.label, resoluciones)?.[idx];
+      const bloqueado = typeof line._lockOverrideFromIdx === "number" && idx >= line._lockOverrideFromIdx;
+      if(ov === undefined || bloqueado) {
+        const mes = MESES_65[idx];
+        const sems = SEMANAS_MES[mes] || [];
+        const mapa = prestamosSemanas[mes] || {};
+        const base = getProy(cat, line.label, idx);
+        const sumaMapa = sems.reduce((a, sw) => a + (mapa[sw] || 0), 0);
+        if(sems.length && Math.abs(sumaMapa - base) < 0.005) prop = mapa[sems[semIdx]] || 0;
+      }
+    }
+    const sub = line.subLines ? sumSubLinesSemana(line.label, idx, semIdx, isLastInMonth) : 0;
+    return prop + sub;
+  },[getProySemana, getProy, sumSubLinesSemana, prestamosSemanas, proyOverrides, emp, resoluciones]); // eslint-disable-line
+
   // Valores manuales antiguos (clave solo-etiqueta) sobre conceptos que
   // existen en más de una categoría: no se puede saber a cuál pertenecen.
   const ambiguos = useMemo(
@@ -6324,35 +6357,34 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     let f = 0;
     emp.sections.forEach(sec => {
       sec.lines.forEach(l => {
-        f += getProySemana(sec.cat, l.label, mesIdx, semIdx, isLast) * sec.signo;
-        if (l.subLines) f += sumSubLinesSemana(l.label, mesIdx, semIdx, isLast) * sec.signo;
+        f += valorLineaSemana(sec.cat, l, mesIdx, semIdx, isLast) * sec.signo;
       });
       f += sumAddedLinesSemana(sec.cat, mesIdx, semIdx) * sec.signo;
     });
     return f;
-  },[emp, getProySemana, sumSubLinesSemana, sumAddedLinesSemana]); // eslint-disable-line
+  },[emp, valorLineaSemana, sumAddedLinesSemana]); // eslint-disable-line
 
   // Saldo acumulado al cierre de una semana específica (para vista semanal)
-  // - Semanas pasadas del mes actual → null (no acumular)
-  // - Semana actual → saldoIni + flujo de esa semana
-  // - Semanas futuras del mes actual → acumulativo desde semIdxActual
-  // - Meses siguientes → arranca desde acumArr[mesIdx-1] (consistente con vista mensual)
+  // Igual que la vista mensual: el mes en curso arranca con el saldo inicial y
+  // suma TODAS sus semanas (acumArr de ese mes = saldoIni + flujo del mes
+  // completo). Antes arrancaba en la semana actual y la S4 del mes en curso no
+  // coincidía con el saldo mensual: el saldo saltaba al pasar al mes siguiente.
+  // - Meses anteriores al saldo → null (sin arrastre, como la vista mensual)
+  // - Meses siguientes → arranca desde acumArr[mesIdx-1]
   const getAcumSemana = useCallback((mesIdx, semIdx) => {
     if (mesIdx < mesIdxInicioSaldo) return null;
-    if (mesIdx === mesIdxInicioSaldo && semIdx < semIdxActual) return null;
     const sIni = saldoBancoUSD != null ? saldoBancoUSD : emp.saldo_ini;
-    let startVal, startSem;
+    let startVal;
     if (mesIdx === mesIdxInicioSaldo) {
       startVal = sIni;
-      startSem = semIdxActual;
     } else {
       startVal = acumArr[mesIdx - 1] ?? sIni;
-      startSem = 0;
     }
+    const startSem = 0;
     let a = startVal;
     for (let s = startSem; s <= semIdx; s++) a += flujoNetoPorSemana(mesIdx, s);
     return a;
-  },[mesIdxInicioSaldo, semIdxActual, saldoBancoUSD, emp, acumArr, flujoNetoPorSemana]); // eslint-disable-line
+  },[mesIdxInicioSaldo, saldoBancoUSD, emp, acumArr, flujoNetoPorSemana]); // eslint-disable-line
 
   // Flujo neto por mes (para totales mensuales en vista semanal)
   const flujoMes = useMemo(()=>{
@@ -6584,10 +6616,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       } else if(col.type==="week"){
                         v = sec.lines.reduce((a,l)=>{
                           if(l.label.startsWith("  ")) return a;
-                          const propSem = getProySemana(sec.cat, l.label, col.idx, col.semIdx, col.isLastInMonth);
-                          const subSem = l.subLines
-                            ? sumSubLinesSemana(l.label, col.idx, col.semIdx, col.isLastInMonth) : 0;
-                          return a + propSem + subSem;
+                          return a + valorLineaSemana(sec.cat, l, col.idx, col.semIdx, col.isLastInMonth);
                         },0) + sumAddedLinesSemana(sec.cat, col.idx, col.semIdx);
                       }
                       return (
@@ -6676,16 +6705,10 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         let val;
                         if(isTot||col.type==="month"||col.type==="month_collapsed"){
                           val=valMes;
-                        } else if(line.formula&&line.label.includes("Préstamos")&&col.type==="week"){
-                          const semMap=calcPrestamosSemanasEmpresa(empNombre, creditosData);
-                          val=(semMap[col.mes]?.[col.semana])||0;
                         } else if(col.type==="week") {
-                          // Cada semana tiene su propio valor independiente
-                          const propValSem = getProySemana(sec.cat, line.label, col.idx, col.semIdx, col.isLastInMonth);
-                          // Sublines de TODAS las líneas (incluyendo Préstamos) suman al valor del padre
-                          const subValSem = line.subLines
-                            ? sumSubLinesSemana(line.label, col.idx, col.semIdx, col.isLastInMonth) : 0;
-                          val = propValSem + subValSem;
+                          // Mismo importe que usan el subtotal, el Flujo Neto y el saldo
+                          // (Préstamos: cuota en su semana real; subLines suman al padre).
+                          val = valorLineaSemana(sec.cat, line, col.idx, col.semIdx, col.isLastInMonth);
                         } else {
                           val=col.isLastInMonth?valMes:0;
                         }
@@ -7037,9 +7060,15 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                             },0)
                           : 0;
                         const rawVal=Number(alVals[cellKey])||0;
+                        // Semana sin desglose en el mes y con valor mensual: el mes completo se
+                        // imputa a S1 (misma regla que sumAddedLinesSemana, que alimenta el
+                        // subtotal y el Flujo Neto). Antes la fila mostraba 0 y no cuadraba.
+                        const imputadoS1 = col.type==="week" && col.semIdx===0
+                          && ![0,1,2,3].some(s => alVals[`${col.idx}_${s}`] !== undefined)
+                          && alVals[String(col.idx)] !== undefined;
                         const disp = esMes
                           ? (hasAnySemMes ? sumSemanasMes : (Number(alVals[String(col.idx)])||0))
-                          : rawVal;
+                          : (imputadoS1 ? (Number(alVals[String(col.idx)])||0) : rawVal);
                         const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                         // No editable cuando el mes está calculado desde semanas (sería confuso)
                         const mensualCalculado = esMes && hasAnySemMes;
@@ -7050,6 +7079,11 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                               borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                             {isTot?(
                               <span style={{color:disp?(sec.signo>0?C.green:C.red):C.muted2,fontWeight:disp?700:400}}>
+                                {disp?$$(disp):"—"}
+                              </span>
+                            ) : imputadoS1 ? (
+                              <span title="Valor mensual sin desglose semanal: se imputa completo a la primera semana. Para repartirlo, carga montos en las semanas."
+                                style={{color:disp?(sec.signo>0?C.green:C.red):C.muted2,fontWeight:disp?700:400,fontStyle:"italic",opacity:0.85}}>
                                 {disp?$$(disp):"—"}
                               </span>
                             ) : mensualCalculado ? (
@@ -7128,10 +7162,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         // Columna de semana: suma los valores semanales de cada línea + subLines de esa semana
                         baseTotal = sec.lines.reduce((a,l)=>{
                           if(l.label.startsWith("  ")) return a;
-                          const propSem = getProySemana(sec.cat, l.label, col.idx, col.semIdx, col.isLastInMonth);
-                          const subSem = l.subLines
-                            ? sumSubLinesSemana(l.label, col.idx, col.semIdx, col.isLastInMonth) : 0;
-                          return a + propSem + subSem;
+                          return a + valorLineaSemana(sec.cat, l, col.idx, col.semIdx, col.isLastInMonth);
                         }, 0);
                         // AddedLines: usar el helper que considera valores mensuales + semanales
                         addedTotal = sumAddedLinesSemana(sec.cat, col.idx, col.semIdx);
@@ -7174,10 +7205,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     let total = 0;
                     s.lines.forEach(l=>{
                       if(l.label.startsWith("  ")) return;
-                      total += getProySemana(catBuscar, l.label, idx, semIdx, isLastInMonth);
-                      if(l.subLines) {
-                        total += sumSubLinesSemana(l.label, idx, semIdx, isLastInMonth);
-                      }
+                      total += valorLineaSemana(catBuscar, l, idx, semIdx, isLastInMonth);
                     });
                     total += sumAddedLinesSemana(s.cat, idx, semIdx);
                     return total * s.signo;
@@ -7270,8 +7298,11 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                 }
                 return cols.map((col,ci)=>{
                   const isTot=col.isTotalMes;
-                  const nSems=col.type==="month_collapsed"||isTot?1:col.nSems;
-                  const val=flujoArr[col.idx]/nSems;
+                  // Semana: neto derivado de los mismos importes semanales que las
+                  // líneas (antes: neto mensual / n° de semanas, que no cuadraba).
+                  const val = col.type==="week"
+                    ? flujoNetoPorSemana(col.idx, col.semIdx)
+                    : flujoArr[col.idx];
                   const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                   return (
                     <td key={`flujo-${col.mes}-${col.label}-${ci}`}

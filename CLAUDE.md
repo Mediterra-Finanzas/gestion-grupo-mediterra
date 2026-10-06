@@ -297,6 +297,33 @@ Pendiente de decisión: `subLines` también se guarda por etiqueta
 hay un test que falla si eso cambia; si alguna vez ocurre, hay que darle la
 misma identidad por categoría.
 
+#### Vista semanal: una sola fuente por línea (oct-2026)
+
+En la vista semanal, la fila de cada línea, el subtotal de su categoría, el
+Flujo Neto de la semana, el Saldo Caja Operacional y el Saldo acumulado salen
+de `valorLineaSemana(cat, line, idx, semIdx, isLast)` (+ `sumAddedLinesSemana`).
+Antes el Flujo Neto semanal era `flujoArr[mes] / n° semanas` y no cuadraba con
+las líneas ni con el saldo. Regla vigente, sin cambios: semanas cargadas mandan;
+sin desglose, el mes va a S1 (base, líneas agregadas) o a la última semana
+(override mensual antiguo, subLines mensuales). La fila de una línea agregada
+ahora muestra en S1 el valor mensual imputado (en cursiva), como ya lo sumaba
+el subtotal.
+
+Préstamos: `cuotasPrestamosEmpresa()` es la única fuente de cuotas (bullet,
+"Cuotas Mensuales" y créditos de socio, cada una con su mes y semana).
+`calcPrestamosEmpresa` (mensual, sin cambio de cifras), `calcPrestamosSemanasEmpresa`
+y los dos desgloses por acreedor se derivan de ella: Σ semanas = mes y
+Σ acreedores = total. Si un mes de Préstamos tiene override manual, o el mapa
+semanal no cuadra con el mes, se usa la regla de S1.
+
+Saldo acumulado semanal: el mes en curso arranca con el saldo inicial y suma
+todas sus semanas, igual que la vista mensual (antes arrancaba en la semana
+actual y saltaba al pasar de mes).
+
+Verificación: `src/__tests__/prestamosSemanas.test.js` y
+`scripts/e2e/semanal-cuadre.mjs` (392 comprobaciones: Σ semanas = mes,
+ingresos − egresos = neto, Σ líneas = subtotal, saldo anterior + neto = saldo).
+
 #### Bug histórico arreglado (no volver a romper)
 
 El subtotal de categoría debe **incluir** las sublines de líneas con "Préstamos" en el nombre. Antes se excluían y generaba descuadre con el Flujo Neto. La exclusión `!l.label.includes("Préstamos")` fue removida del cálculo de subtotales — no volverla a poner.
