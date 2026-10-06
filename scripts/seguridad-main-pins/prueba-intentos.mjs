@@ -26,7 +26,7 @@ const U = (nombre) => ({ nombre, email: em(nombre), cargo: 'Prueba', rol: 'edito
 const NOMBRES = ['Ana', 'Beto', 'Carla', 'Dora', 'Eloy', 'Fabi', 'Gael', 'Hilda'];
 const PIN = { Ana: '482916', Beto: '579135', Carla: '613724', Dora: '724835', Eloy: '835946', Fabi: '946157', Gael: '157268', Hilda: '268379' };
 const pins = {}; for (const n of NOMBRES) pins[`${n}_h`] = cred(PIN[n]);
-const FACTOR = 0.02;   // K1: base 1 s, tope 72 s · K3/KD/KCA: ~14 h · KC: 54 s
+const FACTOR = 0.02;   // K1: base 1 s, tope 72 s · K3/KD: ~14 h · KC: 54 s
 const E = await levantarEntorno({ sembrar: { usuarios: NOMBRES.map(U), pins, main: { estados: {} }, admins: ['beto@prueba.test'] },
   env: { AUTH_INTENTOS_FACTOR: String(FACTOR), AUTH_RL_IP_MAX: '100000', AUTH_RL_ID_MAX: '100000' } });
 const hijos = [];
@@ -60,7 +60,7 @@ function pedir(puerto, desde, metodo, ruta, { body, cookies = [] } = {}) {
 }
 const ipN = (n) => `127.0.0.${n}`;
 const login = (p, desde, n, pin, cookies) => pedir(p, desde, 'POST', '/api/auth/login', { body: { email: em(n), pin }, cookies });
-const codigoDe = (para) => { const c = [...E.correos].reverse().find((m) => m.to === para); const m = c && /código provisorio es: (\d{6})/.exec(c.message); return m ? m[1] : null; };
+const codigoDe = (para) => { const c = [...E.correos].reverse().find((m) => m.to === para); const m = c && /código provisorio es: ([0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4})/.exec(c.message); return m ? m[1] : null; };
 const RLmod = require(path.join(RAIZ, 'api/_friskuSpRateLimiter.js'));
 const bucket = (tipo, clave) => RLmod.bucketHmac(process.env.AUTH_RATELIMIT_SECRET, `seg:${tipo}:${clave}`);
 const fila = (tipo, clave) => E.psql(`select coalesce(fallos,0)||'|'||coalesce(escalon,0)||'|'||coalesce(extract(epoch from (bloqueado_hasta-now()))::int,0) from seg_intentos where bucket='${bucket(tipo, clave)}'`);
@@ -86,9 +86,13 @@ try {
   const dispAna = otro.disp;
 
   console.log('K3 umbral por cuenta (orígenes no reconocidos) → verificación adicional:');
+  // Los fallos de la sección anterior ya cuentan: un ingreso correcto con PIN NO reinicia
+  // el umbral por cuenta (solo descuenta su propio intento).
+  const previos = Number((fila('K3', em('Ana')) || '0').split('|')[0]);
+  ok(previos >= 5, `el umbral por cuenta conserva los ${previos} fallos previos aunque Ana entró con su PIN`);
   const r10 = [];
-  for (let i = 0; i < 10; i++) r10.push((await login(i % 2 ? I2 : I3, ipN(10 + i), 'Ana', '000000')).status);
-  eq(r10, Array(10).fill(401), '10 fallos desde 10 orígenes distintos, repartidos en dos instancias → se evalúan');
+  for (let i = 0; i < 10 - previos; i++) r10.push((await login(i % 2 ? I2 : I3, ipN(10 + i), 'Ana', '000000')).status);
+  eq(r10, Array(10 - previos).fill(401), `${10 - previos} fallos más desde orígenes distintos, en dos instancias, completan 10 → se evalúan`);
   const nuevoBien = await login(I2, ipN(30), 'Ana', PIN.Ana);
   const nuevoMal = await login(I3, ipN(31), 'Ana', '000000');
   eq([nuevoBien.status, nuevoBien.j && nuevoBien.j.error, nuevoMal.status, nuevoMal.j && nuevoMal.j.error],
@@ -117,10 +121,12 @@ try {
   console.log('Verificación por correo (código propio: el PIN vigente sigue valiendo):');
   eq(await recuperar('Ana'), 200, 'Ana pide un código');
   const cod = codigoDe(em('Ana'));
-  ok(/^\d{6}$/.test(cod || ''), 'llega el código (correo capturado en local)');
+  ok(/^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(cod || ''), 'llega el código de 12 caracteres (60 bits; correo capturado en local)');
+  const nCorreos = E.correos.length;
+  eq([await recuperar('Ana'), E.correos.length, codigoDe(em('Ana'))], [200, nCorreos, cod], 'pedir otro mientras el código está vigente: misma respuesta, NO se emite otro ni se envía correo (no se puede invalidar ni inundar)');
   eq((await login(I2, ipN(46), 'Ana', PIN.Ana, [dispAna])).status, 200, 'pedir el código NO invalida el PIN vigente (desde su equipo entra con el PIN)');
-  const conCodigo = await login(I3, ipN(47), 'Ana', cod);
-  eq([conCodigo.status, conCodigo.j && conCodigo.j.debeCambiarPin], [200, true], 'origen nuevo con el CÓDIGO del correo → entra a crear PIN (verificación adicional)');
+  const conCodigo = await login(I3, ipN(47), 'Ana', ' ' + cod.toLowerCase().replace(/-/g, ' ') + ' ');
+  eq([conCodigo.status, conCodigo.j && conCodigo.j.debeCambiarPin], [200, true], 'origen nuevo con el CÓDIGO del correo (escrito en minúsculas y con espacios) → entra a crear PIN (verificación adicional)');
   const cambio = await pedir(I3, ipN(47), 'POST', '/api/auth/cambiar-pin', { body: { pinNuevo: '357146' }, cookies: [conCodigo.sesion] });
   eq([cambio.status, !!cambio.disp], [200, true], 'crea el PIN nuevo y ese equipo queda reconocido');
   PIN.Ana = '357146';
@@ -131,23 +137,49 @@ try {
   eq((await login(I2, ipN(70), 'Ana', PIN.Ana, [dispAna])).status, 403, 'con el umbral otra vez activo, la cookie de época vieja → 403 (no reconocida)');
   eq((await login(I2, ipN(71), 'Ana', PIN.Ana, [cambio.disp])).status, 200, 'la cookie emitida tras el cambio de PIN → reconocida, entra');
 
-  console.log('Límite del código por correo:');
+  console.log('Un tercero no puede dejar a la persona sin acceso (código + umbral + intentos):');
+  // El atacante: activa el umbral (ya activo), pide un código (llega al correo de Ana, no al
+  // suyo) y lo "quema" desde 6 orígenes con 5 intentos cada uno.
   await recuperar('Ana');
   const cod2 = codigoDe(em('Ana'));
-  const malos = [];
-  for (let i = 0; i < 5; i++) malos.push((await login(I3, ipN(80 + i), 'Ana', String((Number(cod2) + 1 + i) % 1000000).padStart(6, '0'))).status);
-  eq(malos, [403, 403, 403, 403, 403], '5 códigos incorrectos desde orígenes nuevos → rechazados');
-  const agotado = await login(I3, ipN(90), 'Ana', cod2);
-  eq([agotado.status, agotado.j && agotado.j.error], [403, 'codigo_agotado'], 'después, ni el código correcto sirve: código agotado (hay que pedir otro)');
+  const quema = [];
+  for (let o = 0; o < 6; o++) for (let i = 0; i < 5; i++) quema.push((await login(o % 2 ? I2 : I3, ipN(80 + o), 'Ana', `ZZZZ-ZZZZ-ZZ${o}${i}`)).status);
+  ok(quema.every((x) => x === 403), `30 códigos inventados desde 6 orígenes → rechazados (403 verificacion_requerida), sin tope global que agotar`);
+  const mismoOrigen = await login(I3, ipN(80), 'Ana', cod2);
+  eq([mismoOrigen.status, mismoOrigen.j && mismoOrigen.j.error], [403, 'verificacion_requerida'], 'en un origen que agotó sus 5 intentos, ni el código correcto se evalúa (misma respuesta: no revela nada)');
+  eq((await login(I2, ipN(95), 'Ana', PIN.Ana, [cambio.disp])).status, 200, 'Ana, desde su EQUIPO RECONOCIDO, entra con su PIN');
+  const anaNuevo = await login(I3, ipN(96), 'Ana', cod2);
+  eq([anaNuevo.status, anaNuevo.j && anaNuevo.j.debeCambiarPin], [200, true], 'Ana, desde un equipo NUEVO, entra con el código que le llegó al correo (el tercero no pudo agotarlo)');
+  const c2 = await pedir(I3, ipN(96), 'POST', '/api/auth/cambiar-pin', { body: { pinNuevo: '468257' }, cookies: [anaNuevo.sesion] });
+  eq(c2.status, 200, 'y crea su PIN nuevo'); PIN.Ana = '468257';
+  const dispAna2 = c2.disp;
+
+  console.log('Sin enumeración de cuentas:');
+  for (let i = 0; i < 10; i++) await pedir(I2, ipN(150 + i), 'POST', '/api/auth/login', { body: { email: 'nadie@prueba.test', pin: '000000' } });
+  const noExiste = await pedir(I3, ipN(160), 'POST', '/api/auth/login', { body: { email: 'nadie@prueba.test', pin: '000000' } });
+  for (let i = 0; i < 10; i++) await login(I2, ipN(170 + i), 'Gael', '000000');
+  const existe = await login(I3, ipN(180), 'Gael', '000000');
+  eq([noExiste.status, noExiste.j && noExiste.j.error], [existe.status, existe.j && existe.j.error], `con el umbral activo, correo inexistente y existente responden igual (${existe.status} ${existe.j && existe.j.error})`);
+
+  console.log('Cambiar el PIN con una sesión robada pasa por los mismos contadores:');
+  const robada = (await login(I2, ipN(181), 'Hilda', PIN.Hilda)).sesion;
+  const intentosRobo = [];
+  for (let i = 0; i < 7; i++) intentosRobo.push((await pedir(I2, ipN(182), 'POST', '/api/auth/cambiar-pin', { body: { pinActual: String(100000 + i), pinNuevo: '582614' }, cookies: [robada] })).status);
+  eq(intentosRobo, [401, 401, 401, 401, 401, 429, 429], 'probar el PIN actual con una cookie robada: 5 intentos y luego demora (K1), no 576 por día');
 
   console.log('Reseteo del administrador: hereda la inhabilitación y desbloquea de forma controlada:');
+  for (let i = 0; i < 10; i++) await login(I2, ipN(190 + i), 'Ana', '000000');
   const admin = (await login(I2, ipN(91), 'Beto', PIN.Beto, [dispBeto])).sesion;
   const rs = await fetch(E.url + '/api/auth/admin-reset-pin', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: admin }, body: JSON.stringify({ nombre: 'Ana' }) });
   const rsj = await rs.json();
-  eq([rs.status, rsj.desbloqueado], [200, true], 'Beto (seg_administradores) resetea a Ana y desbloquea su cuenta');
-  eq([fila('K3', em('Ana')), fila('KCA', em('Ana'))], ['', ''], 'K3 y el acumulado de códigos de Ana quedan liberados');
+  eq([rs.status, rsj.desbloqueado, /^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(rsj.codigo || '')], [200, true, true], 'Beto (seg_administradores) resetea a Ana, recibe un código de 12 caracteres y desbloquea su cuenta');
+  eq(fila('K3', em('Ana')), '', 'el umbral de Ana queda liberado');
   await recuperar('Ana');
-  eq((await login(I2, ipN(92), 'Ana', PIN.Ana, [cambio.disp])).status, 401, 'un pedido propio DESPUÉS del reseteo no reactiva el PIN anterior (hereda "admin"), ni desde su equipo (época de equipos subida)');
+  eq((await login(I2, ipN(92), 'Ana', PIN.Ana, [dispAna2])).status, 401, 'un pedido propio DESPUÉS del reseteo no reactiva el PIN anterior (hereda "admin"), ni desde su equipo (época de equipos subida)');
+  const correoAdmin = [...E.correos].reverse().find((m) => m.to === em('Ana'));
+  ok(/quedó inhabilitado/.test(correoAdmin.message), 'el correo del reseteo dice que el PIN quedó inhabilitado');
+  const correoPropio = E.correos.find((m) => m.to === em('Ana') && /sigue vigente/.test(m.message));
+  ok(!!correoPropio, 'el correo de un pedido propio dice que el PIN sigue vigente');
 
   console.log('Concurrencia (atómico entre instancias):');
   const par1 = await Promise.all(Array.from({ length: 20 }, (_, i) => login(i % 2 ? I2 : I3, ipN(100), 'Carla', '000000')));
@@ -169,7 +201,7 @@ try {
   eq((await login(I3, ipN(201), 'Eloy', PIN.Eloy)).status, 200, 'la persona, desde otro origen, entra normal');
   console.log('K2 con una IP compartida (oficina detrás de NAT):');
   const oficina = [];
-  for (let i = 0; i < 40; i++) { const n = ['Fabi', 'Gael', 'Hilda'][i % 3]; oficina.push((await login(i % 2 ? I2 : I3, ipN(210), n, PIN[n])).status); }
+  for (let i = 0; i < 40; i++) { const n = ['Eloy', 'Fabi', 'Hilda'][i % 3]; oficina.push((await login(i % 2 ? I2 : I3, ipN(210), n, PIN[n])).status); }
   ok(oficina.every((x) => x === 200), `40 ingresos correctos desde una misma IP en minutos → ninguno bloqueado (${oficina.filter((x) => x === 200).length}/40)`);
   const mezcla = [];
   for (let i = 0; i < 29; i++) mezcla.push((await pedir(I2, ipN(220), 'POST', '/api/auth/login', { body: { email: `mezcla${i}@prueba.test`, pin: '000000' } })).status);

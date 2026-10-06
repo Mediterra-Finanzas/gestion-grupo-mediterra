@@ -55,7 +55,7 @@ async function nucleoLogin({ email, pin, ip, canal, req }) {
   try { reserva = await I.reservarLogin({ email: em, ip, dispositivo, canal, hayCodigo, idCodigo }); }
   catch (e) { return { fallo: { status: 503, error: "no_disponible" } }; }
   if (!reserva.ok) return { fallo: { status: reserva.status, error: reserva.error, retry: reserva.retry } };
-  const r = R.evaluarLogin({ usuarios, pins, email, pin, ahora, corteMs, soloCodigo: reserva.soloCodigo });
+  const r = R.evaluarLogin({ usuarios, pins, email, pin, ahora, corteMs, soloCodigo: reserva.soloCodigo, codigoBloqueado: reserva.codigoBloqueado });
   if (r.ok) { try { await reserva.liberar(!!r.viaCodigo); } catch (e) { /* el contador vence solo */ } }
   return { r, pins, usuario: u, em, dispositivo: reserva.dispositivo, epocaD };
 }
@@ -90,7 +90,23 @@ async function cambiarPin(req, res, b) {
   if (l === "bloqueado") return S.json(res, 429, { error: "bloqueado" });
   if (l !== "ok") return S.json(res, 503, { error: "no_disponible" });
   const corteMs = R.corteCredenciales();
-  let escritos = null;
+  // Con sesión "completa" el PIN (o código) actual se prueba igual que en el login: pasa por
+  // los mismos contadores (D4). Una cookie robada no da intentos aparte.
+  let reserva = null;
+  if (typeof b.pinActual === "string" && b.pinActual.length > 0) {
+    let pinsAhora;
+    try { pinsAhora = await S.leerPins(); } catch (e) { return S.json(res, 503, { error: "no_disponible" }); }
+    const em0 = String(s.usuario.email || "").trim().toLowerCase();
+    const epocaD = R.epocaDispositivo(pinsAhora, s.usuario.nombre);
+    const est = R.estadoTemp(pinsAhora[`${s.usuario.nombre}_temp`], Date.now(), pinsAhora[`${s.usuario.nombre}_temp_exp`], corteMs);
+    const hayCodigo = !!(est.existe && est.vigente);
+    try {
+      reserva = await I.reservarLogin({ email: em0, ip: S.ipDe(req) || null, dispositivo: I.dispositivoReconocido(req, em0, epocaD), canal: "app",
+        hayCodigo, idCodigo: hayCodigo ? (est.cred && est.cred.salt ? String(est.cred.salt).slice(0, 16) : "plano") : "" });
+    } catch (e) { return S.json(res, 503, { error: "no_disponible" }); }
+    if (!reserva.ok) return respuestaFallo(res, reserva);
+  }
+  let escritos = null, viaCodigo = false;
   await S.puntoDePrueba("cambiarPin:antesDeEscribir");
   const w = await S.actualizarFila("pins", (valor) => {
     // Dentro de la escritura condicionada: si entre la validación y este punto la sesión
@@ -99,12 +115,15 @@ async function cambiarPin(req, res, b) {
       return { abortar: { status: 401, error: "sin_sesion" } };
     }
     const r = R.evaluarCambioPin({ usuario: s.usuario, pins: valor || {}, pinActual: b.pinActual, pinNuevo: b.pinNuevo,
-      tel: b.tel, sesion: s.ses, ahora: Date.now(), corteMs });
+      tel: b.tel, sesion: s.ses, ahora: Date.now(), corteMs,
+      soloCodigo: !!(reserva && reserva.soloCodigo), codigoBloqueado: !!(reserva && reserva.codigoBloqueado) });
     if (!r.ok) return { abortar: r };
     escritos = r.nuevosPins;
+    viaCodigo = !!r.viaCodigo;
     return r.nuevosPins;
   });
   if (w.abortado) return S.json(res, w.abortado.status, { error: w.abortado.error });
+  if (reserva) { try { await reserva.liberar(viaCodigo); } catch (e) { /* el contador vence solo */ } }
   // La cookie nueva lleva la huella del PIN recién guardado: las demás sesiones de
   // esta persona (otro navegador, un tercero) quedan fuera.
   // Cambiar el PIN subió la época de equipos: solo este equipo queda reconocido.
@@ -119,11 +138,20 @@ async function cambiarPin(req, res, b) {
 // `admin` (reseteo del administrador): inhabilita el PIN anterior, cierra todas las sesiones
 // (época) y deja de reconocer sus equipos. Pedido propio: el PIN vigente sigue valiendo,
 // salvo que haya un reseteo del administrador pendiente (el código nuevo lo hereda).
+// Un pedido propio NO reemplaza un código vigente: el que ya llegó al correo de la persona
+// sigue sirviendo (un tercero no puede invalidarlo pidiendo otro, ni inundar su casilla).
 async function emitirCodigo(usuario, saludo, admin) {
-  const codigo = R.generarCodigo6();
+  const codigo = R.generarCodigoRecuperacion();
+  let origen = "admin", emitido = true;
   await S.actualizarFila("pins", (valor) => {
-    const previo = R.origenTemp((valor || {})[`${usuario.nombre}_temp`]);
-    const origen = !admin && previo !== "admin" ? "propio" : "admin";
+    emitido = true;   // (se reevalúa en cada reintento de la escritura condicionada)
+    const actual = (valor || {})[`${usuario.nombre}_temp`];
+    if (!admin && actual) {
+      const est = R.estadoTemp(actual, Date.now(), (valor || {})[`${usuario.nombre}_temp_exp`], null);
+      if (est.vigente) { emitido = false; return { abortar: "vigente" }; }
+    }
+    const previo = R.origenTemp(actual);
+    origen = !admin && previo !== "admin" ? "propio" : "admin";
     const v = { ...(valor || {}), [`${usuario.nombre}_temp`]: R.crearTempCred(codigo, Date.now(), origen) };
     delete v[`${usuario.nombre}_temp_exp`];
     if (admin) {
@@ -134,7 +162,8 @@ async function emitirCodigo(usuario, saludo, admin) {
   });
   let enviado = false;
   try {
-    const r = await S.enviarCorreo({ to: usuario.email, subject: "Código provisorio - Mediterra", message: S.textoCodigo(usuario.nombre, codigo, saludo) });
+    if (!emitido) return { codigo: null, enviado: false, vigente: true };
+    const r = await S.enviarCorreo({ to: usuario.email, subject: "Código provisorio - Mediterra", message: S.textoCodigo(usuario.nombre, codigo, saludo, origen) });
     enviado = !!(r && r.success !== false);
   } catch (e) { enviado = false; }
   return { codigo, enviado };
@@ -229,7 +258,10 @@ async function verificar(req, res, b) {
   if (!email || !pin) return S.json(res, 401, { error: "credenciales" });
   // Mismos contadores que el login de la app (cuenta y umbral por cuenta). osiris-auth no
   // reenvía la IP del cliente: su origen es el canal "osiris" (sin equipo reconocido).
-  const n = await nucleoLogin({ email, pin, ip: null, canal: "osiris", req: null });
+  // IP del navegador reenviada por osiris-auth (solo se confía en ella porque la petición
+  // trae el secreto). Sin ella, el origen es el canal completo (contador por cuenta).
+  const ipCliente = require("../_friskuSpRateLimiter").normalizarIp(S.hdr(req, "x-mediterra-ip-cliente")) || null;
+  const n = await nucleoLogin({ email, pin, ip: ipCliente, canal: "osiris", req: null });
   if (n.fallo) return respuestaFallo(res, n.fallo);
   const r = n.r;
   if (!r.ok) return S.json(res, 401, { error: r.error === "verificacion_requerida" ? "verificacion_requerida" : "credenciales" });

@@ -179,7 +179,7 @@ const filaDb = (env, id) => {
 };
 const ultimoCodigo = (env, email) => {
   const c = [...env.correos].reverse().find((m) => String(m.to || '').toLowerCase() === email.toLowerCase());
-  const m = c && /(\d{6})/.exec(String(c.message || c.text || c.body || ''));
+  const m = c && /([0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4})/.exec(String(c.message || c.text || c.body || ''));
   return m ? m[1] : null;
 };
 
@@ -234,7 +234,7 @@ try {
   await fila.getByRole('button', { name: /Resetear PIN/ }).first().click();
   await a.page.waitForTimeout(2500);
   const alerta = a.dialogos.slice(nDialogos).find((d) => /Código provisorio para/.test(d)) || '';
-  const codigoAdmin = (/(\d{6})/.exec(alerta) || [])[1];
+  const codigoAdmin = (/([0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4})/.exec(alerta) || [])[1];
   check('5a. admin-reset-pin devuelve el código en pantalla', !!codigoAdmin && a.api.some((x) => x.ruta === '/api/auth/admin-reset-pin' && x.status === 200));
   check('5b. el servidor envió el código por correo', ultimoCodigo(env, U.milagros.email) === codigoAdmin);
   const mi = await abrir(env, 'milagros', { registro }); abiertos.push(mi);

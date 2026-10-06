@@ -10,5 +10,8 @@ eq(A.urlSupabase({ VERCEL_ENV: "production", SUPABASE_URL: "https://x.example" }
 eq(A.urlSupabase({ VERCEL_ENV: "preview" }), "", "Preview sin SUPABASE_URL → sin URL (503), nunca producción");
 eq(A.urlSupabase({ VERCEL_ENV: "development" }), "", "development sin SUPABASE_URL → sin URL");
 eq(A.urlSupabase({ VERCEL_ENV: "preview", SUPABASE_URL: "https://staging.example" }), "https://staging.example", "Preview con SUPABASE_URL → esa URL");
+eq(A.urlSupabase({ VERCEL_ENV: "preview", SUPABASE_URL: PROD }), "", "Preview con SUPABASE_URL = producción → sin destino (rechazado)");
+eq(A.urlSupabase({ SUPABASE_URL: PROD + "/" }), "", "script local apuntando a producción → sin destino");
+eq(A.urlSupabase({ SUPABASE_URL: "no es url" }), "", "SUPABASE_URL inválida → sin destino");
 console.log(`\n_auth: ${pass} pass / ${fail} fail`);
 process.exit(fail ? 1 : 0);

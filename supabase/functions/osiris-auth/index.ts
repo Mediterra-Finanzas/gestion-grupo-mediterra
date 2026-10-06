@@ -32,11 +32,14 @@ const MAX_BODY = 2048; // bytes — el body legítimo es minúsculo
 
 // Validación de credenciales: la hace PRODUCCIÓN (api/auth/verificar). Esta función
 // no conoce hashes ni PIN. Respuesta: 200 {ok,email,nombre,debeCambiarPin} | 401 | 429 | 5xx.
-async function verificarEnProduccion(email: string, pin: string):
+// `ipCliente`: IP del navegador según la plataforma (primer valor de x-forwarded-for).
+// La app la usa como ORIGEN en sus contadores de intentos (D4), así los fallos de un
+// tercero no bloquean Osiris para toda la cuenta. Solo se acepta junto con el secreto.
+async function verificarEnProduccion(email: string, pin: string, ipCliente: string):
   Promise<{ ok: true; debeCambiarPin: boolean } | { ok: false; status: number }> {
   const r = await fetch(`${PROD_APP_URL}/api/auth/verificar`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-mediterra-secreto": VERIFICAR_SECRETO },
+    headers: { "Content-Type": "application/json", "x-mediterra-secreto": VERIFICAR_SECRETO, "x-mediterra-ip-cliente": ipCliente },
     body: JSON.stringify({ email, pin }),
   });
   const j = await r.json().catch(() => null);
@@ -117,7 +120,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // 2-4. Validar credenciales en PRODUCCIÓN (api/auth/verificar). Si el PIN debe
     //      cambiarse (código provisorio, PIN sin política de 6 dígitos o vencido) NO se
     //      emite sesión: igual que la app, que solo la pide tras un login completo.
-    const v = await verificarEnProduccion(emailNorm, pinNorm);
+    const ipCliente = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim();
+    const v = await verificarEnProduccion(emailNorm, pinNorm, ipCliente);
     if (!v.ok) {
       if (v.status === 401 || v.status === 403) return json(401, { error: "invalid_credentials" }, origin);
       if (v.status === 429) return json(429, { error: "rate_limited" }, origin);

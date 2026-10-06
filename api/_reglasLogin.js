@@ -89,13 +89,28 @@ function anteriorAlCorte(cred, corteMs) {
   return !(Number.isFinite(t) && t >= corteMs);
 }
 function generarCodigo6() { return String(crypto.randomInt(0, 1000000)).padStart(6, "0"); }
+// Código de recuperación (D4): 12 caracteres Crockford base32 = 60 bits, "XXXX-XXXX-XXXX".
+// Con esa entropía basta un límite POR ORIGEN: no hace falta un tope global por cuenta,
+// que un tercero podría agotar para bloquear a la persona.
+const ALFABETO_CODIGO = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+function generarCodigoRecuperacion() {
+  let s = "";
+  for (let i = 0; i < 12; i++) s += ALFABETO_CODIGO[crypto.randomInt(0, 32)];
+  return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8)}`;
+}
+// Tolerante a lo que escribe una persona: minúsculas, espacios, guiones, O→0, I/L→1.
+function normalizarCodigo(v) {
+  return String(v || "").toUpperCase().replace(/[^0-9A-Z]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1");
+}
 // JSON string a guardar en pins[`${nombre}_temp`] (mismo formato que crearTempCred del cliente).
 // `origen` (D4): "propio" = lo pidió la persona ("¿Olvidaste tu PIN?"): su PIN vigente
 // SIGUE valiendo hasta que complete el cambio. "admin" = reseteo del administrador (o
 // cuenta comprometida): el PIN anterior queda inhabilitado. Un código sin origen
 // (antiguo o en texto plano) se trata como "admin".
 function crearTempCred(codigo, ahora, origen = "admin") {
-  const cred = hashPin(codigo, ahora);
+  const largo = normalizarCodigo(codigo).length === 12;
+  const cred = hashPin(largo ? normalizarCodigo(codigo) : codigo, ahora);
+  if (largo) cred.formato = "c12";
   cred.exp = (Number.isFinite(ahora) ? ahora : Date.now()) + TEMP_TTL_MS;
   cred.origen = origen === "propio" ? "propio" : "admin";
   return JSON.stringify(cred);
@@ -129,6 +144,7 @@ function tempDe(P, nombre, ahora, corteMs) {
 function verificarTemp(codigo, est) {
   if (!est || !est.existe || !est.vigente) return false;
   if (est.legacy) return igualesTiempoConstante(String(codigo), est.plano);
+  if (est.cred && est.cred.formato === "c12") return verificarPin(normalizarCodigo(codigo), est.cred);
   return verificarPin(String(codigo), est.cred);
 }
 
@@ -187,15 +203,18 @@ function huellaSesion(pins, nombre) {
 // `soloCodigo` (D4): la cuenta superó el umbral de fallos desde orígenes no reconocidos;
 // desde este origen solo vale el código enviado por correo (el PIN NO se evalúa).
 // Resultado con viaCodigo:true si entró con el código.
-function evaluarLogin({ usuarios, pins, email, pin, ahora, corteMs = null, soloCodigo = false }) {
+function evaluarLogin({ usuarios, pins, email, pin, ahora, corteMs = null, soloCodigo = false, codigoBloqueado = false }) {
   const pinIn = typeof pin === "string" ? pin.trim() : "";
   if (!pinIn || pinIn.length > 64) { trabajoFicticio(pinIn); return { ok: false, error: "credenciales", detalle: "forma" }; }
   const u = buscarUsuario(usuarios, email);
-  if (!u) { trabajoFicticio(pinIn); return { ok: false, error: "credenciales", detalle: "sin_usuario" }; }
+  // Con verificación exigida, una cuenta inexistente responde igual que una existente.
+  if (!u) { trabajoFicticio(pinIn); return { ok: false, error: soloCodigo ? "verificacion_requerida" : "credenciales", detalle: "sin_usuario" }; }
   const P = pins && typeof pins === "object" ? pins : {};
   const desact = (detalle) => ({ ok: false, error: u.desactivado ? "desactivado" : "credenciales", detalle });
   const est = tempDe(P, u.nombre, ahora, corteMs);
-  if (est.existe && est.vigente && verificarTemp(pinIn, est)) {
+  // codigoBloqueado: este origen agotó sus intentos con el código vigente → el código no se
+  // evalúa desde aquí (el PIN sí, con las reglas normales).
+  if (!codigoBloqueado && est.existe && est.vigente && verificarTemp(pinIn, est)) {
     if (u.desactivado) return desact("desactivado");
     return { ok: true, usuario: u, debeCambiarPin: true, motivo: "temp", viaCodigo: true };
   }
@@ -222,19 +241,25 @@ function evaluarLogin({ usuarios, pins, email, pin, ahora, corteMs = null, soloC
 // Cambio de PIN. `sesion` = payload de la cookie (scope, fp). Si no viene pinActual,
 // solo se acepta una sesión "cambio_pin" cuya huella coincide con la credencial actual.
 //  → { ok:false, status, error, detalle } | { ok:true, nuevosPins }
-function evaluarCambioPin({ usuario, pins, pinActual, pinNuevo, tel, sesion, ahora, corteMs = null }) {
+// `soloCodigo` (D4): con el umbral por cuenta superado desde este origen, el PIN actual no
+// se evalúa; solo el código del correo.
+function evaluarCambioPin({ usuario, pins, pinActual, pinNuevo, tel, sesion, ahora, corteMs = null, soloCodigo = false, codigoBloqueado = false }) {
   const nombre = usuario && usuario.nombre;
   if (!nombre) return { ok: false, status: 401, error: "sin_sesion" };
   const P = pins && typeof pins === "object" ? pins : {};
   const est = tempDe(P, nombre, ahora, corteMs);
   const credH = P[`${nombre}_h`];
   const traeActual = typeof pinActual === "string" && pinActual.length > 0;
+  let viaCodigo = false;
   if (traeActual) {
-    if (est.existe && est.origen === "propio" && est.vigente && verificarTemp(pinActual, est)) {
-      // código propio correcto
+    if (!codigoBloqueado && est.existe && est.origen === "propio" && est.vigente && verificarTemp(pinActual, est)) {
+      viaCodigo = true;   // código propio correcto
+    } else if (soloCodigo) {
+      return { ok: false, status: 403, error: "verificacion_requerida", detalle: "solo_codigo" };
     } else if (est.existe && est.origen === "admin") {
       if (est.expirado) return { ok: false, status: 401, error: "credenciales", detalle: "temp_vencido" };
-      if (!verificarTemp(pinActual, est)) return { ok: false, status: 401, error: "credenciales", detalle: "temp" };
+      if (codigoBloqueado || !verificarTemp(pinActual, est)) return { ok: false, status: 401, error: "credenciales", detalle: "temp" };
+      viaCodigo = true;
     } else if (!credH || !verificarPin(pinActual, comoCred(credH))) {
       return { ok: false, status: 401, error: "credenciales", detalle: "pin_actual" };
     } else if (anteriorAlCorte(comoCred(credH), corteMs)) {
@@ -275,7 +300,7 @@ function evaluarCambioPin({ usuario, pins, pinActual, pinNuevo, tel, sesion, aho
   delete nuevosPins[`${nombre}_temp_exp`];
   // Cambiar el PIN deja de reconocer los demás equipos (D4); el que lo cambió recibe uno nuevo.
   nuevosPins[`${nombre}_epoca_disp`] = epocaDispositivo(P, nombre) + 1;
-  return { ok: true, nuevosPins };
+  return { ok: true, nuevosPins, viaCodigo };
 }
 
 // Recuperación: ¿a quién se le emite código? (FASE 2b del cliente: si la cuenta
@@ -378,7 +403,7 @@ function mainParaCliente(valor) {
 
 module.exports = {
   TEMP_TTL_MS, DIAS_VIGENCIA_PIN, CAMPOS_ROSTER, CLAVES_MAIN, CLAVES_CONFIG,
-  pinNuevoValido, normalizarCelular, hashPin, generarCodigo6, crearTempCred,
+  pinNuevoValido, normalizarCelular, hashPin, generarCodigo6, generarCodigoRecuperacion, normalizarCodigo, crearTempCred,
   estadoTemp, verificarTemp, decidirMigracion, buscarUsuario, huellaCredencial, huellaSesion,
   corteCredenciales, anteriorAlCorte, trabajoFicticio, origenTemp, epocaDispositivo,
   evaluarLogin, evaluarCambioPin, evaluarRecuperacion,

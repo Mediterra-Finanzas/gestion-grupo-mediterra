@@ -266,7 +266,7 @@ async function cambiarPinForzado(p, actual, nuevoPin) {
 }
 const codigoPara = (email) => {
   const c = [...correosEnviados].reverse().find((m) => m.to.toLowerCase() === email.toLowerCase());
-  const m = c && /(\d{6})/.exec(c.text); return m ? m[1] : null;
+  const m = c && /([0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4})/.exec(c.text); return m ? m[1] : null;
 };
 const filaDb = (id) => { try { return JSON.parse(E.psql(`select value::text from calendario_data where id='${id}'`)); } catch (e) { return null; } };
 const correoAutorizado = (dir) => String(dir).split(/[,;]+/).map((s) => s.trim().toLowerCase()).filter(Boolean)
@@ -332,7 +332,7 @@ try {
   await fila.getByRole('button', { name: /Resetear PIN/ }).first().click();
   await b.page.waitForTimeout(3000);
   const alerta = b.dialogos.slice(nDlg).find((d) => /Código provisorio para/.test(d)) || '';
-  const codAdmin = (/(\d{6})/.exec(alerta) || [])[1];
+  const codAdmin = (/([0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4})/.exec(alerta) || [])[1];
   check('C6. Permisos → Resetear PIN: código en pantalla y por correo permitido', !!codAdmin && codigoPara(U.reseteo.email) === codAdmin);
   await b.page.waitForTimeout(5500);
   check('C7. Salir del admin', await salir(b));

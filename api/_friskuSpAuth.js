@@ -83,7 +83,9 @@ function evaluarAcceso({ usuarios, pins, email, pin, secret, ahoraMs }) {
   // código provisorio pendiente (_temp) el PIN anterior está inhabilitado; un PIN vencido
   // (>60 días) o anterior al corte de credenciales no da acceso hasta cambiarlo/recuperarlo.
   const RL = require("./_reglasLogin");   // diferido: _reglasLogin importa este módulo
-  if (pins[`${user.nombre}_temp`]) return { ok: false, motivo: "credenciales" };
+  // Igual que la app (D4): solo un reseteo del ADMINISTRADOR inhabilita el PIN; un código
+  // pedido por la propia persona no.
+  if (pins[`${user.nombre}_temp`] && RL.origenTemp(pins[`${user.nombre}_temp`]) === "admin") return { ok: false, motivo: "credenciales" };
   if (RL.decidirMigracion(cred, ahoraMs).debe) return { ok: false, motivo: "credenciales" };
   let corteMs;
   try { corteMs = RL.corteCredenciales(); } catch (e) { return { ok: false, motivo: "credenciales" }; }

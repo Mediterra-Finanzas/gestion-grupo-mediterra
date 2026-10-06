@@ -86,7 +86,7 @@ async function rest(metodo, ruta, { key = E.anon, body, prefer } = {}) {
 }
 const filaDB = (id) => JSON.parse(E.psql(`select value::text from calendario_data where id='${id}'`) || 'null');
 const fijarFila = (id, v) => E.psql(`update calendario_data set value='${JSON.stringify(v).replace(/'/g, "''")}'::jsonb, updated_at=now() where id='${id}'`);
-const codigoDe = (para) => { const c = [...E.correos].reverse().find((m) => m.to === para); const m = c && /código provisorio es: (\d{6})/.exec(c.message); return m ? m[1] : null; };
+const codigoDe = (para) => { const c = [...E.correos].reverse().find((m) => m.to === para); const m = c && /código provisorio es: ([0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4})/.exec(c.message); return m ? m[1] : null; };
 async function completa(nombre, pin = PIN[nombre]) { const r = await login(em(nombre), pin); return r.j && r.j.debeCambiarPin === false ? r.cookie : null; }
 // Ejecuta UNA sección de reversion.sql (p. ej. 'D' = "FASE D → HOY"), tal cual está en el archivo.
 async function seccionReversion(fase) {
@@ -259,7 +259,7 @@ try {
     ok(codigoDe(em('Tomas')), '…correo capturado con código');
     eq((await pedir('POST', '/api/auth/recuperar', { body: { email: em('Zoe') } })).status, 200, 'recuperar Zoe → 200');
     const cod = codigoDe(em('Zoe'));
-    ok(/^\d{6}$/.test(cod || '') && !JSON.stringify(filaDB('pins')).includes(`"${cod}"`), 'código de 6 dígitos por correo; en pins solo su hash');
+    ok(/^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(cod || '') && !JSON.stringify(filaDB('pins')).includes(`"${cod}"`), 'código de 12 caracteres (60 bits) por correo; en pins solo su hash');
     eq((await login(em('Zoe'), PIN.Zoe)).status, 200, 'tras pedir código, el PIN vigente SIGUE entrando (D4: pedirlo no lo inhabilita)');
     const l = await login(em('Zoe'), cod);
     eq([l.status, l.j.motivo], [200, 'temp'], 'con el código entra a cambio obligatorio');
@@ -294,7 +294,7 @@ try {
   {
     const ana = await completa('Ana');
     const r = await pedir('POST', '/api/auth/admin-reset-pin', { cookie: ana, body: { nombre: 'Lalo' } });
-    ok(r.status === 200 && /^\d{6}$/.test(r.j.codigo) && codigoDe(em('Lalo')) === r.j.codigo, 'Ana (seg_administradores) → 200 {codigo} + correo');
+    ok(r.status === 200 && /^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(r.j.codigo) && codigoDe(em('Lalo')) === r.j.codigo, 'Ana (seg_administradores) → 200 {codigo} + correo');
     eq((await login(em('Lalo'), r.j.codigo)).j.motivo, 'temp', 'el código del admin permite entrar a cambio obligatorio');
     const hugo = await completa('Hugo');
     eq((await pedir('POST', '/api/auth/admin-reset-pin', { cookie: hugo, body: { nombre: 'Beto' } })).status, 403, 'Hugo (rol admin en usuarios, NO en seg_administradores) → 403');
@@ -364,8 +364,8 @@ try {
     const cSes = r.setCookie.split(/,\s*(?=[a-z_]+=)/i).find((c) => c.startsWith('mediterra_sess='));
     const cDisp = r.setCookie.split(/,\s*(?=[a-z_]+=)/i).find((c) => c.startsWith('mediterra_disp='));
     ok(r.status === 200 && cSes && !/max-age/i.test(cSes), 'cookie de sesión "completa" SIN Max-Age (cerrar el navegador la descarta)');
-    ok(cDisp && /max-age=7776000/i.test(cDisp) && /path=\/api\/auth/i.test(cDisp) && /httponly/i.test(cDisp) && /samesite=strict/i.test(cDisp),
-      'cookie de EQUIPO aparte: persistente 90 días, HttpOnly, SameSite=Strict, solo /api/auth (no da acceso)');
+    ok(cDisp && /max-age=7776000/i.test(cDisp) && /path=\/api(;|$)/i.test(cDisp) && /httponly/i.test(cDisp) && /samesite=strict/i.test(cDisp),
+      'cookie de EQUIPO aparte: persistente 90 días, HttpOnly, SameSite=Strict, solo /api (no da acceso)');
     const p0 = decod(r.cookie);
     eq((await roster(firmar({ ...p0, act: Date.now() - 31 * 60000 }))).status, 401, '31 min sin uso → 401 (inactividad controlada en el servidor)');
     const { fp, ...sinFp } = p0;

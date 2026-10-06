@@ -190,8 +190,12 @@ async function enviarCorreo(msg) {
   const { enviarCorreo: smtp } = require("./send-email");
   return smtp({ ...msg, modulo: "mediterra" });
 }
-function textoCodigo(nombre, codigo, saludo) {
-  return `${saludo ? `Hola ${nombre},\n\n` : ""}Tu código provisorio es: ${codigo}\n\nVence en 45 minutos. Al ingresar deberás crear un PIN nuevo de 6 dígitos. Tu PIN anterior quedó inhabilitado.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
+// `origen` "propio": el PIN vigente sigue valiendo; "admin": quedó inhabilitado.
+function textoCodigo(nombre, codigo, saludo, origen = "admin") {
+  const estadoPin = origen === "propio"
+    ? "Tu PIN actual sigue vigente: si no pediste este código, ignora este correo."
+    : "Tu PIN anterior quedó inhabilitado.";
+  return `${saludo ? `Hola ${nombre},\n\n` : ""}Tu código provisorio es: ${codigo}\n\nEscríbelo en el campo de la clave. Vence en 45 minutos. Al ingresar deberás crear un PIN nuevo de 6 dígitos. ${estadoPin}\n\nhttps://gestion-grupo-mediterra.vercel.app`;
 }
 
 // Puntos de pausa SOLO PARA PRUEBAS: sin una función inyectada no hacen nada (producción).

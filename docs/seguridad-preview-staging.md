@@ -131,7 +131,9 @@ Con las variables de la §2b.1, `audit_log` y la lectura masiva van a staging y 
 Cambios en el código (sin variables = igual que hoy):
 - EmailJS (`App.jsx`, `emailHelper.js`) no se usa si `REACT_APP_SUPA_URL` está definida o con `REACT_APP_EMAILJS_DESACTIVADO=true`. Tampoco se intenta si faltan las llaves `REACT_APP_EMAILJS_*` ni si el servidor respondió `destino_no_autorizado`. **Ojo:** `emailHelper.js` y el correo de bienvenida tenían llaves EmailJS **fijas en el código**: sin este cambio, un 403 del servidor hacía que el navegador reenviara el mismo correo por EmailJS, saltándose la lista.
 - Los correos del navegador (respaldo diario a Angelo, alertas de los lunes, bienvenida) van a `/api/send-email` de la Preview y los filtra `CORREO_DESTINOS_PERMITIDOS`. **Hallazgo:** el padrón se completa con `WORKERS_BASE` por nombre, así que un usuario sintético con nombre real (ej. "Pablo Duran") recibe el correo REAL del empleado. La lista lo rechaza; igual, usar nombres que no existan en `WORKERS_BASE`.
-- Sin service workers y sin WebSocket en modo servidor (comprobado). Google Fonts (`public/index.html`) sigue saliendo a `fonts.googleapis.com`: es un tercero público, no producción, y no lleva datos.
+- Sin service workers y sin WebSocket en modo servidor (comprobado). Google Fonts (`public/index.html`) sale a `fonts.googleapis.com` y `fonts.gstatic.com`: tercero público, no producción, sin datos de la app.
+
+**Destinos autorizados del navegador en la Preview (lista cerrada):** el origen de la Preview, el Supabase de staging y Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`). Cualquier otro destino, HTTP o WebSocket, es una falla. Servidor: Supabase de staging y `smtp.office365.com` (`DESTINOS_PERMITIDOS`); correos solo a `CORREO_DESTINOS_PERMITIDOS`.
 
 ### 2b.2 Detector de salidas (prueba local, sin red)
 `POSTGREST_BIN=… OUT_DIR=… node scripts/e2e/aislamiento-interfaz.mjs`
@@ -248,21 +250,22 @@ Nombres que no existen en `WORKERS_BASE`; correos en casillas de prueba (alias `
 ---
 
 ## 7. Lo que Angelo debe autorizar y entregar
+**Decidido:** staging **dedicado** (D6), sin autorización todavía para crearlo ni incurrir en costos. El candado anti-producción (D7) está aprobado e implementado: fuera de `VERCEL_ENV=production`, sin `SUPABASE_URL` no hay destino.
+
 **Autorizaciones [AUT]:**
-1. Usar el staging existente `nlvfjpwiecgrosjnwwik` (compartido) o crear uno dedicado.
-2. Crear y modificar objetos en staging (§1.2), incluidas las fases 0/A/B/C y, si se quiere, la reversión.
+1. Crear el proyecto Supabase dedicado de staging (con su costo, si lo tiene).
+2. Crear y modificar objetos en staging (§1.2, más `api/sql/seg_intentos.sql`), incluidas las fases 0/D/A/B/C y, si se quiere, la reversión.
 3. Crear y cambiar variables de entorno con ámbito Preview (limitadas a la rama) y desplegar la Preview de `claude/seguridad-main-pins`.
 4. Activar Deployment Protection en la Preview y generar el bypass para automatización.
 5. Desplegar osiris-auth en staging (T12) y, si corresponde, abrir la protección durante T12.
 6. Enviar correos reales a casillas de prueba (T4, T5, T7).
 7. Volver a desplegar la Preview para T7 y T13b.
-8. Visto bueno al candado anti-producción ya implementado: toca las constantes `SUPA_URL` del servidor (regla 1), aunque el valor en producción no cambia.
 
-**Información que debe entregar:**
-- ref, URL y llaves (anon + service_role) de staging, o del nuevo proyecto;
+**Información que debe entregar (sin secretos):**
+- nada de llaves por el chat: quien tenga acceso las carga directo en Vercel (Settings → Environment Variables, ámbito Preview + rama) y en Supabase staging (Edge Functions → Secrets). Solo hace falta confirmar "cargadas";
 - equipo y proyecto de Vercel, con acceso de quien despliega;
 - P7: lista de variables actuales con su ámbito;
-- casilla M365 de prueba (con SMTP AUTH habilitado) y casillas destinatarias;
+- casilla M365 de prueba (con SMTP AUTH habilitado; su contraseña se carga directo en Vercel) y la lista de casillas destinatarias de prueba;
 - confirmar que staging no tiene copias de datos de producción;
 - P8: estado de osiris-auth en el sandbox.
 

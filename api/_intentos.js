@@ -10,15 +10,15 @@
 //       nuevo prueba PIN: solo con el código enviado por correo (verificación adicional)
 //   KD  equipo reconocido (acumulado 30 días)                  10 fallos → deja de contar
 //       como reconocido (pasa a K3)
-//   KC  código por correo: 5 intentos por código; KCA 20 acumulados en 30 días
+//   KC  código por correo (60 bits): 5 intentos por código y por ORIGEN
 //
 // Un intento se RESERVA antes de evaluar la credencial (cuenta como fallo provisional:
 // concurrentes no pueden pasarse del límite) y se LIBERA si resulta correcto.
 // Ningún bloqueo es indefinido: todos tienen tope y vencen; el administrador puede
-// liberar K3/KC/KCA de una cuenta ("desbloquear", dentro de admin-reset-pin).
+// liberar K3 de una cuenta ("desbloquear", dentro de admin-reset-pin).
 //
 // Equipo reconocido: cookie `mediterra_disp` (HttpOnly, Secure, SameSite=Strict,
-// Path=/api/auth, 90 días) con {t:"disp", e:email, d:id aleatorio 128 bits, v:época, exp}
+// Path=/api, 90 días) con {t:"disp", e:email, d:id aleatorio 128 bits, v:época, exp}
 // firmada con HMAC-SHA256 y una llave DERIVADA de SESSION_SECRET solo para este uso.
 // Sin la llave no se puede fabricar; vale solo para su correo y su época (el cambio de
 // PIN y el reseteo del admin la suben); no da acceso: solo permite PROBAR el PIN desde
@@ -35,7 +35,6 @@ const BASE = {
   K3: { libres: 10, base: 30 * DIA, tope: 30 * DIA, reinicio: 30 * DIA },
   KD: { libres: 10, base: 30 * DIA, tope: 30 * DIA, reinicio: 30 * DIA },
   KC: { libres: 5, base: 2700, tope: 2700, reinicio: 2700 },
-  KCA: { libres: 20, base: 30 * DIA, tope: 30 * DIA, reinicio: 30 * DIA },
 };
 // AUTH_INTENTOS_FACTOR acorta los tiempos SOLO fuera de producción (pruebas en tiempo real).
 function reglas(env = process.env) {
@@ -50,7 +49,9 @@ function reglas(env = process.env) {
 
 // IPv6 se agrupa por /64 (un mismo cliente controla todo su /64); IPv4 tal cual.
 function origenIp(ipNormalizada) {
-  const ip = String(ipNormalizada || "");
+  let ip = String(ipNormalizada || "").toLowerCase();
+  const mapeada = ip.match(/^(?:0{0,4}:){0,5}:?ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);   // ::ffff:a.b.c.d → IPv4
+  if (mapeada) return mapeada[1];
   if (!ip.includes(":")) return ip;
   const partes = ip.split("::");
   const izq = partes[0] ? partes[0].split(":") : [];
@@ -91,67 +92,69 @@ async function descontar(pares, libres) {
   return rpc("seg_intento_descontar", { p_buckets: pares.map(([t, c]) => bucket(t, c)), p_libres: libres });
 }
 
-// Reserva un intento de login. `origen` = { ip (normalizada) | null, dispositivo (id) | null,
-// canal: "app" | "osiris" | "frisku" }. `hayCodigo` = existe un código vigente.
-// → { ok:true, soloCodigo, liberar(viaCodigo) }  |  { ok:false, status, error, retry }
+// Reserva un intento de login. `ip` (normalizada) o null; `dispositivo` = id de equipo
+// reconocido o null; `canal` = "app" | "osiris" | "frisku"; `hayCodigo` = existe un código
+// vigente (su id en `idCodigo`).
+// → { ok:true, soloCodigo, codigoBloqueado, dispositivo, liberar(viaCodigo) }
+//   | { ok:false, status, error, retry }
+// Ningún contador que un tercero pueda llenar bloquea a un equipo reconocido: K1 y KD de
+// ese equipo solo los consume quien tiene su cookie; K3 no aplica a equipos reconocidos;
+// los intentos con código se limitan por ORIGEN (sin tope global por cuenta).
 async function reservarLogin({ email, ip, dispositivo, canal = "app", hayCodigo = false, idCodigo = "" }) {
   const R = reglas();
   const em = String(email || "").trim().toLowerCase();
-  const tomados = [];       // contadores a liberar si la credencial resulta correcta
-  const descontables = [];  // contadores a los que solo se descuenta este intento (K2)
+  const liberables = [];    // se liberan si la credencial resulta correcta (este origen)
+  const descontables = [];  // solo se descuenta este intento (K2, y K3 con PIN correcto)
+  const origen = ip ? origenIp(ip) : "-";
   if (ip) {
-    const k2 = await tomar("K2", origenIp(ip), R.K2);
+    const k2 = await tomar("K2", origen, R.K2);
     if (!k2.permitido) return { ok: false, status: 429, error: "bloqueado", retry: k2.retry };
-    descontables.push(["K2", origenIp(ip)]);
+    descontables.push(["K2", origen, R.K2.libres]);
   }
   let disp = dispositivo || null;
   if (disp) {
-    const kd = await estado("KD", `${disp}|${em}`);
-    if (kd.bloqueado) disp = null;           // el equipo dejó de contar como reconocido
+    const kd = await tomar("KD", `${disp}|${em}`, R.KD);
+    if (kd.permitido) liberables.push(["KD", `${disp}|${em}`]);
+    else disp = null;                        // el equipo agotó su margen: deja de contar como reconocido
   }
   let soloCodigo = false;
   if (!disp) soloCodigo = (await estado("K3", em)).bloqueado;
-  const claveK1 = disp ? `disp:${disp}|${em}` : `${canal}:${ip ? origenIp(ip) : "-"}|${em}`;
+  const claveK1 = disp ? `disp:${disp}|${em}` : `${canal}:${origen}|${em}`;
   const k1 = await tomar("K1", claveK1, R.K1);
   if (!k1.permitido) return { ok: false, status: 429, error: "bloqueado", retry: k1.retry };
-  tomados.push(["K1", claveK1]);
-  if (disp) {
-    await tomar("KD", `${disp}|${em}`, R.KD);
-    tomados.push(["KD", `${disp}|${em}`]);
-  } else if (!soloCodigo) {
+  liberables.push(["K1", claveK1]);
+  if (!disp && !soloCodigo) {
     const k3 = await tomar("K3", em, R.K3);
-    if (!k3.permitido) soloCodigo = true; else tomados.push(["K3", em]);
+    if (!k3.permitido) soloCodigo = true; else descontables.push(["K3", em, R.K3.libres]);
   }
-  const tomadosCodigo = [];
+  let codigoBloqueado = false;
   if (hayCodigo) {
-    // Cada intento con un código pendiente puede ser una adivinación del código.
-    const kca = await tomar("KCA", em, R.KCA);
-    if (!kca.permitido) return { ok: false, status: 403, error: "verificacion_bloqueada", retry: kca.retry };
-    tomadosCodigo.push(["KCA", em]);
-    const kc = await tomar("KC", `${em}|${idCodigo}`, R.KC);
-    if (!kc.permitido) return { ok: false, status: 403, error: "codigo_agotado", retry: kc.retry };
-    tomadosCodigo.push(["KC", `${em}|${idCodigo}`]);
+    // 5 intentos por código y por origen: agotarlos solo afecta a ESE origen (el código
+    // tiene 60 bits; adivinarlo repartiendo orígenes no es practicable).
+    const claveKC = `${em}|${idCodigo}|${disp ? "disp:" + disp : canal + ":" + origen}`;
+    const kc = await tomar("KC", claveKC, R.KC);
+    if (kc.permitido) liberables.push(["KC", claveKC]); else codigoBloqueado = true;
   }
   return {
-    ok: true, soloCodigo, dispositivo: disp,
-    // Credencial correcta: se liberan los contadores de ESTE origen y los de código.
-    // Con el código (verificación adicional) también se libera K3: la persona demostró
-    // acceso a su correo.
+    ok: true, soloCodigo, codigoBloqueado, dispositivo: disp,
+    // Credencial correcta. Con el CÓDIGO (verificación por correo) se libera además el
+    // umbral de la cuenta; con el PIN solo se descuenta este intento (no lo reinicia).
     liberar: async (viaCodigo) => {
-      const pares = [...tomados, ...tomadosCodigo];
+      const pares = liberables.slice();
       if (viaCodigo) pares.push(["K3", em]);
       await liberar(pares);
-      await descontar(descontables, R.K2.libres);
+      for (const [t, c, libres] of descontables) {
+        if (viaCodigo && t === "K3") continue;
+        await descontar([[t, c]], libres);
+      }
     },
   };
 }
 
-// Desbloqueo por el administrador: libera K3, KCA y el KC del código vigente.
-async function desbloquearCuenta(email, idCodigo) {
+// Desbloqueo por el administrador: libera el umbral por cuenta (K3).
+async function desbloquearCuenta(email) {
   const em = String(email || "").trim().toLowerCase();
-  const pares = [["K3", em], ["KCA", em]];
-  if (idCodigo) pares.push(["KC", `${em}|${idCodigo}`]);
-  return liberar(pares);
+  return liberar([["K3", em]]);
 }
 
 // ── Equipo reconocido ──
@@ -192,7 +195,7 @@ function cookieDisp(email, epoca, idExistente) {
   const ahora = Date.now();
   const d = idExistente || crypto.randomBytes(16).toString("hex");
   const tok = firmarDisp({ t: "disp", e: String(email || "").trim().toLowerCase(), d, v: epoca, iat: ahora, exp: ahora + DISP_DIAS * DIA * 1000 });
-  return `${COOKIE_DISP}=${encodeURIComponent(tok)}; HttpOnly; Secure; SameSite=Strict; Path=/api/auth; Max-Age=${DISP_DIAS * DIA}`;
+  return `${COOKIE_DISP}=${encodeURIComponent(tok)}; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=${DISP_DIAS * DIA}`;
 }
 
 module.exports = { reglas, origenIp, reservarLogin, desbloquearCuenta, leerDisp, dispositivoReconocido, cookieDisp, COOKIE_DISP, firmarDisp };

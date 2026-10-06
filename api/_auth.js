@@ -24,7 +24,10 @@ const crypto = require("crypto");
 const SUPA_URL_PRODUCCION = "https://bywovqayuzodbzwsriet.supabase.co";
 function urlSupabase(env = process.env) {
   if (env.VERCEL_ENV === "production") return env.SUPABASE_URL || SUPA_URL_PRODUCCION;
-  return env.SUPABASE_URL || "";
+  const url = env.SUPABASE_URL || "";
+  // Fuera de producción, ni siquiera configurándolo a mano se apunta a la base de producción.
+  try { if (url && new URL(url).hostname === new URL(SUPA_URL_PRODUCCION).hostname) return ""; } catch (e) { return ""; }
+  return url;
 }
 const SUPA_URL = urlSupabase();
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";

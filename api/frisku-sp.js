@@ -170,7 +170,7 @@ function crearHandler(deps = {}) {
     let liberarLogin = null;
     if (limiteLogin) {
       let l;
-      try { l = await limiteLogin(email, ip); } catch (e) { l = "no_disponible"; }
+      try { l = await limiteLogin(email, ip, req); } catch (e) { l = "no_disponible"; }
       if (l && typeof l === "object") { liberarLogin = l.liberar || null; l = l.estado; }
       if (l === "bloqueado") return json(res, 429, { error: "rate_limit" }, { "Retry-After": String(Math.ceil(RL_ID.bloqueoMs / 1000)) });
       // Umbral por cuenta superado: desde aquí no se prueba el PIN (verificación por correo en la app).
@@ -266,9 +266,17 @@ async function leerDatosProd(fetchImpl) {
 const handlerProd = crearHandler({
   leerDatos: leerDatosProd,
   // Mismos contadores combinados que /api/auth/login (requiere AUTH_RATELIMIT_SECRET; sin él → 503).
-  limiteLogin: async (email, ip) => {
+  // El equipo reconocido por la app (cookie mediterra_disp, Path=/api) también cuenta aquí:
+  // con el umbral por cuenta activo, la persona entra desde su equipo habitual.
+  limiteLogin: async (email, ip, req) => {
     const I = require("./_intentos");
-    const r = await I.reservarLogin({ email, ip, dispositivo: null, canal: "frisku" });
+    const S = require("./_segServidor");
+    const R = require("./_reglasLogin");
+    const { usuarios } = await S.leerUsuarios();
+    const pins = await S.leerPins();
+    const u = R.buscarUsuario(usuarios, email);
+    const disp = u ? I.dispositivoReconocido(req, email, R.epocaDispositivo(pins, u.nombre)) : null;
+    const r = await I.reservarLogin({ email, ip, dispositivo: disp, canal: "frisku" });
     if (!r.ok) return r.status === 429 ? "bloqueado" : "verificacion";
     if (r.soloCodigo) return "verificacion";
     return { estado: "ok", liberar: () => r.liberar(false) };
