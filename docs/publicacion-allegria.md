@@ -176,39 +176,82 @@ nunca «va a mostrar menos caja». Antes de revertir con datos cargados,
 descargar el Excel de Allegria Foods con la versión nueva: es el único
 antes/después que permite medir el cambio en vez de suponerlo.
 
-**Impedir que el código anterior sobrescriba lo cargado.**
+**Quién puede escribir la fila `finanzas` (auditado el 2026-10-06).**
 
-El código anterior **sí escribe** la fila `finanzas` completa, así que
-cualquier guardado suyo (incluido el auto-save, que corre con debounce de 1 a
-2 segundos ante cualquier edición) la reescribe sin los campos que no lee:
-`programas`, `movimientos_sin_asignar`, `saldos_favor`, `antecedentes`,
-`decisiones_sin_fecha`, `liq_definitiva_cliente` / `_productor`, y dentro de
-cada estimación `v` y `estimacion_caja`. No alcanza con «tener respaldo»: hay
-que evitar la escritura mientras se resuelve la recuperación.
+Lo primero, porque corrige algo que este documento afirmaba: **los permisos
+por pestaña NO son el control de la escritura**. `persistAll` tiene un único
+gate, `cargaOkRef` (regla 9), y no consulta `tabPermisos` en ninguna rama. El
+auto-save tampoco. Los permisos gobiernan qué se renderiza y qué input queda
+editable, no si la fila se escribe.
 
-En este orden:
+Las vías de escritura, leídas en el código:
 
-1. **Antes de revertir**, copia puntual de la fila: `GET` de
-   `calendario_data?id=eq.finanzas` guardado como archivo fuera de la base, con
-   su `updated_at`. El respaldo diario es genérico y la cubre, pero una copia
-   puntual no depende de a qué hora corrió.
-2. **Cortar el acceso de escritura, no pedirlo.** La vía que no depende de que
-   nadie toque la app: dejar a los usuarios de Finanzas en `sin_acceso` o solo
-   lectura para la pestaña del flujo (el mismo mecanismo de permisos por
-   pestaña que ya usa Rendiciones). Con el flujo en solo lectura, el módulo no
-   guarda y la fila no se reescribe. Mientras eso no esté hecho, cada minuto
-   con la versión vieja arriba es una oportunidad de perder lo cargado.
-3. **Recién entonces** el revert y el deploy.
-4. **Verificar que la fila no cambió**: volver a leer su `updated_at` y
-   comparar con el de la copia. Si avanzó, alguien escribió: restaurar desde la
-   copia antes de seguir.
-5. **Al redesplegar la versión nueva**, lo cargado vuelve a estar visible, con
-   una condición: que ningún guardado del código viejo haya pasado por encima.
-   Si pasó, restaurar la fila desde la copia del paso 1 y volver a comparar.
+| Vía | Qué escribe |
+|---|---|
+| Auto-save con debounce de 800 ms, dependencias `[params, saldosBancos, loading]` | el blob COMPLETO |
+| `persistAll(...)` desde Créditos, Intercompany, sub-líneas, líneas agregadas y los parámetros de CUALQUIER otra empresa (`params_as/if/af/ap/osiris/emp/frisku/participacion`) | el blob COMPLETO, `allegria_params` incluido |
+| Edición en Saldos Bancos | dispara el auto-save (es dependencia del efecto) → blob completo |
+| Evento de realtime sobre la fila `finanzas` → `applyData` → `setParams` con un objeto nuevo | vuelve a disparar el auto-save |
+
+O sea: una edición en Créditos reescribe `allegria_params`. Dejar el flujo en
+solo lectura no lo evita.
+
+**Pero la escritura del código anterior NO es destructiva** (comprobado, no
+deducido). En un worktree con `9d90ed2`, montando el módulo real con una fila
+que sí trae los campos nuevos y un `fetch` falso:
+
+- abrir Finanzas **escribe la fila una vez, sin que nadie toque nada** (el
+  auto-save se dispara cuando `loading` pasa a false);
+- y esa escritura **conserva todos los campos nuevos**: `programas` con la
+  realización de 362.000 y su `estimacion_caja` en Feb-27, `saldos_favor`,
+  `movimientos_sin_asignar`, `decisiones_sin_fecha`,
+  `liq_definitiva_cliente`, y dentro de la estimación tanto `v` como
+  `realizaciones`.
+
+La razón está en el código: `applyData` toma los objetos de temporada por
+referencia, `upd` clona con `JSON.parse(JSON.stringify(prev))`,
+`AnticipList.updRow` usa spread y `normalizarAnticipo` arranca con
+`...base`. Ninguno reconstruye con una forma fija.
+
+Queda **una** acción destructiva, y es deliberada: **borrar una fila de
+estimación** en la pantalla vieja elimina ese objeto entero, con su `v`, sus
+`realizaciones` y su `estimacion_caja`. Los programas no son borrables desde
+la versión anterior porque su pantalla no existe ahí.
+
+**Concurrencia.** La fila `finanzas` es una fila-blob: ante conflicto de
+versión, el contrato devuelve `conflicto` y **no sobrescribe** (PATCH
+condicionado por `updated_at`, 0 filas = conflicto). Dos sesiones no se pisan
+en silencio. Lo que el candado no cubre es una sesión cuya versión SÍ es la
+actual: esa escribe, y por lo de arriba su escritura preserva los campos.
+
+**Entonces el bloqueo efectivo necesario es este, y es más liviano:**
+
+1. **Copia puntual de la fila antes de revertir**, con su `updated_at`
+   (`calendario_data?id=eq.finanzas`), guardada fuera de la base. Se mantiene
+   como seguro: la comprobación de arriba cubre las vías que se ejercitaron,
+   no toda rama posible del módulo.
+2. **Instrucción explícita de no borrar filas de estimación** mientras la
+   reversión esté activa. Es la única acción que destruye dato nuevo, y
+   ningún permiso de pestaña la distingue de editar.
+3. **No hace falta cortar el acceso para proteger el dato**, y cortarlo por
+   pestaña tampoco lo protegería. Si se quiere impedir toda escritura, el
+   único control efectivo es quitar el módulo `finanzas` al usuario (que el
+   módulo no se monte), no dejar una pestaña en lectura.
+4. **Avisar que la proyección cambia**, con el Excel descargado antes de
+   revertir como referencia.
+5. **Después de revertir**, comparar `updated_at` con el de la copia para
+   saber si alguien escribió, y revisar que los campos nuevos siguen ahí.
+
+Lo que NO pude comprobar: si una sesión con permisos restringidos escribe
+igual. En el arnés esos casos nunca completaron la carga, así que no
+escribieron, pero el motivo observado fue una carga sin terminar en el
+entorno de prueba, no un control de permisos. Por eso el punto 3 se apoya en
+la lectura del código (`persistAll` no consulta `tabPermisos`), no en esa
+corrida.
 
 Por eso conviene publicar la funcionalidad **antes** de cargar datos: mientras
-no haya datos nuevos, la vuelta atrás es solo un revert, sin copia, sin corte
-de acceso y sin antes/después que medir.
+no haya datos nuevos, la vuelta atrás es solo un revert, sin copia, sin aviso
+y sin antes/después que medir.
 
 ## Lo que esta publicación NO hace
 
