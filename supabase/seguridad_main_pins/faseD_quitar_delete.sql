@@ -13,8 +13,10 @@
 --   borra filas de calendario_data con la llave pública: "📤 Restaurar" usa POST con
 --   Prefer: resolution=merge-duplicates (INSERT … ON CONFLICT DO UPDATE, sin DELETE) y
 --   TRUNCATE no es alcanzable por PostgREST. Revisar antes en producción las funciones/vistas
---   que anon pueda usar sobre calendario_data (consultas 0.4/0.5 de la propuesta anterior,
---   docs/seguridad-quitar-delete-anon.md).
+--   que anon pueda usar sobre calendario_data y la versión de Postgres (consultas M6, M7 y
+--   M8 de consultas_previas.sql; reemplaza la propuesta anterior docs/seguridad-quitar-delete-anon.md).
+--   Ya leído en producción el 2026-10-05 (D4/D5/D2): 0 vistas, 0 funciones que mencionen
+--   calendario_data, y privilegios sin MAINTAIN. El día de aplicar se repiten como control.
 -- SI SE APLICA ANTES DE TIEMPO: no hay "antes de tiempo" conocido. Un script o herramienta
 --   externa que borrara filas con la llave pública recibiría "permission denied".
 -- VERIFICAR: verificacion.sql → estado detectado "D" (anon BORRA … = "no").

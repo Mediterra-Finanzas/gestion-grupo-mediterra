@@ -120,11 +120,12 @@ la fase ya estaba aplicada no hace nada.
 | Archivo | Efecto | Requiere antes |
 |---|---|---|
 | `fase0_admins.sql` | Crea `seg_administradores` (RLS sin políticas; solo SELECT para service_role) | Nada. Después: dar de alta al primer admin (plantilla al final del archivo) |
-| `faseA_bloquear_escritura.sql` | anon/authenticated no escriben `pins` ni `usuarios` ni borran `main`; se revocan TRUNCATE/REFERENCES/TRIGGER | Fase 0 con al menos un admin activo, variables de Vercel, endpoints desplegados y cliente en modo servidor |
+| `faseD_quitar_delete.sql` | **Primera que cambia permisos.** anon/authenticated no BORRAN ninguna fila (se elimina `cd_anon_auth_delete`) y se revocan DELETE, TRUNCATE, REFERENCES y TRIGGER. SELECT/INSERT/UPDATE y "Restaurar" (upsert) no cambian | Nada (independiente de la app y del modo servidor); M6–M8 como control |
+| `faseA_bloquear_escritura.sql` | anon/authenticated no escriben `pins` ni `usuarios` | Fase D (desde HOY aborta), fase 0 con al menos un admin activo, variables de Vercel, endpoints desplegados y cliente en modo servidor |
 | `faseB_bloquear_lectura.sql` | Tampoco leen `pins` ni `usuarios` | Fase A; frisku-sp y osiris-auth de esta rama desplegados |
 | `faseC_cerrar_main.sql` | `main` cerrada a anon (lectura y escritura) | Fase B; cliente que usa solo `/api/datos/main`; recuperación probada |
 | `verificacion.sql` | Solo lectura: estado detectado y lo esperado por fase. Las pruebas como anon se deshacen siempre | — |
-| `reversion.sql` | Una sección por fase. Ejecutado completo deja exactamente la foto de hoy | — |
+| `reversion.sql` | EXCEPCIONAL, autorización aparte. Secciones C→B, B→A, A→D y D→HOY; ejecutado completo deja exactamente la foto de hoy | — |
 
 ## Recuperar acceso con la fase C aplicada
 
@@ -162,13 +163,14 @@ la fase ya estaba aplicada no hace nada.
 
 ```bash
 for f in api/*.test.mjs; do node "$f"; done        # incluye _reglasLogin (73), _friskuSpAuth (35) y frisku-sp (107)
-POSTGREST_BIN=/ruta/postgrest node scripts/seguridad-main-pins/prueba-servidor.mjs   # 180 comprobaciones (~3 min)
+POSTGREST_BIN=/ruta/postgrest node scripts/seguridad-main-pins/prueba-servidor.mjs   # 234 comprobaciones (~3 min)
+POSTGREST_BIN=/ruta/postgrest node scripts/seguridad-main-pins/prueba-revocacion.mjs  # 27, dos procesos
 node scripts/seguridad-main-pins/prueba-informe.mjs   # 7, en Chromium
 ```
 
 `prueba-servidor.mjs` levanta `entorno.mjs` con Postgres 16 y PostgREST 12 locales, las
 políticas, privilegios y triggers de producción, y datos de prueba. Cubre (a) las
-vulnerabilidades actuales, (b) todos los endpoints, (c) las fases 0, A, B y C aplicadas en
+vulnerabilidades actuales, (b) todos los endpoints, (c) las fases 0, D, A, B y C aplicadas en
 orden (anon bloqueado y la app sigue funcionando), (d) la recuperación de acceso y (e) la
 reversión, además de sesión (sin Max-Age, inactividad, huella, reseteo que expulsa), filas
 dañadas, corte de credenciales, tiempos de `recuperar` y las consultas M1/M4/M5. También

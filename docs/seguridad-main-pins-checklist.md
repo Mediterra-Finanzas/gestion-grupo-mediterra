@@ -65,11 +65,13 @@ Ver la sección 7. Cerrar `main` y `pins` protege el acceso y los permisos de la
 |---|---|---|
 | B1 | XSS en `/api/informe`. El `id` de la URL se insertaba sin escapar en la página, y el HTML guardado (Storage público, fila `osiris`) se servía desde el dominio de la app. Con sesión por cookie, un clic de un admin bastaba para actuar como él | **Corregido en la rama:** página aislada (`sandbox`, sin scripts) + `id` escapado. Probado en navegador (7/7, con control positivo); los informes legítimos se ven igual |
 | B2 | Frisku SharePoint verificaba PINs con un contador propio: el doble de intentos por cuenta | **Corregido en la rama:** comparte `login:<email>`. Requiere `AUTH_RATELIMIT_SECRET` en Vercel antes de desplegar; sin él, Frisku SharePoint responde 503 |
-| B3 | Los scripts SQL de main/pins comparan la foto exacta de permisos. Si antes se quita DELETE/TRUNCATE (propuesta aparte), abortan, y viceversa | **Pendiente:** decidir el orden (sección 6) y adaptar las guardas antes de aplicar cualquiera de los dos |
+| B3 | Las guardas SQL de la propuesta DELETE y de main/pins chocaban entre sí | **Resuelto en la rama (D2):** fase D integrada como primera fase (0 → D → A → B → C); la fase A exige D; `verificacion.sql` y `reversion.sql` reconocen HOY/D/A/B/C. Probado: 234/234 dos veces |
 | B4 | Personas que no podrían entrar por el servidor: sin `_h`, sin correo, correo o nombre repetido, código en texto plano sin vencimiento | **Pendiente:** M4 en producción; resolver cada caso antes de la etapa 3 |
 | B5 | Recuperación verificada en entorno real: correo, dos administradores y SQL Editor | **Pendiente:** sección 3 (condición puesta por Angelo para el corte) |
 | B6 | Administrador de respaldo | **Pendiente:** lo confirma Angelo |
 | B7 | Infraestructura en producción: RPC del límite de intentos, tipo de las filas | **Pendiente:** M1 y M5 |
+| B8 | Un tercero puede bloquear una cuenta una y otra vez (D4: no aceptado como definitivo) | **Propuesta lista, sin implementar:** `docs/seguridad-limite-intentos-propuesta.md` (cuenta + origen, demoras progresivas con tope de 60 min, equipo reconocido, desbloqueo por admin). Requiere tu aprobación |
+| B9 | Aislamiento de la Preview | **Candado implementado** (sin `SUPABASE_URL`, una Preview no cae a producción). Antes de usarla: revisar los ámbitos de las variables en Vercel (P7) y que `VERCEL_ENV` llegue a las funciones (P12) |
 
 ---
 
@@ -78,6 +80,7 @@ Ver la sección 7. Cerrar `main` y `pins` protege el acceso y los permisos de la
 | Código | Dónde | Para qué |
 |---|---|---|
 | M1–M5 | `supabase/seguridad_main_pins/consultas_previas.sql`, en el SQL Editor | Forma de las filas, Realtime, Storage, quién quedaría sin acceso, infraestructura |
+| M6–M8 | ídem | Vistas y funciones sobre `calendario_data` y versión de Postgres, antes de la fase D. **Ya leídas el 2026-10-05** (D4/D5/D2: 0 vistas, 0 funciones, sin MAINTAIN); se repiten el día de aplicar |
 | S1–S7 | Rama de roles, `supabase/seguridad_roles/consultas_lectura.sql` | Usuarios de Auth, claims, tablas abiertas, permisos por defecto |
 | `verificacion.sql` | `supabase/seguridad_main_pins/` | Debe decir estado **HOY**. Si dice DESCONOCIDO, la foto de producción difiere de la probada |
 | V8 completo | Ya enviado en forma parcial | JSON completo |
@@ -86,17 +89,22 @@ Ver la sección 7. Cerrar `main` y `pins` protege el acceso y los permisos de la
 | P8 | Supabase → Edge Functions | Si osiris-auth corre en producción o en sandbox |
 | P9 | Supabase → Database → Backups | Si hay respaldos diarios de la plataforma (tras la etapa 3, son el único respaldo de `pins`, `usuarios` y `main`) |
 | P10 | Supabase → Logs (API) | Retención y cobertura de los registros; si muestran lecturas de `id=eq.pins`. Un hallazgo es evidencia de descarga; la ausencia no la descarta |
-| P11 | Supabase | Si existe el proyecto staging (`gestion-mediterra-staging`) y está aislado de producción |
+| P11 | Supabase | Staging: usar el existente `gestion-mediterra-staging` (compartido con proc/contab, pruebas de persistencia y el piloto Osiris) o crear uno dedicado (recomendado) |
+| P12 | Vercel → Settings → Environment Variables | Que "Automatically expose System Environment Variables" esté activo (el candado usa `VERCEL_ENV`) y los ámbitos de cada variable |
 
 ---
 
 ## 3. Pruebas en el entorno real (antes de activar en producción)
 
-Dónde se prueba:
-- **Vercel Preview + Supabase staging**, con `SUPABASE_URL` apuntando a staging.
-- **Cuidado:** el cliente lee y guarda los módulos de negocio con la URL de producción, que está fija en el código. En la Preview hay que probar con `curl` o con el navegador **sin abrir módulos de negocio**.
+**Preparación completa (proyecto, aislamiento, variables solo por nombre, datos sintéticos, destinatarios, método por prueba y controles antes/después): `docs/seguridad-preview-staging.md`.** Resumen:
+- **Vercel Preview protegida (Deployment Protection) + Supabase staging.** Ninguna variable de producción en el ámbito Preview y secretos nuevos; el candado impide caer a producción si falta `SUPABASE_URL`.
+- **El navegador NO está aislado** [Seguro]: un solo intento de login escribe `audit_log` de producción, y un admin dispara una lectura masiva y correos a direcciones reales. Por eso las pruebas van **por HTTP (curl o scripts)**. La interfaz se usa solo para T9, con un usuario sintético no admin, `REACT_APP_SUPA_URL`/`KEY` de staging, sin abrir módulos y bloqueando el dominio de producción en el navegador.
+- **Correo:** una casilla M365 dedicada a pruebas como remitente (solo en el ámbito Preview) y solo casillas de prueba como destinatarias. El SMTP está fijo en `smtp.office365.com`.
+- **Datos:** usuarios sintéticos generados en local (dos admins, editor, celular, desactivado, sin PIN, PIN vencido, sin política, rol admin sin ser admin). No se copia ninguna fila, hash ni llave de producción.
+- **Control de aislamiento:** antes y después de cada sesión de pruebas, `updated_at` de `pins`/`usuarios`/`main`/`audit_log` de producción (solo lectura) debe seguir igual.
+- T10 lee producción (solo lectura pública): se hace en la etapa 2.
 
-**[AUT]** Desplegar la Preview, cargar datos de prueba en staging y enviar correos reales a casillas de prueba.
+**[AUT]** Pendiente de tu revisión: crear o modificar staging, variables y despliegue de la Preview, Deployment Protection, osiris-auth en staging, y envío de correos reales a casillas de prueba.
 
 | # | Prueba | Resultado esperado |
 |---|---|---|
@@ -107,13 +115,14 @@ Dónde se prueba:
 | T5 | Admin 1 resetea a una persona; admin 2 resetea al admin 1 | Ambos funcionan; la sesión del reseteado se cierra |
 | T6 | Recuperación por SQL Editor (bloque del documento técnico) en staging | Entra solo a crear PIN; el código vence en 2 h |
 | T7 | Corte de credenciales en staging (`AUTH_CREDENCIALES_DESDE`) | PIN antiguo → "debe restablecerse por correo"; recuperación por correo → entra |
-| T8 | Copia de la cookie: cambiar el PIN y reenviarla; esperar 31 min sin uso y reenviarla | 401 en ambos casos |
+| T8 | Copia de la cookie: cambiar el PIN y reenviarla; esperar 31 min sin uso y reenviarla; "Salir" en una sesión y reenviar la copia de otra | 401 en los tres casos |
 | T9 | Cerrar y restaurar el navegador (Chrome y Edge, "continuar donde lo dejaste") | Documentar si la sesión sigue. Esperado: sigue si no pasaron 30 min |
 | T10 | `/api/informe?id=<script>…` y un informe real | Sin ejecución; el informe real se ve igual |
 | T11 | Frisku SharePoint: 8 PIN incorrectos en la app y después 1 en Frisku | Frisku responde 429 |
 | T12 | osiris-auth contra `/api/auth/verificar` | Sesión de Osiris solo con PIN vigente |
 | T13 | Sin `SESSION_SECRET` (o con la función del límite caída) | 503 para todos: falla cerrado, nadie entra sin control |
-| T14 | `consultas_previas.sql` y fases 0/A/B/C + `verificacion.sql` en staging, con políticas copiadas de producción | Cada fase pasa sus guardas; anon recibe 0 filas de `pins`/`usuarios` tras B |
+| T14 | `consultas_previas.sql` y fases 0/D/A/B/C + `verificacion.sql` en staging, con políticas copiadas de producción | Cada fase pasa sus guardas; tras D, anon no borra; tras B, anon recibe 0 filas de `pins`/`usuarios` |
+| T15 | Revocación entre instancias: dos sesiones de la misma persona, "Salir" en una y reenvío de la otra (de ser posible, desde regiones o ventanas distintas) | 401 |
 
 ---
 
@@ -123,11 +132,12 @@ Cada etapa necesita su **[AUT]**, una ventana avisada y la anterior estable.
 
 | Etapa | Prerrequisitos | Pasos | Verificación en producción | Si falla (sin reabrir) |
 |---|---|---|---|---|
-| 0 | — | Ejecutar M1–M5, S1–S7, `verificacion.sql` | Estado HOY; B4 y B7 resueltos | — |
-| 1 | Etapa 0; B6 | `fase0_admins.sql` + alta de dos administradores | `select email, activo from seg_administradores` → 2 filas | Tabla nueva, sin efecto en usuarios |
+| 0 | — | Ejecutar M1–M8, S1–S7, `verificacion.sql` (fuera de horario: prueba borrados dentro de subtransacciones que se deshacen y toma bloqueos breves) | Estado HOY; B4 y B7 resueltos | — |
+| D | Etapa 0 | `faseD_quitar_delete.sql`. Independiente de la app: ni el cliente ni el servidor borran filas | `verificacion.sql` → D; anon no borra; "Restaurar" (upsert) y el guardado siguen funcionando | Sección 5; revertir D → HOY solo con [AUT] aparte (sección 6) |
+| 1 | Etapa D; B6 | `fase0_admins.sql` + alta de dos administradores | `select email, activo from seg_administradores` → 2 filas | Tabla nueva, sin efecto en usuarios |
 | 2 | Etapa 1; variables de Vercel (incluida `AUTH_RATELIMIT_SECRET`); pruebas de la sección 3 | Desplegar el servidor con el flag **apagado**; después, osiris-auth | T1, T10, T11, T12 en producción con usuarios reales; la app sigue igual | Vercel "Instant Rollback" al despliegue anterior |
 | 3 | Etapa 2 estable | Desplegar el cliente con `REACT_APP_AUTH_SERVER=true` | Login, cambio de PIN, recuperación, permisos y Tareas con 2–3 personas; los dos administradores entran | Instant Rollback al cliente anterior (todavía no se cerró nada en la base, así que no reabre nada) |
-| 4 | Etapa 3 estable 1–2 días; **existe al menos un despliegue en modo servidor estable al cual volver**; B5 | `faseA` + `faseB` en la misma ventana. Con el corte aceptado: `AUTH_CREDENCIALES_DESDE` = hora de B, avisando antes a todos | `verificacion.sql` → B; anon recibe 0 filas; cada persona recupera por correo una vez; quien no tenga correo, por reseteo del admin | Sección 5. No se revierte SQL salvo la sección 6 |
+| 4 | Etapa 3 estable 1–2 días; **existe al menos un despliegue en modo servidor estable al cual volver**; B5; B8 | `faseA` + `faseB` en la misma ventana. Con el corte aceptado: `AUTH_CREDENCIALES_DESDE` = hora de B, avisando antes a todos | `verificacion.sql` → B; anon recibe 0 filas; cada persona recupera por correo una vez; quien no tenga correo, por reseteo del admin | Sección 5. No se revierte SQL salvo la sección 6 |
 | 5 | Etapa 4 estable | `faseC_cerrar_main.sql` | `verificacion.sql` → C; Tareas funcionan | Sección 5 |
 
 Por qué A y B juntas:
@@ -159,9 +169,10 @@ Por qué A y B juntas:
 |---|---|---|
 | C → B | Lectura y escritura pública de `main` (Tareas) | Cualquiera lee o altera las Tareas |
 | B → A | Lectura pública de `pins` y `usuarios` | Vuelven a exponerse los hashes. Si ya se aplicó el corte, quedan expuestos los PIN nuevos y se pierde su beneficio |
-| A → HOY | Escritura pública de `pins` y `usuarios` | Vuelve la toma de cuentas: cualquiera se da admin o fija el PIN de otro |
+| A → D | Escritura pública de `pins` y `usuarios` | Vuelve la toma de cuentas: cualquiera se da admin o fija el PIN de otro |
+| D → HOY | Borrado público (DELETE) y TRUNCATE de todas las filas de negocio | Cualquiera con la llave puede borrar `finanzas`, `nominas_*`, etc. |
 
-Orden obligatorio si se autoriza: primero el SQL y después, si hace falta, desplegar el cliente antiguo. Recomendación: **no revertir nunca A → HOY**. Revertir B solo ante una caída prolongada del servidor, y si el directorio prefiere disponibilidad sobre seguridad.
+Orden obligatorio si se autoriza: primero el SQL y después, si hace falta, desplegar el cliente antiguo. Recomendación: **no revertir nunca A → D ni D → HOY**. Revertir B solo ante una caída prolongada del servidor, y si el directorio prefiere disponibilidad sobre seguridad.
 
 ---
 
@@ -182,15 +193,8 @@ Orden obligatorio si se autoriza: primero el SQL y después, si hace falta, desp
 2. **Datos financieros con la llave pública** [Seguro]:
    - `finanzas` (créditos, bancos, flujo), `nominas_*`, `rendiciones` y `eeff`: lectura, escritura y borrado;
    - "Restaurar" se puede repetir desde fuera con la llave y sobrescribir muchas filas.
-   - **Retirar DELETE, TRUNCATE, REFERENCES y TRIGGER se puede adelantar de forma independiente para la app:**
-     - [Seguro] ni el cliente ni `api/` borran filas de `calendario_data`;
-     - "Restaurar" usa upsert y no necesita DELETE;
-     - la retención de respaldos está suspendida;
-     - [Probable] TRUNCATE no se alcanza por la API REST.
-   - **Requisitos antes de aplicarlo:**
-     - B3: coordinar las guardas con los scripts de main/pins;
-     - completar `docs/seguridad-quitar-delete-anon.md`, que no retira REFERENCES/TRIGGER, compara las políticas sin su condición y tiene D1, D4 y D5 pendientes.
-   - Además cierra un hueco de Nóminas: hoy se puede borrar `nominas_<empresa>` y recrearla sin versión.
+   - **El borrado ya está cubierto por la fase D** (primera del plan, independiente de la app): retira DELETE, TRUNCATE, REFERENCES y TRIGGER. Lo que sigue abierto después de D: **leer y modificar** esas filas con la llave.
+   - D además cierra un hueco de Nóminas: hoy se puede borrar `nominas_<empresa>` y recrearla sin versión.
    - Leer y escribir esos datos solo con sesión es la migración E1.5: es un proyecto aparte.
 3. **Storage** [Seguro/Suponiendo]:
    - `frisku-docs` se crea público: los respaldos de Rendiciones quedan con URL pública;
@@ -200,8 +204,8 @@ Orden obligatorio si se autoriza: primero el SQL y después, si hace falta, desp
    - Políticas por confirmar con M3.
 4. **Realtime:** si publica `calendario_data`, difunde los cambios hasta la fase B (M2).
 5. **`audit_log`:** se puede sobrescribir con la llave, y si su carga falla la app escribe `[]` encima (viola la regla 9).
-6. **Cuentas bloqueables por terceros:** ~9 intentos cada 20 min desde cualquier IP. Además, "¿Olvidaste tu PIN?" inhabilita el PIN de quien no tenga celular registrado. Aceptar o ajustar: D4.
-7. **Ritmo sostenido de intentos:** ~8 cada 15–20 min por cuenta, sin castigo progresivo. IPv6 se cuenta por dirección completa (/128), no por /64.
+6. **Límite de intentos:** mientras no se apruebe e implemente la propuesta D4 (B8), un tercero puede bloquear una cuenta, y "¿Olvidaste tu PIN?" inhabilita el PIN de quien no tenga celular. Con la propuesta queda un riesgo acotado de adivinación distribuida (~8,8% al año por cuenta con un PIN al azar; ver el documento).
+7. **`api/informe.js`** lee producción con la llave pública fija (solo datos públicos): en una Preview sigue leyendo producción.
 8. **Sesiones de Frisku SharePoint y Osiris:** no se cierran con "Salir" de la app (cookies y sesiones propias).
 9. **Tablas `contab_*`, `osi_*` y `rbac_*`:** rama de roles, pendiente de S1–S7.
 
@@ -211,10 +215,12 @@ Orden obligatorio si se autoriza: primero el SQL y después, si hace falta, desp
 
 | # | Decisión |
 |---|---|
-| D1 | Administrador de respaldo (B6) |
-| D2 | Orden entre la propuesta DELETE/TRUNCATE y las fases main/pins (B3). Recomendación: DELETE/TRUNCATE primero, adaptando antes las guardas |
-| D3 | Si "Salir" cierra todas las sesiones de la persona (sube la época) o se acepta el límite actual |
-| D4 | Si se acepta que un tercero bloquee una cuenta 15 min, o se ajusta la regla |
+| D1 | Administrador de respaldo (B6): **pendiente**, Angelo confirmará su identidad |
+| D2 | DELETE/TRUNCATE primero: **decidido e implementado** (fase D, guardas adaptadas y probadas) |
+| D3 | "Salir" cierra todas las sesiones, incluidas las copias: **decidido e implementado** (época en la base, probado entre dos procesos) |
+| D4 | Límite por cuenta + origen sin bloqueos indefinidos: **propuesta lista** (`docs/seguridad-limite-intentos-propuesta.md`), pendiente de aprobación. Incluye un cambio a la regla del login: el código pedido por la propia persona deja de inhabilitar su PIN hasta que lo usa |
+| D6 | Staging dedicado o compartido (P11) |
+| D7 | Visto bueno al candado anti-producción: toca las constantes `SUPA_URL` del servidor (regla 1 de CLAUDE.md); en producción el valor no cambia |
 | D5 | Corte de credenciales: **aceptado en el plan**, sujeto a verificar antes T4, T5 y T7. Su ejecución requiere [AUT] en la etapa 4 |
 
 ---
@@ -224,7 +230,9 @@ Orden obligatorio si se autoriza: primero el SQL y después, si hace falta, desp
 | Prueba | Resultado |
 |---|---|
 | `for f in api/*.test.mjs; do node "$f"; done` | Todas pasan (`_reglasLogin` 73, `_friskuSpAuth` 35, `frisku-sp` 107, …) |
-| `POSTGREST_BIN=… node scripts/seguridad-main-pins/prueba-servidor.mjs` | 180/180, incluidas copias reales de cookies en tiempo real (~2 min de espera) |
+| `POSTGREST_BIN=… node scripts/seguridad-main-pins/prueba-servidor.mjs` | 234/234: fases 0/D/A/B/C, reversión por secciones, DESCONOCIDO, copias reales de cookies en tiempo real |
+| `POSTGREST_BIN=… node scripts/seguridad-main-pins/prueba-revocacion.mjs` | 27/27 con dos procesos: "Salir" revoca copias en ambas instancias; carreras con cambio de PIN y reseteo; base caída → 503 |
+| `node api/_auth.test.mjs` | 5/5: una Preview sin `SUPABASE_URL` no cae a producción |
 | `node scripts/seguridad-main-pins/prueba-informe.mjs` | 7/7 en Chromium real, con control positivo |
 | Dos instancias contra Postgres local (script del revisor, fuera del repositorio) | 8 permitidos de 16 alternados y 8 de 20 simultáneos |
 | `scripts/e2e/seguridad-auth-servidor.mjs` (builds con flag prendido y apagado) | 35/35 |

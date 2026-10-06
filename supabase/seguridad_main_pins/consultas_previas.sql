@@ -68,3 +68,30 @@ from hj;
 select (select count(*) from pg_proc where proname = 'frisku_sp_rl_consumir')       as rpc_rate_limit,
        (select count(*) from pg_class where relname = 'frisku_sp_ratelimit')        as tabla_rate_limit,
        (select count(*) from pg_class where relname = 'seg_administradores')        as tabla_admins;
+
+-- M6. (Antes de la fase D) Vistas sobre calendario_data: una vista "actualizable" podría
+--     permitir borrar a través de ella aunque la tabla ya no lo permita.
+select view_schema, view_name
+  from information_schema.view_table_usage
+ where table_schema = 'public' and table_name = 'calendario_data';
+
+-- M7. (Antes de la fase D) Funciones que anon puede ejecutar y que mencionan calendario_data.
+--     Es una LISTA DE CANDIDATAS: cada una se lee con
+--     select pg_get_functiondef('public.NOMBRE'::regproc);  antes de aplicar.
+select n.nspname as esquema, p.proname as funcion, p.prosecdef as security_definer,
+       has_function_privilege('anon', p.oid, 'execute') as anon_puede_ejecutar
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+ where p.prokind = 'f'
+   and n.nspname not in ('pg_catalog', 'information_schema')
+   and pg_get_functiondef(p.oid) ilike '%calendario_data%'
+ order by 1, 2;
+
+-- M8. Versión de Postgres y privilegios de la llave pública sobre calendario_data. En
+--     Postgres 17 existe MAINTAIN (incluido en GRANT ALL); la fase D no lo cuenta ni lo
+--     retira. Si aparece, se agrega a la fase D antes de aplicarla.
+select current_setting('server_version') as version,
+       (select string_agg(grantee || ':' || privilege_type, ', ' order by grantee, privilege_type)
+          from information_schema.role_table_grants
+         where table_schema = 'public' and table_name = 'calendario_data'
+           and grantee in ('anon', 'authenticated')) as privilegios_llave_publica;
