@@ -105,9 +105,11 @@ describe("3 · editar con la version de recuperacion y volver al candidato", () 
   test("tabla que el candidato debe reproducir despues de la edicion", () => {
     const f = porTemp(filas(editado));
     const tabla = Object.keys(f).sort().reduce((m, t) => (m[t] = r2(f[t].montoFact), m), {});
-    // eslint-disable-next-line no-console
-    console.log("TRAS EDITAR EN RECUPERACION\n" + JSON.stringify(tabla, null, 1));
-    expect(Object.keys(tabla).length).toBe(5);
+    // Antes esto imprimia la tabla por consola y solo comprobaba que hubiera
+    // cinco filas, que no es comprobar nada. La tabla esperada vive en la
+    // fixture compartida, asi que la edicion hecha en recuperacion se compara
+    // contra ella: es el numero que el candidato tiene que reproducir.
+    expect(tabla).toEqual(TABLA_EDITADO);
   });
 });
 
