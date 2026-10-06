@@ -347,15 +347,60 @@ Reglas que no hay que romper:
   descuentos.
 - **Una sola fuente**: `movimientosLado()` alimenta `calcAllegria`, la pantalla
   (`ResumenLado`) y el Excel (`bloqueLiquidacionLado`). En el Excel el realizado
-  y lo sustituido van como constantes, nunca como fórmula.
+  y lo sustituido van como constantes, nunca como fórmula. `bloqueLiquidacionLado`
+  recibe `modeloVersion` y `decisionesSinFecha` y resuelve el trato de un
+  pendiente sin fecha con `tratoSinFecha`, el MISMO helper de la app: sin eso el
+  archivo mostraba caja que la pantalla declara no proyectable.
+- **Archivar no borra dinero**: un programa archivado deja de proyectar y de
+  sustituir, pero su realizado SIGUE descontando (`realizadoArchivado` lo
+  informa aparte, y el Excel lleva su fila). Antes el realizado desaparecía del
+  cuadre y la liquidación subía por ese monto.
+- **Una posición sale del bloque entera**: `presupuestoRetirado` descuenta el
+  `presupuesto_asignado` y, si no lo hay, el `importe_definitivo`. Si no, la
+  base total crecía en silencio (la posición se sumaba encima del presupuesto
+  completo de la fruta), idéntico en pantalla, flujo y Excel.
+- **El lado no se adivina**: `resumenLado` pone `lado` en cada posición y en el
+  bloque, y `reconocerDesdePosicion` lo exige. Antes todo excedente reconocido
+  nacía como "productor" y un sobrecobro de cliente se proyectaba como
+  recuperación (ingreso) en vez de devolución (egreso).
+- **El exceso de compromisos cuenta lo compensado**:
+  `MAX(0, realizado + compromisos + compensado − base) − excedenteReal`. Sin el
+  compensado la identidad de cuadre no cerraba y el aviso salía en cero.
+- **La versión del modelo se estampa al CREAR** (`v: MODELO_VERSION` en
+  `addCuota`/`addHistorico` de la pantalla y en `addRow` de las estimaciones).
+  Nadie la escribía, así que todo registro nuevo se trataba como antiguo: su
+  pendiente sin fecha se absorbía en la liquidación (justo lo que la regla
+  prohíbe) y la pantalla lo llamaba "registro antiguo". Lo ya guardado NO se
+  migra y conserva su comportamiento.
+- **Mover una realización entre estimaciones está prohibido**: reabriría el
+  pendiente de la de origen (`estRealizadoOriginado` sigue las movidas a una
+  CUOTA, no a otra estimación).
 
 Guía de carga: `docs/programas-allegria-carga.md`. Guía de revisión en
 pantalla antes de cargar: `docs/revision-estimaciones-pantalla.md`. Propuesta de carga y
 pendientes comerciales (WLH, Don Alberto, fichas Perú / Allegria Service):
 `docs/propuesta-carga-allegria.md`. Pruebas:
-`src/__tests__/programasFlujo.test.js` (16, incluye 7 escenarios de Excel) y
-`scripts/e2e/programas-allegria.mjs` (navegador + Excel recalculado con
-LibreOffice, datos sintéticos).
+`src/__tests__/programasFlujo.test.js` y `integracionSaldos.test.js` (su
+comparación de Excel lee el valor EN CACHÉ: es control de forma, no prueba de
+las fórmulas), **`src/__tests__/excelRecalcFlujo.test.js`** (`RECALC=1`: Excel
+recalculado en LibreOffice contra `calcAllegria`, mes a mes, en los seis
+escenarios que la comparación en caché no podía ver),
+`src/__tests__/saldosExcelRecalc.test.js` (`RECALC=1`), y
+`scripts/e2e/programas-allegria.mjs` + `regresion-empresas.mjs` (navegador +
+Excel recalculado, datos sintéticos).
+
+#### Limitación conocida — pendiente con mes fuera del horizonte
+
+Un pendiente cuyo mes cae fuera del horizonte (`fuera_horizonte`) descuenta de
+la liquidación y no se proyecta en ningún mes, porque no tiene columna. La
+pantalla lo declara («· después del horizonte (no tienen columna en el
+flujo)») y el Excel hace lo mismo, así que pantalla y archivo coinciden; lo que
+pasa es que ese monto sale de la proyección. Hoy **no es alcanzable desde la
+pantalla** (el selector de mes solo ofrece meses del horizonte). Se vuelve
+alcanzable el día que el horizonte se corra hacia adelante. Decisión pendiente
+de Angelo: o no descuenta (se cobra/paga al liquidar, como un sin-fecha
+histórico) o se declara como monto no proyectable aparte. No se cambió en el
+cierre de oct-2026 por no tener dato real con el que validarlo.
 
 #### Limitación conocida — costos de ciruelas
 

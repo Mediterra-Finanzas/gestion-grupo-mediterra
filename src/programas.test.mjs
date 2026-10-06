@@ -293,8 +293,13 @@ const lado = (o = {}) => resumenLado({
   // se anticipó más que el total de la operación
   const e = est({ id:"e1", mes:"Nov-26", monto:200000, realizaciones:[rea("r1","2026-08-01",400000)] });
   const r = resumenLado({ estimaciones:[e], basePresupuesto:300000, mIdx, mesIdxActual:0 });
-  check("(58) liquidación 0 y excedente a la vista",
-    aprox(r.liquidacion, 0) && aprox(r.excedente, 100000), `exc=${r.excedente}`);
+  // 400.000 cobrados contra una base de 300.000 → excedente REAL de 100.000.
+  // El campo mezclado `excedente` se retiró: la regla prohíbe sumar excedente
+  // real con exceso de compromisos.
+  check("(58) liquidación 0 y excedente REAL a la vista",
+    aprox(r.liquidacion, 0) && aprox(r.excedenteReal, 100000) &&
+    aprox(r.excesoCompromisos, 0) && r.excedente === undefined,
+    `real=${r.excedenteReal} exceso=${r.excesoCompromisos} mezclado=${r.excedente}`);
 }
 
 // ═══ 16. Bandeja de conciliación ═══════════════════════════════════
@@ -952,12 +957,15 @@ import { normalizarCuota as normCuota } from "./programas.js";
   check("(171) un registro histórico se fuerza a borrador: no se activa ni a mano",
     forzado.estado === "borrador" && forzado.historico === true);
   const progForzado = wlh();
-  progForzado.cuotas[0] = { ...progForzado.cuotas[0], estado: "vigente", modalidad: "monto", monto: 599960 };
+  // El monto forzado es DISTINTO del realizado a propósito: si fuera igual,
+  // MAX(0, 599.960 − 599.960) daría 0 y la prueba pasaría incluso si el
+  // forzado a borrador se rompiera.
+  progForzado.cuotas[0] = { ...progForzado.cuotas[0], estado: "vigente", modalidad: "monto", monto: 700000 };
   const r2 = resumenLado(opts([progForzado]));
   check("(172) y con monto y estado forzados tampoco genera otra proyección",
     aprox(r2.pendientes, 320000) && aprox(r2.realizado, 599960) &&
-    aprox(r2.liquidacion, r.liquidacion),
-    `pend ${r2.pendientes} · liq ${r2.liquidacion} vs ${r.liquidacion}`);
+    aprox(r2.liquidacion, 3825000 - 599960 - 320000),
+    `pend ${r2.pendientes} · liq ${r2.liquidacion}`);
   check("(173) un histórico no admite marca de fecha estimada",
     normCuota({ historico: true, mes_estimado: true }).mes_estimado === false);
 
@@ -1072,6 +1080,113 @@ import {
   const r2 = resumenLado(opts([sinEst]));
   check("(194) y vuelve a proyectarse vencida",
     aprox(r2.pendienteVencido, 138000) && aprox(r2.proyeccionEstimada, 0));
+}
+
+
+// ═══ ETAPA 8 · correcciones de la revisión de cierre ═══
+import { archivarPrograma as archPrg, moverRealizacion as moverRea,
+  cuadrePosicion as cuadrePos, normalizarCuota as normC } from "./programas.js";
+
+{
+  const MES_F = HORIZONTE[cortReal() + 2];
+  const o = (progs, extra = {}) => ({ programas: progs, lado: "cliente",
+    basePresupuesto: 1000000, mIdx: mIdxReal, mesIdxActual: cortReal(),
+    mesLiquidacion: MES_LIQ, modeloVersion: MODELO_VERSION, ...extra });
+
+  // ── A. Archivar no borra el dinero ya movido ──
+  const conPlata = { id: "pA", lado: "cliente", contraparte: "A", kilos: null,
+    mes_liquidacion: MES_LIQ, cuotas: [{ id: "c1", estado: "vigente", modalidad: "monto",
+      monto: 300000, mes: MES_F, realizaciones: [{ id: "r1", fecha: "2026-08-01", usd: 200000 }] }] };
+  const antes = resumenLado(o([conPlata]));
+  check("(195) antes de archivar: realizado 200.000 y liquidación 700.000",
+    aprox(antes.realizado, 200000) && aprox(antes.pendientes, 100000) && aprox(antes.liquidacion, 700000));
+  const arch = resumenLado(o([archPrg(conPlata, { motivo: "qa", usuario: "qa" })]));
+  check("(196) archivado: las cuotas dejan de proyectar PERO el realizado sigue descontando",
+    aprox(arch.realizado, 200000) && aprox(arch.pendientes, 0) && aprox(arch.liquidacion, 800000),
+    `realizado ${arch.realizado} · liq ${arch.liquidacion}`);
+  const movArch = movimientosLado(o([archPrg(conPlata, { motivo: "qa", usuario: "qa" })])).movimientos;
+  check("(197) y realizado + proyectado sigue siendo la base",
+    aprox(arch.realizado + movArch.reduce((a, m) => a + m.usd, 0), 1000000),
+    String(arch.realizado + movArch.reduce((a, m) => a + m.usd, 0)));
+  check("(198) el realizado de lo archivado se informa aparte",
+    aprox(arch.realizadoArchivado, 200000));
+
+  // ── B. Una posición sale del bloque ENTERA, también sin presupuesto asignado ──
+  const soloDef = [{ id: "pB", lado: "cliente", contraparte: "B", kilos: null,
+    importe_definitivo: 300000, mes_liquidacion: MES_F, cuotas: [] }];
+  const rB = resumenLado(o(soloDef));
+  const mB = movimientosLado(o(soloDef)).movimientos.reduce((a, m) => a + m.usd, 0);
+  check("(199) posición 300.000 + bloque 700.000 = la base, no 1.300.000",
+    aprox(rB.posiciones[0].base, 300000) && aprox(rB.bloque.base, 700000) && aprox(mB, 1000000),
+    `pos ${rB.posiciones[0].base} + bloque ${rB.bloque.base} = proyectado ${mB}`);
+  const conAsig = [{ ...soloDef[0], presupuesto_asignado: 250000 }];
+  check("(200) con presupuesto asignado se retira ese, no el definitivo",
+    aprox(resumenLado(o(conAsig)).bloque.base, 750000),
+    String(resumenLado(o(conAsig)).bloque.base));
+
+  // ── C. Reconocer un excedente sabe de qué lado es ──
+  const posCli = resumenLado(o([{ id: "pC", lado: "cliente", contraparte: "C", kilos: null,
+    presupuesto_asignado: 200000, importe_definitivo: 200000, mes_liquidacion: MES_F,
+    cuotas: [{ id: "cC", estado: "vigente", modalidad: "monto", monto: 240000, mes: MES_F,
+      realizaciones: [{ id: "rC", fecha: "2026-08-01", usd: 240000 }] }] }])).posiciones[0];
+  check("(201) la posición declara su lado", posCli.lado === "cliente");
+  const sCli = reconocerDesdePosicion(posCli, [], { usd: 40000, usuario: "qa" });
+  check("(202) un excedente de CLIENTE nace como saldo del cliente (devolución, no recuperación)",
+    sCli.lado === "cliente", `lado ${sCli.lado}`);
+  let errLado = null;
+  try { reconocerDesdePosicion({ ...posCli, lado: undefined }, [], { usd: 1000 }); }
+  catch (e) { errLado = e; }
+  check("(203) sin lado no se reconoce nada: no se adivina",
+    !!errLado && errLado.message.includes("de qué lado"), errLado?.message?.slice(0, 50));
+
+  // ── D. El exceso de compromisos cuenta lo compensado ──
+  const q = cuadrePos({ etiqueta: "D", base: 300000, realizado: 0,
+    pendientes: [{ tipo: "cuota", id: "x", mes: MES_F, usd: 290000 }],
+    mesLiquidacion: MES_LIQ, mIdx: mIdxReal, mesIdxActual: cortReal(), compensaciones: 40000 });
+  check("(204) compromisos 290.000 + compensado 40.000 sobre base 300.000 → exceso 30.000",
+    aprox(q.excesoCompromisos, 30000) && aprox(q.excedenteReal, 0),
+    `exceso ${q.excesoCompromisos}`);
+  check("(205) y la identidad de cuadre cierra",
+    q.cuadra === true &&
+    aprox(q.saldoEconomico, q.totalCalendarizado + q.pendienteDeCalendarizar + q.compensado - q.excesoCompromisos),
+    `${q.saldoEconomico} vs ${q.totalCalendarizado + q.pendienteDeCalendarizar + q.compensado - q.excesoCompromisos}`);
+  const qReal = cuadrePos({ etiqueta: "E", base: 200000, realizado: 300000,
+    pendientes: [], mesLiquidacion: MES_LIQ, mIdx: mIdxReal, mesIdxActual: cortReal(),
+    compensaciones: 50000 });
+  check("(206) con realizado > base, el excedente real no se mezcla con el exceso",
+    aprox(qReal.excedenteReal, 100000) && aprox(qReal.excesoCompromisos, 50000),
+    `real ${qReal.excedenteReal} exceso ${qReal.excesoCompromisos}`);
+
+  // ── E. Mover entre estimaciones reabriría el pendiente de origen ──
+  let errMov = null;
+  try {
+    moverRea({ estimaciones: [{ id: "e1", mes: MES_F, usd_kg: 0.1,
+      realizaciones: [{ id: "rm", fecha: "2026-08-01", usd: 50000 }] }, { id: "e2", mes: MES_F, usd_kg: 0.1 }],
+      programas: [], reaId: "rm", desde: { tipo: "estimacion", id: "e1" },
+      hacia: { tipo: "estimacion", id: "e2" }, usuario: "qa" });
+  } catch (e) { errMov = e; }
+  check("(207) mover de estimación a estimación está prohibido",
+    !!errMov && errMov.message.includes("reabriría"), errMov?.message?.slice(0, 50));
+
+  // ── F. Un histórico no admite estimación de caja ni por el dato ──
+  check("(208) un registro histórico descarta la estimación de caja",
+    normC({ historico: true, mes: MES_F, estimacion_caja: { mes: MES_LIQ, motivo: "x" } })
+      .estimacion_caja === null);
+
+  // ── G. La marca de versión al crear hace alcanzable el default reservado ──
+  const nueva = normC({ id: "cV", estado: "vigente", modalidad: "monto", monto: 50000, mes: "", v: MODELO_VERSION });
+  const rV = resumenLado(o([{ id: "pV", lado: "cliente", contraparte: "V", kilos: null,
+    mes_liquidacion: MES_LIQ, cuotas: [nueva] }], { modeloVersion: 1 }));
+  check("(209) una cuota creada hoy queda reservada aunque la fruta siga en versión 1",
+    aprox(rV.pendienteDeCalendarizar, 50000) && aprox(rV.liquidacion, 950000) &&
+    rV.avisosCompatibilidad.length === 0,
+    `reservado ${rV.pendienteDeCalendarizar} · liq ${rV.liquidacion} · avisos ${rV.avisosCompatibilidad.length}`);
+  const vieja = normC({ id: "cO", estado: "vigente", modalidad: "monto", monto: 50000, mes: "" });
+  const rO = resumenLado(o([{ id: "pO", lado: "cliente", contraparte: "O", kilos: null,
+    mes_liquidacion: MES_LIQ, cuotas: [vieja] }], { modeloVersion: 1 }));
+  check("(210) y un registro guardado antes conserva su comportamiento histórico",
+    aprox(rO.liquidacion, 1000000) && rO.avisosCompatibilidad.length === 1,
+    `liq ${rO.liquidacion} · avisos ${rO.avisosCompatibilidad.length}`);
 }
 
 

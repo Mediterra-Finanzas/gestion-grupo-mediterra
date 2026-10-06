@@ -65,11 +65,17 @@ const params = { '2026-2027': { cerezas: {
 function recalcular(archivo, dir) {
   const wb = XLSX.readFile(archivo, { cellFormula: true });
   let borradas = 0;
+  // Qué celdas de Parametros ERAN fórmula: sin esto, una celda constante
+  // pasaría cualquier comprobación de "recalculado".
+  const conFormula = new Set();
   wb.SheetNames.forEach(nm => {
     const ws = wb.Sheets[nm];
     Object.keys(ws).forEach(a => {
       if (a[0] === '!') return;
-      if (ws[a] && ws[a].f) { delete ws[a].v; delete ws[a].w; borradas++; }
+      if (ws[a] && ws[a].f) {
+        if (nm === 'Parametros') conFormula.add(a);
+        delete ws[a].v; delete ws[a].w; borradas++;
+      }
     });
   });
   const base = path.basename(archivo, '.xlsx');
@@ -83,13 +89,13 @@ function recalcular(archivo, dir) {
     { stdio: 'pipe', timeout: 300000 });
   const salida = path.join(outDir, path.basename(sinCache));
   if (!fs.existsSync(salida)) throw new Error('LibreOffice no recalculó el archivo');
-  return { wb: XLSX.readFile(salida, { cellFormula: true }), borradas };
+  return { wb: XLSX.readFile(salida, { cellFormula: true }), borradas, conFormula };
 }
 
 const correr = process.env.RECALC === '1' ? describe : describe.skip;
 
 correr('sección de saldos a favor, recalculada en LibreOffice', () => {
-  let ws, wsFlujo, borradas;
+  let ws, wsFlujo, borradas, conFormula;
   beforeAll(() => {
     fs.mkdirSync(OUT, { recursive: true });
     const PARAMS = { paramsAllegria: params, allegraComisionArandanos: { cobros: [] } };
@@ -100,7 +106,7 @@ correr('sección de saldos a favor, recalculada en LibreOffice', () => {
     const rec = recalcular(file, OUT);
     ws = rec.wb.Sheets['Parametros'];
     wsFlujo = rec.wb.Sheets[rec.wb.SheetNames.find(n => n !== 'Parametros')];
-    borradas = rec.borradas;
+    borradas = rec.borradas; conFormula = rec.conFormula;
   });
 
   test('el archivo se recalculó de verdad (sin valores en caché)', () => {
@@ -114,7 +120,13 @@ correr('sección de saldos a favor, recalculada en LibreOffice', () => {
       .find(x => typeof ws[x]?.v === 'string' && ws[x].v.startsWith(et));
     return k ? Number(k.slice(1)) : null;
   };
-  const val = (col, fila) => Number(ws[`${col}${fila}`]?.v ?? 0);
+  const val = (col, fila) => {
+    const c = ws[`${col}${fila}`];
+    // Una fórmula que no recalculó deja la celda sin valor: eso tiene que
+    // fallar, no leerse como 0.
+    if (!c || c.v === undefined) throw new Error(`celda ${col}${fila} sin valor tras recalcular`);
+    return Number(c.v);
+  };
   const txt = (col, fila) => String(ws[`${col}${fila}`]?.v ?? '');
 
   test.each(SALDOS.map(s => [s.contraparte, s]))(
@@ -122,6 +134,9 @@ correr('sección de saldos a favor, recalculada en LibreOffice', () => {
       const f = filaDe(s.contraparte, s.lado);
       expect(f).not.toBeNull();
       const rs = resumenSaldo(s);
+      // D/E/F/G tienen que haber sido fórmulas: es lo que esta prueba dice
+      // verificar. C es constante a propósito (el monto reconocido es un dato).
+      ['D', 'E', 'F', 'G'].forEach(col => expect(conFormula.has(`${col}${f}`)).toBe(true));
       expect(Math.round(val('C', f))).toBe(Math.round(rs.reconocido));
       expect(Math.round(val('D', f))).toBe(Math.round(rs.resuelto));
       expect(Math.round(val('E', f))).toBe(Math.round(rs.programado));
@@ -136,12 +151,21 @@ correr('sección de saldos a favor, recalculada en LibreOffice', () => {
     'escenario %s: cada aplicación aporta a la columna que le toca', (_n, s) => {
       const f = filaDe(s.contraparte, s.lado);
       const rs = resumenSaldo(s);
+      // Esperados ESCRITOS A MANO por escenario, no derivados del exportador:
+      // [resuelto, programado] de cada aplicación, en orden.
+      const ESPERADO = {
+        Uno: [],
+        Dos: [[0, 6000]],          // recuperación programada: ocupa, no resuelve
+        Tres: [[5000, 0]],         // recuperación ejecutada: resuelve
+        Cuatro: [[0, 4000]],       // compensación reservada: ocupa, no resuelve
+        Cinco: [[3000, 0]],        // compensación aplicada: resuelve sin caja
+        Seis: [[0, 2000]],         // devolución programada (la anulada no cuenta)
+      }[s.contraparte];
+      expect(rs.aplicaciones.length).toBe(ESPERADO.length);
       rs.aplicaciones.forEach((a, k) => {
         const fa = f + 1 + k;
-        const resuelve = a.estado === 'ejecutada' || a.estado === 'aplicada';
-        const programa = a.estado === 'programada' || a.estado === 'reservada';
-        expect(Math.round(val('D', fa))).toBe(resuelve ? Math.round(a.usd) : 0);
-        expect(Math.round(val('E', fa))).toBe(programa ? Math.round(a.usd) : 0);
+        expect(Math.round(val('D', fa))).toBe(ESPERADO[k][0]);
+        expect(Math.round(val('E', fa))).toBe(ESPERADO[k][1]);
         if (a.estado === 'ejecutada') expect(txt('G', fa)).toMatch(/ya es caja/);
         if (a.estado === 'aplicada') expect(txt('G', fa)).toMatch(/sin movimiento/);
         if (a.estado === 'reservada') expect(txt('G', fa)).toMatch(/no proyecta/);

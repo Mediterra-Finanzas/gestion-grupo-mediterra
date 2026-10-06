@@ -46,6 +46,21 @@ store.finanzas.value = fin;
 
 // VIDEO=1 graba el recorrido completo, para revisarlo sin tocar producción.
 const grabar = process.env.VIDEO === '1';
+// Guarda de build fresco: si lo servido en 4173 no corresponde al árbol
+// actual, la corrida daría verde sobre código viejo.
+{
+  const js = fs.readdirSync('build/static/js').filter(f => f.endsWith('.js'));
+  const servido = await fetch('http://127.0.0.1:4173/asset-manifest.json').then(r => r.json()).catch(() => null);
+  if (!servido) { console.log('✗ FALLA  no hay build servido en 127.0.0.1:4173'); process.exit(1); }
+  const principal = String(servido.files['main.js'] || '').split('/').pop();
+  if (!js.includes(principal)) {
+    console.log(`✗ FALLA  el build servido (${principal}) no es el del árbol actual (${js.join(', ')})`);
+    console.log('  Corre: CI=true npx react-scripts build  y vuelve a servir build/');
+    process.exit(1);
+  }
+  console.log(`build servido verificado: ${principal}`);
+}
+
 const { browser, ctx, page } = await abrirApp(store, grabar
   ? { ctxOpts: { recordVideo: { dir: path.join(OUT, 'programas', 'video'), size: { width: 1800, height: 1150 } } } }
   : {});

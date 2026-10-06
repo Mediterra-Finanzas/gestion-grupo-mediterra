@@ -389,7 +389,10 @@ export function cuadrePosicion({
   // bancario: por eso entra acá y una sola vez.
   const compensado = n(compensaciones);
   const liquidacion    = Math.max(0, n(base) - n(realizado) - compromisos - compensado);
-  const excesoCompromisos = Math.max(0, n(realizado) + compromisos - n(base)) - excedenteReal;
+  // Lo compensado también ocupa la base: si no se cuenta, la identidad de
+  // cuadre no cierra y el aviso de exceso sale en cero cuando el Excel sí lo
+  // reporta.
+  const excesoCompromisos = Math.max(0, n(realizado) + compromisos + compensado - n(base)) - excedenteReal;
 
   const ubicacionLiq = cubetaTemporal(mesLiquidacion, mIdx, mesIdxActual);
   const liqCalendarizada = liquidacion > 0 && ubicacionLiq !== "sin_fecha";
@@ -424,7 +427,12 @@ export function resumenLado({
 } = {}) {
   const compDestino = compensacionesPorDestino(saldosFavor, { temporada, fruta, lado });
   const ests = (Array.isArray(estimaciones) ? estimaciones : []).map(normalizarAnticipo);
-  const progs = programasDeLado(programas, lado).filter(p => !p.archivado);
+  const progsTodos = programasDeLado(programas, lado);
+  // Archivar deja de proyectar y de sustituir, pero el dinero ya cobrado o
+  // pagado NO se mueve y sigue descontando (regla: un movimiento real
+  // descuenta una sola vez, pase lo que pase con el programa).
+  const archivados = progsTodos.filter(p => p.archivado);
+  const progs = progsTodos.filter(p => !p.archivado);
   const dentro = progs.filter(p => !p.fueraPresupuesto);
   const fuera  = progs.filter(p => p.fueraPresupuesto);
   const ctxTrato = { modeloVersion, decisiones: decisionesSinFecha };
@@ -492,7 +500,7 @@ export function resumenLado({
       compensaciones: compDestino[p.id] || 0,
     });
     return {
-      ...q, programaId: p.id, contraparte: p.contraparte,
+      ...q, programaId: p.id, contraparte: p.contraparte, lado,
       presupuestoAsignado: esDato(p.presupuesto_asignado) ? Number(p.presupuesto_asignado) : null,
       importeDefinitivo: esDato(p.importe_definitivo) ? Number(p.importe_definitivo) : null,
       variacionBase: (esDato(p.importe_definitivo) && esDato(p.presupuesto_asignado))
@@ -503,21 +511,26 @@ export function resumenLado({
   // ── Bloque presupuestario residual ───────────────────────────────
   // Su base descuenta SOLO el presupuesto de las operaciones que salieron, y
   // sus movimientos y pendientes son los del mismo conjunto que quedó.
+  // Una operación individualizada sale del bloque ENTERA. Si no tiene
+  // presupuesto asignado, lo que se retira es su importe definitivo: si no, su
+  // base se sumaría ENCIMA del presupuesto completo de la fruta (doble conteo).
   const presupuestoRetirado = individual.reduce((s, p) =>
-    s + (esDato(p.presupuesto_asignado) ? Number(p.presupuesto_asignado) : 0), 0);
+    s + (esDato(p.presupuesto_asignado) ? Number(p.presupuesto_asignado)
+       : (esDato(p.importe_definitivo) ? Number(p.importe_definitivo) : 0)), 0);
   const definitivaLado = liquidacionDefinitiva && esDato(liquidacionDefinitiva.total)
     ? Number(liquidacionDefinitiva.total) : null;
   const baseBloque = definitivaLado !== null
     ? definitivaLado - presupuestoRetirado
     : n(basePresupuesto) - presupuestoRetirado;
 
-  const bloque = cuadrePosicion({
+  const bloque = { lado, ...cuadrePosicion({
     etiqueta: "Bloque presupuestario", base: baseBloque,
-    realizado: ests.reduce((s, e) => s + antRealizado(e), 0) + realizadoDe(delBloque),
+    realizado: ests.reduce((s, e) => s + antRealizado(e), 0) + realizadoDe(delBloque)
+            + realizadoDe(archivados.filter(p => !p.fueraPresupuesto)),
     pendientes: [...pendientesDeEstimaciones(), ...pendientesDeCuotas(delBloque)],
     mesLiquidacion, mIdx, mesIdxActual,
     compensaciones: compDestino.__bloque__ || 0,
-  });
+  }) };
 
   // ── Totales del lado: SUMA de posiciones, sin neteo ──────────────
   const todas = [...posiciones, bloque];
@@ -532,7 +545,8 @@ export function resumenLado({
   if (liquidacion > 0 && mesLiquidacion) {
     // la liquidación del bloque y de cada posición se proyecta en su mes
   }
-  const realizadoFuera = realizadoDe(fuera);
+  const realizadoFuera = realizadoDe(fuera) + realizadoDe(archivados.filter(p => p.fueraPresupuesto));
+  const realizadoArchivado = realizadoDe(archivados.filter(p => !p.fueraPresupuesto));
   const sinAsignarUsd = (Array.isArray(sinAsignar) ? sinAsignar : [])
     .filter(m => m && !m.anulada).reduce((s, m) => s + n(m.usd), 0);
 
@@ -541,7 +555,7 @@ export function resumenLado({
     base: definitivaLado !== null ? definitivaLado : n(basePresupuesto),
     basePresupuesto: n(basePresupuesto), definitiva: definitivaLado,
     variacionBase: definitivaLado === null ? null : definitivaLado - n(basePresupuesto),
-    realizado, realizadoFuera,
+    realizado, realizadoFuera, realizadoArchivado,
     pendienteEstimado: todas.reduce((s, q) => s + q.detalle
       .filter(d => d.tipo === "estimacion" && d.cubeta !== "sin_fecha")
       .reduce((t, d) => t + d.usd, 0), 0),
@@ -556,7 +570,8 @@ export function resumenLado({
     pendienteFuturo: cub("horizonte") + cub("fuera_horizonte"),
     vencidos: detalle.filter(d => d.cubeta === "vencido"),
     liquidacion, saldoTotal: pendientes + liquidacion,
-    excedente: sum(q => q.excedenteReal) + sum(q => q.excesoCompromisos),   // mezclado: lo reemplaza excedenteReal
+    // `excedente` (excedenteReal + excesoCompromisos) se retiró a propósito:
+    // son dos números distintos y la regla prohíbe sumarlos.
     detalle, faltanDatos, sobreSustitucion, sinAsignarUsd,
     programasFuera: fuera,
     // ── cuadre nuevo ──────────────────────────────────────────────
@@ -657,6 +672,13 @@ export function imputarMovimiento(cuota, kilosPrograma, { fecha, usd, nota, usua
 // Devuelve {estimaciones, programas} nuevos. El movimiento no se copia: sale
 // de un contenedor y entra en el otro, con traza en los dos.
 export function moverRealizacion({ estimaciones, programas, reaId, desde, hacia, usuario = "" }) {
+  // `estRealizadoOriginado` sigue las realizaciones movidas a una CUOTA. Mover
+  // de estimación a estimación reabriría el pendiente de la de origen, así que
+  // no se permite: la pantalla tampoco lo ofrece.
+  if (desde?.tipo === "estimacion" && hacia?.tipo === "estimacion") {
+    throw new Error("Un movimiento no se pasa de una estimación a otra: " +
+      "reabriría el pendiente de la de origen. Anúlalo con motivo y regístralo donde corresponde.");
+  }
   const ests = (Array.isArray(estimaciones) ? estimaciones : []).map(normalizarAnticipo);
   const progs = programasTodos(programas);
   let movida = null;
@@ -1155,8 +1177,12 @@ export function reconocerDesdePosicion(posicion, saldos, { usd, usuario = "", no
     throw new Error(`Solo quedan ${Math.round(porReconocer)} por reconocer de esta operación ` +
       `(excedente ${Math.round(excedenteReal)}). Lo ya reconocido no se reconoce de nuevo.`);
   }
+  if (!LADOS.includes(posicion?.lado)) {
+    throw new Error("Reconocer un saldo necesita saber de qué lado es la operación. " +
+      "Sin eso, una devolución al cliente se proyectaría como recuperación del productor.");
+  }
   return normalizarSaldo({
-    lado: posicion.lado || "productor", contraparte: posicion.contraparte || "",
+    lado: posicion.lado, contraparte: posicion.contraparte || "",
     programaId: posicion.programaId, usd: monto, estado: "reconocido",
     origen: { tipo: "liquidacion_individual", programaId: posicion.programaId,
               base: posicion.base, realizado: posicion.realizado, excedenteReal },

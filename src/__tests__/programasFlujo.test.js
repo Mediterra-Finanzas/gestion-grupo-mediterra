@@ -185,6 +185,12 @@ describe('Excel', () => {
       cuota({ realizaciones: [{ id: "ra", fecha: "2026-10-05", usd: 12000 }] }) ]})] })],
     ['caso B · cobro adicional al acuerdo', con({ programas: [programa({ cuotas: [
       cuota({ extra_acordado: 12000, realizaciones: [{ id: "rb", fecha: "2026-10-05", usd: 12000 }] }) ]})] })],
+  // OJO: esta comparación lee el valor EN CACHÉ que el exportador escribió
+  // desde el árbol de la app: compara `ln.proy` contra `ln.proy` y la hoja
+  // Parametros no influye en el número. Sirve de control de forma, NO de
+  // prueba de que las fórmulas estén bien. La verificación real, con el
+  // archivo recalculado en LibreOffice, está en
+  // src/__tests__/excelRecalcFlujo.test.js (RECALC=1).
   ])('%s: el Excel cuadra con el árbol de la app, mes a mes', (nombre, paramsAllegria) => {
     const { wb, emp } = exportar(paramsAllegria, `prog-${nombre.replace(/\W+/g, '_')}.xlsx`);
     const filas = leerHoja(wb.Sheets[wb.SheetNames.find(n => n !== 'Parametros')]);

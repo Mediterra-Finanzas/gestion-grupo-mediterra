@@ -26,6 +26,7 @@ import {
   cuotaAcordado, cuotaPendiente, cuotaRealizado, estPendiente, estDisponible,
   estSobreSustituida, efectoImputacion, imputarMovimiento, moverRealizacion,
   archivarPrograma, tieneHistorial, nuevoIdPrograma, nuevoIdCuota, esDato,
+  MODELO_VERSION,
 } from './programas.js';
 import ProgramasPanel, { ResumenLado } from './ProgramasComerciales.jsx';
 
@@ -487,7 +488,35 @@ export function calcAllegria(params) {
       const desc    = (Number(p.desc_exp_pct)||0)/100;
       const matUsd  = Number(p.mat_usd_kg)||0;
       const srvUsd  = Number(p.srv_usd_kg)||0;
-      if (kg===0||fob===0) return;
+      // Los programas por contraparte y los saldos a favor NO dependen de los
+      // kilos ni del FOB de la fruta: si se cargan antes del volumen, la
+      // pantalla los muestra y el flujo tiene que proyectarlos igual.
+      if (kg===0||fob===0) {
+        if (f !== 'arandanos' && (ing[f] || cost[f])) {
+          const progs0 = Array.isArray(p.programas) ? p.programas : [];
+          const saldos0 = Array.isArray(p.saldos_favor) ? p.saldos_favor : [];
+          if (progs0.length || saldos0.length) {
+            const proy0 = (lado, estimaciones, baseLado, mesLiq, definitiva, destino) => {
+              movimientosLado({ estimaciones, programas: progs0, lado, kgFruta: kg,
+                basePresupuesto: baseLado, liquidacionDefinitiva: definitiva || null,
+                mIdx, mesIdxActual: -1, mesLiquidacion: mesLiq || "",
+                modeloVersion: p.modelo_version || 1,
+                decisionesSinFecha: p.decisiones_sin_fecha || {},
+                saldosFavor: saldos0, temporada: sk, fruta: f,
+              }).movimientos.forEach(m => { const i = mIdx(m.mes); if (i>=0) destino[f][i] += m.usd; });
+            };
+            proy0('cliente', p.anticipos_cliente||[], 0, p.mes_liquidacion,
+                  p.liq_definitiva_cliente, ing);
+            proy0('productor', p.anticipos_productor||[], 0, p.mes_saldo_productor,
+                  p.liq_definitiva_productor, cost);
+            movimientosSaldos(saldos0, { mIdx }).forEach(m => {
+              const i = mIdx(m.mes); if (i<0) return;
+              if (m.signo > 0) recup[f][i] += m.usd; else devol[f][i] += m.usd;
+            });
+          }
+        }
+        return;
+      }
 
       // Arándanos Perú: ingreso = kg × FOB × fee% en mes_liquidacion (servicio de comercialización)
       if(f === 'arandanos') {
@@ -1818,7 +1847,9 @@ function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
     : `${destino}, que todavía no tiene mes asignado`;
   const lista = items||[];
 
-  const addRow=()=>onChange([...lista, normalizarAnticipo({mes:"",usd_kg:0})]);
+  // `v: MODELO_VERSION` al crear: una estimación nueva sin mes queda reservada
+  // (pendiente de calendarizar), no se trata como registro antiguo.
+  const addRow=()=>onChange([...lista, normalizarAnticipo({mes:"",usd_kg:0,v:MODELO_VERSION})]);
   const updRow=(i,field,val)=>{const n=[...lista];n[i]={...normalizarAnticipo(n[i]),[field]:val};onChange(n);};
   const delRow=i=>{
     const a=lista[i];

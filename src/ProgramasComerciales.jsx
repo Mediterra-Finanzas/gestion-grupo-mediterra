@@ -29,7 +29,7 @@ import {
   agregarAntecedente, completarAntecedente, anularAntecedente,
   antecedenteFaltantes, normalizarAntecedente,
   registrarEstimacionCaja, quitarEstimacionCaja, mesProyeccion,
-  cuotaEstimada, cuotaVencidaContractual,
+  cuotaEstimada, cuotaVencidaContractual, MODELO_VERSION,
 } from "./programas.js";
 import { realizacionesVigentes, anularRealizacion, normalizarAnticipo } from "./anticipos.js";
 // Misma fuente de horizonte y corte que el flujo y el modelo.
@@ -71,26 +71,38 @@ export function ResumenLado({ r, esCli, C, $$, mesLiq }) {
 
       <div style={{ marginTop: 4, paddingTop: 4, borderTop: `1px dashed ${C.border}` }}>
         <L t="Anticipos pendientes" v={r.pendientes} c={r.pendientes > 0 ? C.warning : C.muted2} />
+        {/* Las sangrías de acá SUMAN el total de arriba: son las tres cubetas
+            con fecha, excluyentes entre sí. Lo que no es partición va más
+            abajo, rotulado como informativo. */}
         {cub.vencido > 0 &&
           <L t="· vencidos, antes del corte (no entran al acumulado)" v={cub.vencido} c={C.danger} sangria />}
-        {r.vencidoContractual > 0 && (
-          <L t="· compromisos con fecha contractual vencida" v={r.vencidoContractual} c={C.danger} sangria />
-        )}
-        {r.proyeccionEstimada > 0 && (
-          <L t="· proyectado sobre fechas ESTIMADAS, no pactadas" v={r.proyeccionEstimada} c={C.warning} sangria />
-        )}
         {cub.horizonte > 0 &&
           <L t="· dentro del horizonte" v={cub.horizonte} sangria />}
         {cub.fuera_horizonte > 0 &&
           <L t="· después del horizonte (no tienen columna en el flujo)" v={cub.fuera_horizonte} c={C.warning} sangria />}
-        {r.pendienteSinFechaReservado > 0 &&
-          <L t="· sin fecha, pendientes de calendarizar" v={r.pendienteSinFechaReservado} c={C.warning} sangria />}
         <L t={`Liquidación ${r.ubicacionLiquidacionTexto || (mesLiq ? `(${mesLiq})` : "sin mes")}`} v={r.liquidacion} />
         {r.compensadoAplicado > 0 &&
           <L t="· compensaciones aplicadas que la reducen" v={r.compensadoAplicado} c={C.success} sangria />}
         <L t="Total calendarizado" v={r.totalCalendarizado} />
-        {r.pendienteDeCalendarizar > 0 &&
-          <L t="Pendiente de calendarizar (sin fecha)" v={r.pendienteDeCalendarizar} c={C.warning} />}
+        {r.pendienteDeCalendarizar > 0 && (
+          <>
+            <L t="Pendiente de calendarizar (sin fecha)" v={r.pendienteDeCalendarizar} c={C.warning} />
+            {r.pendienteSinFechaReservado > 0 && (
+              <L t="· anticipos sin fecha, reservados" v={r.pendienteSinFechaReservado} c={C.warning} sangria />
+            )}
+          </>
+        )}
+        {(r.vencidoContractual > 0 || r.proyeccionEstimada > 0) && (
+          <div style={{ marginTop: 3, color: C.muted2 }}>
+            De los montos de arriba, informativo (no se suman a ellos):
+            {r.vencidoContractual > 0 && (
+              <L t="· con fecha contractual vencida" v={r.vencidoContractual} c={C.danger} sangria />
+            )}
+            {r.proyeccionEstimada > 0 && (
+              <L t="· proyectado sobre fechas ESTIMADAS, no pactadas" v={r.proyeccionEstimada} c={C.warning} sangria />
+            )}
+          </div>
+        )}
       </div>
 
       {(r.excedenteReal > 0 || r.excesoCompromisos > 0) && (
@@ -483,11 +495,14 @@ function Tarjeta({
     upd({ presupuesto_asignado: n });
   };
   const updCuota = (id, patch) => onReemplazar({ ...p, cuotas: p.cuotas.map(c => c.id === id ? normalizarCuota({ ...c, ...patch }) : c) });
+  // `v: MODELO_VERSION` se estampa al CREAR: así un registro nuevo sin fecha
+  // queda reservado (pendiente de calendarizar) y no se confunde con uno
+  // antiguo. Lo ya guardado no lleva la marca y conserva su comportamiento.
   const addCuota = () => onReemplazar({ ...p, cuotas: [...p.cuotas, normalizarCuota({
-    id: nuevoIdCuota(), estado: "borrador", modalidad: "por_confirmar" })] });
+    id: nuevoIdCuota(), estado: "borrador", modalidad: "por_confirmar", v: MODELO_VERSION })] });
   // Un solo registro histórico por programa, en borrador por construcción.
   const addHistorico = () => onReemplazar({ ...p, cuotas: [normalizarCuota({
-    id: nuevoIdCuota(), historico: true, modalidad: "por_confirmar",
+    id: nuevoIdCuota(), historico: true, modalidad: "por_confirmar", v: MODELO_VERSION,
     nota: `anticipos históricos ${p.contraparte || ""}`.trim() }), ...p.cuotas] });
   const delCuota = (c) => {
     if ((c.realizaciones || []).length > 0) {

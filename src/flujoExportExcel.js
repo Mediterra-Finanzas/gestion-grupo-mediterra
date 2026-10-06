@@ -17,8 +17,9 @@
 import { antRealizado, antPendiente } from './anticipos.js';
 import {
   normalizarPrograma, normalizarCuota, cuotaAcordado, cuotaRealizado, cuotaPendiente,
-  estAcordado, estSustituido, estPendiente, esDato,
+  estAcordado, estSustituido, estPendiente, estRealizadoOriginado, esDato,
   normalizarSaldo, resumenSaldo, compensacionesPorDestino,
+  tratoSinFecha, mesProyeccion,
 } from './programas.js';
 import * as XLSXns from 'xlsx-js-style';
 const XLSX = XLSXns.utils ? XLSXns : (XLSXns.default || XLSXns);
@@ -427,17 +428,31 @@ function helpersAnticipo(put, getR, setR) {
       .forEach(([c,t])=>put(rH,c,{ t:'s', v:t, s:PS.colHdr }));
     setR(getR()+1);
   };
-  const filaAnticipo = (a, kgC, kgNum, mesCol, monCol, etiqueta, sustituido = 0) => {
+  const filaAnticipo = (a, kgC, kgNum, mesCol, monCol, etiqueta, sustituido = 0,
+                       realizadoOriginado = null, trato = "en_liquidacion") => {
     const rA = getR();
     const cierreC=ref(rA,2), uC=ref(rA,3), acC=ref(rA,4), reC=ref(rA,5), peC=ref(rA,6), suC=ref(rA,7), mesC=ref(rA,mesCol);
     const usd = Number(a.usd_kg)||0;
-    const acordado = usd*kgNum, realizado = antRealizado(a);
+    const acordado = usd*kgNum;
+    // El realizado de la columna F es el que esta estimación tiene FÍSICAMENTE:
+    // así el descuento de la liquidación lo cuenta UNA vez (la realización
+    // movida ya la cuenta la cuota donde está).
+    const realizado = antRealizado(a);
+    // Lo MOVIDO a una cuota no reabre el pendiente de la estimación: reduce su
+    // pendiente igual que una sustitución. Sin esto el archivo vuelve a
+    // proyectar plata que ya está en el banco.
+    const movido = realizadoOriginado == null ? 0
+                 : Math.max(0, (Number(realizadoOriginado)||0) - realizado);
     // Lo que un calendario vigente reemplaza se descuenta del pendiente de la
     // estimación: columna propia para que se vea de dónde sale.
-    const sus = Number(sustituido)||0;
+    const sus = (Number(sustituido)||0) + movido;
     const pend = a.cerrado ? 0 : Math.max(0, acordado - realizado - sus);
+    // Sin fecha: si está RESERVADO (pendiente de calendarizar) no se proyecta
+    // pero SÍ sale de la liquidación, igual que en pantalla. Si el trato es
+    // `en_liquidacion` se cobra/paga al liquidar y no descuenta.
+    const reservadoSinFecha = !a.mes && trato === "reservado";
     const proyectable = !!a.mes;
-    put(rA,1,{ t:'s', v:`   ↳ ${etiqueta}`, s:PS.txtSub });
+    put(rA,1,{ t:'s', v:`   ↳ ${etiqueta}${movido>0?` · ${Math.round(movido)} movidos a cuotas`:''}`, s:PS.txtSub });
     put(rA,2,{ t:'s', v:a.cerrado?'Cerrado':'Abierto', s:PS.inTxt });
     put(rA,3,{ t:'n', v:usd, s:PS.inUsd });
     put(rA,4,{ t:'n', f:`${uC}*${kgC}`, v:acordado, s:PS.der });
@@ -448,9 +463,13 @@ function helpersAnticipo(put, getR, setR) {
     } else {
       put(rA,6,{ t:'n', f:`IF(${cierreC}="Cerrado",0,MAX(0,${acC}-${reC}))`, v:pend, s:PS.der });
     }
+    if (reservadoSinFecha) put(rA,1,{ t:'s', v:`   ↳ ${etiqueta} · sin fecha, pendiente de calendarizar (no proyecta)`, s:PS.txtSub });
     put(rA,mesCol,{ t:'s', v:a.mes||'', s:PS.inTxt });
     put(rA,monCol,{ t:'n', f:`${peC}`, v:pend, s:PS.movNum });
     setR(getR()+1);
+    // Reservado: descuenta de la liquidación aunque no tenga mes (no proyecta
+    // porque la celda de mes queda vacía y el SUMIF no la encuentra).
+    if (reservadoSinFecha) return { f:`${reC}+${peC}`, v:realizado + pend };
     return { f:`${reC}+IF(${mesC}="",0,${peC})`, v:realizado + (proyectable?pend:0) };
   };
   // ── Fila de liquidación + fila de sobre-anticipo ────────────────
@@ -487,7 +506,7 @@ function helpersAnticipo(put, getR, setR) {
   // Acordado = US$/kg × kilos DEL PROGRAMA, o monto fijo. Nunca se deduce una
   // tarifa dividiendo un importe por los kilos de la fruta. Una cuota en
   // borrador no proyecta: aporta solo su realizado al descuento.
-  const filaCuota = (c, kilosC, kilosNum, mesCol, monCol, etiqueta) => {
+  const filaCuota = (c, kilosC, kilosNum, mesCol, monCol, etiqueta, trato = "en_liquidacion") => {
     const rA = getR();
     const cierreC=ref(rA,2), uC=ref(rA,3), acC=ref(rA,4), reC=ref(rA,5), peC=ref(rA,6), mesC=ref(rA,mesCol);
     const realizado = cuotaRealizado(c);
@@ -511,15 +530,32 @@ function helpersAnticipo(put, getR, setR) {
       put(rA,4,{ t:'n', v:acordado||0, s:PS.inNum });
     } else {
       put(rA,3,{ t:'s', v:'por confirmar', s:PS.txtSub });
-      put(rA,4,{ t:'s', v:'falta modalidad', s:PS.txtSub });
+      // Un 0 NUMÉRICO: si fuera texto, el MAX() de abajo daría #VALUE! y el
+      // error se propagaría a la liquidación, al subtotal y al saldo acumulado.
+      put(rA,4,{ t:'n', v:0, s:PS.der });
     }
     put(rA,5,{ t:'n', v:realizado, s:PS.inNum });
     if (vigente) {
+      const faltaAcordado = acordado === null;
+      const reservadoSinFecha = !c.mes && trato === "reservado";
+      if (faltaAcordado) {
+        // Sin modalidad o sin dato no hay pendiente calculable: la app no lo
+        // proyecta, el archivo tampoco, y se dice por qué.
+        put(rA,1,{ t:'s', v:`   ↳ ${rotulo} · falta dato: no proyecta`, s:PS.txtSub });
+        put(rA,6,{ t:'n', v:0, s:PS.der });
+        put(rA,mesCol,{ t:'s', v:'', s:PS.inTxt });
+        setR(getR()+1);
+        return { f:`${reC}`, v:realizado };
+      }
       put(rA,6,{ t:'n', f:`IF(${cierreC}="Cerrado",0,MAX(0,${acC}-${reC}))`, v:pend, s:PS.der });
       // Mes que lee el flujo por SUMIF: el estimado si existe, si no el contractual.
       put(rA,mesCol,{ t:'s', v:(est && est.mes) || c.mes || '', s:PS.inTxt });
       put(rA,monCol,{ t:'n', f:`${peC}`, v:pend, s:PS.movNum });
       setR(getR()+1);
+      if (reservadoSinFecha) {
+        put(rA,1,{ t:'s', v:`   ↳ ${rotulo} · sin fecha, pendiente de calendarizar (no proyecta)`, s:PS.txtSub });
+        return { f:`${reC}+${peC}`, v:realizado + pend };
+      }
       return { f:`${reC}+IF(${mesC}="",0,${peC})`, v:realizado + (c.mes?pend:0) };
     }
     put(rA,6,{ t:'n', v:0, s:PS.der });
@@ -539,9 +575,16 @@ function bloqueLiquidacionLado({
   estimaciones, programas, lado, kgFruta, kgC, helpers, put, getR, setR,
   mesCol, monCol, baseF, baseV, definitiva, mesLiq, etiqueta, etiquetaTot,
   saldosFavor = [], temporada = null, fruta = null,
+  modeloVersion = 1, decisionesSinFecha = {},
 }) {
   const { hdrAnticipo, filaAnticipo, filaCuota, filasLiquidacion } = helpers;
-  const progs = (programas||[]).map(normalizarPrograma).filter(p => p.lado === lado && !p.archivado);
+  // El trato de un pendiente sin fecha lo decide el MISMO helper que usa la
+  // app: sin esto el archivo haría siempre el comportamiento histórico y
+  // mostraría caja que la pantalla declara no proyectable.
+  const ctxTrato = { modeloVersion, decisiones: decisionesSinFecha };
+  const todos = (programas||[]).map(normalizarPrograma).filter(p => p.lado === lado);
+  const progs = todos.filter(p => !p.archivado);
+  const archivados = todos.filter(p => p.archivado);
   const dentro = progs.filter(p => !p.fueraPresupuesto);
   const fuera  = progs.filter(p => p.fueraPresupuesto);
   // Una operación sale del bloque ENTERA cuando tiene presupuesto asignado o
@@ -559,8 +602,9 @@ function bloqueLiquidacionLado({
     setR(getR()+1);
     const descs = [];
     if (p.cuotas.length) hdrAnticipo('   ↳ calendario');
-    p.cuotas.forEach(c => descs.push(
-      filaCuota(normalizarCuota(c), kiC, Number(p.kilos)||0, mesCol, monCol, `Cuota ${p.contraparte||''}`.trim())));
+    p.cuotas.forEach(c => { const cn = normalizarCuota(c); descs.push(
+      filaCuota(cn, kiC, Number(p.kilos)||0, mesCol, monCol, `Cuota ${p.contraparte||''}`.trim(),
+                cn.mes ? "" : tratoSinFecha(cn, ctxTrato))); });
     const compUsd = Number(comp[p.id]) || 0;
     if (compUsd > 0) {
       const rC = getR();
@@ -587,7 +631,10 @@ function bloqueLiquidacionLado({
   individual.forEach(p => {
     const baseValor = esDato(p.importe_definitivo) ? Number(p.importe_definitivo)
                     : Number(p.presupuesto_asignado) || 0;
-    presupuestoRetirado += esDato(p.presupuesto_asignado) ? Number(p.presupuesto_asignado) : 0;
+    // Espejo del modelo: si no hay presupuesto asignado se retira el importe
+    // definitivo, si no la base total crecería (doble conteo).
+    presupuestoRetirado += esDato(p.presupuesto_asignado) ? Number(p.presupuesto_asignado)
+                         : (esDato(p.importe_definitivo) ? Number(p.importe_definitivo) : 0);
     const b = bloquePrograma(p, `${baseValor}`, baseValor, `${etiqueta} · ${p.contraparte||''}`.trim());
     filasLiquidacion({
       totalF: b.baseFormula, totalV: b.baseValor, descs: b.descs,
@@ -608,12 +655,23 @@ function bloqueLiquidacionLado({
   if (ests.length) hdrAnticipo(`↳ estimaciones ${lado === 'cliente' ? 'de cobro' : 'de pago'}`);
   ests.forEach(e => {
     const sus = estSustituido(e, programas);
-    descsBloque.push(filaAnticipo(e, kgC, kgFruta, mesCol, monCol, 'Estimación', sus));
+    descsBloque.push(filaAnticipo(e, kgC, kgFruta, mesCol, monCol, 'Estimación', sus,
+      estRealizadoOriginado(e, programas), e.mes ? "" : tratoSinFecha(e, ctxTrato)));
   });
   delBloque.forEach(p => {
     const b = bloquePrograma(p, null, 0, null);
     b.descs.forEach(d => descsBloque.push(d));
   });
+  // Archivar deja de proyectar, pero el dinero ya movido sigue descontando.
+  const realizadoArchivado = archivados.filter(p => !p.fueraPresupuesto)
+    .reduce((s2,p) => s2 + p.cuotas.reduce((t,c) => t + cuotaRealizado(c), 0), 0);
+  if (realizadoArchivado > 0) {
+    const rAr = getR();
+    put(rAr,1,{ t:'s', v:'   ↳ Programas archivados · ya en caja (siguen descontando)', s:PS.txtSub });
+    put(rAr,5,{ t:'n', v:realizadoArchivado, s:PS.inNum });
+    setR(getR()+1);
+    descsBloque.push({ f:`${ref(rAr,5)}`, v:realizadoArchivado });
+  }
   const compBloque = Number(comp.__bloque__) || 0;
   if (compBloque > 0) {
     const rC = getR();
@@ -1135,6 +1193,7 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
       definitiva:p.liq_definitiva_cliente?.total || null,
       mesLiq:p.mes_liquidacion, etiqueta:'Liquidación', etiquetaTot:'Venta total',
       saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'cerezas',
+      modeloVersion:p.modelo_version || 1, decisionesSinFecha:p.decisiones_sin_fecha || {},
     });
     // ── productor → Costo Fruta (CO) ──
     // Base = retorno neto: FOB × (1 − desc%) − materiales − servicios.
@@ -1147,6 +1206,7 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
       definitiva:p.liq_definitiva_productor?.total || null,
       mesLiq:p.mes_saldo_productor, etiqueta:'Saldo productor', etiquetaTot:'Costo neto total',
       saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'cerezas',
+      modeloVersion:p.modelo_version || 1, decisionesSinFecha:p.decisiones_sin_fecha || {},
     });
     // materiales (dist_mat) → MT: kg×matUSD×pct/100
     (p.dist_mat||[]).forEach(d => {
@@ -1183,6 +1243,7 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
       definitiva:p.liq_definitiva_cliente?.total || null,
       mesLiq:p.mes_liquidacion, etiqueta:'Liquidación', etiquetaTot:'Venta total',
       saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'ciruelas',
+      modeloVersion:p.modelo_version || 1, decisionesSinFecha:p.decisiones_sin_fecha || {},
     });
   });
   r++;
