@@ -1,5 +1,9 @@
 -- =============================================================================
 -- REVERSIÓN de las fases A, B y C (y plantilla comentada de la Fase 0)
+-- EXCEPCIONAL — NO es la vía habitual de recuperación. Cada sección REABRE lo que su fase
+-- cierra (C→B: main pública; B→A: lectura de pins/usuarios = hashes expuestos de nuevo;
+-- A→HOY: escritura de pins/usuarios = toma de cuentas). Requiere autorización APARTE con
+-- el riesgo aceptado por escrito. Vía habitual: docs/seguridad-main-pins-checklist.md §5.
 -- Estado: PROPUESTA. Probada solo en local. Ejecutar el archivo COMPLETO tal cual.
 -- -----------------------------------------------------------------------------
 -- Cada sección revierte UNA fase y solo actúa si la foto actual es exactamente la de

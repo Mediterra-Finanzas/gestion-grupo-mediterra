@@ -9,8 +9,8 @@
 --   REVOKE TRUNCATE, REFERENCES, TRIGGER de anon y authenticated (TRUNCATE salta RLS).
 --   La LECTURA no cambia (sigue abierta: eso es la Fase B).
 -- APLICAR A Y B EN LA MISMA VENTANA: con A sola, la llave pública sigue LEYENDO pins, y un
---   código pedido por "¿Olvidaste tu PIN?" para cualquier cuenta (también la del admin) se
---   puede romper fuera de línea desde su hash. A sola no cierra la toma de cuentas.
+--   código pedido por "¿Olvidaste tu PIN?" para cualquier cuenta (también la del admin) es
+--   atacable fuera de línea desde su hash. A sola no cierra la toma de cuentas.
 -- REQUIERE ANTES:
 --   1. fase0_admins.sql aplicada y al menos 1 admin ACTIVO (el archivo lo exige).
 --   2. Variables de Vercel configuradas (ver docs/seguridad-main-pins-servidor.md) y

@@ -47,15 +47,20 @@ el rol de `main` o `usuarios`, ni la cookie.
 5. **Corte de credenciales (opcional, `AUTH_CREDENCIALES_DESDE`, nuevo):** todo `_h` o `_temp`
    emitido antes de esa fecha (o sin sello `ts`, es decir, todos los de hoy) deja de dar
    acceso: login 401 `debe_recuperar` y la persona recupera por correo. Existe porque
-   **todos los hashes de PIN fueron legibles con la llave pública**: un PIN de 6 dígitos se
-   rompe fuera de línea, y "obligar a cambiar el PIN" no sirve porque el cambio pide el PIN
-   antiguo, que quien lo rompió conoce. Ver el plan, etapa 3.
+   **todos los hashes de PIN estuvieron accesibles con la llave pública** (exposición; no hay
+   evidencia de descarga): un PIN de 6 dígitos es atacable fuera de línea (medido: ~16 ms por
+   intento y núcleo, ~4,5 h para los 10^6 en un núcleo), y "obligar a cambiar el PIN" no
+   sirve porque el cambio pide el PIN antiguo. Ver el checklist, etapa 4.
 6. Una cookie `cambio_pin` solo sirve para `cambiar-pin`. Cualquier otra ruta responde 403
    y `api/storage.js` responde 401.
 
 `api/frisku-sp.js` aplica las mismas reglas (código pendiente, PIN vencido, corte).
 
 ## Sesión
+
+**Dónde vive el control:** dentro de la cookie firmada (HMAC con `SESSION_SECRET`): `act`
+(último uso), `exp` (12 h) y `fp` (huella). No hay tabla de sesiones. El servidor relee en
+cada petición `usuarios` y `pins` para validar usuario activo y huella.
 
 - Cookie `HttpOnly; Secure; SameSite=Strict` **sin `Max-Age`**: se descarta al cerrar el
   navegador, como hoy `sessionStorage`. Vencimiento absoluto 12 h.
@@ -68,6 +73,26 @@ el rol de `main` o `usuarios`, ni la cookie.
   cierra todas. Pedir un código (público) no cierra ninguna. Cuesta una lectura de `pins`
   por petición (con la llave de servicio).
 - Una cookie emitida antes de este cambio (sin huella) se rechaza: hay que volver a ingresar.
+- **Límites comprobados** (`prueba-servidor.mjs`, copias reales de cookies, sin falsificar):
+  "Salir" solo borra la cookie de ese navegador; una copia previa sigue valiendo hasta 30 min
+  sin uso o 12 h. Un navegador que restaura la sesión puede conservar la cookie aunque no
+  tenga `Max-Age`; la corta la inactividad del servidor.
+
+## Límite de intentos
+
+Contadores en Postgres (RPC `frisku_sp_rl_consumir`, fila bloqueada con `FOR UPDATE`),
+compartidos por todas las instancias; sin estado en memoria; si fallan → 503. Claves: `ip`
+(30/5 min) y `login:<email>` (8/5 min, bloqueo 15 min) en login; `verificar` (osiris-auth) y
+`api/frisku-sp.js` usan el MISMO `login:<email>`; `recuperar` cuenta `ip` y
+`recuperar:<email>`; `cambiar-pin` cuenta `cambio:<nombre>`. El piso de 3 s de `recuperar`
+es adicional al contador, no lo reemplaza.
+
+## /api/informe
+
+Sirve HTML guardado (Storage público y fila `osiris`) desde el dominio de la app. Va con
+`Content-Security-Policy: sandbox` (sin scripts, origen opaco) y el `id` escapado: un
+`<script>` reflejado o guardado no corre ni puede usar la cookie. Prueba en navegador:
+`node scripts/seguridad-main-pins/prueba-informe.mjs`.
 
 ## Filas dañadas
 
@@ -111,7 +136,8 @@ la fase ya estaba aplicada no hace nada.
    `insert into seg_administradores (email, motivo, otorgado_por) values (...)`.
 4. Si el servidor responde 503 a todos (faltan `SESSION_SECRET` o la llave de servicio, o la
    RPC del rate limit falla), **nadie entra, admins incluidos**: corregir la variable en
-   Vercel y volver a desplegar. Si no se puede, revertir según el plan (SQL primero).
+   Vercel y volver a desplegar, o Instant Rollback al despliegue anterior en modo servidor.
+   No se reabren permisos: ver el checklist, secciones 5 y 6.
 
 ## Variables (solo nombres)
 
@@ -128,8 +154,9 @@ la fase ya estaba aplicada no hace nada.
 ## Pruebas
 
 ```bash
-for f in api/*.test.mjs; do node "$f"; done        # incluye _reglasLogin (73), _friskuSpAuth (35) y frisku-sp (102)
-POSTGREST_BIN=/ruta/postgrest node scripts/seguridad-main-pins/prueba-servidor.mjs   # 169 comprobaciones
+for f in api/*.test.mjs; do node "$f"; done        # incluye _reglasLogin (73), _friskuSpAuth (35) y frisku-sp (107)
+POSTGREST_BIN=/ruta/postgrest node scripts/seguridad-main-pins/prueba-servidor.mjs   # 180 comprobaciones (~3 min)
+node scripts/seguridad-main-pins/prueba-informe.mjs   # 7, en Chromium
 ```
 
 `prueba-servidor.mjs` levanta `entorno.mjs` con Postgres 16 y PostgREST 12 locales, las

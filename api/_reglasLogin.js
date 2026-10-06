@@ -209,7 +209,7 @@ function evaluarCambioPin({ usuario, pins, pinActual, pinNuevo, tel, sesion, aho
     } else if (!credH || !verificarPin(pinActual, comoCred(credH))) {
       return { ok: false, status: 401, error: "credenciales", detalle: "pin_actual" };
     } else if (anteriorAlCorte(comoCred(credH), corteMs)) {
-      // El PIN anterior al corte pudo filtrarse: no basta para fijar uno nuevo.
+      // El PIN anterior al corte estuvo expuesto (su hash era legible): no basta para fijar uno nuevo.
       return { ok: false, status: 401, error: "debe_recuperar", detalle: "anterior_al_corte" };
     }
   } else {

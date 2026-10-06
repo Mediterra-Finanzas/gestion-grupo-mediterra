@@ -107,6 +107,10 @@ function crearHandler(deps = {}) {
   const ahora = deps.ahora || (() => Date.now());
   const obtenerTokenOidc = deps.obtenerTokenOidc || ((req) => hdr(req, "x-vercel-oidc-token") || null);
   const leerDatos = deps.leerDatos;
+  // Contador COMPARTIDO con el login de la app (auth:login:<email>, api/_segServidor.js):
+  // este endpoint también verifica el PIN, así que no puede sumar intentos aparte.
+  // (email) → "ok" | "bloqueado" | "no_disponible". Producción siempre lo trae.
+  const limiteLogin = deps.limiteLogin || null;
 
   async function limitar(key, regla, res) {
     let r;
@@ -161,6 +165,12 @@ function crearHandler(deps = {}) {
     if (!ip) return json(res, 503, { error: "no_disponible" });   // sin IP confiable → no se puede limitar → cerrado
     if (!await limitar(ip, RL_IP, res)) return;
     if (!await limitar(email, RL_ID, res)) return;
+    if (limiteLogin) {
+      let l;
+      try { l = await limiteLogin(email); } catch (e) { l = "no_disponible"; }
+      if (l === "bloqueado") return json(res, 429, { error: "rate_limit" }, { "Retry-After": String(Math.ceil(RL_ID.bloqueoMs / 1000)) });
+      if (l !== "ok") return json(res, 503, { error: "no_disponible" });
+    }
     if (!secret) return json(res, 503, { error: "no_configurado" });
     let datos;
     try { datos = await leerDatos(); } catch (e) { return json(res, 503, { error: "no_disponible" }); }
@@ -246,6 +256,8 @@ async function leerDatosProd(fetchImpl) {
 
 const handlerProd = crearHandler({
   leerDatos: leerDatosProd,
+  // Mismo contador que /api/auth/login (requiere AUTH_RATELIMIT_SECRET; sin él → 503).
+  limiteLogin: (email) => { const S = require("./_segServidor"); return S.limitar(`login:${email}`, S.reglas().id); },
   // PRODUCCIÓN: limiter distribuido en Supabase (RPC frisku_sp_rl_consumir). Si falta
   // FRISKU_SP_RATELIMIT_SECRET o la service key, golpe() lanza → login 503 (fail-closed).
   rate: RL.crearLimiterSupabase({

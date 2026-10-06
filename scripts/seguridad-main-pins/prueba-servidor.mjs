@@ -392,6 +392,45 @@ try {
     E.psql(`delete from frisku_sp_ratelimit`);
   }
 
+  titulo('(b) Sesión reproducida SIN falsificar (copias reales de cookies, tiempo real):');
+  {
+    // Lo que hace un navegador que restaura la sesión (o un tercero con una copia de la
+    // cookie) es reenviar la misma cookie: aquí se reenvían copias reales, sin firmar nada.
+    const roster = (ck) => pedir('GET', '/api/datos/roster', { cookie: ck });
+    const pinsAntes = filaDB('pins');
+    E.psql(`delete from frisku_sp_ratelimit`);
+    process.env.AUTH_INACTIVIDAD_MIN = '2';
+    const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+    // Cambio de PIN: la copia vieja deja de servir.
+    const copiaA = (await login(em('Zoe'), PIN.Zoe)).cookie;
+    const sesB = (await login(em('Zoe'), PIN.Zoe)).cookie;
+    eq((await roster(copiaA)).status, 200, 'copia A de la sesión de Zoe sirve');
+    const cb = await pedir('POST', '/api/auth/cambiar-pin', { cookie: sesB, body: { pinActual: PIN.Zoe, pinNuevo: '318642' } });
+    eq(cb.status, 200, 'Zoe cambia el PIN desde la sesión B');
+    eq((await roster(copiaA)).status, 401, 'copia A reproducida tras el cambio de PIN → 401');
+    eq((await roster(sesB)).status, 401, 'la cookie ANTERIOR de la propia sesión B reproducida → 401 (solo vale la nueva)');
+    eq((await roster(cb.cookie)).status, 200, 'la cookie nueva de B sirve');
+    fijarFila('pins', pinsAntes);
+    // Logout: solo borra la cookie en ESE navegador; una copia previa sigue valiendo.
+    const copiaL = (await login(em('Beto'), PIN.Beto)).cookie;
+    const lo = await pedir('POST', '/api/auth/logout', { cookie: copiaL });
+    ok(lo.status === 200 && /max-age=0/i.test(lo.setCookie), 'logout responde borrando la cookie del navegador');
+    eq((await roster(copiaL)).status, 200, 'LIMITACIÓN COMPROBADA: una copia hecha antes del logout sigue valiendo (hasta inactividad o 12 h)');
+    // Inactividad real (AUTH_INACTIVIDAD_MIN=2 en esta prueba): sin firmar nada, esperando.
+    const quieta = (await login(em('Rita'), PIN.Rita)).cookie;
+    const activa0 = (await login(em('Ines'), PIN.Ines)).cookie;
+    await espera(70 * 1000);
+    const uso = await roster(activa0);
+    ok(uso.status === 200 && uso.cookie, 'a los 70 s, usar la sesión de Ines la renueva (cookie nueva con el último uso)');
+    const activa1 = uso.cookie;
+    await espera(55 * 1000);
+    eq((await roster(quieta)).status, 401, '125 s sin uso (límite 2 min) → la sesión de Rita se rechaza');
+    eq((await roster(activa0)).status, 401, 'la copia ANTERIOR a la renovación de Ines (último uso hace 125 s) → 401');
+    eq((await roster(activa1)).status, 200, 'la cookie renovada de Ines (último uso hace 55 s) sigue valiendo');
+    delete process.env.AUTH_INACTIVIDAD_MIN;
+    E.psql(`delete from frisku_sp_ratelimit`);
+  }
+
   titulo('(b) verificar (servidor a servidor):');
   {
     const v = (h, body) => pedir('POST', '/api/auth/verificar', { headers: h, body });

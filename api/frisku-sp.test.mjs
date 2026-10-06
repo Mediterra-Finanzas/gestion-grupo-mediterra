@@ -64,6 +64,7 @@ function mkHandler(over = {}) {
     fetchImpl: over.fetchImpl || mkFetch(),
     rate: ("rate" in over) ? over.rate : crearRateLimiterMemoriaSoloTest(),
     ahora: over.ahora || (() => clock.t),
+    limiteLogin: over.limiteLogin,
   });
 }
 function cookieDeSet(res) { const m = String(res.getHeader("Set-Cookie") || "").match(/frisku_sp_sess=([^;]+)/); return m ? `frisku_sp_sess=${m[1]}` : ""; }
@@ -336,6 +337,21 @@ async function run() {
     }
   }
 
+  // Contador compartido con /api/auth/login (auth:login:<email>)
+  {
+    const vistos = [];
+    let estado = "ok";
+    const h2 = mkHandler({ limiteLogin: async (em) => { vistos.push(em); return estado; } });
+    let r2 = await loginOk(h2);
+    eq(r2.statusCode, 200, "contador compartido ok → login normal");
+    eq(vistos[0], "uno@ejemplo.test", "el contador compartido recibe el email normalizado");
+    estado = "bloqueado"; r2 = await loginOk(h2);
+    eq(r2.statusCode, 429, "contador compartido bloqueado (intentos en la app) → 429 aquí también");
+    estado = "no_disponible"; r2 = await loginOk(h2);
+    eq(r2.statusCode, 503, "contador compartido no disponible → 503 (fallo cerrado)");
+    const h3 = mkHandler({ limiteLogin: async () => { throw new Error("x"); } });
+    eq((await loginOk(h3)).statusCode, 503, "contador compartido lanza → 503");
+  }
   console.log(`\nfrisku-sp endpoint: ${pass} pass / ${fail} fail`);
   process.exit(fail ? 1 : 0);
 }
