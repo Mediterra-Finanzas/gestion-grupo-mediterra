@@ -409,6 +409,13 @@ node scripts/verif-excel-recalc.mjs         # recálculo REAL del Excel (requier
 cd scripts/e2e && OUT_DIR=/tmp/e2e node e2e.mjs
 OUT_DIR=/tmp/e2e node scripts/e2e/regresion-empresas.mjs   # las 8 empresas: pantalla vs Excel
 
+# Antes de probar en producción: qué escribe la app al solo navegar (Supabase falso)
+APP_URL=http://127.0.0.1:4173 OUT_DIR=/tmp/efectos node scripts/e2e/efectos-navegacion.mjs
+# Prueba en producción con escrituras BLOQUEADAS en la red (credenciales solo por entorno)
+MEDITERRA_CONSULTA_EMAIL=… MEDITERRA_CONSULTA_PIN=… OUT_DIR=/tmp/prod node scripts/e2e/prod-solo-lectura.mjs
+# Respaldo seguro auto-v4 (aislado) y restauración simulada
+node scripts/respaldo/prueba-aislada.mjs
+
 # Git workflow estándar
 git add .
 git commit -m "fix: descripción del cambio"
