@@ -42,6 +42,27 @@ servicio. Todas las fechas son sintéticas.
 **La cifra de 2028/2029 es 130.996,76.** Reemplaza al 131.000,96 que informé antes, que era
 una estimación hecha a mano y estaba mal. El valor correcto es el que mide el motor.
 
+## 2 bis · Lo que encontró la revisión independiente
+
+La primera versión de este paquete fue **bloqueada** por una revisión independiente que leyó el
+diff completo contra la base. Tres bloqueantes y cinco graves. Queda escrito porque explica por
+qué el paquete cambió y qué clase de defecto hay que buscar la próxima vez.
+
+| | Qué era | Cómo quedó |
+|---|---|---|
+| **H1** | `puedeDesactivar` y `previsualizarDesactivacion` se usaban **sin importar**. Activar reventaba el render y dejaba el contrato con el reajuste persistido y la pantalla inaccesible, sin camino de vuelta. El build no lo veía: el archivo empieza con `/* eslint-disable */` | Importadas, y una prueba compara lo exportado por el módulo contra el bloque de import |
+| **H2** | El reajuste se aplicaba **solo en la rama cohortes/OC**. La rama legacy —por la que van los contratos sin cohortes, **Olmos incluido**— no pasaba por él: habría dicho `· ACTIVO` sin mover un centavo | Las dos ramas aplican, con prueba de integración que ejercita legacy |
+| **H3** | La vista previa partía de filas que **ya tenían el reajuste** y lo componía otra vez. El importe que se mostraba al desactivar no era el real | La base se recalcula con la activación apagada. Hay prueba de que lo que promete la previa es lo que guarda el motor |
+| **H4** | `activar()` no comprobaba permiso: vivía solo en el `disabled` | Permiso dentro de la acción, más confirmación explícita. También en reactivar |
+| **H5** | Reactivar borraba el rastro anterior | Historial de eventos que reactivar no pisa |
+| **H6** | El autor salía de `window.__usuarioOsiris`, que **nadie asigna**; y el audit se trunca a 200 caracteres, antes del sello | Identidad desde `usuarioActual`. **Sin identidad válida la acción no se ejecuta**. El historial guarda el sello completo |
+| **H7** | En la versión de recuperación el botón Desactivar **nunca se mostraba**: el aviso lo tapaba | Reordenado. Una activación existente no queda atrapada |
+| **H8** | La tabla mostraba 41,97 há × $3.000 y un total distinto, sin explicar el hueco | Muestra `base + ajuste = total` con el factor |
+
+La parte que la revisión encontró sólida fue el modelo puro: aritmética compuesta, redondeo,
+bordes de aniversario, protección por antecedentes, sello y separación confirmar/activar. **Los
+ocho defectos estaban en el cableado al motor y en la pantalla**, que era la capa sin pruebas.
+
 ## 3 · Recuperación
 
 **Estado: compatible y probada en local; pendiente de despliegue y certificación.** No está
