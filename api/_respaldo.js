@@ -26,86 +26,11 @@ const VERSION = "mediterra-respaldo-v4";
 const BUCKET = "respaldos";
 const PREFIJO_DIARIO = "diario/";
 
-// ── Qué no se respalda ──────────────────────────────────────────────────────
-const FILAS_EXCLUIDAS = [/^pins$/, /^backup_/, /^respaldo_/];
-const filaExcluida = (id) => FILAS_EXCLUIDAS.some((re) => re.test(String(id)));
-
-// Claves cuyo valor es una credencial en cualquier lugar del documento.
-const CLAVE_SENSIBLE = /^(pin|pins|pin_?temporal|pin_?hash|pin_?provisorio|codigo_?provisorio|password|passwd|contrase(n|ñ)a|token|access_?token|refresh_?token|id_?token|bearer|secret|client_?secret|session_?secret|cron_?secret|api_?key|apikey|service_?role(_?key)?|authorization|cookie|otp)$/i;
-// Sufijos de la fila de PINs (`Nombre_h` = hash, `Nombre_hist` = historial).
-const SUFIJO_SENSIBLE = /_(h|hist)$/;
-// Valores que son credenciales aunque la clave no lo diga.
-const VALOR_SENSIBLE = /^(eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+|Bearer\s+\S{8,}|sb_secret_\S+)$/;
-
-function esObjetoCredencial(v) {
-  return v && typeof v === "object" && !Array.isArray(v) && "salt" in v && ("hash" in v || "iter" in v);
-}
-function stringCredencial(v) {
-  if (typeof v !== "string") return false;
-  if (VALOR_SENSIBLE.test(v.trim())) return true;
-  if (v.length < 400 && /"salt"/.test(v) && /"(hash|iter)"/.test(v)) {
-    try { return esObjetoCredencial(JSON.parse(v)); } catch (_) { return false; }
-  }
-  return false;
-}
-
-// Identidad estable de un elemento de arreglo (para reinyectar credenciales aunque cambie el orden).
-function idElemento(el, i) {
-  if (el && typeof el === "object" && !Array.isArray(el)) {
-    for (const k of ["id", "email", "nombre", "label"]) {
-      if (el[k] != null && el[k] !== "") return `[${k}=${String(el[k])}]`;
-    }
-  }
-  return `[${i}]`;
-}
-
-// Devuelve { valor, rutas }: copia saneada y lista de rutas quitadas (sin valores).
-function sanear(valor) {
-  const rutas = [];
-  const rec = (v, ruta) => {
-    if (Array.isArray(v)) {
-      const out = [];
-      v.forEach((el, i) => {
-        const r = ruta + idElemento(el, i);
-        if (esObjetoCredencial(el) || stringCredencial(el)) { rutas.push(r); return; }
-        out.push(rec(el, r));
-      });
-      return out;
-    }
-    if (v && typeof v === "object") {
-      const out = {};
-      Object.keys(v).forEach((k) => {
-        const r = ruta ? `${ruta}.${k}` : k;
-        const x = v[k];
-        if (CLAVE_SENSIBLE.test(k) || SUFIJO_SENSIBLE.test(k) || esObjetoCredencial(x) || stringCredencial(x)) { rutas.push(r); return; }
-        out[k] = rec(x, r);
-      });
-      return out;
-    }
-    return v;
-  };
-  return { valor: rec(valor, ""), rutas };
-}
-
-// ── Utilidades ─────────────────────────────────────────────────────────────
-// JSON canónico (claves ordenadas): el mismo contenido da el mismo hash.
-function canonico(v) {
-  if (Array.isArray(v)) return `[${v.map(canonico).join(",")}]`;
-  if (v && typeof v === "object") return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonico(v[k])}`).join(",")}}`;
-  return JSON.stringify(v === undefined ? null : v);
-}
+// Saneo y plan de restauración: fuente única compartida con el navegador.
+const S = require("./_saneo.js");   // copia CommonJS de src/respaldo/saneo.js
+const { filaExcluida, sanear, canonico, decodificar, codificar, buscarFugas, leerRuta, escribirRuta } = S;
 const sha256 = (x) => crypto.createHash("sha256").update(typeof x === "string" ? x : Buffer.from(x)).digest("hex");
 const fechaISO = (d) => new Date(d).toISOString().slice(0, 10);
-
-function decodificar(value) {
-  if (typeof value === "string") {
-    try { return { valor: JSON.parse(value), codificacion: "texto" }; } catch (_) { return { valor: value, codificacion: "crudo" }; }
-  }
-  return { valor: value, codificacion: "json" };
-}
-function codificar(valor, codificacion) {
-  return codificacion === "texto" ? JSON.stringify(valor) : valor;
-}
 
 // ── Paquete + manifiesto ───────────────────────────────────────────────────
 function construirPaquete(filas, ahora = new Date()) {
@@ -141,16 +66,6 @@ function verificarPaquete(gz, manifiesto) {
   return { ok: errores.length === 0, errores, paquete };
 }
 
-// Busca restos de credenciales en un texto (prueba de que el saneo funcionó).
-function buscarFugas(texto, secretosConocidos = []) {
-  const fugas = [];
-  secretosConocidos.filter(Boolean).forEach((s) => { if (texto.includes(s)) fugas.push(`aparece un secreto conocido (${String(s).slice(0, 3)}…)`); });
-  if (/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\./.test(texto)) fugas.push("aparece un JWT");
-  if (/"salt"\s*:/.test(texto) && /"(hash|iter)"\s*:/.test(texto)) fugas.push("aparece un objeto salt/hash");
-  if (/"pin"\s*:/.test(texto)) fugas.push('aparece la clave "pin"');
-  return fugas;
-}
-
 // ── Retención ──────────────────────────────────────────────────────────────
 // nombres: ["diario/2026-10-06.json.gz", ...]. Conserva los últimos `dias` días
 // y el primer respaldo de cada uno de los últimos `meses` meses. Nunca borra el
@@ -175,73 +90,11 @@ function planRetencion(nombres, ahora = new Date(), { dias = 30, meses = 12 } = 
 }
 
 // ── Restauración ───────────────────────────────────────────────────────────
-function partirRuta(ruta) {
-  const partes = [];
-  const re = /([^.[\]]+)|\[([^\]]+)\]/g; let m;
-  while ((m = re.exec(ruta))) partes.push(m[1] != null ? { k: m[1] } : { sel: m[2] });
-  return partes;
-}
-function buscarEnArreglo(arr, sel) {
-  const eqi = sel.indexOf("=");
-  if (eqi < 0) return { i: Number(sel) };
-  const k = sel.slice(0, eqi), v = sel.slice(eqi + 1);
-  return { i: arr.findIndex((el) => el && typeof el === "object" && String(el[k]) === v) };
-}
-function leerRuta(obj, ruta) {
-  let cur = obj;
-  for (const p of partirRuta(ruta)) {
-    if (cur == null) return { existe: false };
-    if (p.k != null) { if (typeof cur !== "object" || !(p.k in cur)) return { existe: false }; cur = cur[p.k]; }
-    else { if (!Array.isArray(cur)) return { existe: false }; const { i } = buscarEnArreglo(cur, p.sel); if (i < 0 || i >= cur.length) return { existe: false }; cur = cur[i]; }
-  }
-  return { existe: true, valor: cur };
-}
-function escribirRuta(obj, ruta, valor) {
-  const partes = partirRuta(ruta);
-  let cur = obj;
-  for (let j = 0; j < partes.length; j++) {
-    const p = partes[j], ultimo = j === partes.length - 1;
-    if (p.k != null) {
-      if (ultimo) { cur[p.k] = valor; return true; }
-      if (cur[p.k] == null || typeof cur[p.k] !== "object") return false;
-      cur = cur[p.k];
-    } else {
-      if (!Array.isArray(cur)) return false;
-      const { i } = buscarEnArreglo(cur, p.sel);
-      if (ultimo) { if (i >= 0) { cur[i] = valor; return true; } cur.push(valor); return true; }
-      if (i < 0) return false;
-      cur = cur[i];
-    }
-  }
-  return false;
-}
-
-// Plan por fila: qué cambiaría, qué credenciales se conservan del valor ACTUAL.
+// Adaptador: paquete + manifiesto auto-v4 → plan compartido (src/respaldo/saneo.js).
 function planRestauracion({ paquete, manifiesto, actuales, ids }) {
-  const porId = Object.fromEntries((actuales || []).map((f) => [f.id, f]));
-  const mPorId = Object.fromEntries(manifiesto.filas.map((m) => [m.id, m]));
-  return (ids || Object.keys(paquete.filas)).map((id) => {
-    if (filaExcluida(id)) return { id, accion: "excluida", motivo: "las credenciales no se restauran desde respaldos" };
-    const r = paquete.filas[id];
-    if (!r) return { id, accion: "no_esta_en_el_respaldo" };
-    const actual = porId[id];
-    const valorFinal = JSON.parse(JSON.stringify(r.valor));
-    const conservadas = [], perdidas = [];
-    const actualValor = actual ? decodificar(actual.value).valor : null;
-    (mPorId[id]?.rutasQuitadas || []).forEach((ruta) => {
-      const x = actualValor != null ? leerRuta(actualValor, ruta) : { existe: false };
-      if (x.existe && escribirRuta(valorFinal, ruta, x.valor)) conservadas.push(ruta);
-      else perdidas.push(ruta);
-    });
-    const igual = actual && canonico(sanear(actualValor).valor) === canonico(r.valor);
-    return {
-      id, accion: igual ? "sin_cambios" : "restaurar",
-      updatedAtActual: actual ? actual.updated_at : null,
-      updatedAtRespaldo: r.updated_at,
-      credencialesConservadas: conservadas, credencialesSinValorActual: perdidas,
-      valorFinal: codificar(valorFinal, actual ? decodificar(actual.value).codificacion : r.codificacion),
-    };
-  });
+  const rutas = Object.fromEntries((manifiesto.filas || []).map((m) => [m.id, m.rutasQuitadas || []]));
+  const respaldo = Object.fromEntries(Object.entries(paquete.filas).map(([id, f]) => [id, { ...f, rutasQuitadas: rutas[id] || [] }]));
+  return S.planRestaurar({ respaldo, actuales, ids, fechaRespaldo: paquete.fecha });
 }
 
 // ── Acceso a Supabase (REST + Storage) con fetch inyectable ────────────────

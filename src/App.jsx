@@ -21,6 +21,8 @@ import { credencialPreservada } from "./data/credencialPreservada";
 // módulo (antes solo el hub, y un error en un módulo dejaba la página en blanco).
 // ═══════════════════════════════════════════════════════════════════
 import { ErrorBoundaryModulo } from "./ErrorBoundaryModulo.jsx";
+import RestaurarRespaldo from "./respaldo/RestaurarRespaldo.jsx";
+import { armarRespaldoDescargable, filaExcluida } from "./respaldo/saneo";
 
 // Detector de nueva versión (chequea cada 60s si cambió el deploy)
 let _lastBuildId = null;
@@ -1458,6 +1460,7 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
   const hoy = new Date();
   const fechaStr = hoy.toLocaleDateString("es-CL", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const [mostrarPermisos, setMostrarPermisos] = useState(false);
+  const [mostrarRestaurar, setMostrarRestaurar] = useState(false);
 
   return (
     <div style={{minHeight:"100vh", background:"#ffffff", fontFamily:"sans-serif", padding:"0 0 40px",
@@ -1480,6 +1483,9 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
 
       {mostrarPermisos && (
         <PanelPermisos usuarios={usuarios} setUsuarios={setUsuarios} onClose={()=>setMostrarPermisos(false)} pinsPersonalizados={pinsPersonalizados} setPinsPersonalizados={setPinsPersonalizados}/>
+      )}
+      {mostrarRestaurar && usuario.rol === "admin" && (
+        <RestaurarRespaldo supaUrl={SUPA_URL} supaKey={SUPA_KEY} usuario={usuario.nombre} onCerrar={()=>setMostrarRestaurar(false)}/>
       )}
 
       <div style={{padding:"24px 32px 0", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, borderBottom:`1px solid ${C.border}`, paddingBottom:16}}>
@@ -1506,24 +1512,17 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
               try {
                 const btn = document.activeElement;
                 if(btn) btn.textContent="⏳ Exportando...";
-                // Cargar todos los datos de Supabase (excluir backups previos)
-                const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at&id=not.like.backup_*`,{
+                // Cargar los datos SIN credenciales: la fila `pins` ni se pide, y el resto
+                // se sanea (PIN, hashes, tokens, JWT) antes de armar el archivo.
+                const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at&id=not.like.backup_*&id=neq.pins`,{
                   headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
                 });
+                if(!res.ok) throw new Error("HTTP "+res.status);
                 const allData = await res.json();
                 if(!Array.isArray(allData)) {
                   throw new Error("Supabase no devolvió una lista: " + JSON.stringify(allData).slice(0,200));
                 }
-                const backup = {
-                  fecha: new Date().toISOString(),
-                  usuario: usuario.nombre,
-                  version: "Mediterra Hub Backup v1",
-                  tablas: {}
-                };
-                allData.forEach(row=>{
-                  try { backup.tablas[row.id] = {data:JSON.parse(row.value), updated_at:row.updated_at}; }
-                  catch { backup.tablas[row.id] = {data:row.value, updated_at:row.updated_at}; }
-                });
+                const backup = armarRespaldoDescargable(allData, { usuario: usuario.nombre });
                 // Descargar como JSON
                 const blob = new Blob([JSON.stringify(backup,null,2)], {type:"application/json"});
                 const url = URL.createObjectURL(blob);
@@ -1533,7 +1532,8 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
                 a.click();
                 URL.revokeObjectURL(url);
                 if(btn) btn.textContent="💾 Respaldo";
-                alert("✅ Respaldo descargado exitosamente");
+                const nQuit = Object.values(backup.tablas).reduce((a,t)=>a+(t.rutasQuitadas||[]).length,0);
+                alert(`✅ Respaldo descargado (sin credenciales).\n\n${Object.keys(backup.tablas).length} filas · excluidas: ${backup.excluidas.join(", ")||"pins"} · ${nQuit} datos de credenciales quitados.`);
               } catch(e) {
                 alert("❌ Error al generar respaldo: "+e.message);
               }
@@ -1543,44 +1543,7 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
             </button>
           )}
           {usuario.rol === "admin" && (
-            <button onClick={()=>{
-              const input = document.createElement("input");
-              input.type="file";
-              input.accept=".json";
-              input.onchange=async(e)=>{
-                const file = e.target.files[0];
-                if(!file) return;
-                if(!window.confirm(`⚠️ RESTAURAR RESPALDO\n\nArchivo: ${file.name}\nTamaño: ${(file.size/1024).toFixed(0)} KB\n\nEsto REEMPLAZARÁ todos los datos actuales con los del respaldo.\n\n¿Estás seguro? Esta acción no se puede deshacer.`)) return;
-                // Doble confirmación
-                const code = prompt("Para confirmar, escribe RESTAURAR:");
-                if(code !== "RESTAURAR") { alert("Restauración cancelada."); return; }
-                try {
-                  const text = await file.text();
-                  const backup = JSON.parse(text);
-                  if(!backup.tablas || !backup.version) {
-                    alert("❌ Archivo inválido. No es un respaldo de Mediterra Hub.");
-                    return;
-                  }
-                  let restauradas = 0;
-                  const tablas = Object.entries(backup.tablas);
-                  for(const [id, tabla] of tablas) {
-                    const value = typeof tabla.data === "string" ? tabla.data : JSON.stringify(tabla.data);
-                    await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-                      method:"POST",
-                      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
-                        "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-                      body:JSON.stringify({id, value, updated_at:new Date().toISOString()})
-                    });
-                    restauradas++;
-                  }
-                  alert(`✅ Respaldo restaurado exitosamente.\n\n${restauradas} tablas restauradas.\nFecha del respaldo: ${backup.fecha}\n\nLa página se recargará ahora.`);
-                  window.location.reload();
-                } catch(err) {
-                  alert("❌ Error al restaurar: " + err.message);
-                }
-              };
-              input.click();
-            }}
+            <button onClick={()=>setMostrarRestaurar(true)}
               style={{background:C.warningBg, border:"1px solid #fde68a", color:"#92400e", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600}}>
               📤 Restaurar
             </button>
@@ -2495,24 +2458,16 @@ export default function App(){
     // Esperar 5s después del login para no interferir con la carga
     const timer = setTimeout(async()=>{
       try {
-        // Excluir filas backup_* (no se respaldan los respaldos previos)
-        const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at&id=not.like.backup_*`,{
+        // Sin credenciales: no se pide `pins` ni los respaldos previos, y el resto se
+        // sanea antes de contar. Este correo es un RESUMEN, no guarda ninguna copia.
+        const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at&id=not.like.backup_*&id=neq.pins`,{
           headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
         });
         const allData = await res.json();
         if(!Array.isArray(allData)) {
           throw new Error("Supabase no devolvió una lista: " + JSON.stringify(allData).slice(0,200));
         }
-        const backup = {
-          fecha: new Date().toISOString(),
-          usuario: usuarioActual.nombre,
-          version: "Mediterra Hub Backup Automático v1",
-          tablas: {}
-        };
-        allData.forEach(row=>{
-          try { backup.tablas[row.id] = {data:JSON.parse(row.value), updated_at:row.updated_at}; }
-          catch { backup.tablas[row.id] = {data:row.value, updated_at:row.updated_at}; }
-        });
+        const backup = armarRespaldoDescargable(allData.filter(r=>!filaExcluida(r.id)), { usuario: usuarioActual.nombre });
 
         // Generar resumen para el email
         const tablasList = Object.keys(backup.tablas).join(", ");
@@ -2526,26 +2481,26 @@ export default function App(){
 
         // Enviar por email via EmailJS
         // Nota: EmailJS tiene límite de tamaño, enviamos solo resumen + link
-        const mensaje = `📦 RESPALDO DIARIO AUTOMÁTICO — Grupo Mediterra\n\n`
+        const mensaje = `📦 RESUMEN DIARIO DE DATOS — Grupo Mediterra\n\n`
+          + `Este correo NO es un respaldo: no guarda ninguna copia. El respaldo automático está suspendido.\n\n`
           + `Fecha: ${new Date().toLocaleString("es-CL")}\n`
           + `Usuario: ${usuarioActual.nombre}\n`
           + `Tablas respaldadas: ${tablasList}\n`
           + `Total registros: ${totalRegistros}\n`
           + `Tamaño: ${sizeMB} MB\n\n`
-          + `⚠️ Este es un respaldo automático. Para descargar el archivo completo, `
-          + `ingresa al Hub → botón 💾 Respaldo.\n\n`
+          + `Para descargar una copia (sin credenciales), ingresa al Hub → botón 💾 Respaldo.\n\n`
           + `— Mediterra Hub`;
 
         try {
           await fetch("/api/send-email", {
             method:"POST", headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({to:"ahuerta@grupomediterra.cl", subject:`📦 Backup Mediterra Hub — ${new Date().toISOString().slice(0,10)}`, message:mensaje, modulo:"mediterra"})
+            body:JSON.stringify({to:"ahuerta@grupomediterra.cl", subject:`📦 Resumen de datos Mediterra Hub (no es respaldo) — ${new Date().toISOString().slice(0,10)}`, message:mensaje, modulo:"mediterra"})
           });
         } catch(e) {
           await fetch("https://api.emailjs.com/api/v1.0/email/send", {
             method:"POST", headers:{"Content-Type":"application/json"},
             body:JSON.stringify({service_id:EMAILJS_SERVICE,template_id:EMAILJS_TEMPLATE_NOTIF,user_id:EMAILJS_KEY,
-              template_params:{name:"Grupo Mediterra",to_email:"ahuerta@grupomediterra.cl",to_name:"Angelo",subject:`📦 Backup Mediterra Hub — ${new Date().toISOString().slice(0,10)}`,message:mensaje}})
+              template_params:{name:"Grupo Mediterra",to_email:"ahuerta@grupomediterra.cl",to_name:"Angelo",subject:`📦 Resumen de datos Mediterra Hub (no es respaldo) — ${new Date().toISOString().slice(0,10)}`,message:mensaje}})
           });
         }
 

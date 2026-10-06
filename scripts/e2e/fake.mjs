@@ -66,6 +66,17 @@ export async function instalarFake(context, store, log = () => {}) {
     try { body = JSON.parse(req.postData() || 'null'); } catch (_) {}
 
     if (metodo === 'GET') {
+      if (!id) {
+        // Consultas de lista: id=in.(…), id=neq.X, id=not.like.prefijo_*
+        const q = decodeURIComponent(url.search);
+        let ids = Object.keys(store).filter(k => !k.startsWith('__'));
+        const inm = /id=in\.\(([^)]*)\)/.exec(q);
+        if (inm) { const pedidos = inm[1].split(',').map(x => x.replace(/^"|"$/g, '')); ids = ids.filter(k => pedidos.includes(k)); }
+        for (const m of q.matchAll(/id=neq\.([^&]+)/g)) ids = ids.filter(k => k !== m[1]);
+        for (const m of q.matchAll(/id=not\.like\.([^&]+)/g)) { const pref = m[1].replace(/\*$/, ''); ids = ids.filter(k => !k.startsWith(pref)); }
+        log(`GET   lista → ${ids.length} filas`);
+        return json(ids.map(k => ({ id: k, value: store[k].value, updated_at: store[k].updated_at })));
+      }
       const f = id ? store[id] : null;
       log(`GET   ${id} → ${f ? 'fila' : 'vacío'}`);
       return json(f ? [{ id, value: f.value, updated_at: f.updated_at }] : []);
@@ -91,6 +102,11 @@ export async function instalarFake(context, store, log = () => {}) {
 
     if (metodo === 'POST' || metodo === 'PUT') {
       const filas = Array.isArray(body) ? body : body ? [body] : [];
+      const fusiona = /merge-duplicates/.test(req.headers()['prefer'] || '');
+      if (!fusiona && filas.some(fl => store[fl.id || id])) {
+        log(`${metodo} ${filas.map(f => f.id).join(',')} → 409 (ya existe)`);
+        return route.fulfill({ status: 409, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"message":"duplicate key"}' });
+      }
       const out = filas.map(fl => {
         const rid = fl.id || id;
         const updated_at = fl.updated_at || new Date().toISOString();
