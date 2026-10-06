@@ -17,15 +17,14 @@ const crypto = require("crypto");
 
 // Preview (staging) → SUPABASE_URL apunta a gestion-mediterra-staging.
 // Production → sin SUPABASE_URL, cae al fallback productivo CURRENT (sin cambio de comportamiento).
-// AISLAMIENTO: el respaldo a la URL de producción vale SOLO en producción (VERCEL_ENV
-// "production") o fuera de Vercel (sin VERCEL_ENV). Una Preview o un despliegue de
-// desarrollo sin SUPABASE_URL queda SIN URL → faltanSecretos() → 503: nunca cae a
-// producción aunque por error tenga una llave de servicio. El valor en producción no cambia.
+// AISLAMIENTO (D7, aprobado por Angelo 2026-10-06): el destino por defecto de producción
+// vale SOLO con VERCEL_ENV="production" (idéntico a hoy). En cualquier otro caso
+// (Preview, desarrollo, VERCEL_ENV ausente, scripts locales) sin SUPABASE_URL no hay
+// destino → faltanSecretos() → 503, sin conectarse a ninguna base.
 const SUPA_URL_PRODUCCION = "https://bywovqayuzodbzwsriet.supabase.co";
 function urlSupabase(env = process.env) {
-  if (env.SUPABASE_URL) return env.SUPABASE_URL;
-  if (env.VERCEL_ENV && env.VERCEL_ENV !== "production") return "";
-  return SUPA_URL_PRODUCCION;
+  if (env.VERCEL_ENV === "production") return env.SUPABASE_URL || SUPA_URL_PRODUCCION;
+  return env.SUPABASE_URL || "";
 }
 const SUPA_URL = urlSupabase();
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";

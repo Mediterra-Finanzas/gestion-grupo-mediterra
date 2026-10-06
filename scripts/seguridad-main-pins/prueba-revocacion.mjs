@@ -122,6 +122,48 @@ try {
   }
   E.psql(`delete from frisku_sp_ratelimit`);
 
+  console.log('Carrera FORZADA (puntos de pausa, ambos órdenes):');
+  {
+    const S = require(path.join(RAIZ, 'api/_segServidor.js'));   // misma instancia que sirve I1
+    const barrera = () => {
+      let soltar, llegar;
+      const llegada = new Promise((r) => { llegar = r; });
+      const suelta = new Promise((r) => { soltar = r; });
+      // Si la petición nunca llega al punto de pausa (otra falla antes), no se queda colgada.
+      const llego = Promise.race([llegada, new Promise((_, m) => setTimeout(() => m(new Error('la petición no llegó al punto de pausa')), 15000))]);
+      return { llego, soltar, fn: async () => { llegar(); await suelta; } };
+    };
+    // Orden 1: el cambio de PIN valida su sesión, se detiene ANTES de escribir; "Salir" de la
+    // otra sesión termina; el cambio continúa. Solo la revalidación DENTRO de la escritura
+    // puede rechazarlo (su sesión ya fue validada con la huella vieja).
+    const x1 = await login(I1, 'Ana'), x2 = await login(I1, 'Ana');
+    const h1 = E.psql(`select value->>'Ana_h' from calendario_data where id='pins'`);
+    const b1 = barrera();
+    S.__pruebas.setPausas({ 'cambiarPin:antesDeEscribir': b1.fn });
+    const pCambio = pedir(I1, 'POST', '/api/auth/cambiar-pin', { cookie: x1, body: { pinActual: PIN.Ana, pinNuevo: '963074' } });
+    await b1.llego;
+    S.__pruebas.setPausas(null);
+    const sal1 = await pedir(I1, 'POST', '/api/auth/logout', { cookie: x2, body: { revocar: true } });
+    b1.soltar();
+    const r1 = await pCambio;
+    eq([sal1.j && sal1.j.revocado, r1.status, E.psql(`select value->>'Ana_h' from calendario_data where id='pins'`) === h1],
+      [true, 401, true], 'orden 1 (Salir entra mientras el cambio espera): Salir revoca, el cambio → 401 y el PIN NO cambia');
+    // Orden 2: "Salir" valida y se detiene ANTES de escribir; el cambio de PIN termina; "Salir"
+    // continúa: su huella ya no es la vigente → no revoca (ya_invalida). Gana exactamente uno.
+    const y1 = await login(I1, 'Ana'), y2 = await login(I1, 'Ana');
+    const b2 = barrera();
+    S.__pruebas.setPausas({ 'logout:antesDeEscribir': b2.fn });
+    const pSalir = pedir(I1, 'POST', '/api/auth/logout', { cookie: y2, body: { revocar: true } });
+    await b2.llego;
+    S.__pruebas.setPausas(null);
+    const r2 = await pedir(I1, 'POST', '/api/auth/cambiar-pin', { cookie: y1, body: { pinActual: PIN.Ana, pinNuevo: '963074' } });
+    b2.soltar();
+    const sal2 = await pSalir;
+    PIN.Ana = r2.status === 200 ? '963074' : PIN.Ana;
+    eq([r2.status, sal2.j && sal2.j.revocado, sal2.j && sal2.j.motivo, await usa(I1, r2.cookie), await usa(I1, y2)],
+      [200, false, 'ya_invalida', 200, 401], 'orden 2 (cambio entra mientras Salir espera): el cambio gana, Salir informa ya_invalida (la app avisa), la sesión vieja cae');
+  }
+
   console.log('Base no disponible:');
   const I3 = await instancia({ SUPABASE_URL: 'http://127.0.0.1:9' });
   const d1 = await login(I1, 'Ana');

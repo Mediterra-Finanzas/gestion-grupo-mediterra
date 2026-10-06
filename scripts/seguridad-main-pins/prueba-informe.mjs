@@ -23,9 +23,13 @@ const ATAQUE = `<script>fetch('/api/auth/sesion',{credentials:'include'}).then(r
 const INFORME_OK = `<html><head><style>h1{color:#0f766e}</style></head><body><h1>Informe técnico</h1><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="logo"></body></html>`;
 
 // La función real, con el fetch hacia Supabase simulado (nada sale de esta máquina).
+// Se simula producción (VERCEL_ENV) para que el endpoint use su destino de siempre.
+process.env.VERCEL_ENV = 'production';
+const salidas = [];
 const fetchReal = globalThis.fetch;
 globalThis.fetch = async (url, opts) => {
   const u = String(url);
+  salidas.push(u);
   if (u.includes('/storage/v1/object/public/osiris-fotos/informes-html/INF_OK')) return new Response(INFORME_OK, { status: 200 });
   if (u.includes('/storage/v1/object/public/osiris-fotos/informes-html/INF_MALO')) return new Response('<h1>x</h1>' + ATAQUE, { status: 200 });
   if (u.includes('supabase.co/storage/')) return new Response('no', { status: 404 });
@@ -71,6 +75,16 @@ try {
   const cache = await visitar('/api/informe?id=INF_CACHE');
   ok(cache.titulo !== 'EJECUTADO' && cache.robos.length === 0, 'HTML guardado en la fila osiris (_htmlCache) con <script> → no se ejecuta');
   ok(/sandbox/.test(cache.r.headers()['content-security-policy'] || ''), 'cabecera Content-Security-Policy: sandbox presente');
+
+  // Aislamiento (D7): fuera de producción y sin SUPABASE_URL no se conecta a ninguna base.
+  process.env.VERCEL_ENV = 'preview';
+  salidas.length = 0;
+  const sinConf = await page.goto(base + '/api/informe?id=INF_OK');
+  ok(sinConf.status() === 503 && salidas.length === 0, 'Preview sin SUPABASE_URL → 503 y ninguna conexión a Supabase');
+  process.env.SUPABASE_URL = 'http://127.0.0.1:9'; salidas.length = 0;
+  await page.goto(base + '/api/informe?id=INF_X');
+  ok(salidas.length > 0 && salidas.every((x) => x.startsWith('http://127.0.0.1:9/')) && !salidas.some((x) => x.includes('/rest/')), 'Preview con SUPABASE_URL → solo ese destino, y sin SUPABASE_ANON_KEY no consulta la base');
+  delete process.env.SUPABASE_URL; process.env.VERCEL_ENV = 'production';
 
   const bueno = await visitar('/api/informe?id=INF_OK');
   const vis = await page.evaluate(() => ({ h1: getComputedStyle(document.querySelector('h1')).color, img: document.querySelector('img').complete && document.querySelector('img').naturalWidth > 0 }));

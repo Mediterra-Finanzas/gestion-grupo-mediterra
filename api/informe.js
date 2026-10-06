@@ -3,6 +3,7 @@
 // URL: /api/informe?id=INFORME_ID
 
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
+const { urlSupabase } = require("./_auth");
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
 // Seguridad: este endpoint sirve HTML guardado por la app (Storage público y fila osiris,
@@ -17,6 +18,15 @@ function escaparHtml(v) {
 
 module.exports = async function handler(req, res) {
   res.setHeader("Content-Security-Policy", CSP);
+  // Aislamiento (D7): misma regla que api/_auth.js. Fuera de producción sin SUPABASE_URL no
+  // hay destino y no se conecta a ninguna base. La llave pública fija vale solo contra
+  // producción; otro destino usa SUPABASE_ANON_KEY (si falta, no consulta la base).
+  const base = urlSupabase();
+  if (!base) {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.status(503).send("<h1>No configurado</h1>");
+  }
+  const llave = base === SUPA_URL ? SUPA_KEY : (process.env.SUPABASE_ANON_KEY || "");
   res.setHeader("X-Content-Type-Options", "nosniff");
   const { id } = req.query;
 
@@ -27,7 +37,7 @@ module.exports = async function handler(req, res) {
 
   try {
     // Buscar el HTML del informe en Supabase Storage
-    const storageUrl = `${SUPA_URL}/storage/v1/object/public/osiris-fotos/informes-html/${encodeURIComponent(id)}.html`;
+    const storageUrl = `${base}/storage/v1/object/public/osiris-fotos/informes-html/${encodeURIComponent(id)}.html`;
     const storageRes = await fetch(storageUrl);
 
     if (storageRes.ok) {
@@ -38,8 +48,12 @@ module.exports = async function handler(req, res) {
     }
 
     // Si no está en Storage, buscar en la base de datos (osiris row)
-    const dbRes = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.osiris&select=value`, {
-      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+    if (!llave) {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.status(404).send(`<h1>Informe no encontrado</h1><p>ID: ${escaparHtml(id)}</p>`);
+    }
+    const dbRes = await fetch(`${base}/rest/v1/calendario_data?id=eq.osiris&select=value`, {
+      headers: { apikey: llave, Authorization: `Bearer ${llave}` }
     });
     const rows = await dbRes.json();
     const osirisData = rows?.[0]?.value;

@@ -68,6 +68,7 @@ async function cambiarPin(req, res, b) {
   if (l !== "ok") return S.json(res, 503, { error: "no_disponible" });
   const corteMs = R.corteCredenciales();
   let escritos = null;
+  await S.puntoDePrueba("cambiarPin:antesDeEscribir");
   const w = await S.actualizarFila("pins", (valor) => {
     // Dentro de la escritura condicionada: si entre la validación y este punto la sesión
     // fue revocada ("Salir", reseteo, otro cambio), no se cambia el PIN.
@@ -143,6 +144,7 @@ async function logout(req, res, b) {
     const { usuarios } = await S.leerUsuarios();
     const u = R.buscarUsuario(usuarios, ses.email);
     if (!u || u.nombre !== ses.nombre) return S.json(res, 200, { ok: true, revocado: false, motivo: "sin_sesion" }, borrar);
+    await S.puntoDePrueba("logout:antesDeEscribir");
     const w = await S.actualizarFila("pins", (valor) => {
       if (!ses.fp || ses.fp !== R.huellaSesion(valor, u.nombre)) return { abortar: "ya_invalida" };
       const v = { ...valor };

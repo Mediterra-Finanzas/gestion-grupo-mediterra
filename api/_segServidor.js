@@ -194,14 +194,20 @@ function textoCodigo(nombre, codigo, saludo) {
   return `${saludo ? `Hola ${nombre},\n\n` : ""}Tu código provisorio es: ${codigo}\n\nVence en 45 minutos. Al ingresar deberás crear un PIN nuevo de 6 dígitos. Tu PIN anterior quedó inhabilitado.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
 }
 
+// Puntos de pausa SOLO PARA PRUEBAS: sin una función inyectada no hacen nada (producción).
+// Permiten forzar el orden entre dos peticiones concurrentes (prueba-revocacion.mjs).
+let pausas = null;
+async function puntoDePrueba(nombre) { if (pausas && pausas[nombre]) await pausas[nombre](); }
+
 // SOLO PARA PRUEBAS en el mismo proceso (scripts/seguridad-main-pins/entorno.mjs).
 const __pruebas = {
   setEnviarCorreo(fn) { correoInyectado = fn; },
   setLimiter(l) { limiterInyectado = l; },
+  setPausas(p) { pausas = p || null; },
 };
 
 module.exports = {
   MAX_BODY, json, hdr, cuerpo, esJSON, ipDe,
   leerFila, escribirFila, actualizarFila, leerUsuarios, leerPins,
-  esAdmin, resolverSesion, cookieCompleta, inactividadMs, reglas, limitar, enviarCorreo, textoCodigo, __pruebas,
+  esAdmin, resolverSesion, cookieCompleta, inactividadMs, reglas, puntoDePrueba, limitar, enviarCorreo, textoCodigo, __pruebas,
 };
