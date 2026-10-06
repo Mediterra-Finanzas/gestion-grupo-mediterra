@@ -100,6 +100,19 @@ correr('Excel recalculado vs flujo', () => {
       }),
     },
     {
+      nombre: 'H · realización MOVIDA de una cuota a una estimación',
+      // Dirección inversa a la de A. El realizado sigue siendo uno solo: la
+      // cuota de origen vuelve a su pendiente y la estimación queda cubierta.
+      params: fruta({
+        anticipos_cliente: [{ id: 'e1', mes: MES_A, usd_kg: 0.1, v: MODELO_VERSION,
+          realizaciones: [{ id: 'r1', fecha: '2026-08-01', usd: 40000,
+                            origen: { tipo: 'cuota', id: 'c1' } }] }],
+        programas: [{ id: 'p1', lado: 'cliente', contraparte: 'WLH', kilos: 1000000,
+          cuotas: [{ id: 'c1', estado: 'vigente', modalidad: 'monto', monto: 100000, mes: MES_A,
+            v: MODELO_VERSION, sustituye: [], realizaciones: [] }] }],
+      }),
+    },
+    {
       nombre: 'B · estimación NUEVA sin fecha (reservada)',
       params: fruta({
         anticipos_cliente: [{ id: 'e2', mes: '', usd_kg: 0.05, v: MODELO_VERSION, realizaciones: [] }],

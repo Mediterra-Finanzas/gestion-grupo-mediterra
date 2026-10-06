@@ -380,6 +380,31 @@ Reglas que no hay que romper:
 - **Mover una realización entre estimaciones está prohibido**: reabriría el
   pendiente de la de origen (`estRealizadoOriginado` sigue las movidas a una
   CUOTA, no a otra estimación).
+- **Reasignar un movimiento, no volver a registrarlo** (oct-2026): el
+  formulario «Reasignar un movimiento ya registrado» de la tarjeta ofrece
+  origen y destino libres entre **estimación → cuota**, **cuota → estimación**
+  y **cuota → cuota** (antes solo la primera, así que corregir una asignación
+  obligaba a anular y re-registrar, que es lo que se hace cuando el movimiento
+  está MAL registrado, no cuando solo está mal asignado). El movimiento
+  conserva id, monto, fecha, nota e historial (`origen`, `movidaPor`,
+  `movidaTs`), y no queda copia en el contenedor de origen. Antes de confirmar
+  se muestran origen, destino, el pendiente de cada uno antes/después, el
+  efecto en la liquidación y el realizado total, que NO debe cambiar.
+  El efecto se calcula con el **mismo `resumenLado`** que alimenta pantalla,
+  flujo y Excel: no se replica la regla en la pantalla (una copia divergió en
+  el primer intento y mostraba un número que no era el que después aparecía).
+  `pendienteDe` para una estimación pasa `programas` a `estPendiente`, si no
+  una estimación cuyo movimiento se movió aparecería reabriendo su pendiente.
+  Fijado con `src/__tests__/reasignarMovimiento.test.js` (14) y el escenario
+  **H** de `excelRecalcFlujo` (Excel recalculado de verdad en la dirección
+  cuota → estimación).
+- **Limitación conocida — la bandeja no se reasigna**: un movimiento de
+  `movimientos_sin_asignar` NO es una realización (tiene otra forma y vive en
+  otro arreglo), así que `moverRealizacion` no lo acepta y el formulario no lo
+  ofrece. Hoy la bandeja solo permite «quitar», que **borra** el movimiento
+  con un confirm, sin motivo ni historial. Asignar un movimiento de la bandeja
+  a una cuota o estimación necesitaría una función de modelo nueva; no se
+  implementó.
 
 Guía de carga: `docs/programas-allegria-carga.md`. Guía de revisión en
 pantalla antes de cargar: `docs/revision-estimaciones-pantalla.md`. Propuesta de carga y
