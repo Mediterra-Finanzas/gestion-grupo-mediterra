@@ -23,7 +23,7 @@
 --   · No es una barrera de seguridad: quien tenga la llave pública puede leer la
 --     versión y escribir a través de la función. Protege la CONSISTENCIA (nadie
 --     pisa sin haber visto lo último), no el acceso. DELETE sigue abierto
---     (propuesta separada: docs/seguridad-quitar-delete-anon.md).
+--     (propuesta separada: fase D de la rama claude/seguridad-main-pins).
 --   · No cambia el formato de las filas (texto JSON dentro del jsonb) ni el
 --     esquema de la tabla. No toca nominas_correlativos, nominas_tipos_doc,
 --     nominas_v2_done ni ninguna otra fila.

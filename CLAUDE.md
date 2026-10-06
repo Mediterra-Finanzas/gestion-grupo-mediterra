@@ -551,7 +551,7 @@ git push origin main
 - Revisar quota Supabase mediterra-calendario (Pro plan, renovación mid-May 2026)
 - RLS Supabase mediterra-calendario (vulnerabilidad de seguridad pendiente de fix sequential). Verificado 2026-10-02:
   RLS ACTIVO en `calendario_data` pero con políticas abiertas a `anon` (leer/crear/modificar/BORRAR todo salvo
-  `backup*`/`main_pre_restore*`). Propuesta NO aplicada para quitar DELETE: `docs/seguridad-quitar-delete-anon.md`.
+  `backup*`/`main_pre_restore*`). Propuesta NO aplicada para quitar DELETE/TRUNCATE: fase D del plan de seguridad (rama `claude/seguridad-main-pins`; puntero en `docs/seguridad-quitar-delete-anon.md`).
 - Nóminas: guardado condicionado a la versión leída — implementado en la rama (vía `nominas_guardar`), sin desplegar: `docs/nominas-guardado-condicionado.md`, activación `docs/nominas-activacion.md`.
 - Módulo EEFF (Etapa 1: carga balance + P&L con análisis comparativo Real vs Ppto vs Año Anterior) — esperar Excel de plantilla de Angelo
 
