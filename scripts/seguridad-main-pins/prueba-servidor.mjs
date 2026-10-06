@@ -411,11 +411,13 @@ try {
     eq((await roster(sesB)).status, 401, 'la cookie ANTERIOR de la propia sesión B reproducida → 401 (solo vale la nueva)');
     eq((await roster(cb.cookie)).status, 200, 'la cookie nueva de B sirve');
     fijarFila('pins', pinsAntes);
-    // Logout: solo borra la cookie en ESE navegador; una copia previa sigue valiendo.
+    // "Salir" (D3): revoca en el servidor todas las sesiones de la persona, copias incluidas.
     const copiaL = (await login(em('Beto'), PIN.Beto)).cookie;
-    const lo = await pedir('POST', '/api/auth/logout', { cookie: copiaL });
-    ok(lo.status === 200 && /max-age=0/i.test(lo.setCookie), 'logout responde borrando la cookie del navegador');
-    eq((await roster(copiaL)).status, 200, 'LIMITACIÓN COMPROBADA: una copia hecha antes del logout sigue valiendo (hasta inactividad o 12 h)');
+    const otraL = (await login(em('Beto'), PIN.Beto)).cookie;
+    const lo = await pedir('POST', '/api/auth/logout', { cookie: copiaL, body: { revocar: true } });
+    ok(lo.status === 200 && lo.j && lo.j.revocado === true && /max-age=0/i.test(lo.setCookie), '"Salir" responde revocado:true y borra la cookie del navegador');
+    eq([(await roster(copiaL)).status, (await roster(otraL)).status], [401, 401], 'una copia hecha antes de "Salir" y la otra sesión de Beto → 401 (prueba entre dos instancias: prueba-revocacion.mjs)');
+    fijarFila('pins', pinsAntes);
     // Inactividad real (AUTH_INACTIVIDAD_MIN=2 en esta prueba): sin firmar nada, esperando.
     const quieta = (await login(em('Rita'), PIN.Rita)).cookie;
     const activa0 = (await login(em('Ines'), PIN.Ines)).cookie;

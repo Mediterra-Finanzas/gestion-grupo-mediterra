@@ -8,7 +8,11 @@
 //   POST cambiar-pin     {pinActual?,pinNuevo,tel?} (cookie de cualquier scope) → 200 {ok,usuario} + cookie completa
 //   POST recuperar       {email,tel?}           → SIEMPRE 200 {ok:true} (código por correo, _temp hasheado 45 min)
 //   GET  sesion                                  → 200 {usuario,scope,admin} | 401
-//   POST logout                                  → 200 (borra la cookie)
+//   POST logout          {revocar?}             → 200 {ok,revocado} (borra la cookie). Con sesión
+//                                                 "completa" vigente y revocar≠false, sube la época
+//                                                 de la persona: TODAS sus sesiones (y copias de
+//                                                 cookies) quedan inválidas en toda instancia.
+//                                                 503 {revocado:false} si no se pudo confirmar.
 //   POST admin-reset-pin {nombre}               → solo seg_administradores → 200 {ok,codigo}
 //   POST verificar       {email,pin} + header x-mediterra-secreto (servidor a servidor, osiris-auth)
 //                                                 → 200 {ok,email,nombre,debeCambiarPin} | 401
@@ -117,6 +121,33 @@ async function recuperar(req, res, b) {
   return OK();
 }
 
+// Revocación en el servidor: la época (`<Nombre>_epoca`, fila pins) forma parte de la
+// huella de toda sesión "completa"; subirla invalida todas las cookies emitidas antes,
+// incluidas las copiadas, en cualquier instancia (la huella se relee de la base en cada
+// petición). Solo la puede subir una sesión cuya huella siga vigente: una copia ya
+// inválida no puede cerrar las sesiones nuevas de esa persona.
+async function logout(req, res, b) {
+  const borrar = { "Set-Cookie": A.cookieBorrar() };
+  const ses = A.sesionCualquierScope(req);
+  if (!ses || ses.scope !== "completa" || b.revocar === false) return S.json(res, 200, { ok: true, revocado: false }, borrar);
+  if (A.faltanSecretos()) return S.json(res, 503, { error: "no_disponible", revocado: false }, borrar);
+  try {
+    const { usuarios } = await S.leerUsuarios();
+    const u = R.buscarUsuario(usuarios, ses.email);
+    if (!u || u.nombre !== ses.nombre) return S.json(res, 200, { ok: true, revocado: false }, borrar);
+    const w = await S.actualizarFila("pins", (valor) => {
+      if (!ses.fp || ses.fp !== R.huellaSesion(valor, u.nombre)) return { abortar: "ya_invalida" };
+      const v = { ...valor };
+      v[`${u.nombre}_epoca`] = (Number(v[`${u.nombre}_epoca`]) || 0) + 1;
+      return v;
+    });
+    return S.json(res, 200, { ok: true, revocado: !!w.ok }, borrar);
+  } catch (e) {
+    console.error("auth logout: error interno");
+    return S.json(res, 503, { error: "no_disponible", revocado: false }, borrar);
+  }
+}
+
 async function sesion(req, res) {
   let s;
   try { s = await S.resolverSesion(req, { permitirCambioPin: true }, res); }
@@ -164,7 +195,11 @@ module.exports = async function handler(req, res) {
   const op = req.query && req.query.op;
   if (!METODO[op]) return S.json(res, 404, { error: "op_desconocida" });
   if (req.method !== METODO[op]) { res.setHeader("Allow", METODO[op]); return S.json(res, 405, { error: "metodo" }); }
-  if (op === "logout") return S.json(res, 200, { ok: true }, { "Set-Cookie": A.cookieBorrar() });
+  if (op === "logout") {
+    // Siempre borra la cookie del navegador; la revocación exige JSON (como toda mutación).
+    const b = S.esJSON(req) ? (S.cuerpo(req) || {}) : { revocar: false };
+    return await logout(req, res, b);
+  }
   if (A.faltanSecretos()) return S.json(res, 503, { error: "no_configurado" });
   let b = {};
   if (METODO[op] === "POST") {

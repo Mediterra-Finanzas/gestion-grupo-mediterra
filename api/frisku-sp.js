@@ -222,7 +222,9 @@ function crearHandler(deps = {}) {
 }
 
 // ── Handler de producción (dependencias reales) ──
-const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
+// Misma regla de aislamiento que api/_auth.js: en una Preview sin SUPABASE_URL no hay URL
+// (la lectura falla → 503); en producción el valor no cambia.
+const SUPA_URL = require("./_auth").urlSupabase();
 // Los usuarios viven en la fila id="usuarios" (value = array; fuente de verdad del padrón,
 // la misma que usa la app; main.usuarios es solo un espejo de compatibilidad) y los PIN en
 // id="pins" (value). SOLO lectura (GET). Sin defaults ni fallback a WORKERS_BASE: cualquier

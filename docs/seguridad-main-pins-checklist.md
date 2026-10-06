@@ -22,25 +22,31 @@ Ver la sección 7. Cerrar `main` y `pins` protege el acceso y los permisos de la
 - **Exposición de PIN (no filtración comprobada).**
   - **Lo que sabemos:**
     - [Seguro] Los hashes de todos los PIN estuvieron accesibles con la llave pública en la fila `pins`, y así siguen hoy.
-    - [Seguro] No tenemos evidencia de que alguien los descargara. Los registros de acceso de Supabase podrían mostrarlo dentro de su período de retención (P10).
+    - [Seguro] No tenemos evidencia de que alguien los descargara, pero tampoco evidencia de que no.
+    - Los registros de Supabase (P10) **pueden aportar evidencia de una descarga** si cubren ese tipo de petición y el período. **Su ausencia no descarta una filtración**: la retención es limitada (los meses anteriores no estarán) y la cobertura puede ser incompleta (qué peticiones se registran y con qué detalle).
     - Por eso se tratan como **potencialmente comprometidos**.
-  - **Costo de romper uno** (medido, no supuesto):
-    - Un intento PBKDF2-SHA256 con 100.000 iteraciones tarda ~16 ms en un núcleo de este entorno de pruebas.
-    - Recorrer los 10^6 PIN de 6 dígitos toma ~4,5 h en un núcleo, y en promedio se acierta a la mitad.
-    - Con más núcleos o GPU es menos. Eso no se midió.
+  - **Costo de probar PINs contra un hash** (medición puntual, **no es una garantía general**):
+    - En el contenedor de pruebas de esta sesión (Node 22, un núcleo), un intento PBKDF2-SHA256 con 100.000 iteraciones tardó ~16 ms. A ese ritmo, recorrer los 10^6 PIN de 6 dígitos tomaría ~4,5 h; en promedio se acierta a la mitad.
+    - Es un orden de magnitud para ese equipo: con otro hardware, más núcleos o GPU, el tiempo cambia (normalmente baja) y no se midió.
+    - Lo que no depende del hardware: el espacio de 10^6 combinaciones es pequeño. Por eso los PIN se tratan como potencialmente comprometidos.
 - **Sesión.**
   - **Dónde se guarda el control:**
-    - Se guarda **dentro de la cookie firmada** (`mediterra_sess`, HMAC con `SESSION_SECRET`): último uso `act`, vencimiento absoluto `exp` (12 h) y huella `fp` (PIN vigente + época).
-    - No hay tabla de sesiones en el servidor.
-    - El servidor relee en cada petición el padrón (fila `usuarios`) y `pins` para comparar la huella.
+    - **En la cookie firmada** (`mediterra_sess`, HMAC con `SESSION_SECRET`): último uso `act`, vencimiento absoluto `exp` (12 h) y huella `fp`.
+    - **En la base (fila `pins`)**: el PIN vigente y la **época** de cada persona (`<Nombre>_epoca`). La huella de la cookie debe coincidir con ambos. El servidor los relee en cada petición, en cualquier instancia.
+    - No hay tabla de sesiones: se revoca por persona (todas sus sesiones), no una sesión suelta.
   - **Comprobado en local reenviando copias reales de cookies, sin falsificar y esperando en tiempo real:**
     - la inactividad rechaza la sesión;
     - una copia anterior a la última renovación vence por su propio último uso;
     - el cambio de PIN invalida todas las copias previas, incluida la de la sesión que lo cambió.
   - **Límites comprobados:**
     - **Navegador restaurado:** la cookie no tiene `Max-Age`, pero un navegador que "restaura la sesión" puede conservarla. Lo que realmente la corta es la inactividad del servidor (30 min) o las 12 h.
-    - **"Salir" no revoca copias:** solo borra la cookie de ese navegador. Una copia hecha antes sigue valiendo hasta 30 min sin uso o 12 h (prueba "LIMITACIÓN COMPROBADA").
-    - Opción mínima, **no implementada**: que "Salir" suba la época, lo que cierra todas las sesiones de esa persona. Decisión D3.
+  - **"Salir" (D3, implementado):**
+    - sube la época de la persona en la base, así que **todas** sus sesiones y copias de cookies quedan inválidas en toda instancia;
+    - comprobado con **dos procesos independientes** (`prueba-revocacion.mjs`, 16/16), incluidos dos "Salir" simultáneos y la base caída;
+    - si la base no responde, el servidor contesta 503 `revocado:false` (no informa éxito) y la app avisa a la persona;
+    - una copia ya inválida no puede cerrar las sesiones nuevas;
+    - el cierre automático por inactividad de una pestaña solo borra su cookie y no cierra los otros equipos.
+    - Las sesiones de Frisku SharePoint y de Osiris (Supabase Auth) son aparte y no se cierran con este "Salir".
 - **Límite de intentos.**
   - Contadores en Postgres (RPC `frisku_sp_rl_consumir`, con `FOR UPDATE`), compartidos por todas las instancias de Vercel. No hay estado en memoria.
   - Si el contador no responde, el login responde 503: **falla cerrado**.
@@ -79,7 +85,7 @@ Ver la sección 7. Cerrar `main` y `pins` protege el acceso y los permisos de la
 | P7 | Vercel | Commit desplegado y nombres de variables (sin valores) |
 | P8 | Supabase → Edge Functions | Si osiris-auth corre en producción o en sandbox |
 | P9 | Supabase → Database → Backups | Si hay respaldos diarios de la plataforma (tras la etapa 3, son el único respaldo de `pins`, `usuarios` y `main`) |
-| P10 | Supabase → Logs (API) | Si la retención permite ver lecturas de `id=eq.pins` con la llave pública: confirma o descarta descargas |
+| P10 | Supabase → Logs (API) | Retención y cobertura de los registros; si muestran lecturas de `id=eq.pins`. Un hallazgo es evidencia de descarga; la ausencia no la descarta |
 | P11 | Supabase | Si existe el proyecto staging (`gestion-mediterra-staging`) y está aislado de producción |
 
 ---
@@ -196,7 +202,7 @@ Orden obligatorio si se autoriza: primero el SQL y después, si hace falta, desp
 5. **`audit_log`:** se puede sobrescribir con la llave, y si su carga falla la app escribe `[]` encima (viola la regla 9).
 6. **Cuentas bloqueables por terceros:** ~9 intentos cada 20 min desde cualquier IP. Además, "¿Olvidaste tu PIN?" inhabilita el PIN de quien no tenga celular registrado. Aceptar o ajustar: D4.
 7. **Ritmo sostenido de intentos:** ~8 cada 15–20 min por cuenta, sin castigo progresivo. IPv6 se cuenta por dirección completa (/128), no por /64.
-8. **Logout que no revoca copias de la cookie:** D3.
+8. **Sesiones de Frisku SharePoint y Osiris:** no se cierran con "Salir" de la app (cookies y sesiones propias).
 9. **Tablas `contab_*`, `osi_*` y `rbac_*`:** rama de roles, pendiente de S1–S7.
 
 ---

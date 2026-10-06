@@ -15,7 +15,7 @@
 
 const { sesionDeRequest, faltanSecretos } = require("./_auth");
 
-const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
+const SUPA_URL = require("./_auth").urlSupabase();   // aislamiento: ver api/_auth.js
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const BUCKETS_PERMITIDOS = new Set(["frisku-docs", "nominas-docs"]);
 

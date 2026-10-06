@@ -86,7 +86,9 @@ export function crearClienteServidor(opts = {}) {
       try { return await llamar("/api/auth/sesion"); }
       catch (e) { if (e.status === 401) return null; throw e; }
     },
-    logout: () => llamar("/api/auth/logout", { method: "POST", body: {} }),
+    // revocar:true (Salir) cierra TODAS las sesiones de la persona en el servidor;
+    // revocar:false (cierre por inactividad de esta pestaña) solo borra la cookie local.
+    logout: (revocar = true) => llamar("/api/auth/logout", { method: "POST", body: { revocar: revocar !== false } }),
     adminResetPin: (nombre) => llamar("/api/auth/admin-reset-pin", { method: "POST", body: { nombre } }),
     leerRoster: () => llamar("/api/datos/roster"),
     leerUsuarios: () => llamar("/api/datos/usuarios"),

@@ -17,7 +17,7 @@ escribir `usuarios` (darse rol admin). La prueba lo reproduce en el punto (a).
 | `POST /api/auth/cambiar-pin` `{pinActual?,pinNuevo,tel?}` | Con cookie `cambio_pin` y la credencial sin cambios no pide `pinActual`; con sesión `completa` sí. 400 `pin_invalido` o `pin_repetido` |
 | `POST /api/auth/recuperar` `{email,tel?}` | Siempre 200 y nunca antes de 3 s (el tiempo no revela si el correo existe). Si corresponde, guarda el hash del código en `<Nombre>_temp` (vence en 45 min) y lo envía por correo (SMTP de `send-email.js`). No cierra sesiones abiertas |
 | `GET /api/auth/sesion` | 200 `{usuario,scope,admin}`; 401 si el usuario está desactivado o ya no existe (se relee en cada llamada) |
-| `POST /api/auth/logout` | Borra la cookie |
+| `POST /api/auth/logout` `{revocar}` | Borra la cookie. Con `revocar:true` cierra TODAS las sesiones de la persona (época); `{revocado}` dice si se confirmó |
 | `POST /api/auth/admin-reset-pin` `{nombre}` | Solo para quien esté en `seg_administradores`: 200 `{ok,codigo,correoEnviado}`. Sube `<Nombre>_epoca`: todas las sesiones de esa persona quedan cerradas |
 | `POST /api/auth/verificar` | Servidor a servidor (osiris-auth), con header `x-mediterra-secreto`. Comparte el contador de intentos del login (`login:<email>`) |
 | `GET /api/datos/roster`, `GET /api/datos/usuarios` | Padrón sin credenciales (el segundo trae también `version`) |
@@ -48,8 +48,9 @@ el rol de `main` o `usuarios`, ni la cookie.
    emitido antes de esa fecha (o sin sello `ts`, es decir, todos los de hoy) deja de dar
    acceso: login 401 `debe_recuperar` y la persona recupera por correo. Existe porque
    **todos los hashes de PIN estuvieron accesibles con la llave pública** (exposición; no hay
-   evidencia de descarga): un PIN de 6 dígitos es atacable fuera de línea (medido: ~16 ms por
-   intento y núcleo, ~4,5 h para los 10^6 en un núcleo), y "obligar a cambiar el PIN" no
+   evidencia de descarga, y la ausencia de registros no la descarta): el espacio de un PIN de
+   6 dígitos es pequeño (medición puntual en el contenedor de pruebas, no garantía general:
+   ~16 ms por intento y núcleo, ~4,5 h para los 10^6), y "obligar a cambiar el PIN" no
    sirve porque el cambio pide el PIN antiguo. Ver el checklist, etapa 4.
 6. Una cookie `cambio_pin` solo sirve para `cambiar-pin`. Cualquier otra ruta responde 403
    y `api/storage.js` responde 401.
@@ -58,9 +59,10 @@ el rol de `main` o `usuarios`, ni la cookie.
 
 ## Sesión
 
-**Dónde vive el control:** dentro de la cookie firmada (HMAC con `SESSION_SECRET`): `act`
-(último uso), `exp` (12 h) y `fp` (huella). No hay tabla de sesiones. El servidor relee en
-cada petición `usuarios` y `pins` para validar usuario activo y huella.
+**Dónde vive el control:** en la cookie firmada (HMAC con `SESSION_SECRET`): `act` (último
+uso), `exp` (12 h) y `fp` (huella); y en la base, fila `pins`: PIN vigente y
+`<Nombre>_epoca`. El servidor relee en cada petición `usuarios` y `pins` (cualquier
+instancia). No hay tabla de sesiones: la revocación es por persona.
 
 - Cookie `HttpOnly; Secure; SameSite=Strict` **sin `Max-Age`**: se descarta al cerrar el
   navegador, como hoy `sessionStorage`. Vencimiento absoluto 12 h.
@@ -73,10 +75,15 @@ cada petición `usuarios` y `pins` para validar usuario activo y huella.
   cierra todas. Pedir un código (público) no cierra ninguna. Cuesta una lectura de `pins`
   por petición (con la llave de servicio).
 - Una cookie emitida antes de este cambio (sin huella) se rechaza: hay que volver a ingresar.
-- **Límites comprobados** (`prueba-servidor.mjs`, copias reales de cookies, sin falsificar):
-  "Salir" solo borra la cookie de ese navegador; una copia previa sigue valiendo hasta 30 min
-  sin uso o 12 h. Un navegador que restaura la sesión puede conservar la cookie aunque no
-  tenga `Max-Age`; la corta la inactividad del servidor.
+- **"Salir"** (`POST /api/auth/logout {revocar:true}`, JSON obligatorio): con una sesión
+  "completa" cuya huella sigue vigente, sube `<Nombre>_epoca` con escritura condicionada →
+  todas las sesiones y copias de esa persona quedan inválidas en toda instancia. Responde
+  `{revocado:true}`; si la base no responde, 503 `{revocado:false}` (la app avisa). Una copia
+  ya inválida no revoca nada (no puede cerrar las sesiones nuevas). `{revocar:false}` (cierre
+  por inactividad de una pestaña) solo borra la cookie local. Prueba con dos procesos:
+  `scripts/seguridad-main-pins/prueba-revocacion.mjs`.
+- Un navegador que restaura la sesión puede conservar la cookie aunque no tenga `Max-Age`;
+  la corta la inactividad del servidor (comprobado con copias reales, en tiempo real).
 
 ## Límite de intentos
 

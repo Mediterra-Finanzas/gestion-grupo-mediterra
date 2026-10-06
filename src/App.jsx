@@ -3044,7 +3044,10 @@ export default function App(){
   function getPinActivo(w){return pinsPersonalizados[w.nombre]||w.pin;}
 
   // Helper central de logout con auditoría
-  function doLogout() {
+  // opts.revocar === false: cierre automático por inactividad (no cierra las sesiones de
+  // esta persona en otros equipos). "Salir" (sin opts o con un evento) sí las revoca todas.
+  function doLogout(opts) {
+    const revocar = !(opts && opts.revocar === false);
     const u = usuarioActual;
     if(u) window.auditLog("logout", {modulo:"sistema", seccion:"autenticación",
       descripcion:`${u.nombre} cerró sesión`});
@@ -3065,7 +3068,13 @@ export default function App(){
       _usuarioSesionSrv = null;
       cargaOkRef.current = false;
       const fin = ()=>{ try{ window.location.reload(); }catch(e){} };
-      authSrv.logout().then(fin, fin);
+      // Si el servidor no confirma la revocación, se avisa antes de recargar: la cookie
+      // local ya se borró, pero otras sesiones (o copias) podrían seguir vigentes.
+      const noConfirmada = ()=>{
+        if(revocar){ try{ window.alert("No se pudo confirmar el cierre de tus sesiones en otros equipos. Vuelve a ingresar y usa Salir de nuevo, o pide a un administrador que resetee tu PIN."); }catch(e){} }
+        fin();
+      };
+      authSrv.logout(revocar).then((r)=>{ if(revocar && !(r && r.revocado===true) && !(r && r.revocado===false && r.ok)) return noConfirmada(); fin(); }, noConfirmada);
     }
   }
 
@@ -3077,7 +3086,7 @@ export default function App(){
     const cerrar = ()=>{
       try{ window.auditLog && window.auditLog("logout",{modulo:"sistema",seccion:"autenticación",
         descripcion:`Cierre automático por inactividad (${usuarioActual.nombre})`}); }catch(e){}
-      doLogout();
+      doLogout({ revocar: false });
     };
     const reset = ()=>{ clearTimeout(timer); timer=setTimeout(cerrar, MS); };
     const evs=["mousemove","mousedown","keydown","touchstart","scroll"];

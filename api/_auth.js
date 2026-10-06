@@ -17,7 +17,17 @@ const crypto = require("crypto");
 
 // Preview (staging) → SUPABASE_URL apunta a gestion-mediterra-staging.
 // Production → sin SUPABASE_URL, cae al fallback productivo CURRENT (sin cambio de comportamiento).
-const SUPA_URL = process.env.SUPABASE_URL || "https://bywovqayuzodbzwsriet.supabase.co";
+// AISLAMIENTO: el respaldo a la URL de producción vale SOLO en producción (VERCEL_ENV
+// "production") o fuera de Vercel (sin VERCEL_ENV). Una Preview o un despliegue de
+// desarrollo sin SUPABASE_URL queda SIN URL → faltanSecretos() → 503: nunca cae a
+// producción aunque por error tenga una llave de servicio. El valor en producción no cambia.
+const SUPA_URL_PRODUCCION = "https://bywovqayuzodbzwsriet.supabase.co";
+function urlSupabase(env = process.env) {
+  if (env.SUPABASE_URL) return env.SUPABASE_URL;
+  if (env.VERCEL_ENV && env.VERCEL_ENV !== "production") return "";
+  return SUPA_URL_PRODUCCION;
+}
+const SUPA_URL = urlSupabase();
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const SESSION_SECRET = process.env.SESSION_SECRET || "";
 
@@ -124,11 +134,11 @@ async function supaFetch(path, opts = {}) {
 }
 
 function faltanSecretos() {
-  return !SERVICE_KEY || !SESSION_SECRET;
+  return !SUPA_URL || !SERVICE_KEY || !SESSION_SECRET;
 }
 
 module.exports = {
-  SUPA_URL, COOKIE_NAME, SESION_HORAS, CAMBIO_PIN_MIN, SCOPES,
+  SUPA_URL, urlSupabase, COOKIE_NAME, SESION_HORAS, CAMBIO_PIN_MIN, SCOPES,
   crearToken, verificarSesion, sesionDeRequest, sesionCualquierScope,
   cookieSesion, cookieBorrar, leerCookie,
   supaFetch, faltanSecretos,
