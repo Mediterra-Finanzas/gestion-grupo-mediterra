@@ -407,6 +407,8 @@ export function crearPersistencia(opts = {}) {
 
   // ── utilidades ───────────────────────────────────────────────────────────────
   function isDirty(id) { return !!_dirty.get(id); }
+  // Solo lectura: filas con edición local que el servidor aún no confirmó.
+  function idsSucios() { return [..._dirty.entries()].filter(([, v]) => v).map(([k]) => k); }
   function marcarSucio(id) { _dirty.set(id, true); }
   function marcarLimpio(id) { _dirty.set(id, false); }
   function estado(id) { return { version: _version.get(id), base: _base.get(id), cargaOk: !!_cargaOk.get(id), dirty: !!_dirty.get(id), encoding: _encoding.get(id) || null }; }
@@ -417,7 +419,7 @@ export function crearPersistencia(opts = {}) {
 
   return {
     load, registrarCarga, saveConfirmed, flush, reconcileIncoming,
-    isDirty, marcarSucio, marcarLimpio, estado, reset,
+    isDirty, idsSucios, marcarSucio, marcarLimpio, estado, reset,
     // helpers expuestos (fusión por ítem para casos avanzados)
     fusionarPorId, esListaFusionable, MOTIVOS,
     _leerFila, // solo diagnóstico/test

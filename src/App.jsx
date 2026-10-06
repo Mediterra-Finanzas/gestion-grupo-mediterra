@@ -17,38 +17,10 @@ import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash
 
 import { credencialPreservada } from "./data/credencialPreservada";
 // ═══════════════════════════════════════════════════════════════════
-// ErrorBoundary: captura crash por archivos obsoletos tras deploy
-// En vez de pantalla blanca, muestra botón de actualizar
+// Manejador de errores: ver ErrorBoundaryModulo.jsx. Envuelve el hub y cada
+// módulo (antes solo el hub, y un error en un módulo dejaba la página en blanco).
 // ═══════════════════════════════════════════════════════════════════
-class AppErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { hasError:false, error:null }; }
-  static getDerivedStateFromError(error) { return { hasError:true, error }; }
-  componentDidCatch(error, info) {
-    console.error("[ErrorBoundary]", error, info);
-    // Si es error de chunk (deploy nuevo), ofrecer reload
-    if(error?.name==="ChunkLoadError" || error?.message?.includes("Loading chunk") || error?.message?.includes("Failed to fetch")) {
-      this.setState({hasError:true, isChunkError:true});
-    }
-  }
-  render() {
-    if(this.state.hasError) {
-      return React.createElement("div", {style:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg,fontFamily:"sans-serif"}},
-        React.createElement("div", {style:{textAlign:"center",color:"#e6edf3",maxWidth:400,padding:40}},
-          React.createElement("div", {style:{fontSize:48,marginBottom:16}}, "🔄"),
-          React.createElement("h2", {style:{margin:"0 0 12px",fontSize:18}}, "Nueva versión disponible"),
-          React.createElement("p", {style:{color:"#8b949e",fontSize:13,marginBottom:20,lineHeight:1.6}},
-            "Se actualizó la aplicación. Tu trabajo está guardado en la nube. Haz click para cargar la nueva versión."),
-          React.createElement("button", {
-            onClick:()=>window.location.reload(),
-            style:{padding:"12px 28px",borderRadius:10,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontSize:14,fontWeight:700}
-          }, "Actualizar ahora"),
-          React.createElement("div", {style:{marginTop:16,fontSize:11,color:"#484f58"}}, "Los datos no se pierden — están guardados en Supabase")
-        )
-      );
-    }
-    return this.props.children;
-  }
-}
+import { ErrorBoundaryModulo } from "./ErrorBoundaryModulo.jsx";
 
 // Detector de nueva versión (chequea cada 60s si cambió el deploy)
 let _lastBuildId = null;
@@ -1950,7 +1922,7 @@ export default function App(){
       document.head.appendChild(link);
     }
     link.type = "image/png";
-    link.href = "/mediterra-logo.png"; // Logo colocado en /public
+    link.href = "/med.png"; // Logo en /public (mediterra-logo.png no existe: daba 404)
   },[]);
 
   const [usuarioActual,setUsuarioActual]=useState(null);
@@ -3748,78 +3720,90 @@ Equipo Mediterra`);
 
   // Módulo activo
   if(moduloActivo==="finanzas") return (
-    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px"}}>
-      <FinanzasModule
-        usuarioActual={usuarioFresco}
-        esAdmin={esAdmin}
-        esSoloConsulta={esSoloConsulta}
-        tabPermisos={tabPermisosFinanzas}
-        usuarios={usuarios}
-        onBack={()=>setModuloActivo(null)}
-        onLogout={doLogout}
-      />
-    </div>
+    <ErrorBoundaryModulo ambito="Finanzas" resetKey={moduloActivo} onVolver={()=>setModuloActivo(null)}>
+      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px"}}>
+        <FinanzasModule
+          usuarioActual={usuarioFresco}
+          esAdmin={esAdmin}
+          esSoloConsulta={esSoloConsulta}
+          tabPermisos={tabPermisosFinanzas}
+          usuarios={usuarios}
+          onBack={()=>setModuloActivo(null)}
+          onLogout={doLogout}
+        />
+      </div>
+    </ErrorBoundaryModulo>
   );
 
   if(moduloActivo==="osiris") return (
-    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh"}}>
-      <OsirisModule
-        usuarioActual={usuarioFresco}
-        esAdmin={esAdmin}
-        esSoloConsulta={esSoloConsulta}
-        tabPermisos={getTabPermisosModulo(usuarioFresco,"osiris")}
-        onBack={()=>setModuloActivo(null)}
-        onLogout={doLogout}
-      />
-    </div>
+    <ErrorBoundaryModulo ambito="Osiris" resetKey={moduloActivo} onVolver={()=>setModuloActivo(null)}>
+      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh"}}>
+        <OsirisModule
+          usuarioActual={usuarioFresco}
+          esAdmin={esAdmin}
+          esSoloConsulta={esSoloConsulta}
+          tabPermisos={getTabPermisosModulo(usuarioFresco,"osiris")}
+          onBack={()=>setModuloActivo(null)}
+          onLogout={doLogout}
+        />
+      </div>
+    </ErrorBoundaryModulo>
   );
 
   if(moduloActivo==="allegria") return (
-    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh"}}>
-      <AllegriaModule
-        usuarioActual={usuarioFresco}
-        esAdmin={esAdmin}
-        esSoloConsulta={esSoloConsulta}
-        tabPermisos={getTabPermisosModulo(usuarioFresco,"allegria")}
-        onBack={()=>setModuloActivo(null)}
-        onLogout={doLogout}
-      />
-    </div>
+    <ErrorBoundaryModulo ambito="Allegria Foods" resetKey={moduloActivo} onVolver={()=>setModuloActivo(null)}>
+      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh"}}>
+        <AllegriaModule
+          usuarioActual={usuarioFresco}
+          esAdmin={esAdmin}
+          esSoloConsulta={esSoloConsulta}
+          tabPermisos={getTabPermisosModulo(usuarioFresco,"allegria")}
+          onBack={()=>setModuloActivo(null)}
+          onLogout={doLogout}
+        />
+      </div>
+    </ErrorBoundaryModulo>
   );
 
   if(moduloActivo==="frisku") return (
-    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh"}}>
-      <FriskuComercialModule
-        usuarioActual={usuarioFresco}
-        esAdmin={esAdmin}
-        esSoloConsulta={esSoloConsulta}
-        tabPermisos={getTabPermisosModulo(usuarioFresco,"frisku")}
-        onBack={()=>setModuloActivo(null)}
-        onLogout={doLogout}
-      />
-    </div>
+    <ErrorBoundaryModulo ambito="Frisku Foods" resetKey={moduloActivo} onVolver={()=>setModuloActivo(null)}>
+      <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh"}}>
+        <FriskuComercialModule
+          usuarioActual={usuarioFresco}
+          esAdmin={esAdmin}
+          esSoloConsulta={esSoloConsulta}
+          tabPermisos={getTabPermisosModulo(usuarioFresco,"frisku")}
+          onBack={()=>setModuloActivo(null)}
+          onLogout={doLogout}
+        />
+      </div>
+    </ErrorBoundaryModulo>
   );
 
   if(moduloActivo==="contabilidad") return (
-    <div style={{fontFamily:"sans-serif",background:"#0f1117",minHeight:"100vh"}}>
-      <ContabilidadModule
-        usuario={usuarioFresco}
-        canEdit={!esSoloConsulta}
-        esCFO={usuarioFresco?.esCFO}
-        onBack={()=>setModuloActivo(null)}
-      />
-    </div>
+    <ErrorBoundaryModulo ambito="Contabilidad" resetKey={moduloActivo} onVolver={()=>setModuloActivo(null)}>
+      <div style={{fontFamily:"sans-serif",background:"#0f1117",minHeight:"100vh"}}>
+        <ContabilidadModule
+          usuario={usuarioFresco}
+          canEdit={!esSoloConsulta}
+          esCFO={usuarioFresco?.esCFO}
+          onBack={()=>setModuloActivo(null)}
+        />
+      </div>
+    </ErrorBoundaryModulo>
   );
 
   if(moduloActivo==="allegria_service") return (
-    <AllegriaServiceModule
-      usuarioActual={usuarioFresco}
-      esAdmin={esAdmin}
-      esSoloConsulta={esSoloConsulta}
-      tabPermisos={getTabPermisosModulo(usuarioFresco,"allegria_service")}
-      onBack={()=>setModuloActivo(null)}
-      onLogout={doLogout}
-    />
+    <ErrorBoundaryModulo ambito="Allegria Service" resetKey={moduloActivo} onVolver={()=>setModuloActivo(null)}>
+      <AllegriaServiceModule
+        usuarioActual={usuarioFresco}
+        esAdmin={esAdmin}
+        esSoloConsulta={esSoloConsulta}
+        tabPermisos={getTabPermisosModulo(usuarioFresco,"allegria_service")}
+        onBack={()=>setModuloActivo(null)}
+        onLogout={doLogout}
+      />
+    </ErrorBoundaryModulo>
   );
 
   if(moduloActivo==="tareas") {
@@ -4432,7 +4416,7 @@ Equipo Mediterra`);
   const modulosPermitidos = modulosDeUsuarioSeguro(usuarioFresco || usuarioActual);
 
   return (
-    <AppErrorBoundary>
+    <ErrorBoundaryModulo ambito="el inicio">
       <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
       {nuevaVersion&&(
         <div style={{position:"fixed",bottom:20,right:20,zIndex:99999,maxWidth:320,background:C.card,color:C.text,padding:"14px 18px",borderRadius:12,boxShadow:"0 8px 32px #0004",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:8,fontSize:13,fontFamily:"sans-serif"}}>
@@ -4487,6 +4471,6 @@ Equipo Mediterra`);
           </div>
         </div>
       )}
-    </AppErrorBoundary>
+    </ErrorBoundaryModulo>
   );
 }
