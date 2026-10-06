@@ -27,8 +27,7 @@ de producción:
 | Nov-26 | 0 | 459.920 | +459.920 | +0 |
 | Dec-26 | 0 | 537.450 | +537.450 | +0 |
 | Jan-27 | 0 | 311.450 | +311.450 | +0 |
-| Mar-27 | 3.825.000 | 1.616.300 | -2.208.700 | +0 |
-| Apr-27 | 0 | 0 | +0 | -317.000 |
+| Mar-27 | 3.825.000 | 1.616.300 | -2.208.700 | -317.000 |
 
 Suma de los deltas de ingreso: **-761.880** (= lo ya cobrado, que está en el banco y deja de proyectarse)
 Suma de los deltas de costo: **-317.000** (= los 317.000 reservados sin fecha, que salen del saldo al productor)
@@ -50,19 +49,30 @@ Suma de los deltas de costo: **-317.000** (= los 317.000 reservados sin fecha, q
 
 ## Lado PRODUCTOR (Don Alberto)
 
+**Saldo económico POR PAGAR: 2.150.500**, y se compone de dos cosas:
+
+- 317.000 **sin calendarizar** (los 317.000 confirmados, sin fecha)
+- 1.833.500 de **liquidación** en el mes de saldo al productor
+
+Los 1.833.500 **no son todo lo que queda por pagar**: son lo que queda
+después de reservar los 317.000. Esos 317.000 reservan parte del retorno y
+siguen debiéndose; lo que no tienen es mes.
+
 - Base (retorno presupuestario): **2.150.500**
 - Pagos ya efectuados: **0**
 - Anticipos pendientes CON fecha: **0**
 - Pendiente de calendarizar (sin fecha): **317.000**
 - · reservados, no proyectables: **317.000**
-- Saldo al productor (Apr-27): **1.833.500**
+- Liquidación (mes de saldo al productor): **1.833.500**
+- Saldo económico por pagar: **2.150.500**
 
-Los **317.000** confirmados y no ejecutados van como cuotas vigentes **sin
-fecha**: bajan el saldo al productor de 2.150.500 a 1.833.500 y quedan
-declarados como calendario incompleto. No se les inventó mes, así que no se
-proyectan en ninguno. Los **362.000** con pagaré van como **antecedentes**:
-se ven, no cuentan como realizado y no proyectan hasta que la cartola
-confirme su fecha real.
+> ⚠ **El mes del saldo al productor (Mar-27) es una elección de esta
+> simulación, no una definición del CFO ni un dato de producción.** Se lee de
+> `mes_saldo_productor` de la temporada y se contrasta con el Excel. No se
+> traslada a la carga real.
+
+Los **362.000** con pagaré van como **antecedentes**: se ven, no cuentan como
+realizado y no proyectan hasta que la cartola confirme su fecha real.
 
 ## Conciliación bancaria de los cobros confirmados — PENDIENTE
 
@@ -77,9 +87,21 @@ el modelo no puede comprobarlo y lo dice:
 | 2026-09-16 | 197.980 | NO SE PUEDE COMPROBAR (sin saldos cargados) |
 | 2026-09-24 | 161.920 | NO SE PUEDE COMPROBAR (sin saldos cargados) |
 
-Total sin comprobar: **761.880**. Se resuelve con la fecha de
-saldo de cada cuenta bancaria: un cobro posterior a la fecha de saldo de su
-cuenta **no** está incluido y se contaría dos veces.
+Total sin comprobar: **761.880**.
+
+**El riesgo es por defecto, no por exceso.** Un cobro realizado deja de
+proyectarse, porque se supone que ya está en la caja. Si ese cobro es
+POSTERIOR a la fecha del saldo bancario usado como punto de partida, entonces
+no está en el saldo **ni** en la proyección: la caja queda **subestimada** por
+ese monto hasta que se actualice el saldo. No se cuenta dos veces.
+
+El doble conteo es otro problema distinto, el del pendiente fantasma de más
+abajo: ahí el cobro sí está en la caja y la estimación lo sigue proyectando.
+
+Y una fecha de saldo posterior al cobro **no demuestra por sí sola** que el
+cobro esté incluido: la clasificación por fecha es una presunción, no una
+comprobación. Para cada movimiento hay que verificar **cuenta, moneda, fecha
+y respaldo** cuando estén disponibles.
 
 ## Cómo asociar un cobro confirmado a una estimación existente
 
@@ -103,6 +125,28 @@ Tres conclusiones para la carga:
 3. **Si no se asocia, queda un pendiente fantasma**: 362.000 ya cobrados que
    la estimación sigue proyectando, con la liquidación 362.000 más baja. El
    total cuadra igual contra el presupuesto; lo que está mal es **el mes** en
-   que se proyecta la caja. Por eso, cuando las capturas muestren una
-   estimación que un cobro cubría, el cobro se registra **sobre esa
-   estimación**, no como cuota histórica.
+   que se proyecta la caja.
+
+### Reasignar, nunca volver a registrar
+
+Si el cobro ya existe como histórico, se **reasigna ese mismo movimiento** a
+la estimación. Medido sobre una estimación **agregada de 500.000** y un cobro
+de 362.000:
+
+| | Realizado | Pendiente de la estimación | Liquidación | Saldo económico |
+|---|---:|---:|---:|---:|
+| Cobro en histórica, sin reasignar | 362.000 | **500.000** (la agregada entera) | 2.963.000 | 3.463.000 |
+| **Mismo movimiento reasignado** | 362.000 | **138.000** (lo que falta) | 3.325.000 | 3.463.000 |
+| Re-registrado en la estimación ⟵ ERROR | **724.000** | 138.000 | 2.963.000 | **3.101.000** |
+
+- Reasignar responde la pregunta de una estimación agregada: **362.000
+  cubiertos, 138.000 siguen pendientes**. El movimiento queda con su origen
+  (`{tipo:"cuota"}`) y no queda copia en la cuota histórica.
+- El saldo económico no se mueve al reasignar: 3.463.000 antes y después.
+- Re-registrarlo en vez de reasignarlo **duplica el dinero**: realizado
+  724.000 y el saldo económico cae a 3.101.000. Ese desvío del saldo
+  económico es la señal de que algo se registró dos veces.
+
+La asociación la declara usted, movimiento por movimiento. **No se infiere
+por coincidencia de monto**, y cada propuesta de asociación se presenta con su
+efecto antes de confirmarla.

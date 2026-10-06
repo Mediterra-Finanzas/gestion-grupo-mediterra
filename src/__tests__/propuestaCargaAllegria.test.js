@@ -15,7 +15,7 @@
 import fs from 'fs';
 import path from 'path';
 import { calcAllegria } from '../FinanzasModule.jsx';
-import { resumenLado, MODELO_VERSION, tratoSinFecha } from '../programas.js';
+import { resumenLado, moverRealizacion, MODELO_VERSION, tratoSinFecha } from '../programas.js';
 import { conciliacionRealizaciones } from '../anticipos.js';
 import { MESES, mIdx, mesIdxActual } from '../horizonte.js';
 
@@ -24,7 +24,13 @@ import { MESES, mIdx, mesIdxActual } from '../horizonte.js';
 const KG = 850000, FOB = 4.5, DESC_PCT = 6, MAT = 0.5, SRV = 1.2;
 const PPTO_CLIENTE = 3825000;    // 850.000 × 4,5
 const RETORNO_PRODUCTOR = 2150500;  // 850.000 × 2,53
-const MES_LIQ = 'Mar-27', MES_SALDO_PROD = 'Apr-27';
+const MES_LIQ = 'Mar-27';
+// ⚠ ELECCIÓN DE LA SIMULACIÓN, no un dato del CFO ni de producción. El mes de
+// saldo al productor se lee de `mes_saldo_productor` de la temporada y se
+// contrasta con el Excel. NO se traslada a la carga real: hasta entonces este
+// valor solo sirve para que la simulación tenga dónde poner el saldo.
+const MES_SALDO_PROD_SIMULADO = 'Mar-27';   // provisional = igual al del cliente
+const MES_SALDO_PROD = MES_SALDO_PROD_SIMULADO;
 
 const mesDe = (iso) => {
   const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -171,8 +177,11 @@ describe('propuesta de carga · lado cliente', () => {
     const cuota = DESPUES['2026-2027'].cerezas.programas
       .find(p => p.id === 'pg-dalberto').cuotas[0];
     expect(tratoSinFecha(cuota, { modeloVersion: MODELO_VERSION, decisiones: {} })).toBe('reservado');
-    // EFECTO SOBRE LA LIQUIDACIÓN: baja de 2.150.500 a 1.833.500.
+    // EFECTO: la liquidación baja de 2.150.500 a 1.833.500, pero lo que queda
+    // POR PAGAR sigue siendo 2.150.500. Los 317.000 no desaparecen: reservan
+    // parte del retorno y quedan sin calendarizar.
     expect(Math.round(rp.liquidacion)).toBe(RETORNO_PRODUCTOR - 317000);
+    expect(Math.round(rp.saldoEconomico)).toBe(RETORNO_PRODUCTOR);
     expect(Math.round(rp.liquidacion + rp.pendienteDeCalendarizar)).toBe(RETORNO_PRODUCTOR);
     // Nada ejecutado: el realizado del productor es CERO, y los pendientes
     // CON fecha también, porque no se inventó ningún mes.
@@ -229,6 +238,44 @@ describe('propuesta de carga · lado cliente', () => {
     for (const r of [conHist, enEst])
       expect(Math.round(r.realizado + r.pendientes + r.liquidacion)).toBe(PPTO_CLIENTE);
     expect(Math.round(soloEst.realizado)).toBe(0);
+  });
+
+  test('un cobro ya histórico se REASIGNA, no se registra de nuevo', () => {
+    // Estimación AGREGADA de 500.000 y un cobro de 362.000: hay que poder decir
+    // qué parte cubre el cobro y qué parte sigue pendiente. La asociación la
+    // declara el usuario, nunca se infiere por coincidencia de monto.
+    const REA = { id:'r1', fecha:'2026-07-15', usd:362000, nota:'cobro WLH', usuario:'angelo' };
+    const EST = [{ id:'est-1', mes:'Jul-26', usd_kg:500000/KG, v:MODELO_VERSION, realizaciones:[] }];
+    const histo = () => [{ id:'pg-wlh', lado:'cliente', contraparte:'WLH', cuotas:[
+      { id:'h', modalidad:'por_confirmar', monto:null, estado:'borrador', historico:true,
+        v:MODELO_VERSION, fecha_prevista:'', mes:'', sustituye:[], realizaciones:[REA] }]}];
+    const comun = { lado:'cliente', kgFruta:KG, basePresupuesto:PPTO_CLIENTE, mIdx,
+      mesIdxActual: mIdx('Oct-26'), mesLiquidacion:MES_LIQ, modeloVersion:MODELO_VERSION,
+      decisionesSinFecha:{}, temporada:'2026-2027', fruta:'cerezas' };
+
+    const antes = resumenLado({ ...comun, programas:histo(), estimaciones:EST });
+    expect(Math.round(antes.realizado)).toBe(362000);
+    expect(Math.round(antes.pendientes)).toBe(500000);   // la agregada entera sigue proyectando
+
+    // REASIGNAR el mismo movimiento (cuota histórica → estimación).
+    const mov = moverRealizacion({ estimaciones:EST, programas:histo(), reaId:'r1',
+      desde:{ tipo:'cuota', id:'h' }, hacia:{ tipo:'estimacion', id:'est-1' }, usuario:'angelo' });
+    expect(mov.movida).toBeTruthy();
+    expect(mov.movida.origen).toEqual({ tipo:'cuota', id:'h' });   // trazabilidad
+    expect(mov.estimaciones[0].realizaciones.length).toBe(1);
+    expect(mov.programas[0].cuotas[0].realizaciones.length).toBe(0);  // no queda copia
+
+    const despues = resumenLado({ ...comun, programas:mov.programas, estimaciones:mov.estimaciones });
+    expect(Math.round(despues.realizado)).toBe(362000);              // el dinero NO se mueve
+    expect(Math.round(despues.saldoEconomico)).toBe(Math.round(antes.saldoEconomico));
+    expect(Math.round(despues.pendientes)).toBe(138000);             // 500.000 − 362.000 cubiertos
+    expect(Math.round(despues.liquidacion)).toBe(3325000);
+
+    // RE-REGISTRARLO en vez de reasignarlo DUPLICA el dinero: 724.000.
+    const dup = resumenLado({ ...comun, programas:histo(),
+      estimaciones:[{ ...EST[0], realizaciones:[{ ...REA, id:'r2' }] }] });
+    expect(Math.round(dup.realizado)).toBe(724000);
+    expect(Math.round(dup.saldoEconomico)).toBe(PPTO_CLIENTE - 724000);
   });
 
   test('conciliación bancaria de los 761.880: pendiente hasta tener los saldos', () => {
@@ -297,19 +344,30 @@ describe('propuesta de carga · lado cliente', () => {
     L.push('');
     L.push('## Lado PRODUCTOR (Don Alberto)');
     L.push('');
+    L.push(`**Saldo económico POR PAGAR: ${fmt(rp.saldoEconomico)}**, y se compone de dos cosas:`);
+    L.push('');
+    L.push(`- ${fmt(rp.pendienteDeCalendarizar||0)} **sin calendarizar** (los 317.000 confirmados, sin fecha)`);
+    L.push(`- ${fmt(rp.liquidacion)} de **liquidación** en el mes de saldo al productor`);
+    L.push('');
+    L.push(`Los ${fmt(rp.liquidacion)} **no son todo lo que queda por pagar**: son lo que queda`);
+    L.push('después de reservar los 317.000. Esos 317.000 reservan parte del retorno y');
+    L.push('siguen debiéndose; lo que no tienen es mes.');
+    L.push('');
     for (const [k,v] of [['Base (retorno presupuestario)',rp.base],['Pagos ya efectuados',rp.realizado],
       ['Anticipos pendientes CON fecha',rp.pendientes],
       ['Pendiente de calendarizar (sin fecha)',rp.pendienteDeCalendarizar||0],
       ['· reservados, no proyectables',rp.pendienteSinFechaReservado||0],
-      ['Saldo al productor (Apr-27)',rp.liquidacion]])
+      ['Liquidación (mes de saldo al productor)',rp.liquidacion],
+      ['Saldo económico por pagar',rp.saldoEconomico]])
       L.push(`- ${k}: **${fmt(v)}**`);
     L.push('');
-    L.push('Los **317.000** confirmados y no ejecutados van como cuotas vigentes **sin');
-    L.push('fecha**: bajan el saldo al productor de 2.150.500 a 1.833.500 y quedan');
-    L.push('declarados como calendario incompleto. No se les inventó mes, así que no se');
-    L.push('proyectan en ninguno. Los **362.000** con pagaré van como **antecedentes**:');
-    L.push('se ven, no cuentan como realizado y no proyectan hasta que la cartola');
-    L.push('confirme su fecha real.');
+    L.push(`> ⚠ **El mes del saldo al productor (${MES_SALDO_PROD}) es una elección de esta`);
+    L.push('> simulación, no una definición del CFO ni un dato de producción.** Se lee de');
+    L.push('> `mes_saldo_productor` de la temporada y se contrasta con el Excel. No se');
+    L.push('> traslada a la carga real.');
+    L.push('');
+    L.push('Los **362.000** con pagaré van como **antecedentes**: se ven, no cuentan como');
+    L.push('realizado y no proyectan hasta que la cartola confirme su fecha real.');
     L.push('');
     L.push('## Conciliación bancaria de los cobros confirmados — PENDIENTE');
     L.push('');
@@ -321,9 +379,21 @@ describe('propuesta de carga · lado cliente', () => {
     L.push('|---|---:|---|');
     for (const x of conc.detalle) L.push(`| ${x.fecha} | ${fmt(x.usd)} | ${x.estado === 'sin_saldos' ? 'NO SE PUEDE COMPROBAR (sin saldos cargados)' : x.estado} |`);
     L.push('');
-    L.push(`Total sin comprobar: **${fmt(conc.sin_saldos)}**. Se resuelve con la fecha de`);
-    L.push('saldo de cada cuenta bancaria: un cobro posterior a la fecha de saldo de su');
-    L.push('cuenta **no** está incluido y se contaría dos veces.');
+    L.push(`Total sin comprobar: **${fmt(conc.sin_saldos)}**.`);
+    L.push('');
+    L.push('**El riesgo es por defecto, no por exceso.** Un cobro realizado deja de');
+    L.push('proyectarse, porque se supone que ya está en la caja. Si ese cobro es');
+    L.push('POSTERIOR a la fecha del saldo bancario usado como punto de partida, entonces');
+    L.push('no está en el saldo **ni** en la proyección: la caja queda **subestimada** por');
+    L.push('ese monto hasta que se actualice el saldo. No se cuenta dos veces.');
+    L.push('');
+    L.push('El doble conteo es otro problema distinto, el del pendiente fantasma de más');
+    L.push('abajo: ahí el cobro sí está en la caja y la estimación lo sigue proyectando.');
+    L.push('');
+    L.push('Y una fecha de saldo posterior al cobro **no demuestra por sí sola** que el');
+    L.push('cobro esté incluido: la clasificación por fecha es una presunción, no una');
+    L.push('comprobación. Para cada movimiento hay que verificar **cuenta, moneda, fecha');
+    L.push('y respaldo** cuando estén disponibles.');
     L.push('');
     L.push('## Cómo asociar un cobro confirmado a una estimación existente');
     L.push('');
@@ -347,9 +417,31 @@ describe('propuesta de carga · lado cliente', () => {
     L.push('3. **Si no se asocia, queda un pendiente fantasma**: 362.000 ya cobrados que');
     L.push('   la estimación sigue proyectando, con la liquidación 362.000 más baja. El');
     L.push('   total cuadra igual contra el presupuesto; lo que está mal es **el mes** en');
-    L.push('   que se proyecta la caja. Por eso, cuando las capturas muestren una');
-    L.push('   estimación que un cobro cubría, el cobro se registra **sobre esa');
-    L.push('   estimación**, no como cuota histórica.');
+    L.push('   que se proyecta la caja.');
+    L.push('');
+    L.push('### Reasignar, nunca volver a registrar');
+    L.push('');
+    L.push('Si el cobro ya existe como histórico, se **reasigna ese mismo movimiento** a');
+    L.push('la estimación. Medido sobre una estimación **agregada de 500.000** y un cobro');
+    L.push('de 362.000:');
+    L.push('');
+    L.push('| | Realizado | Pendiente de la estimación | Liquidación | Saldo económico |');
+    L.push('|---|---:|---:|---:|---:|');
+    L.push('| Cobro en histórica, sin reasignar | 362.000 | **500.000** (la agregada entera) | 2.963.000 | 3.463.000 |');
+    L.push('| **Mismo movimiento reasignado** | 362.000 | **138.000** (lo que falta) | 3.325.000 | 3.463.000 |');
+    L.push('| Re-registrado en la estimación ⟵ ERROR | **724.000** | 138.000 | 2.963.000 | **3.101.000** |');
+    L.push('');
+    L.push('- Reasignar responde la pregunta de una estimación agregada: **362.000');
+    L.push('  cubiertos, 138.000 siguen pendientes**. El movimiento queda con su origen');
+    L.push('  (`{tipo:"cuota"}`) y no queda copia en la cuota histórica.');
+    L.push('- El saldo económico no se mueve al reasignar: 3.463.000 antes y después.');
+    L.push('- Re-registrarlo en vez de reasignarlo **duplica el dinero**: realizado');
+    L.push('  724.000 y el saldo económico cae a 3.101.000. Ese desvío del saldo');
+    L.push('  económico es la señal de que algo se registró dos veces.');
+    L.push('');
+    L.push('La asociación la declara usted, movimiento por movimiento. **No se infiere');
+    L.push('por coincidencia de monto**, y cada propuesta de asociación se presenta con su');
+    L.push('efecto antes de confirmarla.');
     const out = path.join(process.cwd(),'docs','propuesta-carga-efecto-mensual.md');
     fs.writeFileSync(out, L.join('\n')+'\n');
     expect(filas.length).toBeGreaterThan(0);
