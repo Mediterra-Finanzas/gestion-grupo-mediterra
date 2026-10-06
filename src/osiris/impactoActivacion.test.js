@@ -34,10 +34,12 @@ d("impacto de la activación sobre los contratos reales", () => {
   const ocs = ocsPorContrato();
   const totales = (lista) => {
     const filas = derivarRoyaltyComercialDesdeContratos(lista, ocs);
+    // Nombres honestos: son importes CALCULADOS por el motor, no facturacion
+    // emitida ni cobros acreditados.
     return {
       filas: filas.length,
-      fact: r2(filas.reduce((s, f) => s + (f.montoFact || 0), 0)),
-      cobro: r2(filas.reduce((s, f) => s + (f.montoCobro || 0), 0)),
+      brutoCalculado: r2(filas.reduce((s, f) => s + (f.montoFact || 0), 0)),
+      netoCalculado: r2(filas.reduce((s, f) => s + (f.montoCobro || 0), 0)),
     };
   };
 
@@ -60,8 +62,9 @@ d("impacto de la activación sobre los contratos reales", () => {
     expect(porEstado[CONFLICTO_CON_ANTIGUA] || 0).toBe(0);
   });
 
-  test("los totales del royalty comercial no se mueven", () => {
-    // La línea base, medida con el motor sobre la copia real.
+  test("los totales calculados del royalty comercial no se mueven", () => {
+    // Importes BRUTOS y NETOS calculados por el motor. No son facturas
+    // emitidas ni cobros acreditados: el motor no sabe nada de eso.
     const base = totales(contratos);
     informe.totales = base;
     // Mirar el estado de activación de cada contrato no puede cambiar nada.
@@ -83,7 +86,7 @@ d("impacto de la activación sobre los contratos reales", () => {
     expect(bloqueados).toEqual([]);
   });
 
-  test("las temporadas con factura o pago quedan identificadas", () => {
+  test("las temporadas con antecedentes de factura o pago quedan identificadas", () => {
     // No cambia nada hoy, pero es la lista que quedaría protegida el día que
     // se active algo. Conviene saber cuántas son.
     const protegidas = [];

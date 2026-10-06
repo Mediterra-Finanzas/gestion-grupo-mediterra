@@ -82,7 +82,41 @@ Ninguno de estos pasos está autorizado todavía.
 el paso 2 esté hecho y autorizado. Sin un deployment de recuperación compatible y certificado,
 cualquier rollback sería una pérdida económica silenciosa.
 
-## 5 · Pendientes para activar Olmos
+## 5 · Impacto medido sobre la copia de los 23 contratos reales
+
+**Delta cero.** Nada del paquete mueve un importe mientras no haya una activación, y hoy no hay
+ninguna.
+
+| | |
+|---|---|
+| Contratos con activación | **0** |
+| Estado de los 23 | `noActivable`: ninguno tiene el antecedente confirmado |
+| Filas de royalty comercial | 57 |
+| **Importe bruto calculado por el motor** | US$ 13.504.590 |
+| **Importe neto calculado por el motor** | US$ 11.478.901,50 |
+| Contratos con términos bloqueados | 0 |
+| Mutación al evaluar la cartera | Ninguna |
+
+**Sobre esas dos cifras.** Son **importes brutos y netos que calcula el motor** a partir de los
+contratos y sus cohortes. **No son facturación emitida ni cobros acreditados**: el motor no sabe
+nada de eso. Lo único que acreditan es que el paquete no cambia lo que el motor produce.
+
+### Las tres temporadas con antecedentes, descritas aparte
+
+Quedan identificadas porque estarían protegidas el día que se active algo en esos contratos. Cada
+una tiene un antecedente distinto, y conviene no mezclarlos:
+
+| Contrato | Temporada | Antecedentes registrados |
+|---|---|---|
+| Agroextiende | 2024/2025 | Número de factura 112 y fecha de pago 2026-08-04. **No** tiene marca de pagada |
+| Agrícola San Clemente Limitada | 2025/2026 | Número de factura 75, marcada como pagada, fecha de pago 2025-06-26 |
+| Agrícola San Clemente Limitada | 2026/2027 | Número de factura 123, marcada como pagada, fecha de pago 2026-06-02 |
+
+Lo que el sistema registra es eso: un número, una marca y una fecha cargados por alguien. **No
+es una conciliación contra la contabilidad ni contra el banco**, y este paquete no la hace. Para
+el mecanismo alcanza con que exista el antecedente: la fila no se recalcula.
+
+## 6 · Pendientes para activar Olmos
 
 No se activa y no se declara listo. Lo que falta, en orden:
 
