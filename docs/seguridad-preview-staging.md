@@ -9,8 +9,9 @@ Etiquetas: [Seguro] = leído en el código · [Probable] = inferido con buena ba
 **Conclusión corta**
 - El servidor (`/api/auth/*`, `/api/datos/*`) se puede aislar con variables de entorno.
 - `api/frisku-sp.js` y `api/storage.js` usan ahora la misma regla que `_auth.js` (candado). `api/informe.js` sigue leyendo producción (solo lectura pública): T10 se hace en la etapa 2.
-- El navegador también llama directo a producción, y escribe en `audit_log` aunque el login falle.
-- Por eso las pruebas se hacen por HTTP (curl/scripts) contra una Preview protegida. La interfaz se usa solo para T9, con las salvaguardas de la §2b.
+- **Actualización (aislamiento del navegador):** con las variables de build de la §2b.1, login, login fallido, recuperación, cambio de PIN obligatorio, hub, reseteo desde Permisos y "Salir" (también como admin y en lunes) ya no contactan producción. Lo prueba `scripts/e2e/aislamiento-interfaz.mjs` (§2b.2). Los módulos de negocio siguen con URL fija: no se abren en la Preview.
+- Staging = **proyecto Supabase DEDICADO** (decisión tomada; su creación aún no está autorizada).
+- Las pruebas HTTP (curl/scripts) siguen siendo la base; la interfaz las complementa (§2b.2).
 
 ---
 
@@ -56,7 +57,8 @@ Etiquetas: [Seguro] = leído en el código · [Probable] = inferido con buena ba
 | `_reglasLogin.js` | `AUTH_CREDENCIALES_DESDE` (`:79`) | — | No |
 | `auth/[op].js` | `OSIRIS_VERIFICAR_SECRETO` (`:144`) + todo lo de `_segServidor` | `_auth.js` | Igual que `_auth.js`. El correo va por `send-email.js` |
 | `datos/[fila].js` | lo de `_segServidor` | `_auth.js` | Igual que `_auth.js` |
-| `send-email.js` | `SMTP_{OSIRIS,ALLEGRIA,FRISKU,MEDITERRA}_{USER,PASS}` (`:11-27`); host fijo `smtp.office365.com:587` (`:77,125`) | — | Envía correo real con la cuenta que esté en el entorno |
+| `send-email.js` | `SMTP_{OSIRIS,ALLEGRIA,FRISKU,MEDITERRA}_{USER,PASS}`; host fijo `smtp.office365.com:587`; `DESTINOS_PERMITIDOS`, `CORREO_DESTINOS_PERMITIDOS` (vía `_destinos.js`) | — | Fuera de producción solo envía a `CORREO_DESTINOS_PERMITIDOS` (sin la variable no envía nada) y solo si `smtp.office365.com` está en `DESTINOS_PERMITIDOS` |
+| `_destinos.js` (nuevo) | `VERCEL_ENV`, `DESTINOS_PERMITIDOS`, `CORREO_DESTINOS_PERMITIDOS` | — | Lista de salidas. Activa solo con `VERCEL_ENV` ≠ `production` y (`VERCEL_ENV` o `DESTINOS_PERMITIDOS` definidas). En producción no hace nada. Rechaza siempre los hosts de producción. Log `[destino-no-autorizado]` sin contenido. Prueba: `node api/_destinos.test.mjs` |
 | `frisku-sp.js` | `SUPABASE_SERVICE_ROLE_KEY`, `FRISKU_SP_RATELIMIT_SECRET`, `FRISKU_SP_SESSION_SECRET`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `FRISKU_SP_DRIVE_ID`, `FRISKU_SP_ALLOWED_ORIGINS`, `FRISKU_SP_ALLOWED_HOSTS` (`:234,264-275`) | **Fija en producción** (`:225`), para leer `usuarios`/`pins` y para su propio rate limit. Su `limiteLogin` usa `_segServidor` (staging) | **SÍ.** Sin `FRISKU_SP_ALLOWED_ORIGINS`/`HOSTS` responde 403 antes de cualquier fetch (`:136-137`) [Seguro] |
 | `informe.js` | ninguna; llave **anon de producción fija** (`:5-6`) | **Fija en producción** | **SÍ, solo lectura**: Storage público `osiris-fotos` y la fila `osiris` completa (`:30-43`) |
 | `storage.js` | `SUPABASE_SERVICE_ROLE_KEY`, `SESSION_SECRET` | **Fija en producción** (`:18`) | Mandaría la llave de servicio de staging a producción (rechazo 401) [Probable]. No llamarlo |
@@ -97,7 +99,7 @@ En Vercel, una variable creada para "All Environments" también llega a la Previ
 **Peticiones a producción ANTES de abrir un módulo**, con el valor por defecto (sin `REACT_APP_SUPA_URL`):
 | Momento | Petición | ¿Escribe? | Cita |
 |---|---|---|---|
-| Cualquier intento de login, incluso fallido (+5 s) | GET `audit_log` y luego POST upsert de **todo** `audit_log` con el evento agregado | **SÍ.** Además, si el GET falla, escribe `[]` + el evento: **borra la auditoría de producción** | `App.jsx:323-366,3112,3124` |
+| Login correcto (+5 s). El login fallido NO escribe: `auditLog` descarta los eventos sin usuario salvo `"login"` (corregido tras la prueba en navegador) | GET `audit_log` y luego POST upsert de **todo** `audit_log` con el evento agregado | **SÍ.** Además, si el GET falla, escribe `[]` + el evento: **borra la auditoría de la base a la que apunte** | `App.jsx:330-373` |
 | Logout o cierre por inactividad | lo mismo (`auditFlush`) | **SÍ** | `:3052-3056,3081` |
 | Login de un usuario con `rol:"admin"` (+5 s) | GET de **todas** las filas de `calendario_data` salvo `backup_*`/`pins`/`usuarios`/`main` (finanzas, nóminas…) con la llave anon. Después, correo resumen a **ahuerta@grupomediterra.cl** (dirección real) | Lectura masiva + correo real. El efecto **no** depende de `BACKUP_AUTOMATICO_SUSPENDIDO` | `:2709-2780` |
 | Admin, los lunes | Alertas de tareas a los responsables. El padrón se fusiona con `WORKERS_BASE`, que tiene correos reales de empleados (`:598-605,2272-2280`) | Correo real a empleados | `:2840-2873` |
@@ -106,9 +108,7 @@ En Vercel, una variable creada para "All Environments" también llega a la Previ
 
 **Conclusión** [Seguro]: abrir la Preview en el navegador con la configuración por defecto NO está aislado. Un solo login (aunque falle) escribe en `audit_log` de producción.
 
-Con `REACT_APP_SUPA_URL`/`KEY` = staging en el ámbito Preview, `audit_log` y la lectura masiva van a staging [Seguro por código]. Igual quedan:
-- el correo a la dirección real de Angelo y las alertas de los lunes, si entra un admin;
-- todos los módulos de negocio, que siguen apuntando a producción.
+Con las variables de la §2b.1, `audit_log` y la lectura masiva van a staging y el detector de versión al mismo origen [Seguro, probado en navegador, §2b.2]. Los correos a direcciones reales (respaldo, alertas de los lunes) los rechaza `CORREO_DESTINOS_PERMITIDOS`. Queda: todos los módulos de negocio siguen apuntando a producción (no abrirlos).
 
 **Método que mantiene el aislamiento:**
 1. **Vercel Deployment Protection** (Vercel Authentication o contraseña) en la Preview. Los scripts pasan con el header `x-vercel-protection-bypass` (Protection Bypass for Automation) [Probable].
@@ -119,6 +119,33 @@ Con `REACT_APP_SUPA_URL`/`KEY` = staging en el ámbito Preview, `audit_log` y la
    - no abrir ningún módulo;
    - bloquear `*.bywovqayuzodbzwsriet.supabase.co` en DevTools (Network request blocking) o con una extensión, y revisar la pestaña Network.
 4. Nunca usar la Preview con cuentas reales.
+
+### 2b.1 Navegador aislado: variables de build (ámbito Preview)
+| Variable | Valor | Efecto |
+|---|---|---|
+| `REACT_APP_AUTH_SERVER` | `true` | main/usuarios/pins por `/api/*`; sin WebSocket |
+| `REACT_APP_SUPA_URL` / `REACT_APP_SUPA_KEY` | URL y llave **anon** de staging | `audit_log` (login/salida), lectura del respaldo diario del admin. Comprobado: todas las llamadas del shell (`App.jsx`) usan `SUPA_URL`/`SUPA_KEY` |
+| `REACT_APP_URL_VERSION` | `.` (mismo origen) | El detector de versión deja de pedir `gestion-grupo-mediterra.vercel.app` cada 30 s |
+| `REACT_APP_EMAILJS_DESACTIVADO` | `true` (opcional) | El respaldo EmailJS ya queda apagado con solo definir `REACT_APP_SUPA_URL`; esta variable lo deja explícito |
+
+Cambios en el código (sin variables = igual que hoy):
+- EmailJS (`App.jsx`, `emailHelper.js`) no se usa si `REACT_APP_SUPA_URL` está definida o con `REACT_APP_EMAILJS_DESACTIVADO=true`. Tampoco se intenta si faltan las llaves `REACT_APP_EMAILJS_*` ni si el servidor respondió `destino_no_autorizado`. **Ojo:** `emailHelper.js` y el correo de bienvenida tenían llaves EmailJS **fijas en el código**: sin este cambio, un 403 del servidor hacía que el navegador reenviara el mismo correo por EmailJS, saltándose la lista.
+- Los correos del navegador (respaldo diario a Angelo, alertas de los lunes, bienvenida) van a `/api/send-email` de la Preview y los filtra `CORREO_DESTINOS_PERMITIDOS`. **Hallazgo:** el padrón se completa con `WORKERS_BASE` por nombre, así que un usuario sintético con nombre real (ej. "Pablo Duran") recibe el correo REAL del empleado. La lista lo rechaza; igual, usar nombres que no existan en `WORKERS_BASE`.
+- Sin service workers y sin WebSocket en modo servidor (comprobado). Google Fonts (`public/index.html`) sigue saliendo a `fonts.googleapis.com`: es un tercero público, no producción, y no lleva datos.
+
+### 2b.2 Detector de salidas (prueba local, sin red)
+`POSTGREST_BIN=… OUT_DIR=… node scripts/e2e/aislamiento-interfaz.mjs`
+- Arma el build con las variables de la §2b.1 (URL local fija `127.0.0.1:54329` y llave marcador; un proxy local la cambia por la llave anon del entorno, que cambia en cada corrida).
+- Registra y bloquea antes de salir: cada petición HTTP (`context.route` + `on('request')`), cada WebSocket (`routeWebSocket` + `on('websocket')`), service workers, las salidas `fetch` de los handlers del servidor y cada correo (transporte SMTP simulado; los códigos del servidor pasan por el envío real con la lista).
+- Recorre la interfaz: login fallido, login de editor, Salir, "¿Olvidaste tu PIN?" con el código del correo y cambio de PIN obligatorio, Salir, login de ADMIN con la fecha del navegador en un lunes (respaldo diario + alertas), Permisos → Resetear PIN, Salir.
+- Falla si algo va a un host distinto del origen de la app o del Supabase local, o si un correo enviado no está en la lista.
+- Control positivo: fetch, beacon, imagen y WebSocket a hosts `.invalid`, correo a una dirección no permitida y una salida del servidor a otro host deben aparecer como detectados.
+- Resultado (2 corridas): todo OK; 0 salidas no autorizadas en el recorrido; los correos a `@grupomediterra.cl` (respaldo, resumen y alerta del lunes) respondieron 403 sin enviarse.
+
+### 2b.3 Variables de la Preview (solo nombres) y secretos
+- Servidor: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SESSION_SECRET`, `AUTH_RATELIMIT_SECRET`, `OSIRIS_VERIFICAR_SECRETO`, `SMTP_MEDITERRA_USER`/`_PASS`, `DESTINOS_PERMITIDOS` (host de staging + `smtp.office365.com`), `CORREO_DESTINOS_PERMITIDOS` (casillas de prueba o `@dominio-de-prueba`).
+- Navegador (se compilan): `REACT_APP_AUTH_SERVER`, `REACT_APP_SUPA_URL`, `REACT_APP_SUPA_KEY` (anon de staging), `REACT_APP_URL_VERSION`; opcional `REACT_APP_EMAILJS_DESACTIVADO`.
+- Los valores se cargan directamente en el panel de Vercel (Settings → Environment Variables, ámbito Preview y rama) y en el de Supabase staging. **Nunca se pegan en el chat**, en el repositorio ni en documentos. Las `REACT_APP_*` quedan dentro del JavaScript público: solo la llave **anon**, jamás la de servicio.
 
 ### 2c. Edge functions
 - **osiris-auth** [Seguro] (`supabase/functions/osiris-auth/index.ts:23-29`):
@@ -154,6 +181,9 @@ Con `REACT_APP_SUPA_URL`/`KEY` = staging en el ámbito Preview, `audit_log` y la
 | `SMTP_MEDITERRA_USER` / `SMTP_MEDITERRA_PASS` | Códigos de recuperar y reseteo | Casilla M365 de prueba | **Sí** |
 | `REACT_APP_AUTH_SERVER` | `true`: cliente en modo servidor (se compila) | Fijo `true` | — |
 | `REACT_APP_SUPA_URL` / `REACT_APP_SUPA_KEY` | `audit_log`, respaldo y Frisku hacia staging en la interfaz | Panel de staging (URL + **anon**) | **Sí** |
+| `REACT_APP_URL_VERSION` | Detector de versión al mismo origen | Fijo `.` | — |
+| `DESTINOS_PERMITIDOS` | Hosts de salida del servidor fuera de producción | Host de staging + `smtp.office365.com` | Sí (en producción no se usa) |
+| `CORREO_DESTINOS_PERMITIDOS` | Destinatarios permitidos fuera de producción (sin ella no se envía nada) | Casillas de prueba | Sí (en producción no se usa) |
 | `AUTH_CREDENCIALES_DESDE` | Solo para T7 (fecha ISO), y quitarla después | Fecha de la prueba | — |
 | `AUTH_RL_IP_MAX`, `AUTH_RL_ID_MAX`, `AUTH_INACTIVIDAD_MIN` | Dejarlas sin definir: se prueban los valores por defecto (30 / 8 / 30) | — | — |
 | **osiris-auth (staging):** `PROD_APP_URL`, `OSIRIS_VERIFICAR_SECRETO`, `ALLOWED_ORIGINS` | T12 | URL de la Preview / el mismo aleatorio / origen de la Preview | **Sí** |

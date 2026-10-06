@@ -3,6 +3,35 @@
 // Cada empresa tiene su propia cuenta de correo
 
 const nodemailer = require("nodemailer");
+// Fuera de producción: solo destinos y destinatarios autorizados (api/_destinos.js).
+// En producción (VERCEL_ENV="production") no cambia nada.
+const destinos = require("./_destinos");
+const SMTP_HOST = "smtp.office365.com";
+
+// Transporte SMTP (reemplazable SOLO en pruebas locales, sin red).
+let transporteInyectado = null;
+function crearTransporte(account) {
+  const config = {
+    host: SMTP_HOST,
+    port: 587,
+    secure: false, // STARTTLS
+    auth: { user: account.user, pass: account.pass },
+    tls: { ciphers: "SSLv3", rejectUnauthorized: false },
+  };
+  return transporteInyectado ? transporteInyectado(config) : nodemailer.createTransport(config);
+}
+
+// Revisión previa al envío. null = se puede enviar; si no, {status, error, motivo}.
+function revisarSalida(to, contexto) {
+  const rev = destinos.revisarDestinatarios(to, contexto);
+  if (!rev.ok) return { status: 403, error: "destino_no_autorizado", motivo: rev.motivo };
+  const h = destinos.hostPermitido(`smtp://${SMTP_HOST}:587`);
+  if (!h.ok) {
+    console.warn(`[destino-no-autorizado] ${contexto}: host=${h.host} motivo=${h.motivo}`);
+    return { status: 403, error: "destino_no_autorizado", motivo: h.motivo };
+  }
+  return null;
+}
 
 // Configuración de cuentas por empresa (se leen de variables de entorno)
 function getAccountForModule(modulo) {
@@ -64,6 +93,12 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: "to y subject son obligatorios" });
     }
 
+    const bloqueo = revisarSalida(to, "send-email");
+    if (bloqueo) {
+      return res.status(bloqueo.status).json({ error: bloqueo.error, motivo: bloqueo.motivo,
+        hint: "Fuera de producción solo se envía a CORREO_DESTINOS_PERMITIDOS (nada fue enviado)" });
+    }
+
     const account = getAccountForModule(modulo || "mediterra");
 
     if (!account.user || !account.pass) {
@@ -74,19 +109,7 @@ module.exports = async function handler(req, res) {
     }
 
     // Crear transporter SMTP para Microsoft 365
-    const transporter = nodemailer.createTransport({
-      host: "smtp.office365.com",
-      port: 587,
-      secure: false, // STARTTLS
-      auth: {
-        user: account.user,
-        pass: account.pass,
-      },
-      tls: {
-        ciphers: "SSLv3",
-        rejectUnauthorized: false,
-      },
-    });
+    const transporter = crearTransporte(account);
 
     // Preparar email
     const mailOptions = {
@@ -120,16 +143,16 @@ module.exports = async function handler(req, res) {
 // handler HTTP; devuelve resultado estructurado, no lanza en errores de config esperados.
 async function enviarCorreo({ to, subject, message, modulo, html }) {
   if (!to || !subject) return { success: false, error: "to y subject son obligatorios" };
+  const bloqueo = revisarSalida(to, "enviarCorreo");
+  if (bloqueo) return { success: false, error: bloqueo.error, motivo: bloqueo.motivo };
   const account = getAccountForModule(modulo || "mediterra");
   if (!account.user || !account.pass) return { success: false, error: "Cuenta SMTP no configurada para: " + (modulo || "mediterra") };
-  const transporter = nodemailer.createTransport({
-    host: "smtp.office365.com", port: 587, secure: false,
-    auth: { user: account.user, pass: account.pass },
-    tls: { ciphers: "SSLv3", rejectUnauthorized: false },
-  });
+  const transporter = crearTransporte(account);
   const info = await transporter.sendMail({
     from: `"${account.name}" <${account.user}>`, to, subject, text: message || "", html: html || undefined,
   });
   return { success: true, method: "smtp", messageId: info.messageId, from: account.user };
 }
 module.exports.enviarCorreo = enviarCorreo;
+// SOLO PARA PRUEBAS locales (sin red): reemplaza nodemailer.createTransport.
+module.exports.__pruebas = { setTransporte(fn) { transporteInyectado = fn; } };

@@ -109,6 +109,13 @@ const EMAILJS_SERVICE  = process.env.REACT_APP_EMAILJS_SERVICE;
 const EMAILJS_TEMPLATE       = process.env.REACT_APP_EMAILJS_TEMPLATE;
 const EMAILJS_TEMPLATE_NOTIF = process.env.REACT_APP_EMAILJS_TEMPLATE_NOTIF;
 const EMAILJS_KEY      = process.env.REACT_APP_EMAILJS_KEY;
+// Respaldo EmailJS (cuando /api/send-email falla). Producción: igual que hoy.
+// Se apaga con REACT_APP_EMAILJS_DESACTIVADO=true o en cualquier build que apunte la
+// base a otro proyecto (REACT_APP_SUPA_URL, p. ej. staging): ahí el correo solo sale
+// por el servidor, que aplica la lista de destinatarios permitidos (api/_destinos.js).
+const EMAILJS_PERMITIDO = process.env.REACT_APP_EMAILJS_DESACTIVADO !== "true" && !process.env.REACT_APP_SUPA_URL;
+// Con las llaves del entorno: además deben existir (sin llaves no se hace la petición).
+const EMAILJS_CONFIGURADO = EMAILJS_PERMITIDO && !!(EMAILJS_SERVICE && EMAILJS_KEY);
 const FECHA_INICIO     = new Date(2026, 3, 13);
 
 // DEV/UAT override (F7.8.1-D): env solo en .env.development.local; fallback = prod exacto.
@@ -450,6 +457,8 @@ async function enviarEmail(toEmail, nombre, asunto, cuerpo) {
     if(!res.ok) throw new Error(await res.text());
   } catch(e) {
     console.warn("[Email] SMTP falló, intentando EmailJS:", e.message);
+    // El servidor rechazó el destinatario (lista de permitidos fuera de producción): no hay respaldo.
+    if(!EMAILJS_CONFIGURADO || /destino_no_autorizado/.test(e.message||"")) { console.warn("[Email] EmailJS no configurado, desactivado o destino no autorizado: no se envía."); return; }
     await fetch("https://api.emailjs.com/api/v1.0/email/send", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({service_id:EMAILJS_SERVICE,template_id:EMAILJS_TEMPLATE,user_id:EMAILJS_KEY,
@@ -468,6 +477,8 @@ async function enviarNotificacion(toEmail, nombre, asunto, mensaje) {
     if(!res.ok) throw new Error(await res.text());
   } catch(e) {
     console.warn("[Email] SMTP falló, intentando EmailJS:", e.message);
+    // El servidor rechazó el destinatario (lista de permitidos fuera de producción): no hay respaldo.
+    if(!EMAILJS_CONFIGURADO || /destino_no_autorizado/.test(e.message||"")) { console.warn("[Email] EmailJS no configurado, desactivado o destino no autorizado: no se envía."); return; }
     await fetch("https://api.emailjs.com/api/v1.0/email/send", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({service_id:EMAILJS_SERVICE,template_id:EMAILJS_TEMPLATE_NOTIF,user_id:EMAILJS_KEY,
@@ -2099,7 +2110,8 @@ export default function App(){
   // ── Detección de nuevo deploy: actualización sin interrumpir ──────
   useEffect(()=>{
     // URL de producción fija — evita redirigir a URLs internas protegidas de Vercel
-    const PROD_URL = 'https://gestion-grupo-mediterra.vercel.app';
+    // Entornos de prueba: REACT_APP_URL_VERSION (p. ej. "." = el mismo origen de la Preview).
+    const PROD_URL = process.env.REACT_APP_URL_VERSION || 'https://gestion-grupo-mediterra.vercel.app';
     let currentBundle = null;
     let updatePendiente = false;
 
@@ -2765,7 +2777,7 @@ export default function App(){
             body:JSON.stringify({to:"ahuerta@grupomediterra.cl", subject:`📦 Backup Mediterra Hub — ${new Date().toISOString().slice(0,10)}`, message:mensaje, modulo:"mediterra"})
           });
         } catch(e) {
-          await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+          if(EMAILJS_CONFIGURADO) await fetch("https://api.emailjs.com/api/v1.0/email/send", {
             method:"POST", headers:{"Content-Type":"application/json"},
             body:JSON.stringify({service_id:EMAILJS_SERVICE,template_id:EMAILJS_TEMPLATE_NOTIF,user_id:EMAILJS_KEY,
               template_params:{name:"Grupo Mediterra",to_email:"ahuerta@grupomediterra.cl",to_name:"Angelo",subject:`📦 Backup Mediterra Hub — ${new Date().toISOString().slice(0,10)}`,message:mensaje}})
@@ -3642,6 +3654,7 @@ Equipo Mediterra`);
       console.log(`[Email] ✅ Bienvenida enviada a ${email}`);
     } catch(e) {
       console.warn("[Email] SMTP falló, intentando EmailJS:", e.message);
+      if(!EMAILJS_PERMITIDO || /destino_no_autorizado/.test(e.message||"")) { console.warn("[Email] EmailJS desactivado o destino no autorizado: no se envía."); return; }
       try {
         const appUrl = window.location.origin;
         await fetch("https://api.emailjs.com/api/v1.0/email/send", {

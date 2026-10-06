@@ -7,6 +7,9 @@ const VERCEL_API = "/api/send-email";
 const EMAILJS_SERVICE = "service_ahuerta";
 const EMAILJS_TEMPLATE = "template_notif_tarea";
 const EMAILJS_KEY = "bwCBq7JXlEwCTzWNe";
+// Producción: igual que hoy. Se apaga con REACT_APP_EMAILJS_DESACTIVADO=true o en un build
+// que apunte la base a otro proyecto (REACT_APP_SUPA_URL, p. ej. staging).
+const EMAILJS_PERMITIDO = process.env.REACT_APP_EMAILJS_DESACTIVADO !== "true" && !process.env.REACT_APP_SUPA_URL;
 
 /**
  * Envía un email usando Vercel Function (SMTP directo) con fallback a EmailJS
@@ -39,12 +42,22 @@ export async function enviarEmail({ to, subject, message, html, modulo = "medite
 
     // Si la API devuelve error, intentar fallback
     const err = await res.json().catch(() => ({ error: "Error desconocido" }));
+    // El servidor rechazó el destinatario (lista de permitidos fuera de producción):
+    // reintentar por EmailJS saltaría ese control.
+    if (err.error === "destino_no_autorizado") {
+      console.warn("[Email] Destinatario no autorizado en este entorno: no se envía.");
+      return { success: false, error: "destino_no_autorizado", method: "none" };
+    }
     console.warn("[Email] SMTP falló:", err.error, "— intentando EmailJS...");
   } catch (e) {
     console.warn("[Email] SMTP no disponible:", e.message, "— intentando EmailJS...");
   }
 
   // Fallback: EmailJS
+  if (!EMAILJS_PERMITIDO) {
+    console.warn("[Email] EmailJS desactivado en este entorno: no se envía.");
+    return { success: false, error: "emailjs_desactivado", method: "none" };
+  }
   try {
     const NAMES = {
       osiris: "Osiris Plant Management",
