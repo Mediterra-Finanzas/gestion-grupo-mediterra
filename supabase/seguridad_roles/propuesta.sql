@@ -22,6 +22,11 @@
 --      aquí. Dependen de quién los emite (consulta S3 y Auth → Hooks); ver documento.
 --   6. Registro abierto en Supabase Auth: configuración de consola, no SQL; ver documento.
 --
+-- "ADMINISTRADOR" = identidad autorizada por el SERVIDOR: la llave service_role (solo
+-- en Vercel/Edge Functions) o el SQL Editor (postgres). NUNCA el campo rol de
+-- main.usuarios (editable hoy con la llave pública) ni user_metadata (editable por el
+-- propio usuario). Ver docs/seguridad-roles-empresas.md.
+--
 -- QUIÉN MANTIENE SU ACCESO
 --   · Lo asignado por el administrador (service_role / SQL Editor) sigue igual.
 --   · fn_mis_empresas, osi_current_empresa y osi_current_rol son SECURITY DEFINER de

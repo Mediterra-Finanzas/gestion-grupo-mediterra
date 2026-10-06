@@ -8,6 +8,25 @@
 > - Consultas de lectura pendientes: `supabase/seguridad_roles/consultas_lectura.sql` (S1–S7)
 > - Prueba: `POSTGREST_BIN=/ruta/postgrest node scripts/seguridad-roles/prueba.mjs` — 34/34, dos corridas seguidas
 
+## Qué significa "administrador" en esta propuesta
+
+**Administrador = una identidad que el SERVIDOR reconoce como autorizada, y que el propio usuario no puede otorgarse ni modificar.**
+
+En esta propuesta, solo dos vías cumplen esa definición:
+- **La llave `service_role`.** Vive solo en el servidor (Vercel y Edge Functions), nunca en el navegador.
+- **El SQL Editor de Supabase**, que corre como `postgres` y requiere ingresar a la consola con la cuenta del proyecto.
+
+**No** cuentan como administrador:
+- el campo `rol`/`admin` de `main.usuarios` en `calendario_data`: hoy la llave pública puede modificarlo (ver "Fuera de esta propuesta");
+- los metadatos del usuario en Supabase Auth (`user_metadata`): el propio usuario los edita;
+- cualquier dato que llegue desde el navegador (pantalla, `localStorage`, parámetros de la petición).
+
+Si más adelante se necesita un administrador "persona" dentro de la app, su identidad debe resolverla el servidor. Por ejemplo:
+- una tabla de administradores que solo `service_role` puede escribir;
+- un claim emitido por el servidor y firmado.
+
+Lo propone el plan de `main`/`pins` (rama aparte), y nunca un valor que el cliente envíe.
+
 ## El problema, comprobado
 
 Con los permisos leídos en producción (consultas U1–U9 del 2026-10-05), la prueba local reproduce esto (casos A2–A4):
@@ -71,7 +90,7 @@ La prueba mide los mismos accesos **antes** (A0) y **después** (C0) del cambio,
 | C12 | `osi_current_rol` = ADMIN | ADMIN sigue modificando la configuración; USUARIO no (igual que hoy) |
 | C13 | Claims del JWT firmados por el servidor | Sigue funcionando |
 | C14 | Catálogo `rbac_roles` | Cualquier usuario con sesión lo lista |
-| C15 | Administrador (`service_role`) | Sigue asignando, y la asignación nueva da acceso de inmediato |
+| C15 | Administrador (`service_role`, identidad del servidor) | Sigue asignando, y la asignación nueva da acceso de inmediato |
 
 Cerrado (C1–C7):
 - **Con sesión:** nadie puede crearse, robarse o borrar asignaciones, ni escribir `osi_user_empresa`, `usuarios_empresa`, `user_osiris_accounts` o el catálogo.
