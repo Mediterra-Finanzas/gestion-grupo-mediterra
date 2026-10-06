@@ -220,6 +220,20 @@ export function reglaFechaAplicable(ct) {
 //
 // Ese flujo de confirmacion NO entra en este paquete, asi que la modificacion
 // queda bloqueada mientras el reajuste este activo.
+// La identidad sale de `usuarioActual`, que es lo que el modulo ya recibe
+// como prop. NO de un global suelto: `window.__usuarioOsiris` no lo asigna
+// nadie, asi que el rastro quedaba sin autor.
+//
+// Sin identidad valida la accion NO se ejecuta. Un audit truncado no es
+// reemplazo de este registro.
+export function identidadDe(usuario) {
+  const u = usuario || {};
+  const nombre = txt(u.nombre);
+  const email = txt(u.email);
+  if (!nombre && !email) return { valida: false, autor: "", motivo: "Sin identidad valida: la accion no se ejecuta." };
+  return { valida: true, autor: nombre || email, email, nombre, motivo: "" };
+}
+
 export function sellarTerminos(cfg, act) {
   return {
     pct: cfg.pct,
@@ -268,23 +282,54 @@ export function puedeEditarTerminos(ct) {
 
 // Crear una activacion. En la version de recuperacion se RECHAZA en la accion,
 // no solo ocultando un boton.
+// El historial conserva los eventos anteriores. No es una bitacora general
+// nueva: son los eventos de activacion y desactivacion de ESTE contrato, con
+// autor, fecha, terminos sellados e impacto confirmado.
+function conEvento(historialPrevio, evento) {
+  return (Array.isArray(historialPrevio) ? historialPrevio : []).concat([evento]);
+}
+
 export function activar(ct, datos) {
+  const d = datos || {};
   const permiso = puedeCrearActivacion();
   if (!permiso.puede) return { ok: false, motivo: permiso.motivo, contrato: ct };
-  const d = datos || {};
+  // H4: el permiso se comprueba DENTRO de la accion, no solo en el control.
+  if (d.puedeEditar === false)
+    return { ok: false, motivo: "Sin permiso de edicion en esta pestana.", contrato: ct };
+  const ident = identidadDe(d.usuarioActual);
+  if (!ident.valida) return { ok: false, motivo: ident.motivo, contrato: ct };
   const cfg = configReajuste(ct);
   if (estadoReajuste(ct) !== "confirmado")
     return { ok: false, motivo: "El antecedente no esta confirmado.", contrato: ct };
+  if (d.confirmado !== true)
+    return {
+      ok: false,
+      motivo: "Falta la confirmacion explicita. Activar mueve importes: hay que mirar la vista " +
+        "previa y confirmar.",
+      contrato: ct,
+    };
+
+  const previa = (ct && ct.reajusteActivacion) || {};
+  const fecha = txt(d.fecha) || new Date().toISOString().slice(0, 10);
   const act = {
     activado: true,
     fechaReferencia: txt(d.fechaReferencia),
     respaldo: txt(d.respaldo),
     reglaFecha: txt(d.reglaFecha),
     reglaFechaRespaldo: txt(d.reglaFechaRespaldo),
-    usuario: txt(d.usuario),
-    fecha: txt(d.fecha) || new Date().toISOString().slice(0, 10),
+    usuario: ident.autor,
+    fecha,
   };
   act.sello = sellarTerminos(cfg, act);
+  // Reactivar NO borra lo anterior: el evento previo queda en el historial.
+  act.historial = conEvento(previa.historial, {
+    evento: previa.activado === false && previa.sello ? "reactivacion" : "activacion",
+    autor: ident.autor, email: ident.email, fecha,
+    sello: act.sello,
+    impactoConfirmado: d.impacto === undefined ? null : d.impacto,
+    anterior: previa.sello || null,
+    motivoAnterior: txt(previa.desactivadoMotivo) || "",
+  });
   return { ok: true, motivo: "", contrato: Object.assign({}, ct, { reajusteActivacion: act }) };
 }
 
@@ -338,19 +383,36 @@ export function desactivar(ct, datos) {
         "mirar la vista previa y confirmar.",
       contrato: ct,
     };
+  const ident = identidadDe(d.usuarioActual);
+  if (!ident.valida) return { ok: false, motivo: ident.motivo, contrato: ct };
+
   const act = ct.reajusteActivacion;
+  const fecha = new Date().toISOString().slice(0, 10);
   return {
     ok: true, motivo: "",
     contrato: Object.assign({}, ct, {
       reajusteActivacion: Object.assign({}, act, {
         activado: false,
         desactivadoMotivo: txt(d.motivo),
-        desactivadoPor: txt(d.usuario),
-        desactivadoFecha: new Date().toISOString().slice(0, 10),
+        desactivadoPor: ident.autor,
+        desactivadoFecha: fecha,
         desactivadoImpacto: d.impacto === undefined ? null : d.impacto,
+        historial: conEvento(act.historial, {
+          evento: "desactivacion",
+          autor: ident.autor, email: ident.email, fecha,
+          sello: act.sello || null,
+          impactoConfirmado: d.impacto === undefined ? null : d.impacto,
+          motivo: txt(d.motivo),
+        }),
       }),
     }),
   };
+}
+
+// Los eventos registrados, para mostrarlos y para que nadie los pise.
+export function historialActivacion(ct) {
+  const h = ((ct && ct.reajusteActivacion) || {}).historial;
+  return Array.isArray(h) ? h : [];
 }
 
 export function estadoActivacion(ct) {
