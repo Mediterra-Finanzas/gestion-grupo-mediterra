@@ -213,31 +213,32 @@ function crearHandler(deps = {}) {
 
 // ── Handler de producción (dependencias reales) ──
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
-// Los usuarios viven en la fila id="main" (value.usuarios); los PIN en id="pins" (value).
-// SOLO lectura (GET). Sin defaults ni fallback a WORKERS_BASE: cualquier ausencia, duplicado,
-// forma inesperada o error de red lanza → 503 aguas arriba (fail-closed). fetchImpl inyectable
-// para test; en producción usa el fetch global (comportamiento intacto).
+// Los usuarios viven en la fila id="usuarios" (value = array; fuente de verdad del padrón,
+// la misma que usa la app; main.usuarios es solo un espejo de compatibilidad) y los PIN en
+// id="pins" (value). SOLO lectura (GET). Sin defaults ni fallback a WORKERS_BASE: cualquier
+// ausencia, duplicado, forma inesperada o error de red lanza → 503 aguas arriba (fail-closed).
+// fetchImpl inyectable para test; en producción usa el fetch global.
 async function leerDatosProd(fetchImpl) {
   const f = fetchImpl || (typeof fetch === "function" ? fetch : null);
   if (!f) throw new Error("sin_fetch");
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   if (!service) throw new Error("sin_service_key");
   const H = { apikey: service, Authorization: `Bearer ${service}` };
-  const [rm, rp] = await Promise.all([
-    f(`${SUPA_URL}/rest/v1/calendario_data?id=eq.main&select=value`, { headers: H }),
+  const [ru, rp] = await Promise.all([
+    f(`${SUPA_URL}/rest/v1/calendario_data?id=eq.usuarios&select=value`, { headers: H }),
     f(`${SUPA_URL}/rest/v1/calendario_data?id=eq.pins&select=value`, { headers: H }),
   ]);
-  if (!rm.ok || !rp.ok) throw new Error("supa_no_ok");
-  const jm = await rm.json().catch(() => null);
+  if (!ru.ok || !rp.ok) throw new Error("supa_no_ok");
+  const ju = await ru.json().catch(() => null);
   const jp = await rp.json().catch(() => null);
   // Exactamente una fila por consulta (vacío/duplicado → error).
-  if (!Array.isArray(jm) || jm.length !== 1) throw new Error("main_row");
+  if (!Array.isArray(ju) || ju.length !== 1) throw new Error("usuarios_row");
   if (!Array.isArray(jp) || jp.length !== 1) throw new Error("pins_row");
-  const mainVal = jm[0] && jm[0].value;
+  let usuarios = ju[0] && ju[0].value;
+  // La fila puede venir guardada como texto JSON (mismo criterio que dbLoadUsuarios).
+  if (typeof usuarios === "string") { try { usuarios = JSON.parse(usuarios); } catch (e) { usuarios = null; } }
   const pins = jp[0] && jp[0].value;
-  // main.value objeto; usuarios array; pins objeto no-array. Sin defaults.
-  if (!mainVal || typeof mainVal !== "object" || Array.isArray(mainVal)) throw new Error("main_shape");
-  const usuarios = mainVal.usuarios;
+  // usuarios array; pins objeto no-array. Sin defaults.
   if (!Array.isArray(usuarios)) throw new Error("usuarios_shape");
   if (!pins || typeof pins !== "object" || Array.isArray(pins)) throw new Error("pins_shape");
   return { usuarios, pins };

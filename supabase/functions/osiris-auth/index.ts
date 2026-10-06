@@ -1,7 +1,10 @@
 // Edge Function: osiris-auth
 // E1.5 Fase 2 — Auth dual transparente para Osiris (sandbox).
 //
-// Recibe { email, pin }, valida el PIN contra PRODUCCIÓN (mismo criterio que App.jsx),
+// Recibe { email, pin }, valida el PIN contra PRODUCCIÓN llamando al endpoint de la app
+// POST {PROD_APP_URL}/api/auth/verificar (mismas reglas que el login: _temp, pol 6dig,
+// 60 días, desactivado; sin PIN en texto plano). Ya NO lee filas de producción con la
+// llave pública (antes leía main.pinsPersonalizados, desactualizado, y aceptaba _temp plano).
 // verifica que la cuenta esté habilitada en user_osiris_accounts (sandbox) y emite una
 // sesión Supabase Auth server-side vía generate_link + verify (sin password, sin signInWithPassword).
 //
@@ -10,7 +13,9 @@
 //
 // Secrets:
 //   Auto-inyectadas por Supabase (proyecto sandbox): SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
-//   Custom (Dashboard): PROD_URL, PROD_ANON_KEY, ALLOWED_ORIGINS
+//   Custom (Dashboard): PROD_APP_URL (ej. https://gestion-grupo-mediterra.vercel.app),
+//                       OSIRIS_VERIFICAR_SECRETO (igual al de Vercel), ALLOWED_ORIGINS
+//   (PROD_URL y PROD_ANON_KEY ya no se usan: se pueden borrar tras desplegar.)
 //   Plan B service key: SANDBOX_SERVICE_KEY (si la auto-inyectada no sirviera con formato sb_secret_)
 //
 // NINGÚN secreto está hardcodeado. NINGÚN log incluye PIN ni keys.
@@ -18,40 +23,28 @@
 const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SB_ANON = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SB_SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SANDBOX_SERVICE_KEY") ?? "";
-const PROD_URL = (Deno.env.get("PROD_URL") ?? "").replace(/\/+$/, "");
-const PROD_ANON = Deno.env.get("PROD_ANON_KEY") ?? "";
+const PROD_APP_URL = (Deno.env.get("PROD_APP_URL") ?? "").replace(/\/+$/, "");
+const VERIFICAR_SECRETO = Deno.env.get("OSIRIS_VERIFICAR_SECRETO") ?? "";
 const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
   .split(",").map((s) => s.trim()).filter(Boolean);
 
 const MAX_BODY = 2048; // bytes — el body legítimo es minúsculo
 
-// FASE 2b — verificación de PIN cifrado {v,iter,salt,hash} (PBKDF2-HMAC-SHA256,
-// 32 bytes). Mismo formato que src/pinHash.js y api/login.js.
-function hexToBytes(hex: string): Uint8Array {
-  const a = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < a.length; i++) a[i] = parseInt(hex.substr(i * 2, 2), 16);
-  return a;
-}
-function bytesToHex(buf: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < buf.length; i++) s += buf[i].toString(16).padStart(2, "0");
-  return s;
-}
-async function verifyPinHash(pin: string, credStr: string): Promise<boolean> {
-  try {
-    const c = JSON.parse(credStr);
-    if (!c?.salt || !c?.hash) return false;
-    const key = await crypto.subtle.importKey(
-      "raw", new TextEncoder().encode(pin), { name: "PBKDF2" }, false, ["deriveBits"],
-    );
-    const bits = await crypto.subtle.deriveBits(
-      { name: "PBKDF2", salt: hexToBytes(c.salt), iterations: c.iter || 100000, hash: "SHA-256" },
-      key, 256,
-    );
-    return bytesToHex(new Uint8Array(bits)) === c.hash;
-  } catch {
-    return false;
+// Validación de credenciales: la hace PRODUCCIÓN (api/auth/verificar). Esta función
+// no conoce hashes ni PIN. Respuesta: 200 {ok,email,nombre,debeCambiarPin} | 401 | 429 | 5xx.
+async function verificarEnProduccion(email: string, pin: string):
+  Promise<{ ok: true; debeCambiarPin: boolean } | { ok: false; status: number }> {
+  const r = await fetch(`${PROD_APP_URL}/api/auth/verificar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-mediterra-secreto": VERIFICAR_SECRETO },
+    body: JSON.stringify({ email, pin }),
+  });
+  const j = await r.json().catch(() => null);
+  if (r.status === 200 && j?.ok === true && typeof j.debeCambiarPin === "boolean" &&
+      String(j.email ?? "").toLowerCase() === email) {
+    return { ok: true, debeCambiarPin: j.debeCambiarPin };
   }
+  return { ok: false, status: r.status };
 }
 
 // ---------- CORS ----------
@@ -93,10 +86,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   // Config presente
-  if (!SB_URL || !SB_ANON || !SB_SERVICE || !PROD_URL || !PROD_ANON) {
+  if (!SB_URL || !SB_ANON || !SB_SERVICE || !PROD_APP_URL || !VERIFICAR_SECRETO) {
     console.error("config faltante", {
       SB_URL: !!SB_URL, SB_ANON: !!SB_ANON, SB_SERVICE: !!SB_SERVICE,
-      PROD_URL: !!PROD_URL, PROD_ANON: !!PROD_ANON,
+      PROD_APP_URL: !!PROD_APP_URL, OSIRIS_VERIFICAR_SECRETO: !!VERIFICAR_SECRETO,
     });
     return json(500, { error: "internal_error", detail: "configuración incompleta" }, origin);
   }
@@ -121,42 +114,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const emailNorm = email.trim().toLowerCase();
     const pinNorm = pin.trim();
 
-    // 2. Leer usuarios de PRODUCCIÓN
-    const prodRes = await fetch(
-      `${PROD_URL}/rest/v1/calendario_data?id=eq.main&select=value`,
-      { headers: { apikey: PROD_ANON, Authorization: `Bearer ${PROD_ANON}` } },
-    );
-    if (!prodRes.ok) {
-      console.error("lectura prod fallo", prodRes.status);
+    // 2-4. Validar credenciales en PRODUCCIÓN (api/auth/verificar). Si el PIN debe
+    //      cambiarse (código provisorio, PIN sin política de 6 dígitos o vencido) NO se
+    //      emite sesión: igual que la app, que solo la pide tras un login completo.
+    const v = await verificarEnProduccion(emailNorm, pinNorm);
+    if (!v.ok) {
+      if (v.status === 401 || v.status === 403) return json(401, { error: "invalid_credentials" }, origin);
+      if (v.status === 429) return json(429, { error: "rate_limited" }, origin);
+      console.error("verificar prod fallo", v.status);
       return json(500, { error: "internal_error", detail: "no se pudo validar credenciales" }, origin);
     }
-    const prodRows = await prodRes.json();
-    const value = Array.isArray(prodRows) && prodRows[0] ? prodRows[0].value : null;
-    const usuarios: Array<Record<string, unknown>> = value?.usuarios ?? [];
-    const pinsPersonalizados: Record<string, string> = value?.pinsPersonalizados ?? {};
-
-    // 3. Usuario existe (por email, case-insensitive)
-    const u = usuarios.find(
-      (x) => typeof x.email === "string" && x.email.toLowerCase() === emailNorm,
-    );
-    if (!u) {
-      return json(401, { error: "invalid_credentials" }, origin);
-    }
-
-    // 4. Validar PIN (fiel a App.jsx: activo = pinsPersonalizados[nombre] || u.pin; + temporal)
-    const nombre = String(u.nombre ?? "");
-    const credH = pinsPersonalizados[`${nombre}_h`]; // FASE 2b: PIN cifrado (si ya migró)
-    const tempPin = pinsPersonalizados[`${nombre}_temp`];
-    // FASE 2b: si ya migró validar contra el hash; si no, contra el PIN legacy.
-    let ok: boolean;
-    if (credH) {
-      ok = await verifyPinHash(pinNorm, credH);
-    } else {
-      const activePin = pinsPersonalizados[nombre] || (u.pin as string | undefined);
-      ok = !!activePin && pinNorm === String(activePin);
-    }
-    const temp = !!tempPin && pinNorm === String(tempPin);
-    if (!ok && !temp) {
+    if (v.debeCambiarPin) {
       return json(401, { error: "invalid_credentials" }, origin);
     }
 

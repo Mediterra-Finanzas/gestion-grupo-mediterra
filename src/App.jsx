@@ -16,6 +16,9 @@ import AvisoPersistencia from "./AvisoPersistencia.jsx";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
 import { credencialPreservada } from "./data/credencialPreservada";
+// Modo "autenticación en el servidor" (REACT_APP_AUTH_SERVER==='true'). Apagado = sin cambios.
+import { AUTH_SERVER, servidor as authSrv, mensajeErrorLogin, mensajeErrorCambioPin,
+  crearGuardadorMain, crearSincroUsuarios, sanearUsuarios, diffMain, CLAVES_MAIN, CLAVES_CONFIG_MAIN } from "./authServidor";
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
 // En vez de pantalla blanca, muestra botón de actualizar
@@ -119,7 +122,32 @@ const SUPA_URL = process.env.REACT_APP_SUPA_URL || "https://bywovqayuzodbzwsriet
 installGuard(SUPA_URL);
 const SUPA_KEY = process.env.REACT_APP_SUPA_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5d292cWF5dXpvZGJ6d3NyaWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2ODU1MDgsImV4cCI6MjA5MTI2MTUwOH0.s2x2O_CxE6rl8dBqFuyfQdMyRqSyjJQWXJXesmVGXtk";
 
+// Modo servidor: aviso cuando un guardado de Tareas se fusionó con conflictos o sin permiso de configuración.
+function avisoMainSrv(r) {
+  if (!AUTH_SERVER || !r || !r.ok) return null;
+  if (r.conflictos && r.conflictos.length) return { id:"main", tipo:"conflicto", conflictos:r.conflictos,
+    texto:`Otra persona modificó al mismo tiempo ${r.conflictos.length === 1 ? "un registro" : r.conflictos.length + " registros"} de Tareas que tú también cambiaste. Se conservó su versión para no borrar su trabajo; revisa y vuelve a aplicar tu cambio si corresponde.` };
+  if (r.sinPermisoConfig) return { id:"main", tipo:"error",
+    texto:"No tienes permiso para cambiar la configuración de Tareas: se guardó el resto, pero esos cambios de configuración no." };
+  return null;
+}
+// Modo servidor: usuario de la sesión (lo fija el login o /api/auth/sesion).
+let _usuarioSesionSrv = null;
+// Modo servidor: ¿la sesión es ADMINISTRADOR? Lo decide SOLO el servidor
+// (seg_administradores), nunca el `rol` del roster ni nada que venga del navegador.
+let _adminServidor = false;
+// Modo servidor: guardado de `main` por PATCH con versión y sincro de `usuarios` por PUT.
+const guardadorMainSrv = AUTH_SERVER ? crearGuardadorMain({ persist, alFusionar: (v) => { if (window._aplicarCamposMainSrv) window._aplicarCamposMainSrv(v); } }) : null;
+const usuariosSrv = AUTH_SERVER ? crearSincroUsuarios() : null;
+
 async function dbLoad() {
+  if (AUTH_SERVER) {
+    // GET /api/datos/main (cookie de sesión). Sin pinsPersonalizados ni usuarios.
+    const r = await authSrv.leerMain();
+    const value = r && r.valor != null ? r.valor : null;
+    persist.registrarCarga("main", value || {}, r ? r.version || null : null, "object");
+    return value || {}; // {} (no null): así el roster se carga igual en una base nueva
+  }
   // NO atrapar el error acá: si la lectura falla (red/timeout/HTTP), la
   // excepción DEBE propagar para que el caller sepa que la carga no fue
   // exitosa y NO habilite el auto-guardado (que sobrescribiría Supabase con
@@ -143,7 +171,13 @@ async function dbLoad() {
   return value;
 }
 
-async function dbSave(value) {
+async function dbSave(value, opcionesSrv) {
+  if (AUTH_SERVER) {
+    // PATCH /api/datos/main con SOLO las claves cambiadas + versión. El espejo
+    // `usuarios` lo mantiene el servidor: nunca sale del navegador.
+    const { usuarios: _espejo, ...resto } = value || {};
+    return guardadorMainSrv.guardar(resto, { sinConfig: !!(opcionesSrv && opcionesSrv.sinConfig) });
+  }
   try {
     // osirisData ya no se guarda en main — tiene su propia fila 'osiris'
     // ── Protección anti-pérdida: usuarios y permisos ──
@@ -215,6 +249,15 @@ const usuariosStore = crearUsuariosStore(persist, { id: "usuarios" });
 // Devuelve { existe, value, version }. Lanza ante red/HTTP (Regla 9). value=null si
 // la fila no existe todavía (pre-migración → se siembra desde main.usuarios).
 async function dbLoadUsuarios() {
+  if (AUTH_SERVER) {
+    // Admin: GET /api/datos/usuarios (con versión, para editar). Resto: roster.
+    let r = null;
+    if (_adminServidor) {
+      try { r = await authSrv.leerUsuarios(); } catch (e) { if (e.codigo !== "sin_permiso") throw e; }
+    }
+    if (!r) r = await authSrv.leerRoster();
+    return { existe: true, value: Array.isArray(r.usuarios) ? r.usuarios : null, version: r.version || null };
+  }
   const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.usuarios&select=value,updated_at`, {
     headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, "Cache-Control": "no-cache", "Pragma": "no-cache" },
     cache: "no-store"
@@ -227,6 +270,7 @@ async function dbLoadUsuarios() {
 }
 // Guardado dirigido con merge de 3 vías + OCC (fila dedicada). Devuelve {ok,motivo,...}.
 async function dbSaveUsuarios(local) {
+  if (AUTH_SERVER) return usuariosSrv.guardar(local); // PUT /api/datos/usuarios (solo admin, OCC)
   try { return await usuariosStore.guardar(local); }
   catch(e) { console.error("[usuarios] Error guardando fila dedicada:", e); return { ok:false, motivo:"red", detalle:String((e&&e.message)||e) }; }
 }
@@ -850,6 +894,36 @@ function CadenaAprobEditor({ u, usuarios, onChange }) {
   );
 }
 
+// ── Modo servidor: helpers de administración de usuarios/PIN ──
+function textoErrorAdminSrv(e) {
+  const c = e && (e.codigo || e.motivo);
+  if (c === "conflicto" || (e && e.status === 409)) return "Otra persona modificó los usuarios mientras editabas. No se guardó: recarga la página y vuelve a aplicar el cambio.";
+  if (c === "sin_permiso" || (e && e.status === 403)) return "Solo un administrador puede hacer esta operación.";
+  if (c === "sin_sesion" || (e && e.status === 401)) return "Tu sesión venció. Vuelve a ingresar.";
+  if (c === "sin_conexion" || c === "red") return "No se pudo conectar con el servidor. Intenta de nuevo.";
+  return "No se pudo completar la operación. Intenta de nuevo.";
+}
+// Admin pide al servidor un código provisorio (el servidor lo guarda hasheado y lo envía por correo).
+async function adminResetPinSrv(nombre) {
+  try { const r = await authSrv.adminResetPin(nombre); return { ok: true, codigo: r.codigo }; }
+  catch (e) { return { ok: false, error: e }; }
+}
+// Crea usuarios: PUT /api/datos/usuarios (sin credenciales) y luego un código
+// inicial por usuario vía admin-reset-pin. El cliente nunca hashea ni escribe PINs.
+async function crearUsuariosSrv(listaNueva, nombresNuevos) {
+  const r = await usuariosSrv.guardar(listaNueva);
+  if (!r.ok) return { ok: false, error: r };
+  const codigos = [];
+  for (const n of nombresNuevos) {
+    const c = await adminResetPinSrv(n);
+    codigos.push(c.ok ? { nombre: n, codigo: c.codigo } : { nombre: n, error: textoErrorAdminSrv(c.error) });
+  }
+  return { ok: true, codigos };
+}
+function textoCodigosSrv(codigos) {
+  return codigos.map(c => c.codigo ? `${c.nombre}: ${c.codigo}` : `${c.nombre}: sin código (${c.error})`).join("\n");
+}
+
 function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}, setPinsPersonalizados }) {
   const [expandedTabUser, setExpandedTabUser] = useState(null); // nombre del usuario expandido
 
@@ -858,6 +932,15 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
   // entra con el código (su PIN anterior queda INHABILITADO) y crea uno nuevo
   // de 6 dígitos. Es la herramienta para destrabar a cualquiera sin acceso.
   async function resetearPinAdmin(u) {
+    if (AUTH_SERVER) {
+      if (!window.confirm(`¿Resetear el PIN de ${u.nombre}?\n\nSe generará un código provisorio (vence en 45 min). Su PIN actual quedará INHABILITADO y deberá crear uno nuevo de 6 dígitos al ingresar.`)) return;
+      const r = await adminResetPinSrv(u.nombre);
+      if (!r.ok) { window.alert(textoErrorAdminSrv(r.error)); return; }
+      window.auditLog("reset_pin", {modulo:"sistema", seccion:"permisos",
+        descripcion:`Admin reseteó el PIN de ${u.nombre} (código provisorio emitido)`, registroId:u.nombre});
+      window.alert(`Código provisorio para ${u.nombre}:\n\n        ${r.codigo}\n\nVence en 45 minutos. Compártelo con el usuario (también se envió por correo).\nAl ingresar deberá crear un PIN nuevo de 6 dígitos. Su PIN anterior quedó inhabilitado.`);
+      return;
+    }
     if (!setPinsPersonalizados) return;
     if (!window.confirm(`¿Resetear el PIN de ${u.nombre}?\n\nSe generará un código provisorio (vence en 45 min). Su PIN actual quedará INHABILITADO y deberá crear uno nuevo de 6 dígitos al ingresar.`)) return;
     try {
@@ -1029,7 +1112,9 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
                           const est = estadoTemp(pinsPersonalizados[u.nombre+"_temp"]);
                           const tieneHash = !!pinsPersonalizados[u.nombre+"_h"];
                           let label, color, bg, title;
-                          if(est.existe && est.vigente){ label="⏳ Código provisorio vigente"; color="#92400e"; bg=C.warningBg; title="Tiene un código provisorio pendiente; su PIN anterior está inhabilitado."; }
+                          // Modo servidor: el navegador no conoce el estado del PIN (no lee la fila pins).
+                          if(AUTH_SERVER){ label="🔒 PIN gestionado por el servidor"; color=C.muted; bg=C.cardAlt; title="El estado del PIN no se expone al navegador."; }
+                          else if(est.existe && est.vigente){ label="⏳ Código provisorio vigente"; color="#92400e"; bg=C.warningBg; title="Tiene un código provisorio pendiente; su PIN anterior está inhabilitado."; }
                           else if(tieneHash){ label="🔒 PIN configurado"; color=C.success; bg=C.successBg; title="PIN cifrado, no visible (por seguridad)."; }
                           else { label="⚠ PIN base (sin migrar)"; color="#92400e"; bg=C.warningBg; title="Aún usa el PIN base; migrará a uno cifrado al ingresar."; }
                           return (
@@ -1271,6 +1356,23 @@ function NuevoUsuarioForm({setUsuarios, usuarios=[], pinsPersonalizados={}, setP
     setErr("");
     if(!form.nombre.trim()){setErr("El nombre es obligatorio.");return;}
     if(!form.email.trim()){setErr("El email es obligatorio.");return;}
+    if(AUTH_SERVER){
+      // Modo servidor: sin PIN en el navegador. Se crea el usuario (PUT) y el servidor
+      // emite su código provisorio de primer ingreso (admin-reset-pin).
+      if(usuarios.find(u=>u.nombre===form.nombre)){setErr("Ya existe un usuario con ese nombre.");return;}
+      if(usuarios.find(u=>(u.email||"").toLowerCase()===form.email.trim().toLowerCase())){setErr("Ya existe un usuario con ese email.");return;}
+      const mods=form.rol==="admin"?MODULOS_DISPONIBLES.map(m=>m.id):form.modulos;
+      const {pin:_sinPin, ...datos}=form;
+      const nuevo={...datos,nombre:form.nombre.trim(),email:form.email.trim(),modulos:mods,esCFO:form.rol==="admin",desactivado:false};
+      const lista=[...usuarios,nuevo];
+      const r=await crearUsuariosSrv(lista,[nuevo.nombre]);
+      if(!r.ok){setErr(textoErrorAdminSrv(r.error));return;}
+      setUsuarios(lista);
+      window.alert(`✅ Usuario "${nuevo.nombre}" creado.\n\nCódigo provisorio de primer ingreso (vence en 45 min; también se envió por correo):\n${textoCodigosSrv(r.codigos)}`);
+      setForm({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});
+      setOpen(false);setErr("");
+      return;
+    }
     // PIN inicial: 6 dígitos válidos. Se guarda HASHEADO (nunca en texto plano).
     const vp=pinNuevoValido(form.pin.trim());
     if(!vp.ok){setErr(vp.msg);return;}
@@ -1304,7 +1406,7 @@ function NuevoUsuarioForm({setUsuarios, usuarios=[], pinsPersonalizados={}, setP
         <div style={{background:C.cardAlt,borderRadius:12,border:`1px solid ${C.border}`,padding:"18px 20px",marginTop:8}}>
           <div style={{fontSize:13,fontWeight:800,color:C.text,marginBottom:14}}>Nuevo usuario</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-            {[["Nombre completo *","nombre","text"],["Cargo","cargo","text"],["Email *","email","email"],["PIN inicial (6 dígitos) *","pin","password"]].map(([lbl,campo,tipo])=>(
+            {[["Nombre completo *","nombre","text"],["Cargo","cargo","text"],["Email *","email","email"],["PIN inicial (6 dígitos) *","pin","password"]].filter(([,campo])=>!(AUTH_SERVER&&campo==="pin")).map(([lbl,campo,tipo])=>(
               <div key={campo}>
                 <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:4}}>{lbl}</div>
                 <input type={tipo} value={form[campo]} onChange={e=>setForm(p=>({...p,[campo]:e.target.value}))}
@@ -1386,13 +1488,27 @@ function CargaMasivaUsuariosForm({ usuarios, setUsuarios, pinsPersonalizados={},
       const base={nombre, cargo:cargo||"Personal", email, pin:"", rol:"editor",
         modulos: soloRend ? [] : ["tareas"], esCFO:false, desactivado:false};
       const u=garantizarAccesoRendiciones(base);
-      if(pin && pinNuevoValido(pin).ok){
+      if(!AUTH_SERVER && pin && pinNuevoValido(pin).ok){
         const cred=await hashPin(pin); cred.fecha=new Date().toISOString().slice(0,10); cred.pol="6dig";
         nuevosH[nombre+"_h"]=JSON.stringify(cred);
       }
       creados.push(u);
       nombresUsados.add(nombre.toLowerCase());
       emailsUsados.add(email.toLowerCase());
+    }
+    if(creados.length && AUTH_SERVER){
+      // Modo servidor: la columna PIN se ignora; cada usuario recibe un código provisorio del servidor.
+      const lista=[...usuarios,...creados];
+      const r=await crearUsuariosSrv(lista,creados.map(u=>u.nombre));
+      if(!r.ok){ errores.push(textoErrorAdminSrv(r.error)); setResultado({creados:[],errores}); return; }
+      setUsuarios(lista);
+      creados.forEach(u=>window.auditLog("crear_usuario",{modulo:"sistema",seccion:"permisos",
+        descripcion:`Creó usuario "${u.nombre}" (carga masiva, ${soloRend?"solo Rendiciones":"con Tareas"})`,
+        registroId:u.nombre, campo:"usuario", valorAnterior:"", valorNuevo:u.email}));
+      window.alert(`Códigos provisorios de primer ingreso (vencen en 45 min; también se enviaron por correo):\n\n${textoCodigosSrv(r.codigos)}`);
+      setResultado({creados,errores});
+      setTexto("");
+      return;
     }
     if(creados.length){
       setUsuarios(prev=>[...prev,...creados]);
@@ -1534,8 +1650,12 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
               try {
                 const btn = document.activeElement;
                 if(btn) btn.textContent="⏳ Exportando...";
-                // Cargar todos los datos de Supabase (excluir backups previos)
-                const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at&id=not.like.backup_*`,{
+                // Cargar todos los datos de Supabase (excluir backups previos).
+                // Modo servidor: `pins` (credenciales) nunca va en el archivo, y `main` y
+                // `usuarios` tampoco se leen con la llave pública;
+                // se agregan abajo desde /api/datos (sin credenciales).
+                const excluidas = AUTH_SERVER ? "&id=not.in.(pins,usuarios,main)" : "";
+                const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at&id=not.like.backup_*${excluidas}`,{
                   headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
                 });
                 const allData = await res.json();
@@ -1552,6 +1672,14 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
                   try { backup.tablas[row.id] = {data:JSON.parse(row.value), updated_at:row.updated_at}; }
                   catch { backup.tablas[row.id] = {data:row.value, updated_at:row.updated_at}; }
                 });
+                if (AUTH_SERVER) {
+                  // `main` y `usuarios` desde el servidor (sin pinsPersonalizados ni credenciales).
+                  // Se exportan solo como referencia: "Restaurar" no las reescribe en modo servidor.
+                  const m = await authSrv.leerMain();
+                  backup.tablas.main = {data:m.valor, updated_at:m.version, origen:"api/datos/main"};
+                  const u = await authSrv.leerUsuarios();
+                  backup.tablas.usuarios = {data:sanearUsuarios(u.usuarios), updated_at:u.version, origen:"api/datos/usuarios"};
+                }
                 // Descargar como JSON
                 const blob = new Blob([JSON.stringify(backup,null,2)], {type:"application/json"});
                 const url = URL.createObjectURL(blob);
@@ -1590,7 +1718,12 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
                     return;
                   }
                   let restauradas = 0;
-                  const tablas = Object.entries(backup.tablas);
+                  // Modo servidor: `pins`, `usuarios` y `main` no se escriben con la llave pública.
+                  const omitidas = [];
+                  const tablas = Object.entries(backup.tablas).filter(([id])=>{
+                    if (AUTH_SERVER && ["pins","usuarios","main"].includes(id)) { omitidas.push(id); return false; }
+                    return true;
+                  });
                   for(const [id, tabla] of tablas) {
                     const value = typeof tabla.data === "string" ? tabla.data : JSON.stringify(tabla.data);
                     await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
@@ -1601,7 +1734,9 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
                     });
                     restauradas++;
                   }
-                  alert(`✅ Respaldo restaurado exitosamente.\n\n${restauradas} tablas restauradas.\nFecha del respaldo: ${backup.fecha}\n\nLa página se recargará ahora.`);
+                  alert(`✅ Respaldo restaurado exitosamente.\n\n${restauradas} tablas restauradas.\nFecha del respaldo: ${backup.fecha}`
+                    + (omitidas.length ? `\n\nNO restauradas desde la app (restaurar desde el SQL Editor de Supabase): ${omitidas.join(", ")}` : "")
+                    + `\n\nLa página se recargará ahora.`);
                   window.location.reload();
                 } catch(err) {
                   alert("❌ Error al restaurar: " + err.message);
@@ -2220,6 +2355,8 @@ export default function App(){
               setUsuarios(mergedUsuarios);
               // Registrar en el contrato F0 (habilita saveConfirmed("usuarios") con OCC).
               usuariosStore.registrarCarga(mergedUsuarios, filaVersion, false);
+              // Modo servidor: base del PUT = la lista fusionada (los defaults de código no se re-escriben solos).
+              if (AUTH_SERVER) usuariosSrv.registrar(mergedUsuarios, filaVersion);
               // Migración: si la fila dedicada no existía, sembrarla desde la lista mergeada.
               if (!filaExiste) { try { await dbSaveUsuarios(mergedUsuarios); } catch(e){ console.warn("[usuarios] seed migración falló:", e); } }
             }
@@ -2270,7 +2407,8 @@ export default function App(){
           // FUENTE DE VERDAD de PINs: la fila dedicada `pins`. Si existe, manda
           // sobre la copia (posiblemente revertida) que venga en `main`. Si aún
           // no existe (primera vez tras el deploy), se siembra desde main.
-          try {
+          // Modo servidor: la fila `pins` jamás se lee ni se siembra desde el navegador.
+          if (!AUTH_SERVER) try {
             const pinsRow = await dbLoadPins();
             if(pinsRow && typeof pinsRow === "object"){
               setPinsPersonalizados(pinsRow);
@@ -2280,7 +2418,7 @@ export default function App(){
           } catch(e){ console.warn("[pins] No se pudo leer la fila dedicada (se usa la copia de main):", e); }
           if(d.recsDone)setRecsDone(d.recsDone);
           if(d.recsComentarios)setRecsComentarios(d.recsComentarios);
-          if(d.osirisData){
+          if(d.osirisData && !AUTH_SERVER){
             // MIGRACIÓN: mover osirisData de main a fila "osiris"
             console.log("[Migración] Detectado osirisData en main. Migrando a fila 'osiris'...");
             try {
@@ -2327,6 +2465,13 @@ export default function App(){
         cargaOkRef.current = true;
         if(d && Array.isArray(d.usuarios)) window._lastSavedUsersCount = d.usuarios.length;
       }catch(e){
+        if (AUTH_SERVER && e && (e.status === 401 || e.status === 403)) {
+          // Modo servidor: la sesión venció o no permite leer datos → vuelve al login.
+          _usuarioSesionSrv = null;
+          setUsuarioActual(null);
+          setCargando(false);
+          return;
+        }
         if (USE_GUARD && String(e && e.message).includes("401")) {
           // Con el guardia: aún no hay sesión (el usuario no ha iniciado sesión).
           // No es un error de carga: mostramos el login y reintentamos la carga
@@ -2373,7 +2518,27 @@ export default function App(){
     // la pantalla pegada en "Cargando…". No aborta el fetch ni toca datos; si
     // la carga resuelve (ok o error) se limpia el timeout y sigue el flujo normal.
     const _cargaTimeout = setTimeout(()=>setCargaError(true), 15000);
-    Promise.resolve(cargar()).catch(()=>{}).finally(()=>clearTimeout(_cargaTimeout));
+    // Modo servidor: los datos se cargan SOLO con una sesión verificada por el servidor
+    // (cookie HttpOnly). sessionStorage no sirve como prueba de identidad.
+    window._cargarDatosSrv = cargar;
+    const arrancar = !AUTH_SERVER ? cargar : async () => {
+      let s = null;
+      try { s = await authSrv.sesion(); }
+      catch (e) { console.warn("[auth] No se pudo verificar la sesión:", e && e.codigo); }
+      if (s && s.usuario && s.scope === "completa") {
+        _usuarioSesionSrv = s.usuario;
+        _adminServidor = s.admin === true;
+        setUsuarioActual(s.usuario);
+        window._auditUsuarioActual = s.usuario;
+        const savedModulo = sessionStorage.getItem('mediterra_modulo');
+        if (savedModulo) setModuloActivo(savedModulo);
+        // E1.5 auth dual: igual que la restauración clásica (sin PIN → refresh si el token expiró).
+        if (process.env.REACT_APP_AUTH_DUAL === 'true' && !getOsirisAccessToken()) refreshOsirisSession();
+        return cargar();
+      }
+      setCargando(false); // sin sesión → pantalla de login
+    };
+    Promise.resolve(arrancar()).catch(()=>{}).finally(()=>clearTimeout(_cargaTimeout));
 
     // Aplica cambios entrantes de la fila "main" (Tareas) a la pantalla.
     const aplicarCamposMain = (d) => {
@@ -2409,6 +2574,36 @@ export default function App(){
       getUsuariosActual: () => usuariosRef.current,
       setAviso: setAvisoPersist,
     });
+
+    // Modo servidor: sin WebSocket anónimo (traía main/usuarios). Sondeo de
+    // GET /api/datos/main cada 30 s, solo si no hay cambios locales sin guardar.
+    if (AUTH_SERVER) {
+      const aplicarSrv = (v) => {
+        if (!v) return;
+        aplicarCamposMain(v);
+        if (v.tareasOverrides) setTareasOverrides(prev=>({...prev,...v.tareasOverrides}));
+      };
+      window._aplicarCamposMainSrv = aplicarSrv;
+      const hayCambiosLocales = () => {
+        if (guardadorMainSrv.ocupado() || persist.isDirty("main")) return true;
+        return Object.keys(diffMain(persist.estado("main").base, localMainSrv(),
+          puedeConfigSrvRef.current ? CLAVES_MAIN.filter(k=>k!=="tareasOverrides")
+            : CLAVES_MAIN.filter(k=>!CLAVES_CONFIG_MAIN.includes(k)))).length > 0;
+      };
+      const tick = async () => {
+        if (!cargaOkRef.current || !_usuarioSesionSrv) return;
+        if (hayCambiosLocales()) return;
+        try {
+          const r = await authSrv.leerMain();
+          if (!r || !r.version || r.version === persist.estado("main").version) return;
+          if (hayCambiosLocales()) return; // hubo una edición mientras se leía
+          persist.registrarCarga("main", r.valor || {}, r.version, "object");
+          aplicarSrv(r.valor || {});
+        } catch (e) { /* red / sesión: se reintenta en el próximo ciclo */ }
+      };
+      const iv = setInterval(tick, 30000);
+      return () => { clearInterval(iv); };
+    }
 
     // Con el guardia prendido: sincronización por sondeo autenticado (la
     // puerta vieja del WebSocket anónimo se cierra). Cubre el mismo caso de
@@ -2481,6 +2676,7 @@ export default function App(){
 
   // ── Restaurar sesión tras recarga automática ─────────────────────
   useEffect(()=>{
+    if(AUTH_SERVER) return; // modo servidor: la sesión la confirma GET /api/auth/sesion (cookie), nunca sessionStorage
     if(cargando) return; // esperar a que carguen los usuarios
     if(usuarioActual) return; // ya hay sesión activa
     const savedNombre = sessionStorage.getItem('mediterra_usuario');
@@ -2521,8 +2717,9 @@ export default function App(){
     // Esperar 5s después del login para no interferir con la carga
     const timer = setTimeout(async()=>{
       try {
-        // Excluir filas backup_* (no se respaldan los respaldos previos)
-        const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at&id=not.like.backup_*`,{
+        // Excluir filas backup_* (no se respaldan los respaldos previos).
+        // Modo servidor: pins/usuarios/main no se leen con la llave pública.
+        const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at&id=not.like.backup_*${AUTH_SERVER ? "&id=not.in.(pins,usuarios,main)" : ""}`,{
           headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
         });
         const allData = await res.json();
@@ -2742,6 +2939,17 @@ export default function App(){
   useEffect(()=>{ mesRef.current          = mes;            },[mes]);
   useEffect(()=>{ anioRef.current         = anio;           },[anio]);
 
+  // Modo servidor: ¿puede este usuario enviar claves de configuración de Tareas?
+  // (el servidor lo vuelve a validar; esto solo evita PATCH que serían rechazados).
+  const puedeConfigSrvRef = useRef(false);
+  puedeConfigSrvRef.current = !!usuarioFresco && getTabPerm(usuarioFresco,"tareas","config")==="editar";
+  // Modo servidor: estado local de Tareas tal como lo enviaría el auto-guardado.
+  function localMainSrv(){
+    return { estados:estadosRef.current, comentarios:comentariosRef.current, tareasConfig:tareasConfigRef.current,
+      supervisores:supervisoresRef.current, tareasExtra:tareasExtraRef.current, recsDone:recsDoneRef.current,
+      recsComentarios:recsComRef.current, mes:mesRef.current, anio:anioRef.current };
+  }
+
   // Guardar siempre con los valores más recientes (sin stale closure)
   const guardarAhora = useCallback(()=>{
     setGuardado("guardando");
@@ -2771,8 +2979,8 @@ export default function App(){
       mes:          mesRef.current,
       anio:         anioRef.current,
 
-    })
-    .then((r)=>{ if(r && r.ok===false){ setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); setAvisoPersist(construirAvisoDesde("main", r, "las Tareas")); } else { setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000); } })
+    }, { sinConfig: !puedeConfigSrvRef.current })
+    .then((r)=>{ if(r && r.ok===false){ setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); setAvisoPersist(construirAvisoDesde("main", r, "las Tareas")); } else { setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000); const av=avisoMainSrv(r); if(av) setAvisoPersist(av); } })
     .catch(()=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);});
   },[]); // eslint-disable-line
 
@@ -2786,8 +2994,8 @@ export default function App(){
     // satisfacer el trigger de BD `guard_main_no_user_shrink` que si no rechaza el
     // UPDATE de `main` con 23514/HTTP 400. Nunca se lee como autoridad.
     dbSave({estados:est,comentarios:com,tareasConfig:tc,supervisores:sup,tareasExtra:te,
-      recsDone:rd,recsComentarios:rc,usuarios:usuariosRef.current,mes:m,anio:a})
-      .then((r)=>{ if(r && r.ok===false){ setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); setAvisoPersist(construirAvisoDesde("main", r, "las Tareas")); } else { setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000); } })
+      recsDone:rd,recsComentarios:rc,usuarios:usuariosRef.current,mes:m,anio:a}, { sinConfig: !puedeConfigSrvRef.current })
+      .then((r)=>{ if(r && r.ok===false){ setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); setAvisoPersist(construirAvisoDesde("main", r, "las Tareas")); } else { setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000); const av=avisoMainSrv(r); if(av) setAvisoPersist(av); } })
       .catch(()=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);});
   },[]);
 
@@ -2827,6 +3035,7 @@ export default function App(){
     if(!cargaOkRef.current) return;
     // El login (re-read de PINs frescos) marca este flag para NO re-escribir la
     // fila: el login nunca cambia un PIN, solo lo lee.
+    if(AUTH_SERVER) return; // modo servidor: el navegador nunca escribe la fila `pins`
     if(skipPinsSaveRef.current){ skipPinsSaveRef.current=false; return; }
     const t=setTimeout(()=>{ Promise.resolve(dbSavePins(pinsPersonalizados)).then((r)=>{ if(r && r.ok===false) setAvisoPersist(construirAvisoDesde("pins", r, "los PIN")); }); }, 500);
     return()=>clearTimeout(t);
@@ -2850,6 +3059,14 @@ export default function App(){
     // E1.5 auth dual: limpiar sesión Supabase de Osiris.
     if(process.env.REACT_APP_AUTH_DUAL === 'true') clearOsirisSession();
     window._auditUsuarioActual = null;
+    if(AUTH_SERVER){
+      // Modo servidor: borrar la cookie en el servidor y recargar para descartar de
+      // memoria los datos de la sesión (Tareas, roster). Se recarga aunque falle la red.
+      _usuarioSesionSrv = null;
+      cargaOkRef.current = false;
+      const fin = ()=>{ try{ window.location.reload(); }catch(e){} };
+      authSrv.logout().then(fin, fin);
+    }
   }
 
   // FASE 3 — Cierre de sesión automático por inactividad (30 min sin actividad)
@@ -2879,6 +3096,33 @@ export default function App(){
     }
     if(pinInput.length<4 || pinInput.length>64){
       setLoginError("Clave inválida.");
+      return;
+    }
+
+    // Modo servidor: el PIN se valida en POST /api/auth/login. El navegador no tiene
+    // ni `pins` ni el roster completo antes de iniciar sesión.
+    if (AUTH_SERVER) {
+      let r;
+      try { r = await authSrv.login(emailInput, pinInput); }
+      catch (e) {
+        setLoginError(mensajeErrorLogin(e));
+        window.auditLog("login_fallido", {modulo:"sistema", seccion:"autenticación",
+          descripcion:`Login rechazado por el servidor (${e && e.codigo}) para ${emailInput}`,
+          usuario:"(desconocido)", email:emailInput});
+        return;
+      }
+      setLoginError("");
+      if (r.debeCambiarPin) {
+        // Sesión de alcance "cambio_pin": solo sirve para cambiar el PIN.
+        const pend = { nombre: r.nombre || emailInput, email: emailInput, _srvMotivo: r.motivo || "" };
+        setWorkerPendiente(pend);
+        setModalPin("cambiar");
+        window._auditUsuarioActual = pend;
+        window.auditLog("login_pin_temporal", {modulo:"sistema", seccion:"autenticación",
+          descripcion:`${pend.nombre} debe actualizar su PIN antes de entrar (${r.motivo || "política"})`});
+        return;
+      }
+      entrarConUsuarioSrv(r.usuario, emailInput, pinInput);
       return;
     }
     const w=WORKERS.find(x=>x.email&&x.email.toLowerCase()===emailInput);
@@ -3027,11 +3271,46 @@ export default function App(){
     }
   }
 
+  // Modo servidor: entra con el usuario que confirmó el servidor y carga los datos.
+  function entrarConUsuarioSrv(usuario, email, pinParaOsiris){
+    _usuarioSesionSrv = usuario;
+    setUsuarioActual(usuario);
+    window._auditUsuarioActual = usuario;
+    window.auditLog("login", {modulo:"sistema", seccion:"autenticación",
+      descripcion:`${usuario.nombre} (${usuario.rol}) inició sesión`});
+    // E1.5 auth dual: Osiris sigue recibiendo el PIN que la persona escribió.
+    if(process.env.REACT_APP_AUTH_DUAL === 'true' && pinParaOsiris){
+      ensureSupabaseSession(email, pinParaOsiris)
+        .then(r=>{ if(!r.ok) console.warn("[osiris-auth] sin sesión:", r.error); });
+    }
+    // El login no dice si es administrador: se pregunta al servidor antes de cargar.
+    if (window._cargarDatosSrv) {
+      setCargando(true);
+      authSrv.sesion().then(s => { _adminServidor = !!(s && s.admin === true); })
+        .catch(() => { _adminServidor = false; })
+        .finally(() => window._cargarDatosSrv());
+    }
+  }
+
   async function handleResetPin(){
     const emailReset=(resetEmail||loginEmail||"").trim().toLowerCase();
     // FASE 2a/2b — mismo mensaje exista o no la cuenta / coincida o no el celular (anti-enumeración)
     const MSG_NEUTRAL="Si los datos corresponden a una cuenta, te enviamos un PIN temporal al correo.";
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailReset)){setResetMsg("Ingresa un correo válido.");return;}
+    if(AUTH_SERVER){
+      // POST /api/auth/recuperar: el servidor genera, guarda (hash) y envía el código.
+      // Respuesta siempre neutra (no revela si la cuenta existe).
+      setResetEnviando(true);
+      try {
+        const nc = telReset.trim() ? normalizarCelular(telReset) : null;
+        await authSrv.recuperar(emailReset, nc && nc.ok ? nc.tel : (telReset.trim() || undefined));
+        setResetMsg(MSG_NEUTRAL);
+      } catch(e) {
+        setResetMsg(e && e.codigo === "sin_conexion" ? "No se pudo conectar con el servidor. Intenta de nuevo." : MSG_NEUTRAL);
+      }
+      setResetEnviando(false);
+      return;
+    }
     const w=WORKERS.find(x=>x.email&&x.email.toLowerCase()===emailReset);
     // FASE 2b: si la cuenta ya registró celular, exigir que coincida (segundo factor).
     // Si aún no migró (sin celular), se mantiene la recuperación solo por email.
@@ -3065,6 +3344,39 @@ export default function App(){
     // Puede venir de login con PIN temporal (workerPendiente) o desde perfil (usuarioActual)
     const worker = workerPendiente || usuarioActual;
     if(!worker) return;
+    if(AUTH_SERVER){
+      // POST /api/auth/cambiar-pin. El servidor valida la clave actual/código, la
+      // política y el historial; el navegador solo valida forma y confirmación.
+      const vp=pinNuevoValido(pinNuevo);
+      if(!vp.ok){setPinError(vp.msg);return;}
+      if(pinNuevo!==pinConfirm){setPinError("Los PINs no coinciden.");return;}
+      let telNorm;
+      if(telNuevo.trim()){
+        const nc=normalizarCelular(telNuevo);
+        if(!nc.ok){setPinError(nc.msg);return;}
+        telNorm=nc.tel;
+      }
+      let r;
+      try { r = await authSrv.cambiarPin({ pinActual, pinNuevo, tel: telNorm }); }
+      catch(e){
+        setPinError(mensajeErrorCambioPin(e));
+        if(e && (e.codigo==="sin_sesion") && workerPendiente){ setWorkerPendiente(null); setModalPin(null); setLoginError("Tu sesión venció. Vuelve a ingresar con tu correo y tu clave."); }
+        return;
+      }
+      const pinNuevoTipeado = pinNuevo;
+      setPinActual("");setPinNuevo("");setPinConfirm("");setTelNuevo("");setModalPin(null);
+      window.auditLog("cambio_pin", {modulo:"sistema", seccion:"autenticación",
+        descripcion:`${worker.nombre} cambió su PIN`});
+      if(workerPendiente){
+        setWorkerPendiente(null);
+        entrarConUsuarioSrv(r.usuario, worker.email, pinNuevoTipeado);
+      } else if(process.env.REACT_APP_AUTH_DUAL === 'true'){
+        ensureSupabaseSession(usuarioActual.email, pinNuevoTipeado)
+          .then(rr=>{ if(!rr.ok) console.warn("[osiris-auth] sin sesión:", rr.error); });
+      }
+      alert("PIN cambiado exitosamente!");
+      return;
+    }
     const credH=pinsPersonalizados[worker.nombre+"_h"];
     // Si hay un código provisorio vigente, el PIN antiguo NO sirve ni acá:
     // se valida SOLO contra el código (hasheado + expiración).
@@ -3327,6 +3639,19 @@ Equipo Mediterra`);
 
   async function agregarUsuario(){
     if(!formUsuario.nombre.trim()||!formUsuario.email.trim()){alert("Nombre y email son obligatorios.");return;}
+    if(AUTH_SERVER){
+      if(usuarios.find(u=>u.nombre===formUsuario.nombre)){alert("Ya existe un usuario con ese nombre.");return;}
+      if(usuarios.find(u=>(u.email||"").toLowerCase()===formUsuario.email.trim().toLowerCase())){alert("Ya existe un usuario con ese email.");return;}
+      const {pin:_sinPin, ...datos}=formUsuario;
+      const nuevo={...datos,modulos:formUsuario.modulos||["tareas"],esCFO:formUsuario.rol==="admin",desactivado:false};
+      const lista=[...usuarios,nuevo];
+      const r=await crearUsuariosSrv(lista,[nuevo.nombre]);
+      if(!r.ok){alert(textoErrorAdminSrv(r.error));return;}
+      setUsuarios(lista);
+      alert(`✅ Usuario "${nuevo.nombre}" creado.\n\nCódigo provisorio de primer ingreso (también se envió por correo):\n${textoCodigosSrv(r.codigos)}`);
+      setFormUsuario({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});setCopiarDe("");setTabUsuarios("lista");
+      return;
+    }
     // PIN inicial: 6 dígitos válidos. Se guarda HASHEADO (nunca en texto plano).
     const vp=pinNuevoValido(formUsuario.pin.trim());
     if(!vp.ok){alert(vp.msg);return;}
@@ -3365,6 +3690,12 @@ Equipo Mediterra`);
   async function resetPinUsuario(nombre){
     const u = usuarios.find(x=>x.nombre===nombre);
     if(!u) return;
+    if(AUTH_SERVER){
+      const r = await adminResetPinSrv(nombre);
+      if(!r.ok){ alert(textoErrorAdminSrv(r.error)); return; }
+      alert(`Código provisorio para ${nombre}:\n\n        ${r.codigo}\n\nVence en 45 minutos. Compártelo con el usuario (también se envió por correo).`);
+      return;
+    }
     // Reset por código PROVISORIO (hasheado + expiración). No fija ni expone PIN.
     const codigo = genCodigo6();
     const tempCred = await crearTempCred(codigo);

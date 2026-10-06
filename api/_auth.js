@@ -1,6 +1,6 @@
 // api/_auth.js — Helpers compartidos del "guardia intermedio" (Etapa 1)
 // ---------------------------------------------------------------------
-// NO es un endpoint: lo importan api/login.js y api/db/[...path].js.
+// NO es un endpoint: lo importan api/storage.js, api/auth/[op].js y api/datos/[fila].js.
 //
 // Qué hace:
 //   - Firma/verifica un token de sesión (HMAC-SHA256) → cookie httpOnly.
@@ -23,6 +23,11 @@ const SESSION_SECRET = process.env.SESSION_SECRET || "";
 
 const COOKIE_NAME = "mediterra_sess";
 const SESION_HORAS = 12; // la sesión dura 12 horas
+const CAMBIO_PIN_MIN = 15; // la sesión limitada "cambio_pin" dura 15 minutos
+// Alcances de sesión. "completa" = sesión normal. "cambio_pin" = el usuario
+// acreditó su identidad pero DEBE crear un PIN nuevo: solo sirve para
+// /api/auth/cambiar-pin (y para leer /api/auth/sesion o cerrar sesión).
+const SCOPES = ["completa", "cambio_pin"];
 
 // ---- base64url ----
 function b64url(buf) {
@@ -61,11 +66,15 @@ function verificarSesion(token) {
   return payload;
 }
 
-function crearToken({ email, nombre, rol }) {
-  return firmarSesion({
-    email, nombre, rol,
-    exp: Date.now() + SESION_HORAS * 3600 * 1000,
-  });
+// El rol NUNCA va en la cookie: los permisos se releen en el servidor en cada
+// petición (fila `usuarios` y tabla seg_administradores). `fp` (opcional) es la
+// huella de la credencial vigente al emitir una sesión "cambio_pin".
+function crearToken({ email, nombre, scope = "completa", fp }) {
+  if (!SCOPES.includes(scope)) throw new Error("scope_invalido");
+  const ms = scope === "cambio_pin" ? CAMBIO_PIN_MIN * 60 * 1000 : SESION_HORAS * 3600 * 1000;
+  const payload = { email, nombre, scope, exp: Date.now() + ms };
+  if (fp) payload.fp = fp;
+  return firmarSesion(payload);
 }
 
 // ---- cookies ----
@@ -77,17 +86,26 @@ function leerCookie(req, nombre) {
   }
   return null;
 }
-function cookieSesion(token) {
-  const maxAge = SESION_HORAS * 3600;
+function cookieSesion(token, scope = "completa") {
+  const maxAge = scope === "cambio_pin" ? CAMBIO_PIN_MIN * 60 : SESION_HORAS * 3600;
   return `${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`;
 }
 function cookieBorrar() {
   return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`;
 }
 
-// Lee la sesión vigente del request (o null).
+// Sesión con cualquier alcance válido (o null). Úsese SOLO donde una sesión
+// "cambio_pin" deba servir (cambiar-pin, sesion, logout).
+function sesionCualquierScope(req) {
+  const p = verificarSesion(leerCookie(req, COOKIE_NAME));
+  if (!p || !SCOPES.includes(p.scope) || !p.email || !p.nombre) return null;
+  return p;
+}
+// Lee la sesión COMPLETA vigente del request (o null). Una cookie "cambio_pin"
+// (o una antigua sin scope) NO cuenta como sesión aquí.
 function sesionDeRequest(req) {
-  return verificarSesion(leerCookie(req, COOKIE_NAME));
+  const p = sesionCualquierScope(req);
+  return p && p.scope === "completa" ? p : null;
 }
 
 // ---- acceso a Supabase con la llave de servicio (solo servidor) ----
@@ -105,8 +123,8 @@ function faltanSecretos() {
 }
 
 module.exports = {
-  SUPA_URL, COOKIE_NAME, SESION_HORAS,
-  crearToken, verificarSesion, sesionDeRequest,
+  SUPA_URL, COOKIE_NAME, SESION_HORAS, CAMBIO_PIN_MIN, SCOPES,
+  crearToken, verificarSesion, sesionDeRequest, sesionCualquierScope,
   cookieSesion, cookieBorrar, leerCookie,
   supaFetch, faltanSecretos,
 };
