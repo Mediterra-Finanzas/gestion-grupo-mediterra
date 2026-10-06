@@ -78,9 +78,19 @@ export function normalizarCuota(c) {
     id: base.id || nuevoIdCuota(),
     modalidad: MODALIDADES.includes(base.modalidad) ? base.modalidad : "por_confirmar",
     historico,
-    // `mes_estimado` = el mes de flujo es una estimación nuestra, no una fecha
-    // pactada. Proyecta, pero queda rotulado y contado aparte.
+    // `mes_estimado` = el mes de flujo es una estimación nuestra porque NO hay
+    // fecha pactada. Proyecta, pero queda rotulado y contado aparte.
     mes_estimado: !!base.mes_estimado && !historico,
+    // `estimacion_caja` = hay fecha contractual (en `mes`) y además una
+    // estimación de caja distinta. Se guardan LAS DOS, con motivo y usuario.
+    // Un compromiso vencido NO deja de estar vencido por tener estimación.
+    estimacion_caja: (!historico && base.estimacion_caja && base.estimacion_caja.mes)
+      ? { mes: base.estimacion_caja.mes,
+          motivo: base.estimacion_caja.motivo || "",
+          usuario: base.estimacion_caja.usuario || "",
+          ts: base.estimacion_caja.ts || "",
+          historial: Array.isArray(base.estimacion_caja.historial) ? base.estimacion_caja.historial : [] }
+      : null,
     estado: historico ? "borrador" : estadoPedido,
     fecha_prevista: base.fecha_prevista || "",
     mes: base.mes || "",
@@ -140,6 +150,56 @@ export function cuotaAcordado(c0, kilosPrograma) {
 }
 
 export const cuotaRealizado = (c) => antRealizado(normalizarCuota(c));
+
+/**
+ * Mes en que la cuota se PROYECTA: la estimación de caja si existe, si no el
+ * mes contractual. La fecha contractual nunca se sobrescribe.
+ */
+export function mesProyeccion(c0) {
+  const c = normalizarCuota(c0);
+  return (c.estimacion_caja && c.estimacion_caja.mes) || c.mes || "";
+}
+/** ¿La proyección de esta cuota descansa en una fecha estimada? */
+export const cuotaEstimada = (c0) => {
+  const c = normalizarCuota(c0);
+  return !!(c.estimacion_caja && c.estimacion_caja.mes) || !!c.mes_estimado;
+};
+/** ¿Su compromiso CONTRACTUAL está vencido? Independiente de la estimación. */
+export function cuotaVencidaContractual(c0, mIdx, mesIdxActual) {
+  const c = normalizarCuota(c0);
+  if (!c.mes || mesIdxActual < 0) return false;
+  const i = typeof mIdx === "function" ? mIdx(c.mes) : -1;
+  return i >= 0 && i < mesIdxActual;
+}
+
+/**
+ * Registra una estimación de caja SIN tocar la fecha contractual. Exige mes y
+ * motivo: es un supuesto nuestro y tiene que quedar dicho por quién y por qué.
+ */
+export function registrarEstimacionCaja(c0, { mes, motivo, usuario = "" } = {}) {
+  const c = normalizarCuota(c0);
+  if (c.historico) throw new Error("Un registro de anticipos históricos no se estima: ya ocurrió.");
+  if (!mes) throw new Error("La estimación de caja necesita el mes en que se proyectaría.");
+  if (!motivo || !String(motivo).trim()) throw new Error("La estimación de caja necesita un motivo.");
+  if (!c.mes) throw new Error("Sin fecha contractual cargada no hay dos fechas que preservar: usa el mes de flujo y márcalo como estimado.");
+  const ts = new Date().toISOString();
+  const previa = c.estimacion_caja;
+  return normalizarCuota({ ...c, estimacion_caja: {
+    mes, motivo: String(motivo).trim(), usuario, ts,
+    historial: [...(previa?.historial || []),
+      ...(previa ? [{ mes: previa.mes, motivo: previa.motivo, usuario: previa.usuario, ts: previa.ts }] : [])],
+  } });
+}
+/** Quita la estimación: la cuota vuelve a proyectarse en su mes contractual. */
+export function quitarEstimacionCaja(c0, { motivo = "", usuario = "" } = {}) {
+  const c = normalizarCuota(c0);
+  if (!c.estimacion_caja) return c;
+  const e = c.estimacion_caja;
+  return normalizarCuota({ ...c, estimacion_caja: null,
+    estimaciones_retiradas: [...(c.estimaciones_retiradas || []),
+      { mes: e.mes, motivo: e.motivo, usuario: e.usuario, ts: e.ts,
+        retiradaPor: usuario, motivoRetiro: motivo, retiradaTs: new Date().toISOString() }] });
+}
 
 /** Pendiente de la cuota = acordado − imputado. Null si falta el acordado. */
 export function cuotaPendiente(c0, kilosPrograma) {
@@ -390,8 +450,13 @@ export function resumenLado({
         avisosCompatibilidad.push({ tipo: "cuota", id: c.id, contraparte: p.contraparte,
           usd: pend, tratoActual: "en_liquidacion" });
       }
-      out.push({ tipo: "cuota", id: c.id, mes: c.mes, usd: pend, trato,
-                 estimada: !!c.mes_estimado,
+      // Se proyecta en el mes de la estimación de caja si existe; la fecha
+      // contractual viaja igual, y con ella el estado de vencido.
+      out.push({ tipo: "cuota", id: c.id, mes: mesProyeccion(c), usd: pend, trato,
+                 estimada: cuotaEstimada(c),
+                 mesContractual: c.mes || "",
+                 vencidoContractual: cuotaVencidaContractual(c, mIdx, mesIdxActual),
+                 estimacion: c.estimacion_caja || null,
                  contraparte: p.contraparte, programaId: p.id });
     }));
     return out;
@@ -512,6 +577,15 @@ export function resumenLado({
     avisosCompatibilidad,
     // Parte de la proyección que descansa en fechas ESTIMADAS, no pactadas.
     proyeccionEstimada: detalle.filter(d => d.estimada).reduce((t, d) => t + d.usd, 0),
+    // Compromisos con fecha contractual ya vencida, estén donde estén
+    // proyectados. Una estimación futura NO los deja de vencer.
+    vencidoContractual: detalle.filter(d => d.vencidoContractual)
+      .reduce((t, d) => t + d.usd, 0),
+    vencidosContractuales: detalle.filter(d => d.vencidoContractual).map(d => ({
+      id: d.id, contraparte: d.contraparte, usd: d.usd,
+      mesContractual: d.mesContractual, mesProyectado: d.mes,
+      estimacion: d.estimacion || null,
+    })),
     // Registros históricos: cuotas marcadas `historico`, con su realizado.
     historicos: progs.flatMap(p => p.cuotas.filter(c => c.historico).map(c => ({
       programaId: p.id, contraparte: p.contraparte, cuotaId: c.id,

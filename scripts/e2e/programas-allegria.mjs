@@ -92,7 +92,7 @@ async function desplegarTodo() {
   }
   await esperar(600);
 }
-const MESES = ['Oct-26', 'Nov-26', 'Dec-26', 'Mar-27'];
+const MESES = ['Oct-26', 'Nov-26', 'Dec-26', 'Feb-27', 'Mar-27'];
 async function leerLinea(etiqueta) {
   await subTab(page, /Flujo de Caja/);
   await esperar(1200);
@@ -406,6 +406,56 @@ const costoTrasLiq = await leerLinea('Costo Fruta Exportación');
 // ── 3d · antecedentes: monto informado sin fecha ──────────────────
 // Un productor informa un pago por un monto, sin fecha ni respaldo. El monto
 // se carga; la fecha NO se inventa. Nada del flujo se mueve por eso.
+// ── 3c-bis · estimación de caja sobre la cuota del productor ─────
+// La cuota de Dec-26 se proyecta en Feb-27 por estimación, conservando su
+// fecha contractual. El flujo la mueve; el acuerdo no cambia.
+console.log('\n=== 3c-bis · estimación de caja (dos fechas) ===');
+await irAParametros();
+await esperar(700);
+const colEst = page.locator('xpath=//span[normalize-space(text())="Productores"]/ancestor::div[2]').first();
+await colEst.getByRole('button', { name: /estimar caja/ }).first().click();
+await esperar(500);
+const filaEst = colEst.locator('xpath=.//span[normalize-space(text())="Estimación de caja:"]/ancestor::div[1]').first();
+await filaEst.locator('select').first().selectOption('Feb-27');
+await esperar(200);
+await filaEst.locator('input[placeholder="motivo (obligatorio)"]').first().fill('QA reprogramación informada');
+await filaEst.getByRole('button', { name: 'Guardar' }).first().click();
+await esperar(1200);
+const tEst = await texto();
+check('la estimación muestra las dos fechas, el motivo y el usuario',
+      /Caja estimada en\s*Feb-27/.test(tEst) && /contractual\s*Dec-26/.test(tEst) &&
+      /QA reprogramación informada/.test(tEst),
+      (tEst.match(/Caja estimada en[^\n]*/) || [])[0]);
+const costoEst = await leerLinea('Costo Fruta Exportación');
+check('el flujo mueve el pendiente al mes estimado',
+      costoEst['Dec-26'] === 0, `Dec-26 ${costoEst['Dec-26']}`);
+check('el pendiente aparece completo en el mes estimado (Feb-27)',
+      costoEst['Feb-27'] === 8000, `Feb-27 ${costoEst['Feb-27']}`);
+check('y el total del lado no cambia por estimar',
+      Object.values(costoEst).reduce((a, b) => a + b, 0) ===
+      Object.values(costoIndiv).reduce((a, b) => a + b, 0),
+      `${JSON.stringify(costoEst)} vs ${JSON.stringify(costoIndiv)}`);
+check('la proyección estimada se informa aparte (8.000)',
+      /proyectado sobre fechas ESTIMADAS, no pactadas\s*\$8,000/.test(tEst),
+      (tEst.match(/proyectado sobre fechas[^\n]*\$[\d,]+/) || [])[0]);
+await page.screenshot({ path: `${OUT}/programas/07b-estimacion-caja.png`, fullPage: true });
+
+// Se quita y vuelve a su mes contractual
+await irAParametros();
+await esperar(700);
+const colEst2 = page.locator('xpath=//span[normalize-space(text())="Productores"]/ancestor::div[2]').first();
+await colEst2.getByRole('button', { name: /cambiar estimación/ }).first().click();
+await esperar(400);
+const filaEst2 = colEst2.locator('xpath=.//span[normalize-space(text())="Estimación de caja:"]/ancestor::div[1]').first();
+await filaEst2.locator('input[placeholder="motivo (obligatorio)"]').first().fill('QA no se confirmó');
+await filaEst2.getByRole('button', { name: 'volver al mes contractual' }).first().click();
+await esperar(300);
+await filaEst2.getByRole('button', { name: 'Guardar' }).first().click();
+await esperar(1200);
+const costoSinEst = await leerLinea('Costo Fruta Exportación');
+check('al quitarla vuelve a su mes contractual',
+      costoSinEst['Dec-26'] === 8000, `Dec-26 ${costoSinEst['Dec-26']}`);
+
 console.log('\n=== 3d · monto informado sin fecha verificada ===');
 await irAParametros();
 await esperar(700);

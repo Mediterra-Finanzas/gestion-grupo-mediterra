@@ -318,11 +318,19 @@ Reglas que no hay que romper:
   activa ni editando el dato). Su realizado descuenta porque ya se movió, no
   proyecta nada propio y no toca las cuotas del calendario. Se rotula como tal
   en pantalla y en el Excel. No admite `mes_estimado`.
-- **Fecha estimada** (`cuota.mes_estimado`): el mes de flujo es una estimación
-  nuestra, no una fecha pactada. Proyecta igual, pero se rotula en pantalla y
-  en el Excel y se totaliza aparte (`resumenLado().proyeccionEstimada`), para
-  no presentar como calendario lo que es un supuesto. La fecha prevista del
-  acuerdo no se toca.
+- **Estimación de caja** (`cuota.estimacion_caja = {mes, motivo, usuario, ts,
+  historial[]}`): proyecta la cuota en otro mes **sin tocar la fecha
+  contractual**, que sigue en `fecha_prevista` y `mes`. `registrarEstimacionCaja`
+  exige mes y motivo; `quitarEstimacionCaja` la devuelve a su mes contractual
+  dejando el rastro. Un **compromiso vencido sigue vencido**: el vencimiento se
+  mide contra la fecha contractual (`cuotaVencidaContractual`), y
+  `resumenLado()` informa `vencidoContractual` / `vencidosContractuales[]`
+  aparte de las cubetas. `proyeccionEstimada` totaliza cuánto de la proyección
+  descansa en fechas estimadas. Para una cuota SIN fecha pactada está la marca
+  simple `mes_estimado` (ahí no hay dos fechas que preservar).
+- **Un compromiso vencido no se traslada solo**: el pendiente con mes anterior
+  al corte se proyecta antes del corte, se lista como vencido y no entra al
+  saldo acumulado. Reprogramar es explícito.
 - **Un compromiso no es un pago**: evidencia de compromiso (pagaré, contrato)
   justifica una CUOTA; evidencia de movimiento (cartola, comprobante)
   justifica una REALIZACIÓN. Nada promueve lo primero a lo segundo
@@ -341,7 +349,8 @@ Reglas que no hay que romper:
   (`ResumenLado`) y el Excel (`bloqueLiquidacionLado`). En el Excel el realizado
   y lo sustituido van como constantes, nunca como fórmula.
 
-Guía de carga: `docs/programas-allegria-carga.md`. Propuesta de carga y
+Guía de carga: `docs/programas-allegria-carga.md`. Guía de revisión en
+pantalla antes de cargar: `docs/revision-estimaciones-pantalla.md`. Propuesta de carga y
 pendientes comerciales (WLH, Don Alberto, fichas Perú / Allegria Service):
 `docs/propuesta-carga-allegria.md`. Pruebas:
 `src/__tests__/programasFlujo.test.js` (16, incluye 7 escenarios de Excel) y

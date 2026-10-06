@@ -28,8 +28,12 @@ import {
   excedentePorReconocer, reconocerDesdePosicion, destinosCompensacion, previaCompensacion,
   agregarAntecedente, completarAntecedente, anularAntecedente,
   antecedenteFaltantes, normalizarAntecedente,
+  registrarEstimacionCaja, quitarEstimacionCaja, mesProyeccion,
+  cuotaEstimada, cuotaVencidaContractual,
 } from "./programas.js";
 import { realizacionesVigentes, anularRealizacion, normalizarAnticipo } from "./anticipos.js";
+// Misma fuente de horizonte y corte que el flujo y el modelo.
+import { mIdx as mIdxHor, mesIdxActual as mesIdxActualHor } from "./horizonte.js";
 
 const MODAL_LBL = {
   usd_kg: "US$/kg × kilos del programa",
@@ -69,6 +73,12 @@ export function ResumenLado({ r, esCli, C, $$, mesLiq }) {
         <L t="Anticipos pendientes" v={r.pendientes} c={r.pendientes > 0 ? C.warning : C.muted2} />
         {cub.vencido > 0 &&
           <L t="· vencidos, antes del corte (no entran al acumulado)" v={cub.vencido} c={C.danger} sangria />}
+        {r.vencidoContractual > 0 && (
+          <L t="· compromisos con fecha contractual vencida" v={r.vencidoContractual} c={C.danger} sangria />
+        )}
+        {r.proyeccionEstimada > 0 && (
+          <L t="· proyectado sobre fechas ESTIMADAS, no pactadas" v={r.proyeccionEstimada} c={C.warning} sangria />
+        )}
         {cub.horizonte > 0 &&
           <L t="· dentro del horizonte" v={cub.horizonte} sangria />}
         {cub.fuera_horizonte > 0 &&
@@ -667,6 +677,7 @@ function Tarjeta({
             {p.cuotas.map(c => (
               <Cuota key={c.id} c={c} p={p} esCli={esCli} C={C} $$={$$} meses={meses} readOnly={readOnly}
                 inSt={inSt} selSt={selSt} chip={chip} kgFruta={kgFruta}
+                usuario={usuario}
                 estimaciones={estimaciones} todos={todos}
                 onUpd={patch => updCuota(c.id, patch)} onDel={() => delCuota(c)}
                 onRegistrar={() => setForm({ cuotaId: c.id, fecha: hoyISO(), usd: "", nota: "" })}
@@ -871,8 +882,9 @@ function Tarjeta({
 // ── Una cuota del calendario ──────────────────────────────────────
 function Cuota({
   c, p, esCli, C, $$, meses, readOnly, inSt, selSt, chip, kgFruta,
-  estimaciones, todos, onUpd, onDel, onRegistrar, onAsociar, onAnular,
+  estimaciones, todos, onUpd, onDel, onRegistrar, onAsociar, onAnular, usuario,
 }) {
+  const [estDraft, setEstDraft] = useState(null);   // estimación de caja, con motivo
   const ac = cuotaAcordado(c, p.kilos);
   const re = cuotaRealizado(c);
   const pend = cuotaPendiente(c, p.kilos);
@@ -880,6 +892,21 @@ function Cuota({
   const anuladas = (c.realizaciones || []).filter(x => x && x.anulada);
   const sustTotal = (c.sustituye || []).reduce((s, x) => s + (Number(x.usd) || 0), 0);
   const vigente = c.estado === "vigente";
+  // El vencimiento se mide SIEMPRE contra la fecha contractual: una estimación
+  // futura no deja de vencer un compromiso.
+  const vencidaContrato = vigente && cuotaVencidaContractual(c, mIdxHor, mesIdxActualHor());
+  const mesProy = mesProyeccion(c);
+
+  const guardarEstimacion = () => {
+    try {
+      if (estDraft.quitar) {
+        onUpd(quitarEstimacionCaja(c, { motivo: estDraft.motivo, usuario }));
+      } else {
+        onUpd(registrarEstimacionCaja(c, { mes: estDraft.mes, motivo: estDraft.motivo, usuario }));
+      }
+      setEstDraft(null);
+    } catch (e) { setEstDraft({ ...estDraft, error: e.message }); }
+  };
 
   const setSust = (estimacionId, usd) => {
     const otras = (c.sustituye || []).filter(s => s.estimacionId !== estimacionId);
@@ -968,15 +995,27 @@ function Cuota({
           style={{ ...selSt, color: vigente ? C.success : C.muted }}>
           {Object.entries(ESTADO_LBL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        {c.mes && (readOnly ? (c.mes_estimado ? chip("fecha estimada", C.warning) : null) : (
+        {vencidaContrato && chip(`vencida ${c.mes}`, C.danger)}
+        {c.estimacion_caja && chip(`caja estimada ${c.estimacion_caja.mes}`, C.warning)}
+        {c.mes && !c.estimacion_caja && (readOnly ? (c.mes_estimado ? chip("mes estimado", C.warning) : null) : (
           <label style={{ fontSize: 9, color: c.mes_estimado ? C.warning : C.muted2,
             display: "flex", alignItems: "center", gap: 3, cursor: "pointer" }}
-            title="El mes de flujo es una estimación nuestra, no una fecha pactada. Proyecta igual, pero queda rotulado y contado aparte.">
+            title="Sin fecha pactada: el mes de flujo es una estimación nuestra. Proyecta igual, pero queda rotulado y contado aparte.">
             <input type="checkbox" checked={!!c.mes_estimado}
               onChange={() => onUpd({ mes_estimado: !c.mes_estimado })} />
-            fecha estimada
+            mes estimado
           </label>
         ))}
+        {!readOnly && c.mes && (
+          <button onClick={() => setEstDraft(c.estimacion_caja
+            ? { mes: c.estimacion_caja.mes, motivo: "", quitar: false }
+            : { mes: "", motivo: "", quitar: false })}
+            title="Proyectar la caja en otro mes sin tocar la fecha contractual"
+            style={{ background: "transparent", border: "none", color: C.warning,
+              cursor: "pointer", fontSize: 9, textDecoration: "underline" }}>
+            {c.estimacion_caja ? "cambiar estimación" : "estimar caja"}
+          </button>
+        )}
         {!readOnly && (
           <button onClick={onRegistrar}
             style={{ padding: "2px 8px", background: `${C.primary}14`, border: `1px solid ${C.primary}55`,
@@ -984,6 +1023,64 @@ function Cuota({
             + Registrar {esCli ? "cobro recibido" : "pago efectuado"}
           </button>
         )}
+      </div>
+
+      {(c.estimacion_caja || vencidaContrato) && (
+        <div style={{ fontSize: 9, marginTop: 3, lineHeight: 1.6,
+          color: vencidaContrato ? C.danger : C.warning }}>
+          {vencidaContrato && (
+            <>Compromiso <strong>vencido</strong>: fecha contractual {c.fecha_prevista || c.mes}
+              {c.estimacion_caja ? ". Sigue vencido aunque la caja se proyecte en " + c.estimacion_caja.mes : ", no reprogramado"}.{" "}</>
+          )}
+          {c.estimacion_caja && (
+            <span style={{ color: C.muted }}>
+              Caja estimada en <strong>{c.estimacion_caja.mes}</strong> · contractual{" "}
+              <strong>{c.mes}</strong> · motivo: {c.estimacion_caja.motivo}
+              {c.estimacion_caja.usuario ? ` · ${c.estimacion_caja.usuario}` : ""}
+              {c.estimacion_caja.ts ? ` · ${String(c.estimacion_caja.ts).slice(0, 10)}` : ""}
+              {(c.estimacion_caja.historial || []).length > 0 &&
+                ` · ${c.estimacion_caja.historial.length} estimación(es) anterior(es)`}
+            </span>
+          )}
+        </div>
+      )}
+
+      {estDraft && !readOnly && (
+        <div style={{ marginTop: 5, padding: "6px 7px", background: C.cardAlt,
+          border: `1px solid ${C.warning}55`, borderRadius: 7, display: "flex", gap: 5,
+          alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10, color: C.muted, fontWeight: 700 }}>Estimación de caja:</span>
+          <select value={estDraft.quitar ? "" : estDraft.mes}
+            onChange={e => setEstDraft({ ...estDraft, mes: e.target.value, quitar: false, error: null })}
+            style={selSt}>
+            <option value="">— mes estimado —</option>
+            {meses.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <input type="text" value={estDraft.motivo} placeholder="motivo (obligatorio)"
+            onChange={e => setEstDraft({ ...estDraft, motivo: e.target.value, error: null })}
+            style={{ ...inSt, flex: 1, minWidth: 150 }} />
+          <button onClick={guardarEstimacion}
+            style={{ padding: "3px 9px", background: C.warning, border: "none", borderRadius: 6,
+              color: "#fff", cursor: "pointer", fontSize: 9, fontWeight: 700 }}>Guardar</button>
+          {c.estimacion_caja && (
+            <button onClick={() => setEstDraft({ ...estDraft, quitar: true, mes: "" })}
+              style={{ padding: "3px 7px", background: "transparent", border: `1px solid ${C.border}`,
+                borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 9 }}>
+              volver al mes contractual
+            </button>
+          )}
+          <button onClick={() => setEstDraft(null)}
+            style={{ padding: "3px 7px", background: "transparent", border: `1px solid ${C.border}`,
+              borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 9 }}>Cancelar</button>
+          <div style={{ flexBasis: "100%", fontSize: 9, color: C.muted2, marginTop: 2 }}>
+            La fecha contractual ({c.fecha_prevista || c.mes}) no se modifica. Se guardan las dos
+            fechas, el motivo y tu usuario. Un compromiso vencido sigue vencido.
+            {estDraft.error && <strong style={{ color: C.danger }}> {estDraft.error}</strong>}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
         {!readOnly && (
           <button onClick={onAsociar}
             style={{ padding: "2px 8px", background: "transparent", border: `1px solid ${C.border}`,
@@ -991,7 +1088,7 @@ function Cuota({
             Asociar movimiento existente
           </button>
         )}
-        {!readOnly && <button onClick={onDel}
+        {!readOnly && <button onClick={onDel} title="Eliminar la cuota"
           style={{ marginLeft: "auto", background: "transparent", border: "none", color: C.danger, cursor: "pointer", fontSize: 13 }}>×</button>}
       </div>
 

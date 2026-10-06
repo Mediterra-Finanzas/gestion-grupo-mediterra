@@ -494,7 +494,7 @@ describe('registro de anticipos históricos', () => {
     expect(Math.round(ing(forzado)[iMes(MES_B)])).toBe(0);
   });
 
-  test('una fecha estimada proyecta igual pero el Excel la rotula', () => {
+  test('un mes estimado sin fecha pactada proyecta igual y el Excel lo rotula', () => {
     const p = wlh({ mes_estimado: true });
     expect(Math.round(ing(p)[iMes(MES_A)])).toBe(60000);
     const PARAMS = { paramsAllegria: p, allegraComisionArandanos: { cobros: [] } };
@@ -507,6 +507,53 @@ describe('registro de anticipos históricos', () => {
     const textos = Object.keys(ws).filter(k => /^[A-Z]+\d+$/.test(k))
       .map(k => ws[k]?.v).filter(v => typeof v === 'string');
     expect(textos.some(t => t.includes('Anticipos históricos (ya en caja · no proyecta)'))).toBe(true);
-    expect(textos.some(t => t.includes('fecha estimada'))).toBe(true);
+    expect(textos.some(t => t.includes('mes estimado'))).toBe(true);
+  });
+});
+
+// ═══ 9. Estimación de caja: dos fechas, y el vencido no se borra ══
+describe('estimación de caja sobre un compromiso vencido', () => {
+  const MES_PASADO = MESES[Math.max(0, mesIdxActual() - 1)];
+  const MES_EST = MESES[mesIdxActual() + 2];
+  const tung = (estimacion) => base({ programas: [{
+    id: 'pT', lado: 'cliente', contraparte: 'TUNGSHING', kilos: null, mes_liquidacion: MES_LIQ,
+    cuotas: [{ id: 'cT', estado: 'vigente', modalidad: 'monto', monto: 138000,
+      mes: MES_PASADO, fecha_prevista: '2026-09-29', ...(estimacion ? { estimacion_caja: estimacion } : {}) }],
+  }] });
+
+  test('sin estimación proyecta en su mes contractual, vencido', () => {
+    const serie = ing(tung(null));
+    expect(Math.round(serie[iMes(MES_PASADO)])).toBe(138000);
+    expect(Math.round(serie[iMes(MES_EST)])).toBe(0);
+  });
+
+  test('con estimación proyecta en el mes estimado y nada en el contractual', () => {
+    const serie = ing(tung({ mes: MES_EST, motivo: 'reprogramación verbal', usuario: 'angelo',
+                             ts: '2026-10-06T00:00:00Z' }));
+    expect(Math.round(serie[iMes(MES_PASADO)])).toBe(0);
+    expect(Math.round(serie[iMes(MES_EST)])).toBe(138000);
+    // y el total del lado no cambia por estimar
+    expect(Math.round(suma(serie))).toBe(Math.round(suma(ing(tung(null)))));
+  });
+
+  test('el Excel guarda las dos fechas y el motivo', () => {
+    const p = tung({ mes: MES_EST, motivo: 'reprogramación verbal', usuario: 'angelo',
+                     ts: '2026-10-06T00:00:00Z' });
+    const PARAMS = { paramsAllegria: p, allegraComisionArandanos: { cobros: [] } };
+    const empresas = buildEmpresas(p, PARAMS.allegraComisionArandanos);
+    const file = path.join(OUT_DIR, 'estimacion.xlsx');
+    fs.mkdirSync(OUT_DIR, { recursive: true });
+    exportarFlujoEmpresa({ emp: empresas['Allegria Foods'], empName: 'Allegria Foods',
+                           saldoIni: 0, fileName: file, params: PARAMS });
+    const ws = XLSX.readFile(file, { cellFormula: true }).Sheets['Parametros'];
+    const textos = Object.keys(ws).filter(k => /^[A-Z]+\d+$/.test(k))
+      .map(k => ws[k]?.v).filter(v => typeof v === 'string');
+    const fila = textos.find(t => t.includes('caja estimada'));
+    expect(fila).toBeTruthy();
+    expect(fila).toContain(`contractual ${MES_PASADO}`);
+    expect(fila).toContain(`caja estimada ${MES_EST}`);
+    expect(fila).toContain('reprogramación verbal');
+    // el mes que lee el SUMIF es el estimado
+    expect(textos.includes(MES_EST)).toBe(true);
   });
 });

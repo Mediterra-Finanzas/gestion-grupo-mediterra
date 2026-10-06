@@ -60,22 +60,32 @@ el modelo da esto, con mes de corte Oct-26:
 |---|---:|---:|---|
 | WLH | 599.960 | 480.000 | Nov-26, Dec-26, Jan-27 · 160.000 cada uno |
 | SNF | 161.920 | 415.420 | Nov-26 161.920 · Dec-26 69.250 + 115.000 · Jan-27 69.250 |
-| TUNGSHING | 0 | 551.400 | Oct-26 138.000 · Nov-26 138.000 · Dec-26 82.800 + 110.400 · Jan-27 82.200 |
+| TUNGSHING | 0 | 551.400 | **Sep-26 138.000 (VENCIDO)** · Nov-26 138.000 · Dec-26 82.800 + 110.400 · Jan-27 82.200 |
 | **Total** | **761.880** | **1.446.820** | |
 
 ```
 base 3.825.000 − realizado 761.880 − futuro 1.446.820 = liquidación 1.616.300
 realizado 761.880 + proyectado 3.063.120 = 3.825.000   ← la base, exacta
+
+del futuro con fecha:  vencido antes del corte   138.000  (TUNGSHING)
+                       dentro del horizonte    1.308.820
 ```
 
-Proyección mes a mes: Oct-26 138.000 · Nov-26 459.920 · Dec-26 537.450 ·
-Jan-27 311.450 · Mar-27 1.616.300 (liquidación). La identidad cierra contra la
-base: **nada se cuenta dos veces y nada desaparece**.
+Proyección mes a mes: **Sep-26 138.000 (vencido, antes del corte)** ·
+Nov-26 459.920 · Dec-26 537.450 · Jan-27 311.450 · Mar-27 1.616.300
+(liquidación). La identidad cierra contra la base: **nada se cuenta dos veces y
+nada desaparece**.
 
-Dos cosas que ese cuadre **no** afirma: que TUNGSHING vaya a cobrar los
-US$138.000 de Oct-26 (declarado no llegado: al cargarse con esa fecha quedaría
-**vencido**, no cobrado), y que cada contraparte quepa en lo que debe (falta la
-base individual de cada una).
+### TUNGSHING: los US$138.000 van vencidos, no trasladados
+
+Estaban previstos para el **29/09/2026** y no se recibieron. No hay traslado
+confirmado a octubre, así que **se carga con su mes contractual (Sep-26)** y la
+app lo muestra **vencido**: se proyecta antes del corte, queda listado como tal
+y **no entra al saldo acumulado**. Nadie lo mueve solo; se reprograma cuando
+confirmes una fecha nueva.
+
+Lo que ese cuadre **no** afirma: que ese cobro vaya a ocurrir, y que cada
+contraparte quepa en lo que debe (falta la base individual de cada una).
 
 ### Estimaciones que todavía permanecen — el riesgo de contar dos veces
 
@@ -90,15 +100,26 @@ la **sobre-sustitución** si se declara más de lo disponible, y no la recorta
 sola.
 
 Lo que falta para llenarlo es la lista de estimaciones hoy cargadas, que no
-pude leer (la red del entorno bloquea Supabase). Con esa lista se completa:
+pude leer (la red del entorno bloquea Supabase). La guía con la ruta exacta en
+pantalla y los datos a copiar está en
+**`docs/revision-estimaciones-pantalla.md`**.
 
-| Estimación actual (mes · US$/kg · acordado) | Cuota que la reemplaza | Monto que consume |
-|---|---|---|
-| | | |
+Con esas tablas armo la de sustituciones, que tiene esta forma:
 
-**Hasta que esa tabla esté llena, cargar calendarios es riesgoso.** El orden
-correcto es: leer las estimaciones vigentes, declarar la sustitución cuota por
-cuota, y recién entonces activar las cuotas.
+| Estimación (lado · mes · US$/kg) | Acordado | Realizado | Disponible | Cuota que la reemplaza | Monto que consume | Saldo que le queda |
+|---|---:|---:|---:|---|---:|---:|
+| | | | | | | |
+
+Y el antes/después del flujo, mes a mes:
+
+| Mes | Anticipo Cerezas hoy | Anticipo Cerezas después | Δ | Costo Fruta hoy | Costo Fruta después | Δ |
+|---|---:|---:|---:|---:|---:|---:|
+| | | | | | | |
+
+**Hasta que esas tablas estén llenas, cargar calendarios es riesgoso.** El
+orden correcto es: leer las estimaciones vigentes, declarar la sustitución
+cuota por cuota, revisar el antes/después, y recién entonces activar las
+cuotas.
 
 ### Advertencia que se conserva
 
@@ -153,8 +174,12 @@ Si los pagarés establecen fechas de pago, **esas fechas son el calendario** de
 las tres cuotas: se cargan como mes de flujo y dejan de ser "sin fecha".
 
 Si ya vencieron sin pagarse, la app los muestra **vencidos** y exige
-reprogramación explícita. Medido con el modelo (corte Oct-26, vencimientos
-Aug-26 y Sep-26):
+reprogramación explícita.
+
+**Los vencimientos de Don Alberto no los conozco.** El ejemplo que sigue usa
+meses **sintéticos** (Aug-26 y Sep-26) solo para mostrar el comportamiento del
+modelo con corte Oct-26. No son sus fechas reales y no deben citarse como
+tales:
 
 ```
 vencido antes del corte ....... 344.890   (255.000 Aug-26 + 89.890 Sep-26)
@@ -181,19 +206,37 @@ visible al lado del flujo y la advertencia explícita:
 | Proyectado en el horizonte | **1.471.500** |
 | **Sin calendarizar: la proyección está incompleta por** | **679.000** |
 
-Si hace falta un **escenario provisional de caja**, se cargan fechas estimadas
-marcadas como tales: cada cuota lleva la casilla **«fecha estimada»**, proyecta
-igual, y el total que descansa en fechas estimadas se informa aparte
-(`proyeccionEstimada`) en pantalla y rotulado *· fecha estimada* en el Excel.
-El calendario contractual (la fecha prevista del acuerdo) **no se toca**.
+Si hace falta un **escenario provisional de caja**, la cuota admite una
+**estimación de caja** que guarda las dos fechas por separado:
+
+| Se guarda | Dónde |
+|---|---|
+| Fecha contractual original | `fecha_prevista` y el mes contractual en `mes` |
+| Mes estimado de caja | `estimacion_caja.mes` |
+| Motivo de la estimación | `estimacion_caja.motivo` (obligatorio) |
+| Usuario y fecha del registro | `estimacion_caja.usuario` · `estimacion_caja.ts` |
+| Estimaciones anteriores | `estimacion_caja.historial[]` |
+
+La proyección usa el mes estimado; la fecha contractual **no se modifica**. Y
+lo más importante: **un compromiso vencido sigue vencido**. La pantalla muestra
+«vencida {mes contractual}» junto a «caja estimada {mes}», el resumen del lado
+informa *compromisos con fecha contractual vencida* aparte de las cubetas, y el
+Excel rotula la fila con las dos fechas y el motivo. Quitar la estimación
+devuelve la cuota a su mes contractual y deja el rastro de la que se retiró.
+
+Para una cuota **sin fecha pactada**, la casilla «mes estimado» marca que ese
+mes es un supuesto nuestro: ahí no hay dos fechas que preservar.
 
 Las tres opciones, medidas:
 
 | Opción | Proyección | Total | Incompletitud declarada |
 |---|---|---:|---:|
 | **Por defecto** · sin calendarizar | Mar-27: 1.471.500 | 1.471.500 | **679.000**, a la vista |
-| **Escenario provisional** · fechas estimadas marcadas | sus meses + Mar-27 1.471.500 | 2.150.500 | 0, con el rótulo de estimada |
-| **Acordar pagar en la liquidación** | Mar-27: 2.150.500 | 2.150.500 | 0 | 
+| **Escenario provisional** · estimación de caja con motivo | sus meses estimados + Mar-27 1.471.500 | 2.150.500 | 0, con las dos fechas y el motivo guardados |
+| **Acordar pagar en la liquidación** | Mar-27: 2.150.500 | 2.150.500 | 0 |
+
+Las tres cifras de arriba usan tu costo total declarado de US$2.150.500 y
+**realizado cero**: ninguno de los US$679.000 está confirmado como pagado.
 
 La tercera **solo** si lo acuerdas con el productor; no es un default ni un
 atajo para que cuadre la caja.

@@ -984,5 +984,96 @@ import { normalizarCuota as normCuota } from "./programas.js";
 }
 
 
+// ═══ ETAPA 7 · estimación de caja: dos fechas, motivo y usuario ═══
+import {
+  registrarEstimacionCaja, quitarEstimacionCaja, mesProyeccion,
+  cuotaEstimada, cuotaVencidaContractual,
+} from "./programas.js";
+
+{
+  // TUNGSHING: 138.000 pactados para una fecha YA PASADA, no recibidos.
+  const MES_PASADO = HORIZONTE[Math.max(0, cortReal() - 1)];
+  const MES_PROX   = HORIZONTE[cortReal() + 2];
+  const cuotaVenc = { id: "cT", estado: "vigente", modalidad: "monto", monto: 138000,
+    mes: MES_PASADO, fecha_prevista: "2026-09-29" };
+  const prog = (cuotas) => [{ id: "pT", lado: "cliente", contraparte: "TUNGSHING",
+    kilos: null, mes_liquidacion: MES_LIQ, cuotas }];
+  const opts = (cuotas) => ({ programas: prog(cuotas), lado: "cliente",
+    basePresupuesto: 3825000, mIdx: mIdxReal, mesIdxActual: cortReal(),
+    mesLiquidacion: MES_LIQ, modeloVersion: MODELO_VERSION });
+
+  const r0 = resumenLado(opts([cuotaVenc]));
+  check("(178) sin estimación, el compromiso vencido se ve vencido",
+    aprox(r0.pendienteVencido, 138000) && aprox(r0.vencidoContractual, 138000),
+    `vencido ${r0.pendienteVencido} · contractual ${r0.vencidoContractual}`);
+  check("(179) y no entra al saldo acumulado del horizonte",
+    aprox(r0.cajaEnHorizonte, r0.liquidacion), `${r0.cajaEnHorizonte} vs ${r0.liquidacion}`);
+
+  // Estimación de caja: exige mes y motivo, y no toca la fecha contractual
+  let e1 = null;
+  try { registrarEstimacionCaja(cuotaVenc, { mes: MES_PROX }); } catch (e) { e1 = e; }
+  check("(180) la estimación exige motivo", !!e1 && e1.message.includes("motivo"), e1?.message);
+  let e2 = null;
+  try { registrarEstimacionCaja(cuotaVenc, { motivo: "x" }); } catch (e) { e2 = e; }
+  check("(181) y exige el mes estimado", !!e2, e2?.message);
+  let e3 = null;
+  try { registrarEstimacionCaja({ ...cuotaVenc, historico: true }, { mes: MES_PROX, motivo: "x" }); }
+  catch (e) { e3 = e; }
+  check("(182) un registro histórico no se estima", !!e3, e3?.message);
+  let e4 = null;
+  try { registrarEstimacionCaja({ ...cuotaVenc, mes: "" }, { mes: MES_PROX, motivo: "x" }); }
+  catch (e) { e4 = e; }
+  check("(183) sin fecha contractual no hay dos fechas que preservar",
+    !!e4 && e4.message.includes("dos fechas"), e4?.message);
+
+  const conEst = registrarEstimacionCaja(cuotaVenc,
+    { mes: MES_PROX, motivo: "el cliente avisó reprogramación verbal", usuario: "angelo" });
+  check("(184) la fecha contractual se conserva intacta",
+    conEst.mes === MES_PASADO && conEst.fecha_prevista === "2026-09-29");
+  check("(185) la estimación guarda mes, motivo, usuario y fecha del registro",
+    conEst.estimacion_caja.mes === MES_PROX &&
+    conEst.estimacion_caja.motivo.includes("reprogramación") &&
+    conEst.estimacion_caja.usuario === "angelo" && !!conEst.estimacion_caja.ts,
+    JSON.stringify(conEst.estimacion_caja));
+  check("(186) se proyecta en el mes estimado", mesProyeccion(conEst) === MES_PROX);
+  check("(187) y sigue vencida contractualmente",
+    cuotaVencidaContractual(conEst, mIdxReal, cortReal()) === true &&
+    cuotaEstimada(conEst) === true);
+
+  const r1 = resumenLado(opts([conEst]));
+  check("(188) el flujo la mueve al mes estimado",
+    r1.detalle.some(d => d.mes === MES_PROX && aprox(d.usd, 138000)) &&
+    aprox(r1.pendienteVencido, 0),
+    JSON.stringify(r1.detalle.map(d => `${d.mes} ${d.usd}`)));
+  check("(189) PERO el vencido contractual sigue declarado",
+    aprox(r1.vencidoContractual, 138000) &&
+    r1.vencidosContractuales[0].mesContractual === MES_PASADO &&
+    r1.vencidosContractuales[0].mesProyectado === MES_PROX,
+    JSON.stringify(r1.vencidosContractuales[0]));
+  check("(190) y la proyección estimada se informa aparte",
+    aprox(r1.proyeccionEstimada, 138000));
+  check("(191) el total del lado no cambia por estimar",
+    aprox(r1.pendientes + r1.liquidacion, r0.pendientes + r0.liquidacion),
+    `${r1.pendientes + r1.liquidacion} vs ${r0.pendientes + r0.liquidacion}`);
+
+  // Cambiar la estimación conserva la anterior en el historial
+  const conEst2 = registrarEstimacionCaja(conEst,
+    { mes: HORIZONTE[cortReal() + 3], motivo: "segunda reprogramación", usuario: "angelo" });
+  check("(192) cambiar la estimación conserva la anterior en el historial",
+    conEst2.estimacion_caja.historial.length === 1 &&
+    conEst2.estimacion_caja.historial[0].mes === MES_PROX,
+    JSON.stringify(conEst2.estimacion_caja.historial));
+
+  // Quitarla devuelve la cuota a su mes contractual, y queda el rastro
+  const sinEst = quitarEstimacionCaja(conEst2, { motivo: "no se confirmó", usuario: "angelo" });
+  check("(193) quitarla la devuelve a su mes contractual",
+    mesProyeccion(sinEst) === MES_PASADO && sinEst.estimacion_caja === null &&
+    sinEst.estimaciones_retiradas.length === 1);
+  const r2 = resumenLado(opts([sinEst]));
+  check("(194) y vuelve a proyectarse vencida",
+    aprox(r2.pendienteVencido, 138000) && aprox(r2.proyeccionEstimada, 0));
+}
+
+
 console.log(`\n${fallos === 0 ? "TODOS LOS TESTS PASARON ✓" : `${fallos} TEST(S) FALLARON ✗`}`);
 process.exit(fallos === 0 ? 0 : 1);

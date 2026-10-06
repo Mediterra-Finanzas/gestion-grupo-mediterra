@@ -496,8 +496,11 @@ function helpersAnticipo(put, getR, setR) {
     const pend = vigente ? (cuotaPendiente(c, kilosNum) || 0) : 0;
     // Rótulos que tienen que viajar al archivo: un registro de anticipos
     // históricos no es un acuerdo pendiente, y un mes estimado no es pactado.
+    const est = c.estimacion_caja && c.estimacion_caja.mes ? c.estimacion_caja : null;
     const rotulo = c.historico ? 'Anticipos históricos (ya en caja · no proyecta)'
-                 : `${etiqueta}${vigente ? '' : ` (${c.estado})`}${c.mes_estimado ? ' · fecha estimada' : ''}`;
+                 : `${etiqueta}${vigente ? '' : ` (${c.estado})`}` +
+                   (est ? ` · contractual ${c.mes} · caja estimada ${est.mes}${est.motivo ? ` (${est.motivo})` : ''}` : '') +
+                   (!est && c.mes_estimado ? ' · mes estimado' : '');
     put(rA,1,{ t:'s', v:`   ↳ ${rotulo}`, s:PS.txtSub });
     put(rA,2,{ t:'s', v:c.cerrado?'Cerrado':'Abierto', s:PS.inTxt });
     if (c.modalidad === 'usd_kg') {
@@ -513,7 +516,8 @@ function helpersAnticipo(put, getR, setR) {
     put(rA,5,{ t:'n', v:realizado, s:PS.inNum });
     if (vigente) {
       put(rA,6,{ t:'n', f:`IF(${cierreC}="Cerrado",0,MAX(0,${acC}-${reC}))`, v:pend, s:PS.der });
-      put(rA,mesCol,{ t:'s', v:c.mes||'', s:PS.inTxt });
+      // Mes que lee el flujo por SUMIF: el estimado si existe, si no el contractual.
+      put(rA,mesCol,{ t:'s', v:(est && est.mes) || c.mes || '', s:PS.inTxt });
       put(rA,monCol,{ t:'n', f:`${peC}`, v:pend, s:PS.movNum });
       setR(getR()+1);
       return { f:`${reC}+IF(${mesC}="",0,${peC})`, v:realizado + (c.mes?pend:0) };

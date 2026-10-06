@@ -102,16 +102,28 @@ No es un acuerdo pendiente y no se puede activar: queda en borrador por
 construcción, sin selector de estado ni mes de flujo. En el Excel se rotula
 *Anticipos históricos (ya en caja · no proyecta)*.
 
-### 3c. Fechas estimadas
+### 3c. Estimación de caja (dos fechas, nunca una)
 
-La casilla **fecha estimada** de una cuota dice que ese mes de flujo es un
-supuesto nuestro, no una fecha pactada. Proyecta igual, queda rotulada en
-pantalla y en el Excel, y el total que descansa en fechas estimadas se informa
-aparte. La fecha prevista del acuerdo no se modifica.
+`estimar caja` en la cuota: pide el **mes estimado** y un **motivo
+obligatorio**, y guarda las dos fechas por separado — la contractual queda
+intacta. Se registra con tu usuario y la fecha.
 
-Sirve para ver la caja con un calendario tentativo sin ensuciar el contrato. Un
-pendiente sin fecha, en cambio, no proyecta: el panel declara que la proyección
-está incompleta por ese monto.
+La proyección usa el mes estimado. La pantalla muestra las dos fechas y el
+motivo, el Excel rotula la fila con ambas, y el resumen del lado informa cuánto
+de la proyección descansa en fechas estimadas.
+
+**Un compromiso vencido sigue vencido.** Si la fecha contractual ya pasó, la
+cuota queda marcada *vencida* aunque la caja se proyecte más adelante, y el
+resumen lo informa aparte. Estimar no reprograma: reprogramar es cambiar el mes
+contractual, a mano.
+
+`volver al mes contractual` quita la estimación y deja el rastro de la que se
+retiró.
+
+Para una cuota **sin fecha pactada** está la casilla **mes estimado**: ahí el
+mes mismo es el supuesto y no hay dos fechas que preservar. Un pendiente sin
+mes, en cambio, no proyecta: el panel declara que la proyección está incompleta
+por ese monto.
 
 ### 4b. Montos informados sin fecha verificada
 
@@ -270,7 +282,7 @@ para *Costo Fruta Exportación* del lado productor.
 ## Verificación automática
 
 ```bash
-node src/programas.test.mjs                                   # modelo puro (177)
+node src/programas.test.mjs                                   # modelo puro (194)
 CI=true npx react-scripts test --watchAll=false               # suite completa
 VIDEO=1 OUT_DIR=/tmp/e2e node scripts/e2e/programas-allegria.mjs   # navegador + Excel real + video
 OUT_DIR=/tmp/reg node scripts/e2e/regresion-empresas.mjs      # las demás empresas
