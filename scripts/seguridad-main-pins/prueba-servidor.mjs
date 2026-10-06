@@ -3,9 +3,11 @@
    contra Postgres 16 + PostgREST 12 LOCALES (entorno.mjs). SOLO datos de prueba.
      (a) vulnerabilidades de HOY reproducidas con la llave anon
      (b) endpoints /api/auth/* y /api/datos/* (reglas, scopes, admin, OCC)
-     (c) fases 0, A, B y C aplicadas TAL CUAL, en orden: anon bloqueado y la app sigue
+     (c) fases 0, D, A, B y C aplicadas TAL CUAL, en orden (decisión del CFO: 0 → D → A → B → C):
+         anon bloqueado (D: ya no BORRA nada; Restaurar por upsert sigue) y la app sigue
      (d) recuperar acceso con la fase C aplicada
-     (e) reversion.sql deja la foto exacta de hoy
+     (e) reversion.sql completa deja la foto exacta de hoy; sección por sección C→B→A→D→HOY;
+         DESCONOCIDO hace abortar D, A y la reversión
    Uso: POSTGREST_BIN=/ruta/postgrest node scripts/seguridad-main-pins/prueba-servidor.mjs
    ───────────────────────────────────────────────────────────────────────── */
 import crypto from 'crypto';
@@ -86,6 +88,16 @@ const filaDB = (id) => JSON.parse(E.psql(`select value::text from calendario_dat
 const fijarFila = (id, v) => E.psql(`update calendario_data set value='${JSON.stringify(v).replace(/'/g, "''")}'::jsonb, updated_at=now() where id='${id}'`);
 const codigoDe = (para) => { const c = [...E.correos].reverse().find((m) => m.to === para); const m = c && /código provisorio es: (\d{6})/.exec(c.message); return m ? m[1] : null; };
 async function completa(nombre, pin = PIN[nombre]) { const r = await login(em(nombre), pin); return r.j && r.j.debeCambiarPin === false ? r.cookie : null; }
+// Ejecuta UNA sección de reversion.sql (p. ej. 'D' = "FASE D → HOY"), tal cual está en el archivo.
+async function seccionReversion(fase) {
+  const txt = require('fs').readFileSync(path.join(RAIZ, 'supabase/seguridad_main_pins/reversion.sql'), 'utf8');
+  const s = txt.split(/\n(?=-- ── FASE )/).find((b) => b.startsWith(`-- ── FASE ${fase} →`));
+  if (!s) throw new Error(`reversion.sql: no hay sección FASE ${fase}`);
+  const r = E.psqlTexto(s);
+  await E.recargarEsquema();
+  return r;
+}
+const privilegioAnon = (priv) => E.psql(`select has_table_privilege('anon','public.calendario_data','${priv}')::text || ',' || has_table_privilege('authenticated','public.calendario_data','${priv}')::text`);
 function verificacion() {
   const r = E.psqlTexto(require('fs').readFileSync(path.join(RAIZ, 'supabase/seguridad_main_pins/verificacion.sql'), 'utf8'));
   const filas = r.salida.split('\n').filter((l) => /^\d+\|/.test(l)).map((l) => l.split('|'));
@@ -116,9 +128,19 @@ try {
     const b = await completa('Beto');
     eq((await pedir('POST', '/api/auth/admin-reset-pin', { cookie: b, body: { nombre: 'Rita' } })).status, 503, 'sin seg_administradores, admin-reset-pin falla CERRADO (503)');
     const fa = await E.aplicar('faseA_bloquear_escritura.sql');
-    ok(!fa.ok && /falta public.seg_administradores/.test(fa.salida) && fotoPoliticas() === FOTO_HOY, 'fase A sin fase 0 → ABORTA sin tocar nada');
+    ok(!fa.ok && /aplicar primero faseD_quitar_delete\.sql/.test(fa.salida) && fotoPoliticas() === FOTO_HOY, 'fase A desde HOY → ABORTA sin tocar nada (pide aplicar antes la fase D)');
     const fb = await E.aplicar('faseB_bloquear_lectura.sql');
     ok(!fb.ok && /se esperaba el estado A/.test(fb.salida) && fotoPoliticas() === FOTO_HOY, 'fase B desde HOY → ABORTA sin tocar nada');
+    const fc = await E.aplicar('faseC_cerrar_main.sql');
+    ok(!fc.ok && /se esperaba el estado B/.test(fc.salida) && fotoPoliticas() === FOTO_HOY, 'fase C desde HOY → ABORTA sin tocar nada');
+    // La fase D NO depende de la fase 0: se aplica sin seg_administradores.
+    const fd = await E.aplicar('faseD_quitar_delete.sql');
+    ok(fd.ok && /FASE D OK: estado D/.test(fd.salida) && verificacion().estado === 'D', 'fase D sin fase 0 → se aplica (estado D)');
+    const fotoD = fotoPoliticas();
+    const fa2 = await E.aplicar('faseA_bloquear_escritura.sql');
+    ok(!fa2.ok && /falta public.seg_administradores/.test(fa2.salida) && fotoPoliticas() === fotoD, 'fase A desde D sin fase 0 → ABORTA sin tocar nada');
+    const rd = await seccionReversion('D');
+    ok(rd.ok && fotoPoliticas() === FOTO_HOY, 'sección "FASE D → HOY" de reversion.sql → foto exacta de hoy');
   }
 
   {
@@ -139,8 +161,13 @@ try {
   {
     const f0 = await E.aplicar('fase0_admins.sql');
     ok(f0.ok, 'fase0_admins.sql aplicada tal cual');
+    const fa0 = await E.aplicar('faseA_bloquear_escritura.sql');
+    ok(!fa0.ok && /aplicar primero faseD/.test(fa0.salida) && fotoPoliticas() === FOTO_HOY, 'fase A con fase 0 pero desde HOY → ABORTA (pide fase D)');
+    ok((await E.aplicar('faseD_quitar_delete.sql')).ok, 'fase D aplicada (para probar la guarda de admins de la fase A)');
+    const fotoD = fotoPoliticas();
     const fa = await E.aplicar('faseA_bloquear_escritura.sql');
-    ok(!fa.ok && /ningún administrador activo/.test(fa.salida), 'fase A sin admins activos → ABORTA');
+    ok(!fa.ok && /ningún administrador activo/.test(fa.salida) && fotoPoliticas() === fotoD, 'fase A desde D sin admins activos → ABORTA sin tocar nada');
+    ok((await seccionReversion('D')).ok && fotoPoliticas() === FOTO_HOY, 'vuelta a HOY (sección D → HOY) para probar los endpoints sobre la foto de hoy');
     E.psql(`insert into seg_administradores (email, motivo, otorgado_por) values ('ana@prueba.test','prueba','prueba-servidor')`);
     ok((await E.aplicar('fase0_admins.sql')).ok, 'fase0 re-ejecutable (tabla ya existe con la forma esperada)');
     const r = await rest('GET', 'seg_administradores?select=email');
@@ -463,7 +490,7 @@ try {
     const pu = await pedir('PUT', '/api/datos/usuarios', { cookie: ana, body: { valor: gu.j.usuarios.map((x) => x.nombre === 'Ines' ? { ...x, cargo: etiqueta } : x), version: gu.j.version } });
     const rs = await pedir('POST', '/api/auth/admin-reset-pin', { cookie: ana, body: { nombre: 'Lalo' } });
     const l = await login(em('Lalo'), rs.j && rs.j.codigo);
-    const nuevo = { 'Fase A': '518274', 'Fase B': '518275', 'Fase C': '518276' }[etiqueta];
+    const nuevo = { 'Fase D': '518273', 'Fase A': '518274', 'Fase B': '518275', 'Fase C': '518276' }[etiqueta];
     const c = await pedir('POST', '/api/auth/cambiar-pin', { cookie: l.cookie, body: { pinNuevo: nuevo } });
     const s = await pedir('GET', '/api/auth/sesion', { cookie: c.cookie });
     eq([!!b, g.status, p.status, gu.status, pu.status, rs.status, l.j && l.j.motivo, c.status, s.status], [true, 200, 200, 200, 200, 200, 'temp', 200, 200],
@@ -481,8 +508,45 @@ try {
     eq(obtenido, esperado, `${etiqueta}: anon ${JSON.stringify(esperado)}`);
     ok(filaDB('main') && filaDB('pins') && filaDB('usuarios'), `${etiqueta}: main/pins/usuarios siguen existiendo`);
   }
-  titulo('(c) Fases aplicadas tal cual, en orden:');
+  titulo('(c) Fases aplicadas tal cual, en orden (0 → D → A → B → C):');
   await anon('HOY', { leePins: true, leeUsuarios: true, leeMain: true, escribePins: true, upsertPins: true, escribeUsuarios: true, escribeMain: true, borraMain: true });
+  {
+    const fa = await E.aplicar('faseA_bloquear_escritura.sql');
+    ok(!fa.ok && /aplicar primero faseD/.test(fa.salida) && fotoPoliticas() === FOTO_HOY, 'fase A desde HOY (con fase 0 y admin) → ABORTA sin tocar nada');
+    const r = await E.aplicar('faseD_quitar_delete.sql');
+    ok(r.ok && /FASE D OK: estado D/.test(r.salida), 'faseD_quitar_delete.sql aplicada tal cual desde HOY');
+    const fotoD = fotoPoliticas();
+    const again = await E.aplicar('faseD_quitar_delete.sql');
+    ok(again.ok && /no corresponde \(estado D\)/.test(again.salida) && fotoPoliticas() === fotoD, 'faseD re-ejecutada → no hace nada');
+    const v = verificacion();
+    eq([v.estado, v.revisar], ['D', []], 'verificacion.sql → estado D, todo coincide (anon no borra)');
+    eq(Number(E.psql(`select count(*) from pg_policies where tablename='calendario_data' and policyname='cd_anon_auth_delete'`)), 0, 'D: política cd_anon_auth_delete eliminada');
+    eq(E.psql(`select string_agg(policyname, ',' order by policyname) from pg_policies where tablename='calendario_data'`), 'cd_anon_auth_insert,cd_anon_auth_select,cd_anon_auth_update,cd_service_all', 'D: SELECT/INSERT/UPDATE y cd_service_all intactas');
+    eq(fotoD.split('\n').slice(0, -1), FOTO_HOY.split('\n').slice(0, -1).filter((l) => !l.startsWith('cd_anon_auth_delete|')), 'D: el texto de las otras 4 políticas no cambió');
+    eq([privilegioAnon('DELETE'), privilegioAnon('TRUNCATE'), privilegioAnon('REFERENCES'), privilegioAnon('TRIGGER')], ['false,false', 'false,false', 'false,false', 'false,false'], 'D: anon/authenticated sin DELETE/TRUNCATE/REFERENCES/TRIGGER');
+    eq([privilegioAnon('SELECT'), privilegioAnon('INSERT'), privilegioAnon('UPDATE')], ['true,true', 'true,true', 'true,true'], 'D: anon/authenticated conservan SELECT/INSERT/UPDATE');
+    eq(Number(E.psql(`select count(*) from information_schema.role_table_grants where table_name='calendario_data' and grantee='service_role'`)), 7, 'D: privilegios de service_role intactos');
+    // Borrado con la llave pública: nada se borra (la fila sigue en la base, comprobado con psql).
+    for (const id of ['finanzas', 'main', 'pins', 'usuarios']) {
+      const d = await rest('DELETE', `calendario_data?id=eq.${id}`, { prefer: 'return=representation' });
+      ok(!(d.status >= 200 && d.status < 300) && filaDB(id) !== null, `D: anon DELETE '${id}' → rechazado (HTTP ${d.status}) y la fila sigue`);
+    }
+    const n0 = E.psql(`select count(*) from calendario_data`);
+    const masivo = await rest('DELETE', 'calendario_data?id=neq.zz_nada', {});
+    ok(!(masivo.status >= 200 && masivo.status < 300) && E.psql(`select count(*) from calendario_data`) === n0, `D: anon DELETE masivo (id=neq.x) → rechazado (HTTP ${masivo.status}), mismas ${n0} filas`);
+    let errT = ''; try { E.psql(`begin; set local role anon; truncate public.calendario_data; rollback;`); } catch (e) { errT = String(e.stderr || e.message); }
+    ok(/permission denied/.test(errT) && E.psql(`select count(*) from calendario_data`) === n0, 'D: TRUNCATE como anon → permission denied');
+    // "📤 Restaurar": POST con resolution=merge-duplicates (INSERT … ON CONFLICT DO UPDATE) sigue.
+    const up = await rest('POST', 'calendario_data', { body: { id: 'finanzas', value: { flujo: 2 } }, prefer: 'resolution=merge-duplicates,return=representation' });
+    ok(up.status >= 200 && up.status < 300 && filaDB('finanzas').flujo === 2, `D: anon upsert merge-duplicates sobre 'finanzas' (Restaurar) → actualiza (HTTP ${up.status})`);
+    const nueva = await rest('POST', 'calendario_data', { body: { id: 'zz_restaurar', value: { x: 1 } }, prefer: 'resolution=merge-duplicates,return=representation' });
+    ok(nueva.status === 201 && filaDB('zz_restaurar') && filaDB('zz_restaurar').x === 1, 'D: anon upsert de una fila nueva (Restaurar) → la crea');
+    E.psql(`delete from calendario_data where id='zz_restaurar'`);
+    const pt = await rest('PATCH', 'calendario_data?id=eq.finanzas', { body: { value: { flujo: 1 } }, prefer: 'return=representation' });
+    ok(pt.status === 200 && pt.j.length === 1 && filaDB('finanzas').flujo === 1, 'D: anon PATCH normal sobre finanzas → actualiza');
+    await anon('Fase D', { leePins: true, leeUsuarios: true, leeMain: true, escribePins: true, upsertPins: true, escribeUsuarios: true, escribeMain: true, borraMain: false });
+    await appSigue('Fase D');
+  }
   for (const [archivo, est, esperado] of [
     ['faseA_bloquear_escritura.sql', 'A', { leePins: true, leeUsuarios: true, leeMain: true, escribePins: false, upsertPins: false, escribeUsuarios: false, escribeMain: true, borraMain: false }],
     ['faseB_bloquear_lectura.sql', 'B', { leePins: false, leeUsuarios: false, leeMain: true, escribePins: false, upsertPins: false, escribeUsuarios: false, escribeMain: true, borraMain: false }],
@@ -528,12 +592,27 @@ try {
   titulo('(e) reversion.sql:');
   {
     const r = await E.aplicar('reversion.sql');
-    ok(r.ok, 'reversion.sql aplicada tal cual (C → B → A → HOY)');
+    ok(r.ok, 'reversion.sql aplicada tal cual (C → B → A → D → HOY)');
     eq(fotoPoliticas(), FOTO_HOY, 'políticas y privilegios EXACTAMENTE como hoy');
     eq(verificacion().estado, 'HOY', 'verificacion.sql → HOY');
     const r2 = await E.aplicar('reversion.sql');
     ok(r2.ok && fotoPoliticas() === FOTO_HOY, 'reversion.sql re-ejecutada desde HOY → no cambia nada');
     await anon('Revertido', { leePins: true, leeUsuarios: true, leeMain: true, escribePins: true, upsertPins: true, escribeUsuarios: true, escribeMain: true, borraMain: true });
+    eq([privilegioAnon('DELETE'), privilegioAnon('TRUNCATE')], ['true,true', 'true,true'], 'Revertido: DELETE y TRUNCATE otorgados de nuevo (como hoy)');
+    const t = await rest('DELETE', 'calendario_data?id=eq.zz_prueba', {});
+    eq(t.status, 204, 'Revertido: anon vuelve a poder BORRAR (fila inexistente)');
+    // Sección por sección: subir de nuevo a C y bajar un paso cada vez.
+    for (const f of ['faseD_quitar_delete.sql', 'faseA_bloquear_escritura.sql', 'faseB_bloquear_lectura.sql', 'faseC_cerrar_main.sql']) ok((await E.aplicar(f)).ok, `${f} aplicada de nuevo`);
+    eq(verificacion().estado, 'C', 'de vuelta en C');
+    for (const [sec, destino] of [['C', 'B'], ['B', 'A'], ['A', 'D'], ['D', 'HOY']]) {
+      const rs = await seccionReversion(sec);
+      const v = verificacion();
+      ok(rs.ok && new RegExp(`REVERTIR FASE ${sec} OK: estado ${destino}`).test(rs.salida), `sección "FASE ${sec} → ${destino}" aplicada sola`);
+      eq([v.estado, v.revisar], [destino, []], `verificacion.sql → ${destino}, todo coincide`);
+      const otra = await seccionReversion(sec);
+      ok(otra.ok && /no corresponde/.test(otra.salida) && verificacion().estado === destino, `sección "FASE ${sec} → ${destino}" re-ejecutada → no hace nada`);
+    }
+    eq(fotoPoliticas(), FOTO_HOY, 'sección por sección: políticas y privilegios EXACTAMENTE como hoy');
     // Estado desconocido → reversión aborta sin tocar nada.
     E.psql(`alter policy cd_anon_auth_select on calendario_data using (true)`);
     const foto = fotoPoliticas();
@@ -541,6 +620,17 @@ try {
     ok(!r3.ok && fotoPoliticas() === foto, 'políticas cambiadas a mano (DESCONOCIDO) → reversion.sql ABORTA sin tocar nada');
     const r4 = await E.aplicar('faseA_bloquear_escritura.sql');
     ok(!r4.ok && fotoPoliticas() === foto, '… y fase A también ABORTA');
+    const r5 = await E.aplicar('faseD_quitar_delete.sql');
+    ok(!r5.ok && /FASE D ABORTADA: se esperaba el estado HOY/.test(r5.salida) && fotoPoliticas() === foto, '… y fase D también ABORTA sin tocar nada');
+    eq(verificacion().estado, 'DESCONOCIDO', 'verificacion.sql → DESCONOCIDO');
+    // DESCONOCIDO "encima de D": D aplicada y luego un DELETE re-otorgado a mano.
+    E.psql(`alter policy cd_anon_auth_select on calendario_data using ((id !~~ 'backup%'::text) and (id !~~ 'main_pre_restore%'::text))`);
+    eq(fotoPoliticas(), FOTO_HOY, 'política restaurada a mano → foto de hoy');
+    ok((await E.aplicar('faseD_quitar_delete.sql')).ok, 'fase D aplicada');
+    E.psql(`grant delete on calendario_data to anon`);
+    const foto2 = fotoPoliticas();
+    const r6 = await E.aplicar('reversion.sql'), r7 = await E.aplicar('faseA_bloquear_escritura.sql'), r8 = await E.aplicar('faseD_quitar_delete.sql');
+    ok(!r6.ok && !r7.ok && !r8.ok && fotoPoliticas() === foto2, 'D + DELETE re-otorgado a mano (DESCONOCIDO) → reversion, fase A y fase D ABORTAN sin tocar nada');
   }
 } catch (e) {
   fail++; console.log('  ✗ excepción: ' + (e && e.stack || e));

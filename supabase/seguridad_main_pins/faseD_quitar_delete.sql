@@ -1,27 +1,32 @@
 -- =============================================================================
--- FASE B — anon/authenticated ya NO pueden LEER 'pins' ni 'usuarios'
--- Estado: PROPUESTA. NO aplicada en producción. Probada solo en local. Ejecutar COMPLETO tal cual.
--- Orden: 0 → D → A → B → C.
+-- FASE D — anon/authenticated ya NO pueden BORRAR filas (ni TRUNCATE) de calendario_data
+-- Estado: PROPUESTA. NO aplicada en producción. Probada solo en local
+--         (scripts/seguridad-main-pins/prueba-servidor.mjs). Ejecutar el archivo COMPLETO tal cual.
+-- Orden decidido por el CFO: 0 → D → A → B → C (D es la PRIMERA que cambia permisos).
 -- -----------------------------------------------------------------------------
--- QUÉ CAMBIA: la política SELECT cd_anon_auth_select excluye además 'pins' y 'usuarios'.
--- REQUIERE ANTES:
---   1. Fase A aplicada (el archivo lo exige; A a su vez exige D).
---   2. Cliente en modo servidor (REACT_APP_AUTH_SERVER=true) que NO lee 'pins' ni 'usuarios'
---      con la llave pública (padrón por GET /api/datos/roster o /api/datos/usuarios).
---   3. api/frisku-sp.js desplegado leyendo 'usuarios' con la llave de servicio (esta rama).
---   4. Edge Function osiris-auth desplegada con PROD_APP_URL + OSIRIS_VERIFICAR_SECRETO
---      (ya no lee filas de producción) y el secreto configurado igual en Vercel.
--- SI SE APLICA ANTES DE TIEMPO: el cliente antiguo no puede iniciar sesión (lee 'pins' y
---   'usuarios' con la llave pública → ve 0 filas) y Osiris (versión anterior de osiris-auth)
---   deja de validar. El respaldo automático hecho con la llave pública deja de incluir
---   esas filas (el respaldo con llave de servicio no cambia).
--- VERIFICAR: verificacion.sql → estado "B".
--- REVERTIR: reversion.sql (sección FASE B → A).
+-- QUÉ CAMBIA:
+--   DROP POLICY cd_anon_auth_delete (sin política de borrado, RLS deniega todo DELETE).
+--   REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER de anon y authenticated (segunda barrera
+--   si RLS se desactivara; TRUNCATE salta RLS; REFERENCES/TRIGGER no los usa nadie).
+--   NO cambia: políticas SELECT/INSERT/UPDATE, sus privilegios, ni cd_service_all.
+-- REQUIERE ANTES: nada (no depende de fase0_admins.sql ni del modo servidor). La app no
+--   borra filas de calendario_data con la llave pública: "📤 Restaurar" usa POST con
+--   Prefer: resolution=merge-duplicates (INSERT … ON CONFLICT DO UPDATE, sin DELETE) y
+--   TRUNCATE no es alcanzable por PostgREST. Revisar antes en producción las funciones/vistas
+--   que anon pueda usar sobre calendario_data (consultas 0.4/0.5 de la propuesta anterior,
+--   docs/seguridad-quitar-delete-anon.md).
+-- SI SE APLICA ANTES DE TIEMPO: no hay "antes de tiempo" conocido. Un script o herramienta
+--   externa que borrara filas con la llave pública recibiría "permission denied".
+-- VERIFICAR: verificacion.sql → estado detectado "D" (anon BORRA … = "no").
+-- REVERTIR: reversion.sql (sección FASE D → HOY; reabre el borrado público).
+-- Guardas: aborta sin tocar nada si la foto (texto exacto de las políticas, roles y
+--   privilegios) no es EXACTAMENTE la de HOY; si D ya está aplicada (o A/B/C, que la
+--   contienen), no hace nada. Una sola transacción.
 -- =============================================================================
 
 BEGIN;
 
-DO $fase_b$
+DO $fase_d$
 DECLARE
   b   text := $e$(id !~~ 'backup%'::text) AND (id !~~ 'main_pre_restore%'::text)$e$;
   pu  text := $e$(id <> ALL (ARRAY['pins'::text, 'usuarios'::text]))$e$;
@@ -64,16 +69,17 @@ BEGIN
     WHEN v_actual = regexp_replace(f_b,   '\s+', '', 'g') THEN 'B'
     WHEN v_actual = regexp_replace(f_c,   '\s+', '', 'g') THEN 'C'
     ELSE 'DESCONOCIDO' END;
-  RAISE NOTICE 'FASE B: estado detectado = %', v_estado;
-  IF v_estado IN ('B', 'C') THEN
-    RAISE NOTICE 'FASE B: no corresponde (estado %); no se cambia nada.', v_estado;
+  RAISE NOTICE 'FASE D: estado detectado = %', v_estado;
+  IF v_estado IN ('D', 'A', 'B', 'C') THEN
+    RAISE NOTICE 'FASE D: no corresponde (estado %); no se cambia nada.', v_estado;
     RETURN;
   END IF;
-  IF v_estado <> 'A' THEN
-    RAISE EXCEPTION 'FASE B ABORTADA: se esperaba el estado A y la foto actual es % (políticas: %, privilegios DELETE: %, TRUNCATE/REFERENCES/TRIGGER: %). No se cambió nada.', v_estado, v_actual, v_del, v_extra;
+  IF v_estado <> 'HOY' THEN
+    RAISE EXCEPTION 'FASE D ABORTADA: se esperaba el estado HOY y la foto actual es % (políticas: %, privilegios DELETE: %, TRUNCATE/REFERENCES/TRIGGER: %). No se cambió nada.', v_estado, v_actual, v_del, v_extra;
   END IF;
-  EXECUTE 'ALTER POLICY cd_anon_auth_select ON public.calendario_data USING (((id !~~ ''backup%''::text) AND (id !~~ ''main_pre_restore%''::text) AND (id <> ALL (ARRAY[''pins''::text, ''usuarios''::text]))))';
-  -- Verificación posterior: la foto debe ser exactamente la del estado B.
+  EXECUTE 'DROP POLICY cd_anon_auth_delete ON public.calendario_data';
+  EXECUTE 'REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.calendario_data FROM anon, authenticated';
+  -- Verificación posterior: la foto debe ser exactamente la del estado D.
   SELECT string_agg(format('%s|%s|%s|%s|%s|%s', policyname, cmd,
            (SELECT string_agg(rol, ',' ORDER BY rol) FROM unnest(roles) rol), permissive,
            coalesce(qual, ''), coalesce(with_check, '')), ';' ORDER BY policyname)
@@ -97,11 +103,24 @@ BEGIN
     WHEN v_actual = regexp_replace(f_b,   '\s+', '', 'g') THEN 'B'
     WHEN v_actual = regexp_replace(f_c,   '\s+', '', 'g') THEN 'C'
     ELSE 'DESCONOCIDO' END;
-  IF v_estado <> 'B' THEN
-    RAISE EXCEPTION 'FASE B: tras aplicar, el estado es % (se esperaba B). Se deshace todo.', v_estado;
+  IF v_estado <> 'D' THEN
+    RAISE EXCEPTION 'FASE D: tras aplicar, el estado es % (se esperaba D). Se deshace todo.', v_estado;
   END IF;
-  RAISE NOTICE 'FASE B OK: estado B.';
+  -- Barrera adicional: ningún privilegio DELETE/TRUNCATE efectivo (tampoco heredado de otro rol)
+  -- y lo que la app SÍ usa (SELECT/INSERT/UPDATE: leer, PATCH y "Restaurar" por upsert) intacto.
+  IF has_table_privilege('anon', 'public.calendario_data', 'DELETE')
+     OR has_table_privilege('authenticated', 'public.calendario_data', 'DELETE')
+     OR has_table_privilege('anon', 'public.calendario_data', 'TRUNCATE')
+     OR has_table_privilege('authenticated', 'public.calendario_data', 'TRUNCATE') THEN
+    RAISE EXCEPTION 'FASE D: anon/authenticated conservan DELETE o TRUNCATE efectivo (¿heredado de otro rol?). Se deshace todo.';
+  END IF;
+  IF NOT (has_table_privilege('anon', 'public.calendario_data', 'SELECT')
+      AND has_table_privilege('anon', 'public.calendario_data', 'INSERT')
+      AND has_table_privilege('anon', 'public.calendario_data', 'UPDATE')) THEN
+    RAISE EXCEPTION 'FASE D: anon perdió SELECT/INSERT/UPDATE (la app dejaría de funcionar). Se deshace todo.';
+  END IF;
+  RAISE NOTICE 'FASE D OK: estado D.';
 END
-$fase_b$;
+$fase_d$;
 
 COMMIT;
