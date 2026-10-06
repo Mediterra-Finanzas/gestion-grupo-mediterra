@@ -1,48 +1,86 @@
-# Tipo de cambio en Saldos Bancos — diagnóstico y propuesta
+# Tipo de cambio de los saldos bancarios — diagnóstico y política propuesta
 
-Estado: **propuesta, sin implementar**. No se cambió la fuente ni la lógica. Requiere aprobación de Angelo.
+Estado: **propuesta para aprobar. No se cambió la fuente ni la lógica de conversión, ni se recalcularon históricos.** Todas las líneas citadas son de `src/FinanzasModule.jsx` en la rama `claude/fervent-bell-uu6ae8`.
 
-## 1. Cálculo actual (código en `src/FinanzasModule.jsx`)
+## 1. Hoy hay tres criterios distintos para el mismo saldo
 
-| Paso | Dónde | Qué hace |
+| # | Criterio | Dónde | TC usado |
+|---|---|---|---|
+| A | **En vivo** | Saldos Bancos, total por empresa (`totalesEmpresa`, L8884) y detalle (`porEmpresa`, L9142) | `open.er-api.com` (agregador de mercado) **del momento de abrir la pestaña**, no de la fecha del saldo. Si falla, usa el `usd` guardado. |
+| B | **Guardado** (`rec.usd`) | Todo lo que consume el saldo fuera de esa pestaña (sección 2) | El TC de A **en el momento en que alguien guardó**, congelado. Si la API estaba caída, se guarda `usd: null`. |
+| C | **Fijo** | Reporte Semanal, saldo por moneda (`reporte_calcSaldosPorMoneda`, L9577) | CLP: `params.tcUSDtoCLP` o, por defecto, **950** fijo (L9559). PEN: **3,75** fijo (L9560). **Las cuentas EUR se omiten por completo** (no hay rama `eur`). |
+
+`maestro_tc` (mindicador.cl = dólar observado del BCCh; frankfurter = BCE; carga manual) **no se usa** en ninguno de los tres. Sí lo usan Frisku y Rendiciones.
+
+### Ejemplo (datos ficticios): un mismo saldo, tres cifras de caja
+
+Allegria Foods al 15-09-2026: BICE US$17.433 y una cuenta CLP de $95.000.000.
+
+| Vista | Cálculo | Caja US$ |
 |---|---|---|
-| Obtener TC | `fetchFX()` L8701 | `GET https://open.er-api.com/v6/latest/USD` al abrir la pestaña. Guarda `fx.clp = 1/rates.CLP`, ídem EUR/PEN. Si falla → `null` y `fxError=true`. |
-| Guardar saldo | L8795-8805 | Por cada cuenta **editada**: `{monto, fecha, usd: fx ? monto×fx[moneda] : null}`. El `usd` queda **congelado** con el TC del momento del guardado, no con el de la fecha del saldo. |
-| Total en pantalla | `totalesEmpresa` L8811 | Con TC en vivo, **recalcula todo** con el TC de hoy. Sin TC, usa el `usd` guardado. Sin TC y sin `usd` guardado: si la cuenta es CLP/EUR/PEN **no suma** (comentario L8828). |
-| Saldo inicial del flujo, Dashboard, Reporte semanal, Consolidado | L4362, L4403, L5263, L5980, L7557 | Usan **solo** el `usd` guardado. Nunca el TC en vivo. Si `usd` es `null`, la cuenta suma 0, sin aviso. |
-| `maestro_tc` | `friskuHelpers.buscarTC()` | **No se usa** en Saldos Bancos. Lo usan Frisku y Rendiciones (mindicador = dólar observado del Banco Central; frankfurter = BCE; manual). |
+| A · Saldos Bancos (API hoy: 940,12) | 17.433 + 95.000.000 / 940,12 = 17.433 + 101.050,93 | **118.483,93** |
+| B · Flujo, Dashboard, Consolidado, Excel (guardado con 925,40) | 17.433 + 95.000.000 / 925,40 = 17.433 + 102.658,31 | **120.091,31** |
+| C · Reporte Semanal (fijo 950) | 17.433 + 95.000.000 / 950 = 17.433 + 100.000,00 | **117.433,00** |
 
-`open.er-api.com` no aparece documentado en CLAUDE.md/AGENTS.md: es un agregador de mercado, no el dólar observado.
+La diferencia máxima es 120.091,31 − 117.433,00 = **2.658,31**, para un mismo saldo bancario.
 
-## 2. Riesgos, con números (datos ficticios)
+## 2. Todos los lugares que consumen `rec.usd` (criterio B)
 
-Allegria Foods: BICE US$17.433 y una cuenta en CLP de $95.000.000.
+| Línea | Función | Pantalla o salida | Si `usd` es `null` |
+|---|---|---|---|
+| L4365 | `getSaldoBancoParaSemana` | Consolidado: saldo banco por columna (mes/semana) | La cuenta suma **0** |
+| L4406 | `getSaldoBancoInicial` | Consolidado (saldo inicial por empresa, L4606); Dashboard (`cajaGrupoBase`, L7577); **Excel individual** (saldo inicial, L13197) | La cuenta suma **0**. Si **ninguna** cuenta tiene valor, cae al `saldo_ini` estático. |
+| L5278 | `getSaldoBancoUSD` | Reporte Semanal: saldo inicial por empresa (L9621, L9728) | La cuenta suma **0** |
+| L5995 | `saldoBancoUSD` (useMemo en `FlujoEmpresa`) | Flujo Empresas: saldo inicial y Saldo acumulado de la empresa | La cuenta suma **0** |
+| L7623 | `saldoDeEmpresas` (Dashboard) | KPI "Saldo bancos Chile / Allpa Perú" | La cuenta suma **0** |
+| L8895 | `totalesEmpresa` (Saldos Bancos) | Total por empresa cuando la API falla | Si es CLP/EUR/PEN, **no suma**; el aviso es un "⚠️ sin paridad" pequeño |
+| L9142 | `porEmpresa` (Saldos Bancos) | Detalle por cuenta cuando la API falla | Muestra vacío |
 
-- El saldo se guardó con un TC de 925,40 → `usd` guardado = 95.000.000 / 925,40 = **US$102.658,31**.
-- Hoy la API da 940,12 → la pantalla Saldos Bancos calcula 95.000.000 / 940,12 = **US$101.050,93**.
+En ninguno de estos lugares el total se marca como **incompleto**. Además, los filtros de fecha no son uniformes: `getSaldoBancoInicial` acepta saldos con fecha futura, mientras `getSaldoBancoUSD`, `saldoBancoUSD` y `saldoDeEmpresas` los descartan.
 
-| Vista | Cálculo | Caja total |
+Otros detalles:
+- `toUSD` devuelve `monto × 0` cuando la API responde pero falta la moneda: la cuenta queda en 0 y no aparece como "sin TC".
+- `PanelBancosNomina` (L14510) muestra cada moneda por separado y no convierte. No tiene este problema.
+
+## 3. Política propuesta
+
+| Tema | Propuesta |
+|---|---|
+| **Fecha** | El TC **vigente en la fecha del saldo** (la fecha de la cuenta), no el de hoy ni el del momento del guardado. Si ese día no hay dato (fin de semana o feriado), se usa el último anterior, hasta un máximo de **5 días hábiles**. Si es más antiguo, la cuenta queda **sin TC**. |
+| **Fuente** | Una sola: `maestro_tc` mediante `buscarTC()`. `open.er-api.com` deja de usarse en cálculos; puede quedar solo como columna "mercado hoy (referencia)". |
+| **Pares** | **USD**: 1. **CLP**: `USD-CLP`, dólar observado (mindicador). **EUR**: `EUR-USD` del BCE (frankfurter) o triangulado con `EUR-CLP` / `USD-CLP` (mindicador). **PEN**: `USD-PEN` cargado a mano (SBS o BCRP), porque frankfurter no lo publica. Cualquier otra moneda queda sin TC. |
+| **Registro** | Junto al saldo se guarda `{ usd, tc, tcPar, tcFecha, tcFuente }`. Cada cifra en US$ se puede auditar. |
+| **Una sola cifra** | Saldos Bancos, Flujo, Dashboard, Consolidado, Excel y Reporte Semanal leen el mismo `usd` guardado. El Reporte deja de usar 950 y 3,75 fijos, y deja de omitir EUR. |
+| **Sin paridad** | La cuenta **no cuenta como 0**: queda fuera del total y el total se rotula **"Parcial"**, con lo excluido explícito (moneda, monto y fecha). El mismo aviso aparece en el flujo, el Dashboard, el Reporte y el Excel (nota al pie). |
+| **Históricos** | No se recalculan automáticamente. Los saldos ya guardados conservan su `usd` y se muestran como "TC histórico (open.er-api, fecha no registrada)". Si decides recalcularlos, primero se muestra la diferencia cuenta por cuenta y luego se aplica con trazabilidad. |
+
+### Ejemplos con la política propuesta (TC ficticios)
+
+Cuentas al 15-09-2026: USD 17.433 · CLP 95.000.000 · EUR 50.000 · PEN 380.000.
+TC: observado 925,40 CLP/USD · EUR-USD 1,0850 · USD-PEN 3,7500.
+
+| Cuenta | Cálculo | US$ |
 |---|---|---|
-| Saldos Bancos (TC en vivo) | 17.433 + 101.050,93 | **US$118.483,93** |
-| Flujo / Dashboard / Reporte (usd guardado) | 17.433 + 102.658,31 | **US$120.091,31** |
-| Diferencia para la misma fecha de saldo | | **US$1.607,38** |
-| Si se guardó con la API caída (`usd = null`) | 17.433 + 0 | **US$17.433** (faltan US$101 mil, sin aviso en el flujo) |
+| USD | 17.433 × 1 | 17.433,00 |
+| CLP | 95.000.000 / 925,40 | 102.658,31 |
+| EUR | 50.000 × 1,0850 | 54.250,00 |
+| PEN | 380.000 / 3,7500 | 101.333,33 |
+| **Total (completo)** | | **275.674,64** |
 
-1. **Dos cifras de caja para un mismo saldo**: según la pestaña, cambian con cada apertura.
-2. **Omisión silenciosa**: una cuenta guardada sin TC desaparece del saldo inicial del flujo y del reporte semanal. En Saldos Bancos solo se muestra un "⚠️ sin paridad" pequeño.
-3. **TC fuera de fecha**: el TC aplicado es el del día en que alguien guardó, no el de la fecha del saldo.
-4. **Fuente no oficial y distinta del resto de la app** (Frisku y Rendiciones usan `maestro_tc`).
-5. Detalle: `toUSD` devuelve `monto × 0` si la API responde pero falta la moneda, así que la cuenta suma 0 en vez de quedar como "sin TC".
+Si falta el TC USD-PEN del 15-09 (y el último tiene más de 5 días hábiles):
 
-## 3. Propuesta (para aprobar)
+| | US$ |
+|---|---|
+| USD + CLP + EUR = 17.433,00 + 102.658,31 + 54.250,00 | **174.341,31 · Parcial** |
+| Excluido | PEN 380.000 (sin TC al 15-09-2026) |
 
-1. **Una sola fuente**: `buscarTC(moneda, "USD", fechaDelSaldo, maestro_tc)` con el dólar observado (mindicador) para CLP, el BCE (frankfurter) para EUR, y PEN manual o SBS cargado en Maestros → Tipo de Cambio. `open.er-api.com` se retira o queda solo como referencia visual "mercado hoy".
-2. **TC de la fecha del saldo**, no de hoy. Se guarda junto al saldo: `{usd, tc, tcFecha, tcFuente}`, así cada cifra es auditable.
-3. **Misma cifra en todas las vistas**: Saldos Bancos, Flujo, Dashboard y Reporte leen el mismo `usd` guardado. Si se quiere ver "a TC de hoy", se muestra como columna aparte, con su rótulo.
-4. **Nunca omitir en silencio**: las cuentas sin TC se excluyen del total, pero el total se marca **"parcial"** e indica cuánto y qué cuentas faltan (ej. "excluye 1 cuenta CLP $95.000.000 sin TC al 15-09-2026"). Mismo aviso en el flujo y en el Excel.
-5. **Migración de saldos ya guardados**: se mantiene el `usd` histórico tal cual (ya se informó). Solo se marca `tcFuente:"open.er-api (histórico)"` cuando no hay TC registrado. Recalcular el histórico requiere tu decisión aparte.
+Hoy, en cambio, esa misma situación muestra 174.341,31 en el Flujo **sin aviso** (PEN suma 0). El Reporte Semanal, mientras tanto, muestra PEN a 3,75 y omite EUR.
 
-Decisiones que necesito de Angelo:
-- (a) ¿Dólar observado del día del saldo o del día hábil anterior?
-- (b) ¿Fuente para PEN: carga manual o SBS?
-- (c) ¿Recalcular o no los saldos históricos con la fuente nueva?
+## 4. Decisiones que necesito
+
+1. ¿TC **del día del saldo** (con tolerancia de 5 días hábiles), o del día hábil anterior?
+2. Fuente de PEN: ¿carga manual SBS, BCRP u otra?
+3. ¿Se recalculan los históricos? Mi recomendación: no, y marcarlos como históricos.
+4. ¿`open.er-api.com` se retira o queda como referencia visible "mercado hoy"?
+
+Con esas respuestas, la implementación toca `SaldosBancos` (guardado), las 7 funciones de la sección 2 (lectura y marca de "parcial") y `reporte_calcSaldosPorMoneda`. Cada cambio de cifras va con su test de cuadre.
