@@ -113,7 +113,7 @@ La **reversión** (R1) deja todo como hoy.
 |---|---|
 | Quién deja de poder | Cualquiera que se registre por su cuenta por `/auth/v1/signup` o inicie sesión anónima |
 | Quién no se afecta | Los usuarios ya existentes; los creados por el administrador (Dashboard → Users, invitación o Admin API con `service_role`) **[Probable]** |
-| Login principal de la app | No usa Supabase Auth (va por `/api/login` con email + PIN) → no se afecta **[Seguro, por código]** |
+| Login principal de la app | No usa Supabase Auth: valida email + PIN en el navegador contra la fila `pins` (`/api/login` está retirado desde 2026-06-30) → no se afecta **[Seguro, por código]**. Ese login tiene sus propias brechas: ver la rama `claude/seguridad-main-pins` |
 | Sesión dual de Osiris (`osiris-auth`, tras el flag `REACT_APP_AUTH_DUAL`) | Emite sesiones con `generate_link` (Admin API) para un correo ya existente. Para un correo **nuevo**, no está verificado que `generate_link` cree el usuario con el registro cerrado **[Suponiendo]**. Mitigación: crear antes el usuario en Dashboard → Users. Además, según su encabezado corre en el proyecto **sandbox**, no en producción |
 
 **Cerrar el registro no reemplaza esta propuesta.** Los usuarios ya registrados, y los anónimos si existieron, conservarían la escalada mientras las tablas sigan abiertas. S1 dice cuántos hay.
