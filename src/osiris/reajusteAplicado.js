@@ -349,11 +349,12 @@ export function puedeDesactivar(ct, opciones) {
 // Que pasaria si se desactiva: por fila, cuanto vuelve a la base.
 export function previsualizarDesactivacion(ct, filas, opciones) {
   const o = opciones || {};
-  const antes = previsualizarActivacion(ct, filas, o);
+  const antes = resumenDeFilas(ct, filas, o);
   const apagado = Object.assign({}, ct, {
     reajusteActivacion: Object.assign({}, (ct && ct.reajusteActivacion) || {}, { activado: false }),
   });
-  const despues = previsualizarActivacion(apagado, filas, o);
+  // Acá el apagado tiene que quedar apagado: es justo lo que se está midiendo.
+  const despues = resumenDeFilas(apagado, filas, o);
   const detalle = antes.detalle.map((d, i) => ({
     temporada: d.temporada,
     conReajuste: d.ajustado,
@@ -578,8 +579,24 @@ export function reajusteDeFila(ct, fila, opciones) {
   return salida;
 }
 
+// La previa contesta "que pasaria SI se activa". Si evaluara el contrato tal
+// como esta —todavia sin activar— `reajusteDeFila` cortaria en su primera
+// linea (`if (!act.activo) return salida`) y devolveria todas las filas
+// bloqueadas: la pantalla mostraria "diferencia $0" y "protegidas: 0" justo
+// en el momento de decidir, y ese cero se guardaria despues como impacto
+// confirmado en el historial. Por eso la previa evalua sobre una copia
+// activada. No toca el contrato real: solo responde la pregunta.
+export function comoSiSeActivara(ct) {
+  const ra = (ct && ct.reajusteActivacion) || {};
+  if (ra.activado) return ct;
+  return Object.assign({}, ct, { reajusteActivacion: Object.assign({}, ra, { activado: true }) });
+}
+
 // Vista previa por fila. Los totales SOLO suman lo que se aplica de verdad.
-export function previsualizarActivacion(ct, filas, opciones) {
+// Evalua las filas con el contrato TAL CUAL viene, sin suponer nada. Las dos
+// previas se arman sobre esto; cada una decide por su cuenta que contrato le
+// pasa, y asi ninguna le cambia el estado a la otra por debajo.
+function resumenDeFilas(ct, filas, opciones) {
   const o = opciones || {};
   const antesDe = o.antecedentesDe || (() => null);
   const detalle = (filas || []).map((f) =>
@@ -598,4 +615,12 @@ export function previsualizarActivacion(ct, filas, opciones) {
     totalAplicado: +detalle.reduce((s, d) => s + d.ajustado, 0).toFixed(2),
     diferenciaAplicada: +aplicadas.reduce((s, d) => s + d.diferencia, 0).toFixed(2),
   };
+}
+
+// Esta previa contesta "que pasaria SI se activa", asi que evalua sobre la
+// copia activada. `previsualizarDesactivacion` NO pasa por aca para su lado
+// "despues": necesita el contrato apagado de verdad, y usa `resumenDeFilas`
+// directo.
+export function previsualizarActivacion(ct, filas, opciones) {
+  return resumenDeFilas(comoSiSeActivara(ct), filas, opciones);
 }

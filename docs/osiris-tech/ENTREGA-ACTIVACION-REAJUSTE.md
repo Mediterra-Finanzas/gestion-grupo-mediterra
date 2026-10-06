@@ -42,6 +42,57 @@ servicio. Todas las fechas son sintéticas.
 **La cifra de 2028/2029 es 130.996,76.** Reemplaza al 131.000,96 que informé antes, que era
 una estimación hecha a mano y estaba mal. El valor correcto es el que mide el motor.
 
+## 2 bis · Lo que encontró la revisión independiente
+
+La primera versión de este paquete fue **bloqueada** por una revisión independiente que leyó el
+diff completo contra la base. Tres bloqueantes y cinco graves. Queda escrito porque explica por
+qué el paquete cambió y qué clase de defecto hay que buscar la próxima vez.
+
+| | Qué era | Cómo quedó |
+|---|---|---|
+| **H1** | `puedeDesactivar` y `previsualizarDesactivacion` se usaban **sin importar**. Activar reventaba el render y dejaba el contrato con el reajuste persistido y la pantalla inaccesible, sin camino de vuelta. El build no lo veía: el archivo empieza con `/* eslint-disable */` | Importadas, y una prueba compara lo exportado por el módulo contra el bloque de import |
+| **H2** | El reajuste se aplicaba **solo en la rama cohortes/OC**. La rama legacy —por la que van los contratos sin cohortes, **Olmos incluido**— no pasaba por él: habría dicho `· ACTIVO` sin mover un centavo | Las dos ramas aplican, con prueba de integración que ejercita legacy |
+| **H3** | La vista previa partía de filas que **ya tenían el reajuste** y lo componía otra vez. El importe que se mostraba al desactivar no era el real | La base se recalcula con la activación apagada. Hay prueba de que lo que promete la previa es lo que guarda el motor |
+| **H4** | `activar()` no comprobaba permiso: vivía solo en el `disabled` | Permiso dentro de la acción, más confirmación explícita. También en reactivar |
+| **H5** | Reactivar borraba el rastro anterior | Historial de eventos que reactivar no pisa |
+| **H6** | El autor salía de `window.__usuarioOsiris`, que **nadie asigna**; y el audit se trunca a 200 caracteres, antes del sello | Identidad desde `usuarioActual`. **Sin identidad válida la acción no se ejecuta**. El historial guarda el sello completo |
+| **H7** | En la versión de recuperación el botón Desactivar **nunca se mostraba**: el aviso lo tapaba | Reordenado. Una activación existente no queda atrapada |
+| **H8** | La tabla mostraba 41,97 há × $3.000 y un total distinto, sin explicar el hueco | Muestra `base + ajuste = total` con el factor |
+
+La parte que la revisión encontró sólida fue el modelo puro: aritmética compuesta, redondeo,
+bordes de aniversario, protección por antecedentes, sello y separación confirmar/activar. **Los
+ocho defectos estaban en el cableado al motor y en la pantalla**, que era la capa sin pruebas.
+
+## 2 ter · Lo que encontró la SEGUNDA revisión
+
+Corregidos los ocho, una segunda revisión independiente verificó las correcciones y volvió a
+**bloquear**: los ocho estaban atendidos, pero *la reescritura del bloque de acciones había
+introducido tres defectos nuevos*, dos de ellos en el mecanismo de control que H4/H5/H6 venían a
+instalar. Vale la pena que quede escrito: corregir un bloque entero es, por sí mismo, una fuente
+de defectos.
+
+| | Lo que estaba mal | Cómo quedó |
+|---|---|---|
+| **R1** | Dos líneas de **texto JSX** volvieron a llevar la secuencia `·` escrita literal, que ahí no se decodifica. Es la misma línea del sello que un commit anterior ya había corregido | Carácter real. Y un control automático que lo detecta: una regla que mira los nodos de texto JSX |
+| **R2** | La vista previa se calculaba sobre el contrato **todavía sin activar**, y `reajusteDeFila` corta en su primera línea si no hay activación: los cuatro números del diálogo salían en **cero**. El CFO confirmaba "diferencia US$ 0,00" cuando se iban a mover 25.690,69, y ese cero se guardaba como impacto confirmado | La previa evalúa sobre una copia activada. La evaluación plana y la hipótesis quedaron separadas, porque la previa de *desactivar* necesita el contrato apagado de verdad |
+| **R3** | Reactivar desde la pantalla arrastraba la `fecha` de la activación anterior, así que el evento quedaba fechado **antes de la desactivación que lo precede** | La pantalla pasa solo los términos declarados; la fecha del evento la pone la acción |
+
+Las tres venían de lo mismo: **ninguna prueba reproducía la forma de los argumentos que la
+pantalla realmente pasa**. Las pruebas llamaban a `activar()` con una fixture prolija; la
+pantalla le pasaba un spread del registro anterior. Las pruebas nuevas de R2 y R3 arman los
+argumentos como los arma la pantalla, que es lo que había que probar desde el principio.
+
+R2 apareció además en el navegador antes que en la revisión: la tabla de vista previa mostraba
+"—" en todas las temporadas. Lo atribuí a que faltaba cargar la fecha. Estaba mirando el defecto
+sin reconocerlo.
+
+**Una observación que la revisión dejó anotada y no se cambió.** `reajusteDeTemporada` recibe
+`ct.rcMesCobro` crudo, no el mes ya resuelto (`ct.rcMesCobro || RC_MES_DEFAULT_POR_PAIS[país] ||
+"Abril"`), así que un contrato peruano o mexicano sin mes explícito ve "Abril" dentro del
+reajuste. **Hoy no tiene efecto económico**: ese mes solo alimenta la fecha estimada de cobro,
+que no es ninguna de las cuatro reglas de fecha. Queda dicho, no corregido: tocarlo es cambiar
+una entrada del motor sin necesidad demostrada.
+
 ## 3 · Recuperación
 
 **Estado: compatible y probada en local; pendiente de despliegue y certificación.** No está
