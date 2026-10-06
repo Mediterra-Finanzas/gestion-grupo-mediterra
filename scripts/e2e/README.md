@@ -30,6 +30,16 @@ OUT_DIR=/tmp/e2e-anticipos node aislamiento.mjs    # 0 peticiones escapadas
 OUT_DIR=/tmp/e2e-anticipos node e2e.mjs            # 6 fases, ~7 min
 ```
 
+Programas comerciales por contraparte (Allegria Foods), con datos sintéticos:
+
+```bash
+OUT_DIR=/tmp/e2e-programas node programas-allegria.mjs
+```
+
+Comprueba que un programa registrado no cambie la proyección, que al activarlo
+el lado pase a calcularse con su calendario más el presupuesto sin programa,
+que el otro lado no se mueva, y que el Excel recalculado traiga lo mismo.
+
 Deja en `OUT_DIR`: capturas por fase, los `.xlsx` descargados por la app,
 `comparaciones.json` (una fila por celda comparada) y el store final.
 Sale con código 1 si hay cualquier diferencia entre pantalla y Excel.

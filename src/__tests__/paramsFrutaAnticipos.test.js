@@ -32,13 +32,17 @@ const pintar = (p = params(), props = {}) =>
 
 test('muestra acordado, cobrado, pendiente y el total por cobrar (540.000)', () => {
   pintar();
-  verTexto(/Queda por cobrar: \$540,000/);
-  verTexto(/Queda por pagar: \$352,000/);
+  // El resumen del lado sale de resumenLado (src/programas.js): saldo total =
+  // anticipos pendientes + liquidación.
+  verTexto(/Saldo económico pendiente \(por cobrar\)\$540,000/);
+  verTexto(/Saldo económico pendiente \(por pagar\)\$352,000/);
+  verTexto(/Total calendarizado\$540,000/);
   verTexto(/Acordado \$100,000/);                    // acordado cliente
   verTexto(/Cobrado \$60,000Pendiente \$40,000/);    // cobrado y pendiente cliente
   verTexto(/Pagado \$70,000Pendiente \$30,000/);     // pagado y pendiente productor
-  verTexto(/Liquidación final: \$500,000/);
-  verTexto(/Saldo productor: \$322,000/);
+  verTexto(/Liquidación \(Mar-27\)\$500,000/);
+  verTexto(/\$322,000/);                            // saldo al productor
+  verTexto(/· dentro del horizonte\$40,000/);        // cubeta temporal
 });
 
 test('lista la realización con su fecha y dice que no es comprobable sin saldos', () => {
@@ -105,18 +109,35 @@ test('no deja borrar un anticipo con cobros registrados', () => {
   expect(setParams).not.toHaveBeenCalled();
 });
 
-test('avisa del sobre-anticipo sin compensarlo solo', () => {
+test('distingue el exceso de compromisos del excedente real', () => {
+  // Venta 600.000, cobrado 400.000 y 300.000 de calendario pendiente: el
+  // calendario se pasa en 100.000, pero NO hay plata cobrada de más.
   const p = params({ anticipos_cliente:[{ id:"a1", mes:"Oct-26", usd_kg:0.70, realizaciones:[{ id:"r1", fecha:"2026-08-10", usd:400000 }] }] });
   pintar(p);
-  verTexto(/Sobre-anticipo: \$100,000 por sobre la venta/);
-  verTexto(/NO se compensa solo/);
+  verTexto(/Exceso de compromisos del calendario\$100,000/);
+  verTexto(/no crea ninguna obligación/);
+  expect(texto()).not.toMatch(/Excedente real/);        // no hay sobrepago
+  expect(texto()).not.toMatch(/Excedente de anticipos/); // el rótulo mezclado se retiró
+});
+
+test('el excedente real aparece solo cuando se cobró por sobre la base', () => {
+  const p = params({ anticipos_cliente:[{ id:"a1", mes:"Oct-26", usd_kg:0.70,
+    realizaciones:[{ id:"r1", fecha:"2026-08-10", usd:700000 }] }] });   // venta 600.000
+  pintar(p);
+  verTexto(/Excedente real \(cobrado por sobre la base\)\$100,000/);
+  verTexto(/solo con respaldo/);
 });
 
 test('marca el pendiente vencido y ofrece reprogramarlo a mano', () => {
   const p = params({ anticipos_cliente:[{ id:"a1", mes:"Jul-26", usd_kg:0.10, realizaciones:[] }] });
-  pintar(p);           // hoy = Sep-26 → Jul-26 está vencido
+  pintar(p);           // Jul-26 quedó antes del mes en curso
+  // El mes de destino es el mes en curso, así que se calcula: fijarlo a mano
+  // hacía fallar el test al cambiar de mes.
+  const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const hoy = new Date();
+  const mesHoy = `${MN[hoy.getMonth()]}-${String(hoy.getFullYear()).slice(2)}`;
   verTexto(/vencido: Jul-26 ya pasó/);
-  verTexto(/reprogramar a Sep-26/);
+  verTexto(new RegExp(`reprogramar a ${mesHoy}`));
   verTexto(/No se da por cobrado ni se mueve solo/);
 });
 
