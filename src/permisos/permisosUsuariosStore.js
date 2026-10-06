@@ -40,9 +40,12 @@ export function crearUsuariosStore(persist, opts = {}) {
   // Registra en el contrato la lectura inicial (de la fila `usuarios` o del seed
   // migrado desde `main`) y fija el ancestro de sesión. Habilita el guardado
   // (Regla 9: solo tras carga exitosa).
-  function registrarCarga(lista, version, encoding) {
+  // valorServidor (opcional): la lista tal como vino del servidor, cuando `lista`
+  // es la versión fusionada en memoria (WORKERS_BASE, accesos). Permite que el
+  // guardado no escriba si la fusión no cambió nada, y que SÍ escriba si cambió.
+  function registrarCarga(lista, version, encoding, valorServidor) {
     const v = Array.isArray(lista) ? lista : [];
-    persist.registrarCarga(id, v, version == null ? null : version, encoding);
+    persist.registrarCarga(id, v, version == null ? null : version, encoding, valorServidor);
     baseSesion = _clone(v);
     prevCount = Math.max(prevCount, v.length);
   }

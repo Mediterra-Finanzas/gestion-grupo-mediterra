@@ -120,6 +120,13 @@ function _sanearJsonb(v) {
 // FÁBRICA — una instancia por app (o por test). Estado (versión/base/dirty/cola)
 // vive en la instancia, no en globales de módulo.
 // ═══════════════════════════════════════════════════════════════════════════════
+// JSON canónico (claves ordenadas) para comparar contenido sin depender del orden.
+function canonico(v) {
+  if (Array.isArray(v)) return `[${v.map(canonico).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonico(v[k])}`).join(",")}}`;
+  return v === undefined ? "null" : JSON.stringify(v);
+}
+
 export function crearPersistencia(opts = {}) {
   const fetchImpl = opts.fetch || (typeof fetch !== "undefined" ? fetch : null);
   const SUPA_URL = opts.supaUrl || SUPA_URL_DEFAULT;
@@ -138,6 +145,11 @@ export function crearPersistencia(opts = {}) {
   // migrar a ciegas (una pestaña en el bundle VIEJO que hiciera JSON.parse(value)
   // se rompería si un objeto jsonb apareciera donde antes había string).
   const _encoding = new Map(); // id -> 'string' | 'object'
+  // Último valor CONFIRMADO por el servidor (leído o escrito con éxito). Puede
+  // diferir de _base: una ruta puede registrar como base una versión transformada
+  // (p. ej. `usuarios` fusionado con WORKERS_BASE). El guardia "sin cambios"
+  // compara contra ESTE mapa, nunca contra _base, para no saltarse una migración.
+  const _servidor = new Map();
   // Cola de coalescencia por id (req 9/10): cadena de promesas + último valor deseado + generación.
   const _cadena = new Map();   // id -> Promise
   const _deseado = new Map();  // id -> { value, opts }
@@ -167,6 +179,7 @@ export function crearPersistencia(opts = {}) {
   function _registrarLectura(id, valor, updatedAt) {
     _version.set(id, updatedAt === undefined ? null : updatedAt);
     _base.set(id, clonarValor(valor));
+    _servidor.set(id, clonarValor(valor));
   }
 
   // F0-C: codifica el objeto para la columna `value` respetando la codificación
@@ -237,8 +250,11 @@ export function crearPersistencia(opts = {}) {
   // (lee la fila → si es objeto, 'object'; si no existe, default 'string'). Solo el
   // literal 'object' fija 'object' de forma explícita. Así nunca se migra objeto→string
   // ni string→objeto por accidente, y una fila nueva queda 'string' (rollback-safe).
-  function registrarCarga(id, valor, version, encoding) {
+  function registrarCarga(id, valor, version, encoding, valorServidor) {
     _registrarLectura(id, valor, version);
+    // valorServidor (opcional): lo que vino REALMENTE del servidor cuando `valor`
+    // es una versión transformada en memoria. Sin él, se asume valor = servidor.
+    if (valorServidor !== undefined) _servidor.set(id, clonarValor(valorServidor));
     if (encoding === true || encoding === "string") _encoding.set(id, "string");
     else if (encoding === "object") _encoding.set(id, "object");
     // encoding === false / undefined → NO se fija: detección perezosa (o el default
@@ -262,6 +278,16 @@ export function crearPersistencia(opts = {}) {
     let fusionado = false, cambios = null;
     let aGuardar = producir(_base.get(id));
 
+    // Sin cambios efectivos → no se escribe. Solo si la fila EXISTE con versión
+    // conocida y el valor es idéntico (canónico) a lo último confirmado por el
+    // servidor. Una fila nueva, una migración o una siembra (sin versión) se
+    // escriben como siempre; `o.forzar` permite escribir igual.
+    if (!o.forzar && _version.get(id) && _servidor.has(id) && _servidor.get(id) != null
+        && canonico(_servidor.get(id)) === canonico(aGuardar)) {
+      log.info(`[persist:${id}] = sin cambios respecto del servidor: no se escribe (v${_versionCorta(_version.get(id))})`);
+      return { ok: true, value: aGuardar, version: _version.get(id), fusionado: false, cambios: null, sinCambios: true, noEscrito: true };
+    }
+
     try {
       // F0-C: si la codificación física de la fila aún no se conoce (registrada por
       // otra ruta SIN pista) pero SÍ tenemos versión (no vamos a releer en el loop),
@@ -281,6 +307,7 @@ export function crearPersistencia(opts = {}) {
         if (r.ok) {
           _version.set(id, r.updatedAt);
           _base.set(id, clonarValor(aGuardar));
+          _servidor.set(id, clonarValor(aGuardar));
           const kb = Math.round(_bytesDe(JSON.stringify(aGuardar)) / 1024);
           log.info(`[persist:${id}] ✅ guardado y confirmado (${kb} KB · v${_versionCorta(r.updatedAt)}${fusionado ? " · fusionado" : ""})`);
           return { ok: true, value: aGuardar, version: r.updatedAt, fusionado, cambios };
@@ -306,6 +333,7 @@ export function crearPersistencia(opts = {}) {
           if (f.ok && f.conflictos.length === 0) {
             _version.set(id, actual.updatedAt);
             _base.set(id, clonarValor(actual.valor));
+            _servidor.set(id, clonarValor(actual.valor));
             aGuardar = f.valor; fusionado = true; cambios = f.cambios;
             log.info(`[persist:${id}] ↻ fusionado (${f.cambios.ajenosPreservados} ítems ajenos preservados). Reintentando.`);
             continue;
@@ -402,6 +430,10 @@ export function crearPersistencia(opts = {}) {
     // Se actualiza SOLO la versión conocida para que el próximo saveConfirmed
     // detecte el conflicto contra la versión real (y no pise en silencio).
     _version.set(id, remoteVersion);
+    // El servidor tiene ahora remoteValue: el guardia "sin cambios" debe comparar
+    // contra él (no contra la lectura anterior), para no dar por guardado algo
+    // que el servidor ya no tiene.
+    if (remoteValue !== undefined) _servidor.set(id, clonarValor(remoteValue));
     return { apply: false, dirty: true, motivo: MOTIVOS.CONFLICTO, valorServidor: remoteValue, version: remoteVersion };
   }
 
@@ -413,8 +445,8 @@ export function crearPersistencia(opts = {}) {
   function marcarLimpio(id) { _dirty.set(id, false); }
   function estado(id) { return { version: _version.get(id), base: _base.get(id), cargaOk: !!_cargaOk.get(id), dirty: !!_dirty.get(id), encoding: _encoding.get(id) || null }; }
   function reset(id) {
-    if (id === undefined) { _version.clear(); _base.clear(); _cargaOk.clear(); _dirty.clear(); _cadena.clear(); _deseado.clear(); _gen.clear(); _encoding.clear(); }
-    else { _version.delete(id); _base.delete(id); _cargaOk.delete(id); _dirty.delete(id); _cadena.delete(id); _deseado.delete(id); _gen.delete(id); _encoding.delete(id); }
+    if (id === undefined) { _version.clear(); _base.clear(); _servidor.clear(); _cargaOk.clear(); _dirty.clear(); _cadena.clear(); _deseado.clear(); _gen.clear(); _encoding.clear(); }
+    else { _version.delete(id); _base.delete(id); _servidor.delete(id); _cargaOk.delete(id); _dirty.delete(id); _cadena.delete(id); _deseado.delete(id); _gen.delete(id); _encoding.delete(id); }
   }
 
   return {

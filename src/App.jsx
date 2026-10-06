@@ -2181,17 +2181,19 @@ export default function App(){
           // La lectura propaga errores de red (Regla 9) → si falla, cae al catch de
           // cargar() y el auto-guardado queda deshabilitado esta sesión.
           {
-            let fuenteUsuarios = d.usuarios, filaExiste = false, filaVersion = null;
+            let fuenteUsuarios = d.usuarios, filaExiste = false, filaVersion = null, filaValor;
             try {
               const dr = await dbLoadUsuarios();
-              filaExiste = dr.existe; filaVersion = dr.version;
+              filaExiste = dr.existe; filaVersion = dr.version; filaValor = dr.value;
               if (Array.isArray(dr.value)) fuenteUsuarios = dr.value;
             } catch(e){ console.warn("[usuarios] No se pudo leer la fila dedicada:", e); throw e; }
             if (fuenteUsuarios) {
               const mergedUsuarios = construirUsuarios(fuenteUsuarios);
               setUsuarios(mergedUsuarios);
               // Registrar en el contrato F0 (habilita saveConfirmed("usuarios") con OCC).
-              usuariosStore.registrarCarga(mergedUsuarios, filaVersion, false);
+              // valor del servidor = lo leído de la fila (si existe): si la fusión no
+              // cambió nada, el guardado posterior no reescribe la fila.
+              usuariosStore.registrarCarga(mergedUsuarios, filaVersion, false, filaExiste && Array.isArray(filaValor) ? filaValor : undefined);
               // Migración: si la fila dedicada no existía, sembrarla desde la lista mergeada.
               if (!filaExiste) { try { await dbSaveUsuarios(mergedUsuarios); } catch(e){ console.warn("[usuarios] seed migración falló:", e); } }
             }
