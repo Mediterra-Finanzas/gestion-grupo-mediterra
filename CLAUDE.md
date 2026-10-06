@@ -512,6 +512,16 @@ Tests: `src/__tests__/motorSemanal.test.js` (motor = Consolidado mensual, Σ sem
 `scripts/e2e/consolidado-semanal.mjs` (Consolidado/Por Empresa/Resumen Semanal vs
 Flujo Empresas + Reporte Semanal abre sin error).
 
+#### Cuentas sin paridad: visibles, total INCOMPLETO (oct-2026)
+
+Política de TC **pendiente** (`docs/propuesta-tc-saldos-bancos.md`): no se cambió
+fuente ni cifra. `cuentasSinParidad(saldosBancos, emp, {excluirFuturas})` lista las
+cuentas no-USD cuyo saldo vigente tiene `usd` null, o 0 con monto. Siguen sumando 0,
+pero Saldos Bancos, Flujo Empresas, Dashboard, Consolidado, Reporte Semanal (EUR
+omitida) y los Excel las nombran y rotulan el total "INCOMPLETO". `toUSD` devuelve
+`null` (no 0) si la fuente no trae la moneda. Tests: `src/__tests__/sinParidad.test.js`,
+`scripts/e2e/sin-paridad.mjs`.
+
 #### Dashboard = Consolidado (oct-2026)
 
 "Saldo inicial / Mínimo / Saldo final consolidado" del Dashboard salen de

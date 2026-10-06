@@ -42,6 +42,32 @@ Otros detalles:
 - `toUSD` devuelve `monto × 0` cuando la API responde pero falta la moneda: la cuenta queda en 0 y no aparece como "sin TC".
 - `PanelBancosNomina` (L14510) muestra cada moneda por separado y no convierte. No tiene este problema.
 
+## 2b. Ya implementado sin cambiar cifras (oct-2026)
+
+Mientras la política sigue pendiente, una cuenta sin paridad ya no pasa inadvertida. **Ninguna cifra cambió** (E2E `scripts/e2e/sin-paridad.mjs`: mismos valores en el build anterior y en el nuevo):
+
+| Dónde | Qué se ve |
+|---|---|
+| Saldos Bancos | Celda "⚠ sin paridad" en la cuenta; "incompleto: N cuentas" en la empresa; "INCOMPLETO" en el total consolidado y "· incompleto" en el total grupo. |
+| Flujo Empresas | Aviso sobre la tabla con cada cuenta (banco, moneda, monto, fecha, motivo). |
+| Dashboard y Consolidado | KPI de saldo marcado "· INCOMPLETO" y aviso con el detalle. |
+| Reporte Semanal | KPI "Saldo Bancos Grupo · INCOMPLETO", aviso en pantalla y nota en el PDF; las cuentas EUR (antes omitidas en silencio) aparecen como "sin conversión, no suma". |
+| Excel individual y consolidado | Nota en el subtítulo y al pie (`textoSinParidad`). |
+
+Detección (`cuentasSinParidad`): saldo vigente no-USD con `usd` null, o con `usd` 0 y monto distinto de 0. Este segundo caso salía de `toUSD`, que devolvía `monto × 0` cuando la fuente no traía la moneda; ahora devuelve `null`, así que los saldos nuevos quedan marcados en lugar de guardarse como 0.
+
+Sigue pendiente lo que exige la política: cuál TC usar, recalcular o no, y el criterio C del Reporte (950 / 3,75 fijos).
+
+## 2c. Recomendación concreta
+
+1. **Fuente única `maestro_tc`**: dólar observado del BCCh (mindicador) para CLP, BCE (frankfurter) para EUR y `USD-PEN` de la **SBS** cargado a mano para PEN.
+2. **TC del día del saldo**, con hasta 5 días hábiles hacia atrás; si no hay, la cuenta queda sin paridad (ya visible, sección 2b).
+3. **No recalcular históricos**: se marcan "TC histórico (open.er-api, fecha no registrada)". Si más adelante decides recalcular, primero se muestra la diferencia cuenta por cuenta.
+4. **`open.er-api.com` queda solo como referencia** "mercado hoy", fuera de los cálculos.
+5. El Reporte Semanal deja los TC fijos (950 / 3,75) y lee el mismo `usd` guardado.
+
+Motivo: el dólar observado es la referencia contable en Chile para los EEFF, y usar el TC de la fecha del saldo hace que la cifra sea reproducible y auditable.
+
 ## 3. Política propuesta
 
 | Tema | Propuesta |
