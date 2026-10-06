@@ -10077,9 +10077,11 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                   "Protegidas por factura o pago: "+prev.filasIntocables+"\n"+
                                   "Bloqueadas por regla pendiente: "+prev.filasBloqueadasPorReglaPendiente+"\n"+
                                   "Diferencia que se aplica: US$ "+prev.diferenciaAplicada.toFixed(2)+"\n\n"+
-                                  "Confirmas?");
+                                  "¿Confirmas?");
                                 if(!ok) return;
-                                const res = activarReajuste(r, {...(r.reajusteActivacion||{}),
+                                const res = activarReajuste(r, {
+                                  fechaReferencia: ra.fechaReferencia, respaldo: ra.respaldo,
+                                  reglaFecha: ra.reglaFecha, reglaFechaRespaldo: ra.reglaFechaRespaldo,
                                   puedeEditar: can, usuarioActual, confirmado: true,
                                   impacto: prev.diferenciaAplicada});
                                 if(!res.ok){ window.alert(res.motivo); return; }
@@ -10087,7 +10089,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                               }} style={{background:C.success,color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:can?"pointer":"default",fontSize:11,fontWeight:700}}>
                                 Activar el reajuste
                               </button>}
-                          {act.activo&&<span style={{fontSize:10,color:C.muted}}>Sellado: {act.pct} % \u00b7 desde {act.fechaReferencia} \u00b7 por {act.reglaSellada}</span>}
+                          {act.activo&&<span style={{fontSize:10,color:C.muted}}>Sellado: {act.pct} % · desde {act.fechaReferencia} · por {act.reglaSellada}</span>}
                         </div>
                         {/* Historial de activaciones y desactivaciones de ESTE contrato. */}
                         {historialActivacion(r).length>0&&(
@@ -10095,7 +10097,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                             <strong>Historial:</strong>
                             {historialActivacion(r).map((h,i)=>(
                               <div key={i}>
-                                {h.fecha} \u00b7 {h.evento} \u00b7 {h.autor}
+                                {h.fecha} · {h.evento} · {h.autor}
                                 {h.sello?` \u00b7 ${h.sello.pct} % desde ${h.sello.fechaReferencia}`:""}
                                 {h.impactoConfirmado!==null&&h.impactoConfirmado!==undefined?` \u00b7 impacto US$ ${N(Number(h.impactoConfirmado).toFixed(2))}`:""}
                                 {h.motivo?` \u00b7 ${h.motivo}`:""}

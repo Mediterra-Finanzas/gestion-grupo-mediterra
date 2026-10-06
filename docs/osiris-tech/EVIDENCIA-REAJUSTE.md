@@ -96,11 +96,26 @@ chico, y se nombra para que nadie confunda una medición con la otra.
 
 ## 3 · Lo que las pruebas NO cubren
 
-- **Render de React.** No hay pruebas de componente. Los defectos H1, H3, H7, H8 y H12 de la
-  revisión independiente estaban todos en esa capa. Lo que la cubre hoy es la revisión en
-  navegador aislado, que es manual y queda registrada en el acta de la entrega.
-- **La prueba de imports tiene un alcance acotado**, y conviene no sobrevenderla: compara los
-  nombres que **exportan `reajusteAplicado.js` y `condicionesConfigurables.js`** contra el bloque
-  de import correspondiente en `OsirisModule.jsx`. **No** detecta cualquier variable indefinida
-  del archivo: no es un `no-undef`. Cubre exactamente la clase de defecto que apareció (usar algo
-  de esos dos módulos sin importarlo), y nada más.
+- **Render de React.** No hay pruebas de componente. Los defectos H1, H3, H7 y H8 de la primera
+  revisión independiente, y R1 a R3 de la segunda, estaban todos en esa capa. Lo que la cubre hoy
+  es la revisión en navegador aislado, que es manual y queda registrada en el acta de la entrega.
+- **Dos controles de código sobre `OsirisModule.jsx`**, que sí son automáticos. Corrigen una
+  versión anterior de este documento, donde describí el control de imports con más alcance del
+  que tenía: comparaba cadenas, así que dejaba pasar los imports **con alias** —justo donde viven
+  `activarReajuste`, `desactivarReajuste` y `reajusteActivadoDeFila`— y las constantes, que no se
+  usan en posición de llamada. La segunda revisión lo demostró retirando `activar as
+  activarReajuste` del bloque de import: la prueba pasó en verde con una referencia indefinida en
+  el archivo.
+
+  Lo que hay ahora, en `src/osiris/integracionReajuste.test.js`:
+
+  | Control | Qué cubre | Qué NO cubre |
+  |---|---|---|
+  | `no-undef` real | **cualquier** referencia indefinida del archivo entero, con alias y constantes incluidas | otros archivos; errores que no sean referencias libres |
+  | escapes en texto JSX | secuencias `\uXXXX` escritas en **texto** JSX, que no se decodifican y se imprimen literales | las mismas secuencias dentro de cadenas o template literals, donde sí se decodifican y son correctas |
+
+  Las dos corren un linter **en memoria**, sobre ese único archivo y con esas dos reglas. No
+  tocan la configuración de lint del proyecto. Van con `noInlineConfig`, porque si no el
+  `/* eslint-disable */` de la cabecera del archivo las apagaría — que es exactamente la razón
+  por la que el build no vio H1. Y cada una tiene su contraprueba: una prueba retira un import y
+  otra reintroduce un escape, para que se note si el control deja de controlar.

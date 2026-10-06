@@ -63,6 +63,36 @@ La parte que la revisión encontró sólida fue el modelo puro: aritmética comp
 bordes de aniversario, protección por antecedentes, sello y separación confirmar/activar. **Los
 ocho defectos estaban en el cableado al motor y en la pantalla**, que era la capa sin pruebas.
 
+## 2 ter · Lo que encontró la SEGUNDA revisión
+
+Corregidos los ocho, una segunda revisión independiente verificó las correcciones y volvió a
+**bloquear**: los ocho estaban atendidos, pero *la reescritura del bloque de acciones había
+introducido tres defectos nuevos*, dos de ellos en el mecanismo de control que H4/H5/H6 venían a
+instalar. Vale la pena que quede escrito: corregir un bloque entero es, por sí mismo, una fuente
+de defectos.
+
+| | Lo que estaba mal | Cómo quedó |
+|---|---|---|
+| **R1** | Dos líneas de **texto JSX** volvieron a llevar la secuencia `·` escrita literal, que ahí no se decodifica. Es la misma línea del sello que un commit anterior ya había corregido | Carácter real. Y un control automático que lo detecta: una regla que mira los nodos de texto JSX |
+| **R2** | La vista previa se calculaba sobre el contrato **todavía sin activar**, y `reajusteDeFila` corta en su primera línea si no hay activación: los cuatro números del diálogo salían en **cero**. El CFO confirmaba "diferencia US$ 0,00" cuando se iban a mover 25.690,69, y ese cero se guardaba como impacto confirmado | La previa evalúa sobre una copia activada. La evaluación plana y la hipótesis quedaron separadas, porque la previa de *desactivar* necesita el contrato apagado de verdad |
+| **R3** | Reactivar desde la pantalla arrastraba la `fecha` de la activación anterior, así que el evento quedaba fechado **antes de la desactivación que lo precede** | La pantalla pasa solo los términos declarados; la fecha del evento la pone la acción |
+
+Las tres venían de lo mismo: **ninguna prueba reproducía la forma de los argumentos que la
+pantalla realmente pasa**. Las pruebas llamaban a `activar()` con una fixture prolija; la
+pantalla le pasaba un spread del registro anterior. Las pruebas nuevas de R2 y R3 arman los
+argumentos como los arma la pantalla, que es lo que había que probar desde el principio.
+
+R2 apareció además en el navegador antes que en la revisión: la tabla de vista previa mostraba
+"—" en todas las temporadas. Lo atribuí a que faltaba cargar la fecha. Estaba mirando el defecto
+sin reconocerlo.
+
+**Una observación que la revisión dejó anotada y no se cambió.** `reajusteDeTemporada` recibe
+`ct.rcMesCobro` crudo, no el mes ya resuelto (`ct.rcMesCobro || RC_MES_DEFAULT_POR_PAIS[país] ||
+"Abril"`), así que un contrato peruano o mexicano sin mes explícito ve "Abril" dentro del
+reajuste. **Hoy no tiene efecto económico**: ese mes solo alimenta la fecha estimada de cobro,
+que no es ninguna de las cuatro reglas de fecha. Queda dicho, no corregido: tocarlo es cambiar
+una entrada del motor sin necesidad demostrada.
+
 ## 3 · Recuperación
 
 **Estado: compatible y probada en local; pendiente de despliegue y certificación.** No está
