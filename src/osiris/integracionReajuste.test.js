@@ -10,14 +10,23 @@ import path from "path";
 import { derivarRoyaltyComercialDesdeContratos } from "../OsirisModule";
 import {
   activar, desactivar, estadoActivacion, historialActivacion, identidadDe,
-  previsualizarActivacion, previsualizarDesactivacion,
+  previsualizarActivacion, previsualizarDesactivacion, puedeCrearActivacion,
+  ACTIVACIONES_NUEVAS_HABILITADAS,
 } from "./reajusteAplicado";
-import { DATOS_ACTIVACION, filas, porTemp, r2, TABLA_CANDIDATO } from "./fixturesReajuste";
+import { ACTIVACION, DATOS_ACTIVACION, filas, porTemp, r2, TABLA_CANDIDATO } from "./fixturesReajuste";
 
 const USUARIO = { nombre: "Prueba Sintetica", email: "prueba@invalid" };
-const ACTIVAR = (ct) => activar(ct, Object.assign({}, DATOS_ACTIVACION, {
+const ARGS = Object.assign({}, DATOS_ACTIVACION, {
   usuarioActual: USUARIO, puedeEditar: true, confirmado: true, impacto: 25690.69,
-})).contrato;
+});
+
+// El mismo archivo corre en el candidato y en la version de recuperacion.
+// Lo que prueba el MOTOR usa un contrato ya activado, armado desde la fixture,
+// asi que vale en las dos. Lo que prueba la ACCION de crear una activacion
+// solo aplica donde esta permitida, y alla se comprueba el rechazo.
+const sePuedeCrear = ACTIVACIONES_NUEVAS_HABILITADAS;
+const dCrear = sePuedeCrear ? describe : describe.skip;
+const ACTIVAR = (ct) => Object.assign({}, ct, { reajusteActivacion: Object.assign({}, ACTIVACION) });
 
 // Contrato LEGACY: sin cohortes y sin modelo OC, así que el motor lo resuelve
 // por la rama de plantaciones × temporadas. Es la rama por la que van los
@@ -119,7 +128,7 @@ describe("H3 · la vista previa no compone dos veces", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-describe("H4 · permiso dentro de activar, desactivar y reactivar", () => {
+dCrear("H4 · permiso dentro de activar, desactivar y reactivar", () => {
   const { CONTRATO } = require("./fixturesReajuste");
 
   test("activar sin permiso de edición se rechaza y no escribe", () => {
@@ -154,8 +163,11 @@ describe("H4 · permiso dentro de activar, desactivar y reactivar", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-describe("H5/H6 · identidad canónica e historial que no se pisa", () => {
+dCrear("H5/H6 · identidad canónica e historial que no se pisa", () => {
   const { CONTRATO } = require("./fixturesReajuste");
+  // Estas pruebas miran lo que deja la ACCION, asi que tienen que pasar por
+  // ella y no por la fixture ya sellada.
+  const ACTIVAR = (ct) => activar(ct, ARGS).contrato;
 
   test("sin identidad válida, la acción NO se ejecuta", () => {
     expect(identidadDe({}).valida).toBe(false);
@@ -244,4 +256,37 @@ describe("H1 · referencias no definidas en el código modificado", () => {
     const enElPanel = src.slice(src.indexOf("Activacion del reajuste"));
     expect(enElPanel.indexOf("__usuarioOsiris")).toBe(-1);
   });
+});
+
+// ═════════════════════════════════════════════════════════════════
+describe("version: crear activaciones", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+
+  if (sePuedeCrear) {
+    test("en el candidato, la accion crea y sella", () => {
+      const res = activar(CONTRATO(), ARGS);
+      expect(res.ok).toBe(true);
+      expect(res.contrato.reajusteActivacion.sello.pct).toBe(2);
+    });
+  } else {
+    test("en la version de recuperacion, la accion se rechaza y no escribe", () => {
+      expect(puedeCrearActivacion().puede).toBe(false);
+      const res = activar(CONTRATO(), ARGS);
+      expect(res.ok).toBe(false);
+      expect(res.contrato.reajusteActivacion).toBeUndefined();
+    });
+
+    test("pero una activacion existente SIGUE calculando igual", () => {
+      const f = porTemp(filas(ACTIVAR(CONTRATO())));
+      Object.keys(TABLA_CANDIDATO).forEach((t) => expect(r2(f[t].montoFact)).toBe(r2(TABLA_CANDIDATO[t])));
+    });
+
+    test("y se puede desactivar, con sus exigencias", () => {
+      const res = desactivar(ACTIVAR(CONTRATO()), {
+        motivo: "Motivo sintetico", confirmado: true, usuarioActual: USUARIO,
+      });
+      expect(res.ok).toBe(true);
+      expect(historialActivacion(res.contrato).length).toBeGreaterThan(0);
+    });
+  }
 });
