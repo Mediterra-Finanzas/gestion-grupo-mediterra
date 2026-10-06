@@ -288,12 +288,13 @@ try {
   const correosAntes = env.correos.length;
   await m.page.locator('input[placeholder="tu.nombre@grupomediterra.cl"]').last().fill('nadie@grupomediterra.cl');
   await m.page.getByRole('button', { name: /Enviar PIN temporal/ }).click();
-  await m.page.waitForTimeout(2000);
+  // recuperar responde en ≥ 3 s (piso anti-enumeración): esperar el mensaje, no un tiempo fijo.
+  await m.page.getByText(/Si los datos corresponden a una cuenta/).first().waitFor({ timeout: 15000 }).catch(() => {});
   const neutro1 = await m.page.getByText(/Si los datos corresponden a una cuenta/).count();
   check('4a. correo inexistente → mensaje neutro y sin correo', neutro1 > 0 && env.correos.length === correosAntes);
   await m.page.locator('input[placeholder="tu.nombre@grupomediterra.cl"]').last().fill(U.michelle.email);
   await m.page.getByRole('button', { name: /Enviar PIN temporal/ }).click();
-  await m.page.waitForTimeout(2500);
+  for (let i = 0; i < 30 && !ultimoCodigo(env, U.michelle.email); i++) await m.page.waitForTimeout(500);
   const codigo = ultimoCodigo(env, U.michelle.email);
   check('4b. correo existente → mismo mensaje neutro y código enviado por correo', !!codigo && (await m.page.getByText(/Si los datos corresponden a una cuenta/).count()) > 0);
   await ingresar(m, env, U.michelle.email, codigo || '000000');
