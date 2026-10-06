@@ -151,28 +151,64 @@ limpiar porque el cambio no escribe ni migra nada.
 
 ### Después de usar las funciones nuevas (con datos ya cargados)
 
-El mismo `git revert -m 1`, y además hay que saber qué queda en el dato:
+El mismo `git revert -m 1`, y además dos cosas: qué le pasa a la proyección y
+cómo se protege el dato.
 
-- Lo cargado con la funcionalidad nueva vive dentro de la fila `finanzas` de
-  `calendario_data`, en campos que el código anterior **no lee**:
-  `programas`, `movimientos_sin_asignar`, `saldos_favor`, `antecedentes`,
-  `decisiones_sin_fecha`, `liq_definitiva_cliente` / `_productor`, y dentro de
-  cada estimación los campos `v` y `estimacion_caja`.
-- El código anterior los ignora: el flujo vuelve a lo que proyectaba antes y
-  no se rompe. Los montos que se proyectaban por programas **desaparecen de la
-  proyección** mientras la reversión esté activa. Eso es lo que hay que avisar
-  al equipo, porque el flujo va a mostrar menos caja comprometida, no un error.
-- El código anterior **sí escribe** esa misma fila. Un guardado posterior la
-  reescribe completa, así que los campos nuevos pueden perderse. Antes de
-  revertir con datos ya cargados: tomar una copia de la fila `finanzas`
-  (`calendario_data`, `id='finanzas'`) y guardarla fuera de la base. El
-  respaldo diario es genérico y la cubre, pero una copia puntual no depende de
-  a qué hora corrió.
-- Al redesplegar la versión nueva, lo cargado vuelve a estar visible, siempre
-  que no haya habido un guardado del código viejo encima.
+**La proyección puede subir o bajar. No se puede anticipar el signo.**
+
+El código anterior ignora los campos nuevos, y eso corre en las dos
+direcciones a la vez:
+
+- Una cuota vigente que proyectaba un cobro o un pago **deja de proyectarlo**:
+  por ese monto, baja.
+- Una cuota que **sustituía** una estimación deja de sustituirla, así que la
+  estimación recupera su pendiente completo y **vuelve a proyectarse**: por ese
+  monto, sube.
+- Un movimiento real registrado en una cuota deja de descontar de la
+  liquidación, así que la liquidación **sube**.
+- Una estimación con `estimacion_caja` vuelve a proyectarse en su mes
+  contractual: el monto se **mueve de mes**, y en un mes puede subir mientras
+  en otro baja.
+
+El efecto neto depende de qué se haya cargado y en qué meses, así que el aviso
+al equipo es «la proyección va a cambiar y hay que comparar contra la copia»,
+nunca «va a mostrar menos caja». Antes de revertir con datos cargados,
+descargar el Excel de Allegria Foods con la versión nueva: es el único
+antes/después que permite medir el cambio en vez de suponerlo.
+
+**Impedir que el código anterior sobrescriba lo cargado.**
+
+El código anterior **sí escribe** la fila `finanzas` completa, así que
+cualquier guardado suyo (incluido el auto-save, que corre con debounce de 1 a
+2 segundos ante cualquier edición) la reescribe sin los campos que no lee:
+`programas`, `movimientos_sin_asignar`, `saldos_favor`, `antecedentes`,
+`decisiones_sin_fecha`, `liq_definitiva_cliente` / `_productor`, y dentro de
+cada estimación `v` y `estimacion_caja`. No alcanza con «tener respaldo»: hay
+que evitar la escritura mientras se resuelve la recuperación.
+
+En este orden:
+
+1. **Antes de revertir**, copia puntual de la fila: `GET` de
+   `calendario_data?id=eq.finanzas` guardado como archivo fuera de la base, con
+   su `updated_at`. El respaldo diario es genérico y la cubre, pero una copia
+   puntual no depende de a qué hora corrió.
+2. **Cortar el acceso de escritura, no pedirlo.** La vía que no depende de que
+   nadie toque la app: dejar a los usuarios de Finanzas en `sin_acceso` o solo
+   lectura para la pestaña del flujo (el mismo mecanismo de permisos por
+   pestaña que ya usa Rendiciones). Con el flujo en solo lectura, el módulo no
+   guarda y la fila no se reescribe. Mientras eso no esté hecho, cada minuto
+   con la versión vieja arriba es una oportunidad de perder lo cargado.
+3. **Recién entonces** el revert y el deploy.
+4. **Verificar que la fila no cambió**: volver a leer su `updated_at` y
+   comparar con el de la copia. Si avanzó, alguien escribió: restaurar desde la
+   copia antes de seguir.
+5. **Al redesplegar la versión nueva**, lo cargado vuelve a estar visible, con
+   una condición: que ningún guardado del código viejo haya pasado por encima.
+   Si pasó, restaurar la fila desde la copia del paso 1 y volver a comparar.
 
 Por eso conviene publicar la funcionalidad **antes** de cargar datos: mientras
-no haya datos nuevos, la vuelta atrás es solo un revert.
+no haya datos nuevos, la vuelta atrás es solo un revert, sin copia, sin corte
+de acceso y sin antes/después que medir.
 
 ## Lo que esta publicación NO hace
 
