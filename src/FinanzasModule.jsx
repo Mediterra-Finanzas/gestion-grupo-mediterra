@@ -948,6 +948,112 @@ export function calcPrestamosDesgloseSemanasEmpresa(empresa, creditos=CREDITOS_D
   return bySemana;
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// MOTOR DEL FLUJO DE UNA EMPRESA (mensual y semanal) — fuente única.
+// Lo usan Flujo Empresas, el Consolidado (vista semanal y Resumen Semanal) y el
+// Reporte Semanal, para que una misma semana dé la misma cifra en las tres.
+// Reglas vigentes (sin cambios): semanas cargadas mandan; sin desglose, el mes
+// va a S1 (base/parámetros, líneas agregadas) o a la última semana (override
+// mensual antiguo, subLines mensuales); Préstamos sin override: cada cuota en
+// su semana real (mapa de cuotasPrestamosEmpresa), con respaldo a S1 si el mapa
+// no cuadra con el mes. Valores sin signo; el signo lo aplica la categoría.
+// ══════════════════════════════════════════════════════════════════════════
+export function motorFlujoEmpresa({ emp, proyOverrides = {}, resoluciones = [], subLines = {}, addedLines = {}, prestamosSemanas = {} }) {
+  const lineaDe = (cat, label) => { const sec = emp.sections.find(x => x.cat === cat); return sec && sec.lines.find(x => x.label === label); };
+  const ovMes = (cat, label, idx) => overridesDeLinea(proyOverrides, emp, cat, label, resoluciones)?.[idx];
+
+  function getProy(cat, lineLabel, idx) {
+    const ovIdx = ovMes(cat, lineLabel, idx);
+    const l = lineaDe(cat, lineLabel);
+    const base = l ? (l.proy[idx] || 0) : 0;
+    const lockFrom = l && typeof l._lockOverrideFromIdx === "number" ? l._lockOverrideFromIdx : null;
+    if (lockFrom !== null && idx >= lockFrom) return base;
+    if (ovIdx === undefined) return base;
+    if (typeof ovIdx === "number") return ovIdx;
+    if (typeof ovIdx === "object" && ovIdx !== null) {
+      let total = 0;
+      for (let s = 0; s < 4; s++) { const k = `_sem${s}`; if (ovIdx[k] !== undefined) total += Number(ovIdx[k]) || 0; }
+      return total;
+    }
+    return base;
+  }
+  function getProySemana(cat, lineLabel, idx, semIdx, isLastInMonth) {
+    const ov = ovMes(cat, lineLabel, idx);
+    const l = lineaDe(cat, lineLabel);
+    const base = l ? (l.proy[idx] || 0) : 0;
+    const lockFrom = l && typeof l._lockOverrideFromIdx === "number" ? l._lockOverrideFromIdx : null;
+    if (ov === undefined || (lockFrom !== null && idx >= lockFrom)) return semIdx === 0 ? base : 0;
+    if (typeof ov === "number") return isLastInMonth ? ov : 0;
+    if (typeof ov === "object" && ov !== null) { const k = `_sem${semIdx}`; return ov[k] !== undefined ? (Number(ov[k]) || 0) : 0; }
+    return 0;
+  }
+  // Una subLine: mes = Σ semanas si hay; si no, su mensual. Semana: la exacta; sin
+  // semanas, el mensual va a la ÚLTIMA semana del mes.
+  function subLineMes(sl, idx) {
+    if (!sl || typeof sl === "string") return 0;
+    const vals = sl.vals || {}; let total = 0, hasSem = false;
+    for (let s = 0; s < 4; s++) { const k = `${idx}_${s}`; if (vals[k] !== undefined) { total += Number(vals[k]) || 0; hasSem = true; } }
+    if (!hasSem && vals[idx] !== undefined) total += Number(vals[idx]) || 0;
+    return total;
+  }
+  function subLineSemana(sl, idx, semIdx, isLastInMonth) {
+    if (!sl || typeof sl === "string") return 0;
+    const vals = sl.vals || {}; const kSem = `${idx}_${semIdx}`;
+    if (vals[kSem] !== undefined) return Number(vals[kSem]) || 0;
+    const hasAnySem = [0, 1, 2, 3].some(s => vals[`${idx}_${s}`] !== undefined);
+    return (!hasAnySem && vals[idx] !== undefined && isLastInMonth) ? (Number(vals[idx]) || 0) : 0;
+  }
+  // Una línea agregada: semanas mandan; sin semanas, el mensual va a S1.
+  function addedLineMes(al, idx) {
+    if (!al || typeof al === "string") return 0;
+    const vals = al.vals || {};
+    const hasAnySem = [0, 1, 2, 3].some(s => vals[`${idx}_${s}`] !== undefined);
+    if (hasAnySem) return [0, 1, 2, 3].reduce((a, s) => a + (vals[`${idx}_${s}`] !== undefined ? (Number(vals[`${idx}_${s}`]) || 0) : 0), 0);
+    return Number(vals[idx]) || 0;
+  }
+  function addedLineSemana(al, idx, semIdx) {
+    if (!al || typeof al === "string") return 0;
+    const vals = al.vals || {}; const v = vals[`${idx}_${semIdx}`];
+    if (v !== undefined) return Number(v) || 0;
+    const hasAnySem = [0, 1, 2, 3].some(s => vals[`${idx}_${s}`] !== undefined);
+    return (!hasAnySem && semIdx === 0 && vals[idx] !== undefined) ? (Number(vals[idx]) || 0) : 0;
+  }
+  const sumSubLinesMes = (lineLabel, idx) => (subLines[lineLabel] || []).reduce((a, sl) => a + subLineMes(sl, idx), 0);
+  const sumSubLinesSemana = (lineLabel, idx, semIdx, isLast) => (subLines[lineLabel] || []).reduce((a, sl) => a + subLineSemana(sl, idx, semIdx, isLast), 0);
+  const sumAddedLinesMes = (cat, idx) => (addedLines[cat] || []).reduce((a, al) => a + addedLineMes(al, idx), 0);
+  const sumAddedLinesSemana = (cat, idx, semIdx) => (addedLines[cat] || []).reduce((a, al) => a + addedLineSemana(al, idx, semIdx), 0);
+
+  // Parte PROPIA de una línea en una semana (sin subLines). Préstamos: semana real.
+  function propSemana(cat, line, idx, semIdx, isLastInMonth) {
+    let prop = getProySemana(cat, line.label, idx, semIdx, isLastInMonth);
+    if (line.formula && line.label.includes("Préstamos")) {
+      const ov = ovMes(cat, line.label, idx);
+      const bloqueado = typeof line._lockOverrideFromIdx === "number" && idx >= line._lockOverrideFromIdx;
+      if (ov === undefined || bloqueado) {
+        const mes = MESES_65[idx]; const sems = SEMANAS_MES[mes] || [];
+        const mapa = prestamosSemanas[mes] || {};
+        const base = getProy(cat, line.label, idx);
+        const sumaMapa = sems.reduce((a, sw) => a + (mapa[sw] || 0), 0);
+        if (sems.length && Math.abs(sumaMapa - base) < 0.005) prop = mapa[sems[semIdx]] || 0;
+      }
+    }
+    return prop;
+  }
+  const valorLineaSemana = (cat, line, idx, semIdx, isLast) =>
+    propSemana(cat, line, idx, semIdx, isLast) + (line.subLines ? sumSubLinesSemana(line.label, idx, semIdx, isLast) : 0);
+  const valorLineaMes = (cat, line, idx) => getProy(cat, line.label, idx) + (line.subLines ? sumSubLinesMes(line.label, idx) : 0);
+  // Subtotal de categoría (sin signo). Excluye las líneas de detalle "  …" igual que la pantalla.
+  const catMes = (sec, idx) => sec.lines.reduce((a, l) => l.label.startsWith("  ") ? a : a + valorLineaMes(sec.cat, l, idx), 0) + sumAddedLinesMes(sec.cat, idx);
+  const catSemana = (sec, idx, semIdx, isLast) => sec.lines.reduce((a, l) => l.label.startsWith("  ") ? a : a + valorLineaSemana(sec.cat, l, idx, semIdx, isLast), 0) + sumAddedLinesSemana(sec.cat, idx, semIdx);
+  const flujoMes = (idx) => emp.sections.reduce((a, sec) => a + sec.signo * catMes(sec, idx), 0);
+  const nSemanas = (idx) => (SEMANAS_MES[MESES_65[idx]] || []).length || 4;
+  const flujoSemana = (idx, semIdx) => { const n = nSemanas(idx); return emp.sections.reduce((a, sec) => a + sec.signo * catSemana(sec, idx, semIdx, semIdx === n - 1), 0); };
+
+  return { getProy, getProySemana, subLineMes, subLineSemana, addedLineMes, addedLineSemana,
+    sumSubLinesMes, sumSubLinesSemana, sumAddedLinesMes, sumAddedLinesSemana,
+    propSemana, valorLineaSemana, valorLineaMes, catMes, catSemana, flujoMes, flujoSemana, nSemanas };
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // EMPRESAS ESTÁTICAS
 // ═══════════════════════════════════════════════════════════════════
@@ -4627,7 +4733,7 @@ export function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, 
 // ═══════════════════════════════════════════════════════════════════
 // CONSOLIDADO — dentro de Flujo Empresas
 // ═══════════════════════════════════════════════════════════════════
-export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={},escenarioNombre=null,paramsPart={},onSaveParamsPart=null}) {
+export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={},escenarioNombre=null,paramsPart={},onSaveParamsPart=null,creditosData=CREDITOS_DEFAULT}) {
   const empNames=Object.keys(empresas);
   // Consolidación proporcional de Allpa (opción por empresa): se puede incluir
   // Allpa Chile, Allpa Perú, o ambas al mismo tiempo — cada una escalada por su
@@ -4752,6 +4858,37 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
   },[flujoConsolidado,saldoIniConsolidado,mesIdxHoy]);
 
   // Derivados null-safe para KPIs/gráfico (los meses pasados son null).
+  // ── Vista semanal: mismo motor que Flujo Empresas (motorFlujoEmpresa) ──
+  // Antes se dividía el mes por el n° de semanas (colVal) y el saldo repetía el
+  // de fin de mes en cada semana. Ahora cada semana es la suma de lo que muestra
+  // Flujo Empresas para esa semana; Allpa, si está incluida, va al % de participación.
+  const pesoEmp = useCallback(n => (n==="Allpa Farms" && onChile) ? pctChile : (n==="Allpa Farms Perú" && onPeru) ? pctPeru : 1, [onChile,onPeru,pctChile,pctPeru]);
+  const motores = useMemo(()=>{
+    const out={};
+    empNames.forEach(n=>{
+      out[n]=motorFlujoEmpresa({ emp: empresas[n], proyOverrides: realData?.[n]?._proyOverrides||{},
+        resoluciones: realData?.[n]?._resolucionesOverride||[], subLines: subLinesGlobal?.[n]||{},
+        addedLines: addedLinesGlobal?.[n]||{}, prestamosSemanas: calcPrestamosSemanasEmpresa(n, creditosData) });
+    });
+    return out;
+  },[empresas, realData, subLinesGlobal, addedLinesGlobal, creditosData]); // eslint-disable-line
+  const catSemanaEmp = (n, cat, idx, w) => {
+    const sec = empresas[n]?.sections.find(s=>s.cat===cat); if(!sec || !motores[n]) return 0;
+    const nS = motores[n].nSemanas(idx);
+    return motores[n].catSemana(sec, idx, w, w===nS-1) * pesoEmp(n);
+  };
+  const flujoSemEmp = (n, idx, w) => motores[n] ? motores[n].flujoSemana(idx, w) * pesoEmp(n) : 0;
+  // Saldo al cierre de una semana: parte del saldo del mes anterior (o del saldo
+  // inicial en el mes en curso) y suma las semanas del mes hasta la indicada.
+  const acumSemana = (flujoW, acumMes, sIni, idx, w) => {
+    if (idx < mesIdxHoy) return null;
+    let a = idx===mesIdxHoy ? sIni : (acumMes[idx-1] ?? sIni);
+    for (let k=0; k<=w; k++) a += flujoW(idx, k);
+    return a;
+  };
+  const flujoSemCons = (idx, w) => empNamesConsolidado.reduce((a,n)=>a+flujoSemEmp(n,idx,w),0);
+  const esColSemana = col => agrup==="semana" && !col.collapsed && col.tipo==="semana";
+
   // Flujo desde el mes en curso: saldo inicial + este flujo = saldo final.
   // (El "Flujo Total" anterior sumaba también los meses ya pasados y no cerraba.)
   const flujoDesdeHoyConsolidado = useMemo(
@@ -4850,6 +4987,7 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
           </td>
           {cols.map(col=>{
             const v=empNamesConsolidado.reduce((sum,n)=>{
+              if(esColSemana(col)) return sum+catSemanaEmp(n,cat,col.indices[0],col.semIdx);
               const sec=empresasConOverrides[n].sections.find(s=>s.cat===cat);
               return sum+(sec?sec.lines.reduce((a,l)=>a+colVal(l.proy,col),0):0);
             },0);
@@ -4865,7 +5003,7 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
                 {emp.emoji} {n}
               </td>
               {cols.map(col=>{
-                const v=sec?sec.lines.reduce((a,l)=>a+colVal(l.proy,col),0):0;
+                const v=esColSemana(col) ? catSemanaEmp(n,cat,col.indices[0],col.semIdx) : (sec?sec.lines.reduce((a,l)=>a+colVal(l.proy,col),0):0);
                 return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:9,color:v!==0?color:C.muted2,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{v!==0?$$(v):"—"}</td>);
               })}
             </tr>
@@ -4896,7 +5034,10 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
 
   // drilldownFlujo / drilldownAcum: {[empName]: number[]} — solo se pasan desde la vista "sumada".
   // En "por_empresa" no se pasan → el desglose ya es visual por empresa, drill-down no aplica.
-  const FilasFlujoYAcum=({flujoArr,acumArr,color=C.accentL,isTotal=false,drilldownFlujo,drilldownAcum})=>{
+  // flujoW(idx,w) / sIni: series semanales del motor (vista Semana).
+  const FilasFlujoYAcum=({flujoArr,acumArr,color=C.accentL,isTotal=false,drilldownFlujo,drilldownAcum,flujoW,sIni=0})=>{
+    const vFlujo=(arr,col,fw)=>esColSemana(col)&&fw ? fw(col.indices[0],col.semIdx) : colVal(arr,col);
+    const vAcum=(arr,col,fw,si)=>esColSemana(col)&&fw ? acumSemana(fw,arr,si,col.indices[0],col.semIdx) : arr[col.indices[col.indices.length-1]];
     const expFlujo = isTotal && !!expandedCats["flujo_neto"];
     const expAcum  = isTotal && !!expandedCats["saldo_acum"];
     return (
@@ -4911,7 +5052,7 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
             </span>
           ):"Flujo Neto"}
         </td>
-        {cols.map(col=>{const v=colVal(flujoArr,col);return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?10:9,color:cf(v),background:`${cf(v)===C.green?C.green:C.red}0a`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{$$(v)}</td>);})}
+        {cols.map(col=>{const v=vFlujo(flujoArr,col,flujoW);return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?10:9,color:cf(v),background:`${cf(v)===C.green?C.green:C.red}0a`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{$$(v)}</td>);})}
       </tr>
       {expFlujo && drilldownFlujo && empNamesConsolidado.map(n=>{
         const emp=empresasConOverrides[n];
@@ -4920,7 +5061,7 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
             <td style={{padding:"5px 14px 5px 28px",position:"sticky",left:0,background:C.bg2,zIndex:1,borderRight:`1px solid ${C.border}`,fontSize:10,color:emp.color,whiteSpace:"nowrap"}}>
               {emp.emoji} {n}
             </td>
-            {cols.map(col=>{const v=colVal(drilldownFlujo[n]||[],col);return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:9,color:v!==0?cf(v):C.muted2,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{v!==0?$$(v):"—"}</td>);})}
+            {cols.map(col=>{const v=vFlujo(drilldownFlujo[n]||[],col,(i,w)=>flujoSemEmp(n,i,w));return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:9,color:v!==0?cf(v):C.muted2,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{v!==0?$$(v):"—"}</td>);})}
           </tr>
         );
       })}
@@ -4934,7 +5075,7 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
             </span>
           ):"Saldo Acumulado"}
         </td>
-        {cols.map(col=>{const lastIdx=col.indices[col.indices.length-1];const v=acumArr[lastIdx];const esNull=v==null;return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?10:9,color:esNull?C.muted2:cf(v||0),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{esNull?"—":$$(v||0)}</td>);})}
+        {cols.map(col=>{const v=vAcum(acumArr,col,flujoW,sIni);const esNull=v==null;return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?10:9,color:esNull?C.muted2:cf(v||0),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{esNull?"—":$$(v||0)}</td>);})}
       </tr>
       {expAcum && drilldownAcum && empNamesConsolidado.map(n=>{
         const emp=empresasConOverrides[n];
@@ -4943,7 +5084,7 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
             <td style={{padding:"5px 14px 5px 28px",position:"sticky",left:0,background:C.bg2,zIndex:1,borderRight:`1px solid ${C.border}`,fontSize:10,color:emp.color,whiteSpace:"nowrap"}}>
               {emp.emoji} {n}
             </td>
-            {cols.map(col=>{const lastIdx=col.indices[col.indices.length-1];const v=(drilldownAcum[n]||[])[lastIdx];const esNull=v==null;return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:9,color:esNull?C.muted2:cf(v||0),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{esNull?"—":$$(v||0)}</td>);})}
+            {cols.map(col=>{const v=vAcum(drilldownAcum[n]||[],col,(i,w)=>flujoSemEmp(n,i,w),saldoIniPorEmp[n]||0);const esNull=v==null;return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:9,color:esNull?C.muted2:cf(v||0),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{esNull?"—":$$(v||0)}</td>);})}
           </tr>
         );
       })}
@@ -5106,6 +5247,7 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
                 flujoArr={flujoConsolidado} acumArr={acumConsolidado}
                 color={C.accentL} isTotal
                 drilldownFlujo={flujoPorEmp} drilldownAcum={acumPorEmp}
+                flujoW={flujoSemCons} sIni={saldoIniConsolidado||0}
               />
             </tbody>
           </table>
@@ -5137,18 +5279,20 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
                           </span>
                         </td>
                         {cols.map(col=>{
-                          const v=sec.lines.reduce((a,l)=>a+colVal(l.proy,col),0);
+                          const v=esColSemana(col) ? catSemanaEmp(n,sec.cat,col.indices[0],col.semIdx) : sec.lines.reduce((a,l)=>a+colVal(l.proy,col),0);
                           return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:10,color:CAT_COLOR[sec.cat]||C.muted,background:C.bg2,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{v!==0?$$(v):"—"}</td>);
                         })}
                       </tr>
                     ))}
-                    <FilasFlujoYAcum flujoArr={flujoPorEmp[n]||Z65()} acumArr={acumPorEmp[n]||Z65()} color={emp.color} isTotal={false}/>
+                    <FilasFlujoYAcum flujoArr={flujoPorEmp[n]||Z65()} acumArr={acumPorEmp[n]||Z65()} color={emp.color} isTotal={false}
+                      flujoW={(i,w)=>flujoSemEmp(n,i,w)} sIni={saldoIniPorEmp[n]||0}/>
                   </React.Fragment>
                 );
               })}
               <tr><td colSpan={cols.length+1} style={{height:6,background:`linear-gradient(90deg,${C.accent}66,${C.border})`}}/></tr>
               <FilaSaldoBanco nombre="_consolidado"/>
-              <FilasFlujoYAcum flujoArr={flujoConsolidado} acumArr={acumConsolidado} color={C.accentL} isTotal/>
+              <FilasFlujoYAcum flujoArr={flujoConsolidado} acumArr={acumConsolidado} color={C.accentL} isTotal
+                flujoW={flujoSemCons} sIni={saldoIniConsolidado||0}/>
             </tbody>
           </table>
         </div>
@@ -5156,7 +5300,7 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
 
       {/* Vista Resumen Semanal */}
       {vistaConsolidado==="semanal"&&(
-        <ResumenSemanal empresas={empresasConOverrides} empNames={empNamesConsolidado}/>
+        <ResumenSemanal empresas={empresasConOverrides} empNames={empNamesConsolidado} catSemanaEmp={catSemanaEmp}/>
       )}
 
       {/* Vista Matriz Mensual — Empresa x Mes para detectar mínimos consolidados */}
@@ -5181,7 +5325,8 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
 // ═══════════════════════════════════════════════════════════════════
 // RESUMEN SEMANAL — Vista consolidada por semana seleccionada
 // ═══════════════════════════════════════════════════════════════════
-function ResumenSemanal({empresas, empNames}) {
+// catSemanaEmp(n, cat, mesIdx, semIdx): importe semanal del motor (mismo de Flujo Empresas).
+function ResumenSemanal({empresas, empNames, catSemanaEmp}) {
   const semanasDisponibles = useMemo(()=>{
     const list = [];
     MESES_65.forEach((mes, mesIdx) => {
@@ -5214,11 +5359,8 @@ function ResumenSemanal({empresas, empNames}) {
       CATS.forEach(({cat}) => {
         const sec = (emp.sections||[]).find(s=>s.cat===cat);
         if(!sec) { row[cat] = 0; return; }
-        let total = 0;
-        sec.lines.forEach(l => {
-          const mesVal = Number(l.proy[sel.mesIdx])||0;
-          total += mesVal / sel.nSems;
-        });
+        // Antes: mes / n° de semanas. Ahora: la misma cifra que Flujo Empresas.
+        const total = catSemanaEmp ? catSemanaEmp(n, cat, sel.mesIdx, sel.semIdx) : 0;
         const val = total * sec.signo;
         row[cat] = val;
         flujoNeto += val;
@@ -5227,7 +5369,7 @@ function ResumenSemanal({empresas, empNames}) {
       res[n] = row;
     });
     return res;
-  },[empresas, empNames, sel]); // eslint-disable-line
+  },[empresas, empNames, sel, catSemanaEmp]); // eslint-disable-line
 
   const totales = useMemo(()=>{
     const t = {};
@@ -6118,187 +6260,24 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     return idx >= 0 ? idx : 0;
   },[mesHoyLabel, semanaHoy]);
 
-  // ── Valor proyectado efectivo (base + override) ────────────────
-  // Si override es objeto {_sem0,_sem1,_sem2,_sem3}: suma SOLO las semanas definidas por el usuario
-  //   (las semanas no editadas son 0, el usuario tomó control del mes)
-  // Si override es número: usa ese número como total del mes (retrocompatibilidad)
-  // Si no hay override: usa el valor base de la fórmula/proyección
-  // cat + etiqueta identifican la línea sin ambigüedad (hay etiquetas
-  // repetidas entre categorías; ver claveLinea).
-  const getProy = useCallback((cat, lineLabel, idx) => {
-    const ov = overridesDeLinea(proyOverrides, emp, cat, lineLabel, resoluciones);
-    const ovIdx = ov?.[idx];
-    // Obtener valor base — SOLO de la categoría indicada
-    let base = 0;
-    let lockFrom = null;
-    {
-      const sec = emp.sections.find(x=>x.cat===cat);
-      const l = sec && sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; }
-    }
-    // Celda controlada por parámetros (ej. Osiris desde 27-28): ignora override manual.
-    if(lockFrom !== null && idx >= lockFrom) return base;
-    if(ovIdx === undefined) return base;
-    if(typeof ovIdx === "number") return ovIdx;
-    // ovIdx es objeto con semanas: suma solo las semanas que el usuario ingresó
-    if(typeof ovIdx === "object" && ovIdx !== null) {
-      let total = 0;
-      for(let s=0; s<4; s++){
-        const k = `_sem${s}`;
-        if(ovIdx[k] !== undefined) total += Number(ovIdx[k])||0;
-      }
-      return total;
-    }
-    return base;
-  },[proyOverrides, emp, resoluciones]);
-
-  // Valor proyectado específico de UNA semana (0-3) del mes idx
-  // Lógica:
-  // - Sin override: muestra el valor base COMPLETO en la primera semana del mes (0), resto en 0
-  //   (los parámetros apuntan a un mes específico, no tiene sentido prorratear)
-  // - Con override mensual antiguo (number): muestra en última semana
-  // - Con override semanal (objeto): solo muestra lo que el usuario ingresó en esa semana específica
-  const getProySemana = useCallback((cat, lineLabel, idx, semIdx, isLastInMonth) => {
-    const ov = overridesDeLinea(proyOverrides, emp, cat, lineLabel, resoluciones)?.[idx];
-    let base = 0;
-    let lockFrom = null;
-    {
-      const sec = emp.sections.find(x=>x.cat===cat);
-      const l = sec && sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; }
-    }
-    // Celda controlada por parámetros: ignora override, muestra base en la 1ª semana.
-    if(ov === undefined || (lockFrom !== null && idx >= lockFrom)) {
-      // Sin override: mostrar el valor base COMPLETO en la primera semana
-      return semIdx === 0 ? base : 0;
-    }
-    if(typeof ov === "number") {
-      // Override mensual antiguo: mostrar solo en última semana
-      return isLastInMonth ? ov : 0;
-    }
-    if(typeof ov === "object" && ov !== null) {
-      const k = `_sem${semIdx}`;
-      // Solo el valor ingresado por el usuario en esa semana exacta
-      return ov[k] !== undefined ? (Number(ov[k])||0) : 0;
-    }
-    return 0;
-  },[proyOverrides, emp, resoluciones]);
-
-  // ── Helpers para sumar subLines (CxC, Capital Calls, Aportes, etc) ─
-  // Soporta formato nuevo "idx_semIdx" y formato antiguo "idx"
-  const sumSubLinesMes = useCallback((lineLabel, idx) => {
-    const list = subLines[lineLabel] || [];
-    let total = 0;
-    list.forEach(sl=>{
-      if(typeof sl === "string") return;
-      const vals = sl.vals || {};
-      let hasSem = false;
-      for(let s=0; s<4; s++){
-        const k = `${idx}_${s}`;
-        if(vals[k] !== undefined){ total += Number(vals[k])||0; hasSem = true; }
-      }
-      if(!hasSem && vals[idx] !== undefined) total += Number(vals[idx])||0;
-    });
-    return total;
-  },[subLines]);
-
-  const sumSubLinesSemana = useCallback((lineLabel, idx, semIdx, isLastInMonth) => {
-    const list = subLines[lineLabel] || [];
-    let total = 0;
-    list.forEach(sl=>{
-      if(typeof sl === "string") return;
-      const vals = sl.vals || {};
-      const kSem = `${idx}_${semIdx}`;
-      if(vals[kSem] !== undefined) {
-        total += Number(vals[kSem])||0;
-      } else {
-        // Retrocompatibilidad: si no hay valor por semana pero hay mensual antiguo, mostrar en última semana
-        const hasAnySem = [0,1,2,3].some(s=>vals[`${idx}_${s}`]!==undefined);
-        if(!hasAnySem && vals[idx] !== undefined && isLastInMonth) {
-          total += Number(vals[idx])||0;
-        }
-      }
-    });
-    return total;
-  },[subLines]);
-
-  // Helper: total mensual de un AddedLine = valor mensual vals[idx] + suma de semanales vals["idx_s"]
-  // Usado en subtotales por categoría para que coincida con el cálculo del flujo total (línea 4539)
-  // Helper: total mensual de un AddedLine en un mes
-  // Nueva lógica: si hay valores semanales cargados, EL MES = SUMA DE SEMANAS (ignora valor mensual)
-  // Si NO hay valores semanales, fallback al valor mensual antiguo (retrocompatibilidad)
-  const sumAddedLinesMes = useCallback((cat, idx) => {
-    let total = 0;
-    (addedLines[cat]||[]).forEach(al=>{
-      if(typeof al === "string") return;
-      const vals = al.vals || {};
-      // ¿Hay alguna semana cargada para este mes?
-      const sumSemanas = [0,1,2,3].reduce((s, semIdx) => {
-        const v = vals[`${idx}_${semIdx}`];
-        return s + (v !== undefined ? (Number(v) || 0) : 0);
-      }, 0);
-      const hasAnySem = [0,1,2,3].some(s => vals[`${idx}_${s}`] !== undefined);
-      if(hasAnySem) {
-        // Las semanas mandan: el mes es la suma de sus semanas
-        total += sumSemanas;
-      } else {
-        // No hay semanas: usar el valor mensual antiguo (retrocompatibilidad)
-        total += Number(vals[idx]) || 0;
-      }
-    });
-    return total;
-  },[addedLines]);
-
-  // Helper: valor semanal de un AddedLine en una semana específica
-  const sumAddedLinesSemana = useCallback((cat, idx, semIdx) => {
-    let total = 0;
-    (addedLines[cat]||[]).forEach(al=>{
-      if(typeof al === "string") return;
-      const vals = al.vals || {};
-      // Solo el valor semanal exacto
-      const v = vals[`${idx}_${semIdx}`];
-      if(v !== undefined) {
-        total += Number(v) || 0;
-      } else {
-        // Si no hay semanas y sí mensual, atribuir todo a S1 (retrocompatibilidad)
-        const hasAnySem = [0,1,2,3].some(s => vals[`${idx}_${s}`] !== undefined);
-        if(!hasAnySem && semIdx === 0 && vals[idx] !== undefined) {
-          total += Number(vals[idx]) || 0;
-        }
-      }
-    });
-    return total;
-  },[addedLines]);
-
-  // ── Importe semanal de UNA línea (padre + subLines) ─────────────────
-  // ÚNICA fuente para la vista semanal: la fila de la línea, el subtotal de su
-  // categoría, el Flujo Neto de la semana y el Saldo acumulado salen de acá.
-  // Regla vigente, sin cambios: semanas cargadas mandan; sin desglose, el mes
-  // va a S1 (base/parámetros) o a la última semana (override mensual antiguo y
-  // subLines mensuales). Préstamos sin override: cada cuota en su semana real,
-  // desde el mismo cálculo que el total mensual; si por cualquier motivo no
-  // cuadrara con el mes, se usa la regla de S1 para no descuadrar.
+  // ── Cálculo del flujo (mensual y semanal): motor compartido ─────────
+  // Antes vivía acá como funciones propias del componente; ahora lo comparten
+  // el Consolidado y el Reporte Semanal (ver motorFlujoEmpresa). Mismas reglas.
   const prestamosSemanas = useMemo(
     () => calcPrestamosSemanasEmpresa(empNombre, creditosData),
     [empNombre, creditosData]
   );
-  const valorLineaSemana = useCallback((cat, line, idx, semIdx, isLastInMonth) => {
-    let prop = getProySemana(cat, line.label, idx, semIdx, isLastInMonth);
-    if(line.formula && line.label.includes("Préstamos")) {
-      const ov = overridesDeLinea(proyOverrides, emp, cat, line.label, resoluciones)?.[idx];
-      const bloqueado = typeof line._lockOverrideFromIdx === "number" && idx >= line._lockOverrideFromIdx;
-      if(ov === undefined || bloqueado) {
-        const mes = MESES_65[idx];
-        const sems = SEMANAS_MES[mes] || [];
-        const mapa = prestamosSemanas[mes] || {};
-        const base = getProy(cat, line.label, idx);
-        const sumaMapa = sems.reduce((a, sw) => a + (mapa[sw] || 0), 0);
-        if(sems.length && Math.abs(sumaMapa - base) < 0.005) prop = mapa[sems[semIdx]] || 0;
-      }
-    }
-    const sub = line.subLines ? sumSubLinesSemana(line.label, idx, semIdx, isLastInMonth) : 0;
-    return prop + sub;
-  },[getProySemana, getProy, sumSubLinesSemana, prestamosSemanas, proyOverrides, emp, resoluciones]); // eslint-disable-line
+  const motor = useMemo(
+    () => motorFlujoEmpresa({ emp, proyOverrides, resoluciones, subLines, addedLines, prestamosSemanas }),
+    [emp, proyOverrides, resoluciones, subLines, addedLines, prestamosSemanas]
+  );
+  const getProy = motor.getProy;
+  const getProySemana = motor.getProySemana;
+  const sumSubLinesMes = motor.sumSubLinesMes;
+  const sumSubLinesSemana = motor.sumSubLinesSemana;
+  const sumAddedLinesMes = motor.sumAddedLinesMes;
+  const sumAddedLinesSemana = motor.sumAddedLinesSemana;
+  const valorLineaSemana = motor.valorLineaSemana;
 
   // Valores manuales antiguos (clave solo-etiqueta) sobre conceptos que
   // existen en más de una categoría: no se puede saber a cuál pertenecen.
@@ -6407,48 +6386,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   // Flujo con overrides aplicados
   const {flujoArr, acumArr} = useMemo(()=>{
     const saldoIni = saldoBancoUSD != null ? saldoBancoUSD : emp.saldo_ini;
-    const fa = MESES_65.map((_,i)=>{
-      let f=0;
-      emp.sections.forEach(sec=>{
-        sec.lines.forEach(l=>{
-          // Usar getProy que maneja tanto overrides mensuales como objeto por semanas
-          const v = getProy(sec.cat, l.label, i);
-          f += v * sec.signo;
-          // Include subLines (CxC/Préstamos sub-items) in flujo
-          if(l.subLines)(subLines[l.label]||[]).forEach(sl=>{
-            if(typeof sl === "string") return;
-            const vals = sl.vals || {};
-            // Sumar formato nuevo (idx_semIdx) + formato antiguo (idx como número)
-            let sv = 0;
-            let hasSem = false;
-            for(let s=0; s<4; s++){
-              const k = `${i}_${s}`;
-              if(vals[k] !== undefined){ sv += Number(vals[k])||0; hasSem = true; }
-            }
-            if(!hasSem && vals[i] !== undefined) sv = Number(vals[i])||0;
-            f += sv * sec.signo;
-          });
-        });
-        // Include user-added lines in flujo
-        // Nueva lógica: si hay valores semanales cargados, semanas mandan. Si no, fallback mensual.
-        (addedLines[sec.cat]||[]).forEach(al=>{
-          if(typeof al==="string") return;
-          const v = al.vals||{};
-          const hasAnySem = [0,1,2,3].some(s => v[`${i}_${s}`] !== undefined);
-          let av = 0;
-          if(hasAnySem) {
-            for(let s=0; s<4; s++){
-              const k = `${i}_${s}`;
-              if(v[k] !== undefined) av += Number(v[k])||0;
-            }
-          } else {
-            av = Number(v[i])||0;
-          }
-          f += av * sec.signo;
-        });
-      });
-      return f;
-    });
+    // Flujo neto mensual = Σ signo × subtotal de cada categoría (motor compartido).
+    const fa = MESES_65.map((_,i)=>motor.flujoMes(i));
     let a = saldoIni;
     const aa = fa.map((f,i)=>{
       // Antes del mes del saldo banco: no acumular (mes pasado, sin valor de saldo)
@@ -6459,20 +6398,13 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       return a;
     });
     return {flujoArr:fa, acumArr:aa};
-  },[emp, proyOverrides, saldoBancoUSD, mesIdxInicioSaldo, addedLines, subLines, getProy]); // eslint-disable-line
+  },[motor, saldoBancoUSD, emp, mesIdxInicioSaldo]); // eslint-disable-line
 
   // Flujo neto de UNA semana (suma todas las líneas base + sublines + addedLines)
-  const flujoNetoPorSemana = useCallback((mesIdx, semIdx) => {
-    const isLast = semIdx === 3;
-    let f = 0;
-    emp.sections.forEach(sec => {
-      sec.lines.forEach(l => {
-        f += valorLineaSemana(sec.cat, l, mesIdx, semIdx, isLast) * sec.signo;
-      });
-      f += sumAddedLinesSemana(sec.cat, mesIdx, semIdx) * sec.signo;
-    });
-    return f;
-  },[emp, valorLineaSemana, sumAddedLinesSemana]); // eslint-disable-line
+  const flujoNetoPorSemana = useCallback(
+    (mesIdx, semIdx) => motor.flujoSemana(mesIdx, semIdx),
+    [motor]
+  );
 
   // Saldo acumulado al cierre de una semana específica (para vista semanal)
   // Igual que la vista mensual: el mes en curso arranca con el saldo inicial y
@@ -9707,7 +9639,22 @@ function reporte_calcSaldosPorMoneda(empNombre, saldosBancos, tcUSDtoCLP = REPOR
 // USA LA MISMA LÓGICA QUE FlujoEmpresa (flujoArr + acumArr)
 // Retorna array de { mes, saldo, flujoMes } para los meses solicitados
 // `mesesIdx` es un array de índices en MESES_65 (no labels)
-function reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, saldosBancos, mesesIdx, subLinesGlobal, addedLinesGlobal) {
+// Motor de Flujo Empresas para una empresa del reporte: mismas reglas mensuales y
+// semanales que la pantalla (semanas mandan, préstamos en su semana real, etc.).
+function reporte_motor(empNombre, realData, empresas, subLinesGlobal, addedLinesGlobal, creditosData) {
+  const empData = empresas[empNombre];
+  if(!empData) return null;
+  return motorFlujoEmpresa({
+    emp: empData,
+    proyOverrides: realData?.[empNombre]?._proyOverrides || {},
+    resoluciones: realData?.[empNombre]?._resolucionesOverride || [],
+    subLines: subLinesGlobal?.[empNombre] || {},
+    addedLines: addedLinesGlobal?.[empNombre] || {},
+    prestamosSemanas: calcPrestamosSemanasEmpresa(empNombre, creditosData || CREDITOS_DEFAULT),
+  });
+}
+
+function reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, saldosBancos, mesesIdx, subLinesGlobal, addedLinesGlobal, creditosData) {
   const empData = empresas[empNombre];
   if(!empData) {
     console.warn(`[ReporteSemanal] Empresa "${empNombre}" no encontrada`);
@@ -9726,70 +9673,9 @@ function reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, sa
   let mesIdxInicioSaldo = MESES_65.indexOf(labelHoy);
   if(mesIdxInicioSaldo < 0) mesIdxInicioSaldo = 0;
 
-  // 3. Recursos del empData
-  const proyOverrides = realData?.[empNombre]?._proyOverrides || {};
-  const subLines = subLinesGlobal?.[empNombre] || {};
-  const addedLines = addedLinesGlobal?.[empNombre] || {};
-
-  // 4. getProy: idéntica a la de FlujoEmpresa
-  // cat + etiqueta: hay etiquetas repetidas entre categorías (ver claveLinea)
-  function getProy(cat, lineLabel, idx) {
-    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel, realData?.[empNombre]?._resolucionesOverride)?.[idx];
-    let base = 0;
-    let lockFrom = null;
-    {
-      const sec = (empData.sections || []).find(x=>x.cat===cat);
-      const l = sec && sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; }
-    }
-    if(lockFrom !== null && idx >= lockFrom) return base;
-    if(ov === undefined) return base;
-    if(typeof ov === "number") return ov;
-    if(typeof ov === "object" && ov !== null) {
-      let total = 0;
-      for(let s=0; s<4; s++){
-        const k = `_sem${s}`;
-        if(ov[k] !== undefined) total += Number(ov[k])||0;
-      }
-      return total;
-    }
-    return base;
-  }
-
-  // 5. Construir flujoArr completo (idéntico a FlujoEmpresa)
-  const flujoArr = MESES_65.map((_,i)=>{
-    let f = 0;
-    empData.sections.forEach(sec=>{
-      sec.lines.forEach(l=>{
-        const v = getProy(sec.cat, l.label, i);
-        f += v * sec.signo;
-        // Sublines (CxC, Capital Calls, etc)
-        if(l.subLines) (subLines[l.label]||[]).forEach(sl=>{
-          if(typeof sl === "string") return;
-          const vals = sl.vals || {};
-          let sv = 0;
-          let hasSem = false;
-          for(let s=0; s<4; s++){
-            const k = `${i}_${s}`;
-            if(vals[k] !== undefined){ sv += Number(vals[k])||0; hasSem = true; }
-          }
-          if(!hasSem && vals[i] !== undefined) sv = Number(vals[i])||0;
-          f += sv * sec.signo;
-        });
-      });
-      // AddedLines del usuario (también con formato vals[i] o vals[i_semIdx])
-      (addedLines[sec.cat]||[]).forEach(al=>{
-        if(typeof al==="string") return;
-        const v = al.vals||{};
-        let av = Number(v[i])||0;
-        Object.entries(v).forEach(([k,val])=>{
-          if(k.startsWith(`${i}_`)) av += (Number(val)||0);
-        });
-        f += av * sec.signo;
-      });
-    });
-    return f;
-  });
+  // 3-5. Flujo mensual: el MISMO motor que Flujo Empresas
+  const motor = reporte_motor(empNombre, realData, empresas, subLinesGlobal, addedLinesGlobal, creditosData);
+  const flujoArr = MESES_65.map((_,i)=>motor.flujoMes(i));
 
   // 6. Construir acumArr (igual a FlujoEmpresa)
   let a = saldoIni;
@@ -9817,7 +9703,7 @@ function reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, sa
 // Detalle mensual completo de una empresa: ingresos, egresos, flujo neto, saldo final
 // para una serie de meses (índices de MESES_65)
 // Retorna [{idx, mes, ingresos, egresos, flujoNeto, saldo, esPasado}]
-function reporte_calcDetalleMensual(empNombre, realData, empresas, saldosBancos, mesesIdx, subLinesGlobal, addedLinesGlobal) {
+function reporte_calcDetalleMensual(empNombre, realData, empresas, saldosBancos, mesesIdx, subLinesGlobal, addedLinesGlobal, creditosData) {
   const empData = empresas[empNombre];
   if(!empData) return mesesIdx.map(i => ({idx:i, mes:MESES_65[i]||"—", ingresos:0, egresos:0, flujoNeto:0, saldo:null, esPasado:true}));
 
@@ -9833,74 +9719,16 @@ function reporte_calcDetalleMensual(empNombre, realData, empresas, saldosBancos,
   let mesIdxInicioSaldo = MESES_65.indexOf(labelHoy);
   if(mesIdxInicioSaldo < 0) mesIdxInicioSaldo = 0;
 
-  const proyOverrides = realData?.[empNombre]?._proyOverrides || {};
-  const subLines = subLinesGlobal?.[empNombre] || {};
-  const addedLines = addedLinesGlobal?.[empNombre] || {};
-
-  // cat + etiqueta: hay etiquetas repetidas entre categorías (ver claveLinea)
-  function getProy(cat, lineLabel, idx) {
-    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel, realData?.[empNombre]?._resolucionesOverride)?.[idx];
-    let base = 0;
-    let lockFrom = null;
-    {
-      const sec = (empData.sections || []).find(x=>x.cat===cat);
-      const l = sec && sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; }
-    }
-    if(lockFrom !== null && idx >= lockFrom) return base;
-    if(ov === undefined) return base;
-    if(typeof ov === "number") return ov;
-    if(typeof ov === "object" && ov !== null) {
-      let total = 0;
-      for(let s=0; s<4; s++){
-        const k = `_sem${s}`;
-        if(ov[k] !== undefined) total += Number(ov[k])||0;
-      }
-      return total;
-    }
-    return base;
-  }
-
-  // Construir arrays completos de ingresos, egresos, flujo neto
+  // Ingresos / egresos por mes: el MISMO motor que Flujo Empresas
+  const motor = reporte_motor(empNombre, realData, empresas, subLinesGlobal, addedLinesGlobal, creditosData);
   const ingresosArr = [];
   const egresosArr = [];
   const flujoArr = [];
-
   for(let i = 0; i < MESES_65.length; i++) {
-    let ingTotal = 0;
-    let egrTotal = 0;
+    let ingTotal = 0, egrTotal = 0;
     empData.sections.forEach(sec => {
-      const esIngreso = sec.signo > 0;
-      sec.lines.forEach(l => {
-        const v = getProy(sec.cat, l.label, i);
-        if(esIngreso) ingTotal += v;
-        else egrTotal += v;
-        // Sublines
-        if(l.subLines) (subLines[l.label]||[]).forEach(sl=>{
-          if(typeof sl === "string") return;
-          const vals = sl.vals || {};
-          let sv = 0;
-          let hasSem = false;
-          for(let s=0; s<4; s++){
-            const k = `${i}_${s}`;
-            if(vals[k] !== undefined){ sv += Number(vals[k])||0; hasSem = true; }
-          }
-          if(!hasSem && vals[i] !== undefined) sv = Number(vals[i])||0;
-          if(esIngreso) ingTotal += sv;
-          else egrTotal += sv;
-        });
-      });
-      // AddedLines
-      (addedLines[sec.cat]||[]).forEach(al=>{
-        if(typeof al==="string") return;
-        const v = al.vals||{};
-        let av = Number(v[i])||0;
-        Object.entries(v).forEach(([k,val])=>{
-          if(k.startsWith(`${i}_`)) av += (Number(val)||0);
-        });
-        if(esIngreso) ingTotal += av;
-        else egrTotal += av;
-      });
+      const v = motor.catMes(sec, i);
+      if(sec.signo > 0) ingTotal += v; else egrTotal += v;
     });
     ingresosArr.push(ingTotal);
     egresosArr.push(egrTotal);
@@ -9933,7 +9761,7 @@ function reporte_calcDetalleMensual(empNombre, realData, empresas, saldosBancos,
 }
 
 // Obtener vista temporada (jul-jun) y calendario (ene-dic) para una empresa
-function reporte_getProyeccionesEmpresa(empNombre, realData, empresas, saldosBancos, subLinesGlobal, addedLinesGlobal) {
+function reporte_getProyeccionesEmpresa(empNombre, realData, empresas, saldosBancos, subLinesGlobal, addedLinesGlobal, creditosData) {
   // Encontrar temporada actual y meses calendario actual desde MESES_65
   const HOY = new Date();
   const anioActual = HOY.getFullYear();
@@ -9983,8 +9811,8 @@ function reporte_getProyeccionesEmpresa(empNombre, realData, empresas, saldosBan
     return `${labelMapDisplay[mn3]} ${yr2}`;
   }
 
-  const temporadaRaw = reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, saldosBancos, temporadaIdx.map(i => i >= 0 ? i : 0), subLinesGlobal, addedLinesGlobal);
-  const calendarioRaw = reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, saldosBancos, calendarioIdx.map(i => i >= 0 ? i : 0), subLinesGlobal, addedLinesGlobal);
+  const temporadaRaw = reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, saldosBancos, temporadaIdx.map(i => i >= 0 ? i : 0), subLinesGlobal, addedLinesGlobal, creditosData);
+  const calendarioRaw = reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, saldosBancos, calendarioIdx.map(i => i >= 0 ? i : 0), subLinesGlobal, addedLinesGlobal, creditosData);
 
   // Mapear con labels en español y marcar meses "fuera de rango" como N/A
   const temporada = temporadaIdx.map((idx, i) => {
@@ -10010,7 +9838,7 @@ function reporte_getProyeccionesEmpresa(empNombre, realData, empresas, saldosBan
 }
 
 // Top 5 ingresos / egresos del mes en curso para una empresa
-function reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal, addedLinesGlobal) {
+function reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal, addedLinesGlobal, creditosData) {
   const empData = empresas[empNombre];
   if(!empData) return {ingresos:[], egresos:[]};
 
@@ -10020,33 +9848,10 @@ function reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal
   const mesIdx = MESES_65.indexOf(labelHoy);
   if(mesIdx < 0) return {ingresos:[], egresos:[]};
 
-  const proyOverrides = realData?.[empNombre]?._proyOverrides || {};
   const subLines = subLinesGlobal?.[empNombre] || {};
   const addedLines = addedLinesGlobal?.[empNombre] || {};
-
-  // cat + etiqueta: hay etiquetas repetidas entre categorías (ver claveLinea)
-  function getProy(cat, lineLabel, idx) {
-    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel, realData?.[empNombre]?._resolucionesOverride)?.[idx];
-    let base = 0;
-    let lockFrom = null;
-    {
-      const sec = (empData.sections || []).find(x=>x.cat===cat);
-      const l = sec && sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; }
-    }
-    if(lockFrom !== null && idx >= lockFrom) return base;
-    if(ov === undefined) return base;
-    if(typeof ov === "number") return ov;
-    if(typeof ov === "object" && ov !== null) {
-      let total = 0;
-      for(let s=0; s<4; s++){
-        const k = `_sem${s}`;
-        if(ov[k] !== undefined) total += Number(ov[k])||0;
-      }
-      return total;
-    }
-    return base;
-  }
+  const motor = reporte_motor(empNombre, realData, empresas, subLinesGlobal, addedLinesGlobal, creditosData);
+  const getProy = motor.getProy;
 
   const todasLineas = [];
 
@@ -10061,14 +9866,7 @@ function reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal
         const subList = subLines[linea.label] || [];
         for(const sl of subList) {
           if(typeof sl === "string") continue;
-          const vals = sl.vals || {};
-          let sv = 0;
-          let hasSem = false;
-          for(let s=0; s<4; s++){
-            const k = `${mesIdx}_${s}`;
-            if(vals[k] !== undefined){ sv += Number(vals[k])||0; hasSem = true; }
-          }
-          if(!hasSem && vals[mesIdx] !== undefined) sv = Number(vals[mesIdx])||0;
+          const sv = motor.subLineMes(sl, mesIdx);
           if(sv > 0) todasLineas.push({ label: `${linea.label} → ${sl.nombre || sl.label || "—"}`, monto: sv, tipo });
         }
       }
@@ -10078,11 +9876,7 @@ function reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal
     const adds = addedLines[sec.cat] || [];
     for(const al of adds) {
       if(typeof al === "string") continue;
-      const vals = al.vals || {};
-      let av = Number(vals[mesIdx]) || 0;
-      Object.entries(vals).forEach(([k, v]) => {
-        if(k.startsWith(`${mesIdx}_`)) av += (Number(v) || 0);
-      });
+      const av = motor.addedLineMes(al, mesIdx);   // semanas mandan sobre el mensual
       if(av > 0) {
         const label = al.label || al.nombre || "Línea agregada";
         todasLineas.push({ label, monto: av, tipo });
@@ -10095,19 +9889,21 @@ function reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal
   return { ingresos, egresos };
 }
 
-// Compromisos e Ingresos próximas 4 semanas
-// Usa LA MISMA lógica que la vista semanal de FlujoEmpresa
-// Itera línea por línea, semana por semana de las próximas 4 semanas reales
-function reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBancos, subLinesGlobal, addedLinesGlobal) {
+// Compromisos e Ingresos próximas 8 semanas
+// Usa el MISMO motor que Flujo Empresas (motorFlujoEmpresa), semana por semana
+export function reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBancos, subLinesGlobal, addedLinesGlobal, creditosData, hoy) {
   const empData = empresas[empNombre];
   if(!empData) return { compromisos:[], ingresos:[] };
 
-  const proyOverrides = realData?.[empNombre]?._proyOverrides || {};
+  // MISMO motor que Flujo Empresas (vista semanal): semanas cargadas mandan; sin
+  // desglose, base y líneas agregadas en S1, override mensual antiguo y subLines
+  // mensuales en la última semana; préstamos en su semana real.
+  const motor = reporte_motor(empNombre, realData, empresas, subLinesGlobal, addedLinesGlobal, creditosData);
   const subLines = subLinesGlobal?.[empNombre] || {};
   const addedLines = addedLinesGlobal?.[empNombre] || {};
 
-  // Determinar mes actual y mes siguiente (cubrir 4 semanas que pueden caer entre 2 meses)
-  const HOY = new Date();
+  // Determinar mes actual y mes siguiente (cubrir 8 semanas que pueden caer entre 2 o 3 meses)
+  const HOY = hoy || new Date();
   const labelHoy = `${MN[HOY.getMonth()]}-${String(HOY.getFullYear()).slice(2)}`;
   const idxMesActual = MESES_65.indexOf(labelHoy);
   if(idxMesActual < 0) return { compromisos:[], ingresos:[] };
@@ -10124,24 +9920,6 @@ function reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBan
     return `${labelMapDisplay[mn3]} ${yr2}`;
   }
 
-  // Función getProySemana idéntica a FlujoEmpresa
-  function getProySemana(cat, lineLabel, idx, semIdx, isLastInMonth) {
-    const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel, realData?.[empNombre]?._resolucionesOverride)?.[idx];
-    let base = 0;
-    {
-      const sec = (empData.sections || []).find(x=>x.cat===cat);
-      const l = sec && sec.lines.find(x=>x.label===lineLabel);
-      if(l) base = l.proy?.[idx]||0;
-    }
-    if(ov === undefined) return semIdx === 0 ? base : 0;
-    if(typeof ov === "number") return isLastInMonth ? ov : 0;
-    if(typeof ov === "object" && ov !== null) {
-      const k = `_sem${semIdx}`;
-      return ov[k] !== undefined ? (Number(ov[k])||0) : 0;
-    }
-    return 0;
-  }
-
   // Iterar las próximas 8 semanas (≈ mayo + junio): mes actual + mes siguiente
   // Semana actual aproximada según día del mes
   const diaMes = HOY.getDate();
@@ -10151,7 +9929,7 @@ function reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBan
   const semanas4 = [];
   let curMes = idxMesActual, curSem = semIdxActual;
   while(semanas4.length < 8) {
-    semanas4.push({ mesIdx: curMes, semIdx: curSem, isLastInMonth: curSem === 3 });
+    semanas4.push({ mesIdx: curMes, semIdx: curSem, isLastInMonth: curSem === motor.nSemanas(curMes) - 1 });
     curSem++;
     if(curSem > 3) { curSem = 0; curMes++; }
     if(curMes >= MESES_65.length) break;
@@ -10170,81 +9948,42 @@ function reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBan
     "imp":      "Impuestos",
   };
 
-  // DEBUG: log para diagnosticar items faltantes (ej. royalty IQ Osiris)
-  const _debugCapturados = [];
+  // `valor` = monto con su signo de origen (para cuadrar contra el flujo neto);
+  // `monto` = valor absoluto, como siempre lo mostró el reporte.
+  const agregar = (esIngreso, semInfo, label, v, sec, catLabel) => {
+    if(v === 0) return;
+    const semLabel = `${displayMes(semInfo.mesIdx)} S${semInfo.semIdx + 1}`;
+    const item = { mes: semLabel, mesIdx: semInfo.mesIdx, semIdx: semInfo.semIdx, label, monto: Math.abs(v), valor: v, cat: sec.cat, catLabel };
+    if(esIngreso) ingresos.push(item);
+    else compromisos.push(item);
+  };
 
   for(const sec of empData.sections) {
     const esIngreso = sec.signo > 0;
     const catLabel = CAT_LABEL[sec.cat] || sec.label || sec.cat || "Otros";
     for(const linea of (sec.lines || [])) {
-      // Por cada semana, ver si hay valor
+      if(linea.label.startsWith("  ")) continue;   // detalle: no suma en el subtotal de la pantalla
       for(const semInfo of semanas4) {
-        const v = getProySemana(sec.cat, linea.label, semInfo.mesIdx, semInfo.semIdx, semInfo.isLastInMonth);
-        if(v === 0) continue;
-        const semLabel = `${displayMes(semInfo.mesIdx)} S${semInfo.semIdx + 1}`;
-        const item = { mes: semLabel, label: linea.label, monto: Math.abs(v), cat: sec.cat, catLabel };
-        if(esIngreso) ingresos.push(item);
-        else compromisos.push(item);
-        _debugCapturados.push({ emp: empNombre, sec: sec.cat, linea: linea.label, sem: semLabel, monto: v, esIngreso });
+        agregar(esIngreso, semInfo, linea.label, motor.propSemana(sec.cat, linea, semInfo.mesIdx, semInfo.semIdx, semInfo.isLastInMonth), sec, catLabel);
       }
-
-      // SubLines (CxC, Capital Calls, etc.)
+      // SubLines (CxC, Capital Calls, etc.): semana exacta; mensual sin desglose → última semana
       if(linea.subLines) {
-        const subList = subLines[linea.label] || [];
-        for(const sl of subList) {
+        for(const sl of (subLines[linea.label] || [])) {
           if(typeof sl === "string") continue;
-          const vals = sl.vals || {};
+          const subLabel = `${linea.label} → ${sl.nombre || sl.label || "—"}`;
           for(const semInfo of semanas4) {
-            const k = `${semInfo.mesIdx}_${semInfo.semIdx}`;
-            const v = Number(vals[k]) || 0;
-            if(v === 0) continue;
-            const semLabel = `${displayMes(semInfo.mesIdx)} S${semInfo.semIdx + 1}`;
-            const subLabel = `${linea.label} → ${sl.nombre || sl.label || "—"}`;
-            const item = { mes: semLabel, label: subLabel, monto: Math.abs(v), cat: sec.cat, catLabel };
-            if(esIngreso) ingresos.push(item);
-            else compromisos.push(item);
+            agregar(esIngreso, semInfo, subLabel, motor.subLineSemana(sl, semInfo.mesIdx, semInfo.semIdx, semInfo.isLastInMonth), sec, catLabel);
           }
         }
       }
     }
-
-    // AddedLines del usuario (por categoría de sección)
-    // Pueden estar como valor mensual (vals[i]) o valor semanal (vals["i_semIdx"])
-    // El valor MENSUAL se atribuye a la primera semana del mes (S1) en el reporte
-    const adds = addedLines[sec.cat] || [];
-    for(const al of adds) {
+    // AddedLines: semanas mandan; mensual sin desglose → S1 del mes (aunque S1 ya
+    // haya pasado y quede fuera de la ventana: igual que la pantalla)
+    for(const al of (addedLines[sec.cat] || [])) {
       if(typeof al === "string") continue;
-      const vals = al.vals || {};
       const label = al.label || al.nombre || "Línea agregada";
-
-      // Agrupar las semanas por mes para procesar el valor mensual una sola vez
-      const semanasPorMes = {};
       for(const semInfo of semanas4) {
-        const mIdx = semInfo.mesIdx;
-        if(!semanasPorMes[mIdx]) semanasPorMes[mIdx] = [];
-        semanasPorMes[mIdx].push(semInfo);
-      }
-
-      for(const [mesIdxStr, semsDelMes] of Object.entries(semanasPorMes)) {
-        const mesIdx = parseInt(mesIdxStr, 10);
-        // 1) Si existe valor mensual (vals[mesIdx]) → atribuir al S1 del mes
-        const vMensual = Number(vals[mesIdx]) || 0;
-        if(vMensual !== 0) {
-          const primeraSem = semsDelMes[0];
-          const semLabel = `${displayMes(mesIdx)} S${primeraSem.semIdx + 1}`;
-          const item = { mes: semLabel, label, monto: Math.abs(vMensual), cat: sec.cat, catLabel };
-          if(esIngreso) ingresos.push(item);
-          else compromisos.push(item);
-        }
-        // 2) También revisar valores semanales individuales (vals["mes_sem"])
-        for(const semInfo of semsDelMes) {
-          const vSem = Number(vals[`${mesIdx}_${semInfo.semIdx}`]) || 0;
-          if(vSem === 0) continue;
-          const semLabel = `${displayMes(mesIdx)} S${semInfo.semIdx + 1}`;
-          const item = { mes: semLabel, label, monto: Math.abs(vSem), cat: sec.cat, catLabel };
-          if(esIngreso) ingresos.push(item);
-          else compromisos.push(item);
-        }
+        agregar(esIngreso, semInfo, label, motor.addedLineSemana(al, semInfo.mesIdx, semInfo.semIdx), sec, catLabel);
       }
     }
   }
@@ -10272,7 +10011,17 @@ function reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBan
     );
   }
 
-  return { compromisos: compromisos.slice(0, 50), ingresos: ingresos.slice(0, 50) };
+  // Totales por semana ANTES del recorte a 50 ítems: deben cuadrar con el flujo
+  // neto semanal de Flujo Empresas (test reporteSemanalMotor).
+  const semanas = semanas4.map(si => {
+    const deSem = (arr) => arr.filter(x => x.mesIdx === si.mesIdx && x.semIdx === si.semIdx).reduce((t, x) => t + x.valor, 0);
+    const ing = deSem(ingresos), egr = deSem(compromisos);
+    return { mesIdx: si.mesIdx, semIdx: si.semIdx, ingresos: ing, egresos: egr, neto: ing - egr };
+  });
+  return { compromisos: compromisos.slice(0, 50), ingresos: ingresos.slice(0, 50), semanas,
+    // KPI "Compromisos/Ingresos 8 Sem.": sobre la lista COMPLETA, no la recortada a 50
+    totalCompromisos: compromisos.reduce((t, c) => t + c.monto, 0), totalIngresos: ingresos.reduce((t, c) => t + c.monto, 0),
+    recortados: { compromisos: Math.max(0, compromisos.length - 50), ingresos: Math.max(0, ingresos.length - 50) } };
 }
 
 // Detectar alertas para una empresa
@@ -10389,8 +10138,8 @@ function reporte_calcKPIsGrupo(datosEmpresas) {
     const pct = getPropPct(e);
     // KPIs del grupo: aplicar % propiedad
     result.saldoTotal += (e.saldoTotal || 0) * pct;
-    const compEmp = (e.compromisos || []).reduce((s,c) => s + (c.monto || 0), 0);
-    const ingEmp  = (e.ingresos || []).reduce((s,i) => s + (i.monto || 0), 0);
+    const compEmp = e.totalCompromisos != null ? e.totalCompromisos : (e.compromisos || []).reduce((s,c) => s + (c.monto || 0), 0);
+    const ingEmp  = e.totalIngresos != null ? e.totalIngresos : (e.ingresos || []).reduce((s,i) => s + (i.monto || 0), 0);
     result.compromisos4S += compEmp * pct;
     result.ingresos4S    += ingEmp * pct;
     const tieneAlerta = e.alertas && e.alertas.some(a => a.nivel === "CRITICO" || a.nivel === "ALERTA");
@@ -10475,12 +10224,12 @@ function reporte_calcKPIsGrupo(datosEmpresas) {
 }
 
 // Función maestra: arma los datos de UNA empresa para el reporte
-function reporte_armarDatosEmpresa(empNombre, realData, empresas, saldosBancos, umbralMin, comentarioCFO, tcUSDtoCLP, subLinesGlobal, addedLinesGlobal) {
+function reporte_armarDatosEmpresa(empNombre, realData, empresas, saldosBancos, umbralMin, comentarioCFO, tcUSDtoCLP, subLinesGlobal, addedLinesGlobal, creditosData) {
   const saldos = reporte_calcSaldosPorMoneda(empNombre, saldosBancos, tcUSDtoCLP);
-  const proyecciones = reporte_getProyeccionesEmpresa(empNombre, realData, empresas, saldosBancos, subLinesGlobal, addedLinesGlobal);
+  const proyecciones = reporte_getProyeccionesEmpresa(empNombre, realData, empresas, saldosBancos, subLinesGlobal, addedLinesGlobal, creditosData);
 
-  const movs = reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBancos, subLinesGlobal, addedLinesGlobal);
-  const top = reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal, addedLinesGlobal);
+  const movs = reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBancos, subLinesGlobal, addedLinesGlobal, creditosData);
+  const top = reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal, addedLinesGlobal, creditosData);
   const alertas = reporte_detectarAlertas(empNombre, proyecciones, umbralMin, saldos.totalUSD);
 
   // Detalle mensual: desde el mes actual hasta diciembre del año actual (≈ 8 meses para mayo)
@@ -10495,7 +10244,7 @@ function reporte_armarDatosEmpresa(empNombre, realData, empresas, saldosBancos, 
     const idx = idxHoy + i;
     if(idx >= 0 && idx < MESES_65.length) mesesIdx14.push(idx);
   }
-  const detalleTemporada = reporte_calcDetalleMensual(empNombre, realData, empresas, saldosBancos, mesesIdx14, subLinesGlobal, addedLinesGlobal);
+  const detalleTemporada = reporte_calcDetalleMensual(empNombre, realData, empresas, saldosBancos, mesesIdx14, subLinesGlobal, addedLinesGlobal, creditosData);
 
   return {
     nombre: REPORTE_EMPRESAS_DISPLAY[empNombre] || empNombre,
@@ -10505,6 +10254,8 @@ function reporte_armarDatosEmpresa(empNombre, realData, empresas, saldosBancos, 
     saldoTotal: saldos.totalUSD,
     proyecciones,
     compromisos: movs.compromisos,
+    totalCompromisos: movs.totalCompromisos,
+    totalIngresos: movs.totalIngresos,
     ingresos: movs.ingresos,
     topIngresos: top.ingresos,
     topEgresos: top.egresos,
@@ -11407,7 +11158,7 @@ function _renderEmpresaEnPDF(doc, emp, idx, startY, semana, fechaStr, logo) {
   // Compromisos e Ingresos LADO A LADO (top 5 cada uno)
   doc.setTextColor(..._PDF_COLORS.TEAL_DARK);
   doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
-  doc.text("Movimientos próximas 4 semanas (top 5)", 12, y);
+  doc.text("Movimientos próximas 8 semanas (top 5)", 12, y);
   y += 1;
 
   const compTop5 = (emp.compromisos || []).slice(0, 5);
@@ -11611,9 +11362,9 @@ function ReporteSemanalModule({
         umbralDe(emp),
         comentariosLocal[emp] || "",
         params?.tcUSDtoCLP || REPORTE_TC_DEFAULT_CLP,
-        subLinesGlobal, addedLinesGlobal,
+        subLinesGlobal, addedLinesGlobal, creditosData,
       ));
-  }, [realData, params, empresas, saldosBancos, empresasIncluidas, umbralesConfig, comentariosLocal, subLinesGlobal, addedLinesGlobal]);
+  }, [realData, params, empresas, saldosBancos, empresasIncluidas, umbralesConfig, comentariosLocal, subLinesGlobal, addedLinesGlobal, creditosData]);
 
   const kpisGrupo = useMemo(() => reporte_calcKPIsGrupo(empresasParaReporte), [empresasParaReporte]);
 
@@ -11706,8 +11457,8 @@ function ReporteSemanalModule({
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:14}}>
             {[
               {label:"Saldo Bancos Grupo", val:_formatUSD(kpisGrupo.saldoTotal), color:C.green},
-              {label:"Compromisos 4 Sem.", val:_formatUSD(kpisGrupo.compromisos4S), color:C.red},
-              {label:"Ingresos 4 Sem.",    val:_formatUSD(kpisGrupo.ingresos4S), color:C.green},
+              {label:"Compromisos 8 Sem.", val:_formatUSD(kpisGrupo.compromisos4S), color:C.red},
+              {label:"Ingresos 8 Sem.",    val:_formatUSD(kpisGrupo.ingresos4S), color:C.green},
               {label:"Empresas en Alerta", val:`${kpisGrupo.empresasAlerta} de ${empresasParaReporte.length}`, color:kpisGrupo.empresasAlerta>0?C.yellow:C.green},
             ].map((kpi,i)=>(
               <div key={i} style={{padding:"10px 12px",background:C.card,borderRadius:8,border:`1px solid ${C.border}`}}>
@@ -13373,7 +13124,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
           {/* Consolidado */}
           {empTab==="_consolidado"&&accesoCompletoEmpresas&&(
-            <Consolidado empresas={empresas} saldosBancos={saldosBancos} realData={realData} addedLinesGlobal={addedLinesGlobal} subLinesGlobal={subLines}
+            <Consolidado empresas={empresas} saldosBancos={saldosBancos} realData={realData} addedLinesGlobal={addedLinesGlobal} subLinesGlobal={subLines} creditosData={creditosData}
               paramsPart={paramsPart} onSaveParamsPart={puedoEdit("flujo")?handleSaveParamsPart:null}
               escenarioNombre={escActivo ? (escenarios.find(e=>e.id===escActivo)?.name || "Escenario") : null}/>
           )}

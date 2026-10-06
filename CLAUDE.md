@@ -480,6 +480,38 @@ Verificación: `src/__tests__/prestamosSemanas.test.js` y
 `scripts/e2e/semanal-cuadre.mjs` (392 comprobaciones: Σ semanas = mes,
 ingresos − egresos = neto, Σ líneas = subtotal, saldo anterior + neto = saldo).
 
+#### Un solo motor: Flujo Empresas, Consolidado semanal y Reporte Semanal (oct-2026)
+
+`motorFlujoEmpresa({emp, proyOverrides, resoluciones, subLines, addedLines, prestamosSemanas})`
+(exportado de `FinanzasModule.jsx`) es la única implementación de las reglas
+mensual/semanal. La usan FlujoEmpresa, el Consolidado (columnas semanales,
+drill-down, Por Empresa, Resumen Semanal; `catSemanaEmp` aplica el % de las JV) y
+el Reporte Semanal (`reporte_motor`: saldo mensual, detalle mensual, top del mes y
+movimientos de 8 semanas). Antes el Consolidado semanal dividía el mes en partes
+iguales y el Reporte tenía 4 copias propias: préstamos en S1, sublíneas mensuales
+omitidas y líneas agregadas con mensual + semanas sumados dos veces.
+
+Reglas que conserva (no se unificó todo en S1): semanas cargadas mandan; sin
+desglose, base y líneas agregadas → S1, override mensual antiguo y subLines
+mensuales → última semana; préstamos en su semana real (`cuotasPrestamosEmpresa`),
+S1 si el mapa no cuadra con el mes o hay override.
+
+Diferencias que quedan (pendientes de decisión):
+- Imputación mixta según origen (S1 vs última semana): decisión de Angelo.
+- Reporte: la ventana de 8 semanas parte en `min(3, floor((día−1)/7))`, no en la
+  semana ISO real; listado recortado a 50 ítems por empresa con `Math.abs`
+  (`monto`). Los KPI "Compromisos/Ingresos 8 Sem." ya usan la lista completa
+  (`totalCompromisos`); `semanas[]` trae el neto con signo para cuadrar.
+- Una línea agregada con mensual en un mes ya iniciado cae en S1 aunque S1 esté
+  fuera de la ventana (antes se movía a la primera semana visible).
+- Meses posteriores a Dec-27 no tienen lista en `SEMANAS_MES`.
+
+Tests: `src/__tests__/motorSemanal.test.js` (motor = Consolidado mensual, Σ semanas
+= mes, cambio de año, 5.ª semana, mixtos), `src/__tests__/reporteSemanalMotor.test.js`
+(Σ ítems por semana = flujo neto semanal, préstamos en semana real) y
+`scripts/e2e/consolidado-semanal.mjs` (Consolidado/Por Empresa/Resumen Semanal vs
+Flujo Empresas + Reporte Semanal abre sin error).
+
 #### Dashboard = Consolidado (oct-2026)
 
 "Saldo inicial / Mínimo / Saldo final consolidado" del Dashboard salen de
