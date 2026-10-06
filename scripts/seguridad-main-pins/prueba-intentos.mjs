@@ -198,6 +198,8 @@ try {
   }
   eq([rociado.slice(0, 30).every((x) => x === 401), rociado[30]], [true, 429], 'rociar 1 PIN sobre 31 cuentas desde un origen: 30 evaluados y el 31º → 429 (K2, entre instancias)');
   eq((await login(I2, ipN(200), 'Eloy', PIN.Eloy)).status, 429, 'ese origen queda demorado también para una cuenta válida');
+  const dispEloy = (await login(I3, ipN(202), 'Eloy', PIN.Eloy)).disp;
+  eq((await login(I2, ipN(200), 'Eloy', PIN.Eloy, [dispEloy])).status, 200, 'pero el EQUIPO RECONOCIDO de Eloy entra desde esa misma IP (un tercero en su red no lo demora)');
   eq((await login(I3, ipN(201), 'Eloy', PIN.Eloy)).status, 200, 'la persona, desde otro origen, entra normal');
   console.log('K2 con una IP compartida (oficina detrás de NAT):');
   const oficina = [];

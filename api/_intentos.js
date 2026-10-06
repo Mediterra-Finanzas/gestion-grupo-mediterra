@@ -106,16 +106,18 @@ async function reservarLogin({ email, ip, dispositivo, canal = "app", hayCodigo 
   const liberables = [];    // se liberan si la credencial resulta correcta (este origen)
   const descontables = [];  // solo se descuenta este intento (K2, y K3 con PIN correcto)
   const origen = ip ? origenIp(ip) : "-";
-  if (ip) {
-    const k2 = await tomar("K2", origen, R.K2);
-    if (!k2.permitido) return { ok: false, status: 429, error: "bloqueado", retry: k2.retry };
-    descontables.push(["K2", origen, R.K2.libres]);
-  }
   let disp = dispositivo || null;
   if (disp) {
     const kd = await tomar("KD", `${disp}|${em}`, R.KD);
     if (kd.permitido) liberables.push(["KD", `${disp}|${em}`]);
     else disp = null;                        // el equipo agotó su margen: deja de contar como reconocido
+  }
+  // K2 (por IP, todas las cuentas) no aplica a un equipo reconocido: su cookie solo sirve
+  // para su propia cuenta, y así un tercero detrás de la misma IP no lo puede demorar.
+  if (ip && !disp) {
+    const k2 = await tomar("K2", origen, R.K2);
+    if (!k2.permitido) return { ok: false, status: 429, error: "bloqueado", retry: k2.retry };
+    descontables.push(["K2", origen, R.K2.libres]);
   }
   let soloCodigo = false;
   if (!disp) soloCodigo = (await estado("K3", em)).bloqueado;

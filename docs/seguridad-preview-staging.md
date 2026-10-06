@@ -36,8 +36,9 @@ Etiquetas: [Seguro] = leído en el código · [Probable] = inferido con buena ba
 | 1 | `public.calendario_data (id text pk, value jsonb not null, updated_at timestamptz default now())` + `grant all … to anon, authenticated, service_role` + RLS + las 5 políticas con nombre y texto EXACTOS (`cd_anon_auth_delete/insert/select/update`, `cd_service_all`) | Copiar el bloque SQL de `scripts/seguridad-main-pins/entorno.mjs:91-100`. **No** crear roles: Supabase ya los tiene. Si la tabla ya existe: no se toca hasta comparar con `verificacion.sql` |
 | 2 | Triggers de producción `cd_scrub_main_credentials` + `guard_main_no_user_shrink` | `scripts/seguridad-main-pins/produccion_triggers_existentes.sql` |
 | 3 | Rate limit: tabla `frisku_sp_ratelimit` + RPC `frisku_sp_rl_consumir`/`_limpiar` (solo `service_role`) | `api/sql/frisku_sp_ratelimit.sql` |
+| 3b | Contadores combinados D4: tabla `seg_intentos` + funciones `seg_intento_*` (solo `service_role`) | `api/sql/seg_intentos.sql` |
 | 4 | (Opcional, igual que en la prueba local) `alter role anon set statement_timeout='3s'; alter role authenticated set statement_timeout='8s'` | `entorno.mjs:104`. Supabase ya trae valores parecidos [Probable] |
-| 5 | Lecturas M1–M5 | `supabase/seguridad_main_pins/consultas_previas.sql` |
+| 5 | Lecturas M1–M8 | `supabase/seguridad_main_pins/consultas_previas.sql` |
 | 6 | `verificacion.sql` → debe decir **HOY** | `supabase/seguridad_main_pins/verificacion.sql` |
 | 7 | Datos sintéticos: filas `usuarios`, `pins` y `main` (§4) | INSERT a mano o generado por script local |
 | 8 | `fase0_admins.sql` + alta de 2 admins sintéticos | `supabase/seguridad_main_pins/fase0_admins.sql` (plantilla al final) |

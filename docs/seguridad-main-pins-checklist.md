@@ -70,8 +70,8 @@ Ver la sección 7. Cerrar `main` y `pins` protege el acceso y los permisos de la
 | B5 | Recuperación verificada en entorno real: correo, dos administradores y SQL Editor | **Pendiente:** sección 3 (condición puesta por Angelo para el corte) |
 | B6 | Administrador de respaldo | **Pendiente:** lo confirma Angelo |
 | B7 | Infraestructura en producción: RPC del límite de intentos, tipo de las filas | **Pendiente:** M1 y M5 |
-| B8 | Un tercero puede bloquear una cuenta una y otra vez (D4: no aceptado como definitivo) | **Propuesta lista, sin implementar:** `docs/seguridad-limite-intentos-propuesta.md` (cuenta + origen, demoras progresivas con tope de 60 min, equipo reconocido, desbloqueo por admin). Requiere tu aprobación |
-| B9 | Aislamiento de la Preview | **Candado implementado** (sin `SUPABASE_URL`, una Preview no cae a producción). Antes de usarla: revisar los ámbitos de las variables en Vercel (P7) y que `VERCEL_ENV` llegue a las funciones (P12) |
+| B8 | Un tercero podía bloquear una cuenta una y otra vez (D4) | **Implementado y probado en local** (`docs/seguridad-limite-intentos-propuesta.md`, 47/47): cuenta + origen, demoras con tope, umbral por cuenta con código por correo de 60 bits, equipo reconocido. Pendiente: aplicar `api/sql/seg_intentos.sql` en staging y producción **[AUT]** |
+| B9 | Aislamiento de la Preview | **Implementado (D7):** fuera de `VERCEL_ENV=production` no hay destino sin `SUPABASE_URL`, y se rechaza un `SUPABASE_URL` de producción; navegador aislado con variables de build; guardia de destinos y correos en el servidor; detector de salidas (local) en verde. Antes de usarla: P7/P12 |
 
 ---
 
@@ -109,20 +109,21 @@ Ver la sección 7. Cerrar `main` y `pins` protege el acceso y los permisos de la
 | # | Prueba | Resultado esperado |
 |---|---|---|
 | T1 | `GET /api/auth/sesion` sin cookie | 401 |
-| T2 | Login correcto, PIN incorrecto ×9 | 200; luego 401 y después 429 |
-| T3 | Dos peticiones simultáneas de 8 intentos desde dos máquinas | 8 permitidos en total (contador compartido entre instancias) |
-| T4 | "¿Olvidaste tu PIN?" con correo de prueba **real** | Llega el código; entra a crear PIN; el código no sirve dos veces |
+| T2 | Desde una IP: PIN incorrecto ×6; desde otra: PIN correcto | 5 × 401, luego 429 con espera de 1 min (luego 2, 4… hasta 60); la otra IP entra |
+| T3 | 10 fallos de una cuenta desde 10 IP distintas (repartidos entre instancias); luego PIN correcto desde una IP nueva y desde el equipo reconocido | IP nueva → 403 "verificación requerida"; equipo reconocido → entra |
+| T4 | "¿Olvidaste tu PIN?" con correo de prueba **real**: código de 12 caracteres; el PIN vigente sigue sirviendo; un segundo pedido mientras el primero está vigente no envía otro correo | Llega un solo código; con él entra a crear PIN; el código no sirve dos veces |
 | T5 | Admin 1 resetea a una persona; admin 2 resetea al admin 1 | Ambos funcionan; la sesión del reseteado se cierra |
 | T6 | Recuperación por SQL Editor (bloque del documento técnico) en staging | Entra solo a crear PIN; el código vence en 2 h |
 | T7 | Corte de credenciales en staging (`AUTH_CREDENCIALES_DESDE`) | PIN antiguo → "debe restablecerse por correo"; recuperación por correo → entra |
 | T8 | Copia de la cookie: cambiar el PIN y reenviarla; esperar 31 min sin uso y reenviarla; "Salir" en una sesión y reenviar la copia de otra | 401 en los tres casos |
 | T9 | Cerrar y restaurar el navegador (Chrome y Edge, "continuar donde lo dejaste") | Documentar si la sesión sigue. Esperado: sigue si no pasaron 30 min |
 | T10 | `/api/informe?id=<script>…` y un informe real | Sin ejecución; el informe real se ve igual |
-| T11 | Frisku SharePoint: 8 PIN incorrectos en la app y después 1 en Frisku | Frisku responde 429 |
+| T11 | Frisku SharePoint con el umbral por cuenta activo: desde una IP nueva, y desde el equipo reconocido por la app | IP nueva → 403 verificación requerida; equipo reconocido → entra |
 | T12 | osiris-auth contra `/api/auth/verificar` | Sesión de Osiris solo con PIN vigente |
 | T13 | Sin `SESSION_SECRET` (o con la función del límite caída) | 503 para todos: falla cerrado, nadie entra sin control |
 | T14 | `consultas_previas.sql` y fases 0/D/A/B/C + `verificacion.sql` en staging, con políticas copiadas de producción | Cada fase pasa sus guardas; tras D, anon no borra; tras B, anon recibe 0 filas de `pins`/`usuarios` |
 | T15 | Revocación entre instancias: dos sesiones de la misma persona, "Salir" en una y reenvío de la otra (de ser posible, desde regiones o ventanas distintas) | 401 |
+| T16 | Interfaz completa en la Preview (login fallido y correcto, recuperación, Salir, admin → resetear PIN) con el registro de red del navegador | Solo destinos autorizados (§2b.1 de `docs/seguridad-preview-staging.md`); antes y después, `updated_at` de producción sin cambios |
 
 ---
 
@@ -204,7 +205,7 @@ Orden obligatorio si se autoriza: primero el SQL y después, si hace falta, desp
    - Políticas por confirmar con M3.
 4. **Realtime:** si publica `calendario_data`, difunde los cambios hasta la fase B (M2).
 5. **`audit_log`:** se puede sobrescribir con la llave, y si su carga falla la app escribe `[]` encima (viola la regla 9).
-6. **Límite de intentos:** mientras no se apruebe e implemente la propuesta D4 (B8), un tercero puede bloquear una cuenta, y "¿Olvidaste tu PIN?" inhabilita el PIN de quien no tenga celular. Con la propuesta queda un riesgo acotado de adivinación distribuida (~8,8% al año por cuenta con un PIN al azar; ver el documento).
+6. **Límite de intentos (D4, implementado en local):** queda ~0,025% al año por cuenta de adivinación con un PIN al azar (130 intentos al año más 10 por cada verificación por correo). Un tercero puede exigir el código desde equipos nuevos de una persona (30 días, renovable), pero no bloquear sus equipos reconocidos ni agotar su código. Osiris dual (inactiva) necesita equipo reconocido o sesión de la app antes de activarse.
 7. **`api/informe.js`** lee producción con la llave pública fija (solo datos públicos): en una Preview sigue leyendo producción.
 8. **Sesiones de Frisku SharePoint y Osiris:** no se cierran con "Salir" de la app (cookies y sesiones propias).
 9. **Tablas `contab_*`, `osi_*` y `rbac_*`:** rama de roles, pendiente de S1–S7.
@@ -218,9 +219,9 @@ Orden obligatorio si se autoriza: primero el SQL y después, si hace falta, desp
 | D1 | Administrador de respaldo (B6): **pendiente**, Angelo confirmará su identidad |
 | D2 | DELETE/TRUNCATE primero: **decidido e implementado** (fase D, guardas adaptadas y probadas) |
 | D3 | "Salir" cierra todas las sesiones, incluidas las copias: **decidido e implementado** (época en la base, probado entre dos procesos) |
-| D4 | Límite por cuenta + origen sin bloqueos indefinidos: **propuesta lista** (`docs/seguridad-limite-intentos-propuesta.md`), pendiente de aprobación. Incluye un cambio a la regla del login: el código pedido por la propia persona deja de inhabilitar su PIN hasta que lo usa |
-| D6 | Staging dedicado o compartido (P11) |
-| D7 | Visto bueno al candado anti-producción: toca las constantes `SUPA_URL` del servidor (regla 1 de CLAUDE.md); en producción el valor no cambia |
+| D4 | **Decidido e implementado en local:** contadores combinados; la recuperación propia no invalida el PIN; umbral por cuenta con verificación por correo (código de 60 bits) |
+| D6 | **Decidido:** staging dedicado (crearlo requiere [AUT] y puede tener costo) |
+| D7 | **Aprobado e implementado:** fuera de producción, sin `SUPABASE_URL` no hay destino, y un `SUPABASE_URL` de producción se rechaza; producción sin cambios |
 | D5 | Corte de credenciales: **aceptado en el plan**, sujeto a verificar antes T4, T5 y T7. Su ejecución requiere [AUT] en la etapa 4 |
 
 ---
@@ -230,9 +231,11 @@ Orden obligatorio si se autoriza: primero el SQL y después, si hace falta, desp
 | Prueba | Resultado |
 |---|---|
 | `for f in api/*.test.mjs; do node "$f"; done` | Todas pasan (`_reglasLogin` 73, `_friskuSpAuth` 35, `frisku-sp` 107, …) |
-| `POSTGREST_BIN=… node scripts/seguridad-main-pins/prueba-servidor.mjs` | 234/234: fases 0/D/A/B/C, reversión por secciones, DESCONOCIDO, copias reales de cookies en tiempo real |
-| `POSTGREST_BIN=… node scripts/seguridad-main-pins/prueba-revocacion.mjs` | 27/27 con dos procesos: "Salir" revoca copias en ambas instancias; carreras con cambio de PIN y reseteo; base caída → 503 |
-| `node api/_auth.test.mjs` | 5/5: una Preview sin `SUPABASE_URL` no cae a producción |
+| `POSTGREST_BIN=… node scripts/seguridad-main-pins/prueba-servidor.mjs` | 235/235: fases 0/D/A/B/C, reversión por secciones, DESCONOCIDO, copias reales de cookies en tiempo real |
+| `POSTGREST_BIN=… node scripts/seguridad-main-pins/prueba-intentos.mjs` | 47/47 (D4): dos instancias, IP distintas, concurrencia, falsificación de la cookie de equipo, tercero que intenta bloquear, NAT, enumeración |
+| `POSTGREST_BIN=… OUT_DIR=… node scripts/e2e/aislamiento-interfaz.mjs` | TODO OK: la interfaz completa no sale de los destinos autorizados; 6 controles positivos detectados |
+| `POSTGREST_BIN=… node scripts/seguridad-main-pins/prueba-revocacion.mjs` | 29/29 con dos procesos, incluida la carrera FORZADA en ambos órdenes (falla si se quita la revalidación: comprobado) |
+| `node api/_auth.test.mjs` · `node api/_destinos.test.mjs` | 10/10 · 37/37: aislamiento y guardia de destinos (inactiva en producción) |
 | `node scripts/seguridad-main-pins/prueba-informe.mjs` | 7/7 en Chromium real, con control positivo |
 | Dos instancias contra Postgres local (script del revisor, fuera del repositorio) | 8 permitidos de 16 alternados y 8 de 20 simultáneos |
 | `scripts/e2e/seguridad-auth-servidor.mjs` (builds con flag prendido y apagado) | 35/35 |

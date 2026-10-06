@@ -57,6 +57,8 @@ el rol de `main` o `usuarios`, ni la cookie.
 
 `api/frisku-sp.js` aplica las mismas reglas (código pendiente, PIN vencido, corte).
 
+**Límite de intentos y verificación adicional (D4):** `api/_intentos.js` + `api/sql/seg_intentos.sql`. Contadores combinados por cuenta + origen, con demoras progresivas con tope. Superado el umbral por cuenta, desde un origen nuevo solo vale el código del correo: 12 caracteres, 60 bits. El código pedido por la propia persona no invalida su PIN. El equipo reconocido es la cookie `mediterra_disp`. Detalle, riesgo residual verificado y lo que un tercero aún puede hacer: `docs/seguridad-limite-intentos-propuesta.md`.
+
 ## Sesión
 
 **Dónde vive el control:** en la cookie firmada (HMAC con `SESSION_SECRET`): `act` (último

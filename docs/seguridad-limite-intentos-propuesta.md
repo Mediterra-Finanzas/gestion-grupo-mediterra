@@ -1,81 +1,92 @@
-# Propuesta: límite de intentos por cuenta y origen, sin bloqueos indefinidos (D4)
+# Límite de intentos por cuenta y origen (D4)
 
-> **Estado: PROPUESTA, no implementada.** Requiere aprobación de Angelo antes de programarla. Es un bloqueante de la activación (B8 del checklist): el límite actual permite que un tercero bloquee una cuenta una y otra vez.
+> **Estado (2026-10-06):** implementado y probado **solo en local**, en la rama `claude/seguridad-main-pins`.
+> - La tabla y las funciones de `api/sql/seg_intentos.sql` **no** están aplicadas en staging ni en producción. Aplicarlas requiere autorización.
+> - Prueba: `POSTGREST_BIN=… node scripts/seguridad-main-pins/prueba-intentos.mjs` (47/47). Corre sobre dos instancias del servidor, IP de origen distintas, peticiones concurrentes y tiempo real acortado.
 
-## Problema actual (comprobado en local)
+## Por qué cambió la propuesta anterior
 
-Hoy los contadores son dos:
+**El 8,8% estaba bien calculado, pero la propuesta no lo bajaba.** Un umbral de 10 fallos por hora que se reinicia solo permite unos 10 intentos por hora, de forma sostenida:
 
-- **Por IP:** 30 intentos cada 5 minutos.
-- **Por cuenta (`login:<email>`):** 8 intentos cada 5 minutos, con 15 minutos de bloqueo.
+10 × 24 × 365 = 87.600 intentos al año → 87.600 / 10⁶ ≈ **8,76%**.
 
-El contador por cuenta no distingue quién intenta. Por eso:
+**Para cumplir tu condición, el umbral por cuenta tiene que ser acumulado y no reiniciarse solo.** La condición: que, alcanzado el umbral, ningún origen nuevo siga probando PIN sin verificación adicional. Además, la verificación adicional (el código por correo) no puede volverse el punto débil. Con 6 dígitos, cualquier tope por código sirve para bloquear a la persona; sin tope, el código se puede adivinar. Por eso el código pasó a tener **60 bits**.
 
-1. Cualquiera, desde cualquier IP, bloquea una cuenta (también la del administrador) con unos 9 intentos cada ~20 minutos, y puede repetirlo sin fin.
-2. "¿Olvidaste tu PIN?" crea un código pendiente que **inhabilita el PIN** si la cuenta no tiene celular registrado. Un tercero puede dejar a alguien sin su PIN pidiendo códigos a su nombre.
+## Contadores
 
-## Propuesta
+Todos los contadores viven en Postgres:
+- se comparten entre instancias;
+- son atómicos: el intento se reserva antes de evaluar la credencial (`FOR UPDATE`);
+- todo bloqueo tiene tope y vence.
 
-Tres contadores, todos en Postgres y compartidos por todas las instancias.
+| Contador | Clave | Regla | A quién afecta |
+|---|---|---|---|
+| K1 | cuenta + origen. El origen es el equipo reconocido o la IP (IPv6 por /64; IPv4 en formato IPv6 se trata como IPv4) | 5 fallos libres; después, demoras de 1, 2, 4, 8, 16, 32 y 60 min (tope). Vuelve a cero tras 24 h sin fallos. Un ingreso correcto lo libera | Solo ese origen con esa cuenta |
+| K2 | IP (todas las cuentas) | 30 fallos → demoras de 5 a 60 min. Un ingreso correcto descuenta su intento, sin borrar los fallos previos (una oficina detrás de una misma IP no se bloquea). No aplica a equipos reconocidos | Solo esa IP |
+| K3 | cuenta, desde orígenes **no reconocidos** | 10 fallos acumulados → desde cualquier origen nuevo, **el PIN deja de evaluarse**: solo entra el código enviado al correo. Dura 30 días. Un PIN correcto solo descuenta su intento; el umbral se libera entero únicamente con el código del correo o el desbloqueo del administrador | Orígenes nuevos de esa cuenta; nunca a un equipo reconocido |
+| KD | equipo reconocido + cuenta | 10 fallos acumulados en 30 días → el equipo deja de contar como reconocido (pasa a K3) | Solo ese equipo |
+| KC | código + origen | 5 intentos por código desde un mismo origen; después, desde ese origen el código no se evalúa. Sin tope global por cuenta: un tercero no puede agotarlo para todos | Solo ese origen |
 
-Reglas comunes:
+**Mismas reglas en todos los lugares donde se prueba un PIN:**
+- login de la app;
+- cambio de PIN con el PIN actual (una cookie robada no da intentos aparte);
+- osiris-auth (`/api/auth/verificar`, con la IP del cliente reenviada junto al secreto);
+- Frisku SharePoint (`/api/frisku-sp`).
 
-- Solo cuentan los **intentos fallidos**.
-- Un ingreso correcto **reinicia** los contadores de su origen.
-- Todo bloqueo tiene un **tope**: nunca es indefinido.
+## Verificación adicional: el código por correo
 
-| Contador | Clave | Regla | Qué protege | A quién afecta un bloqueo |
-|---|---|---|---|---|
-| K1 cuenta + origen | email + IP (IPv6 agrupada por /64) | 5 fallos gratis. Después, demoras de 1, 2, 4, 8, 16, 32 y 60 min (tope). El escalón vuelve a 0 tras 24 h sin fallos | Adivinar el PIN de una cuenta desde un origen | Solo a ese origen con esa cuenta |
-| K2 origen | IP o /64 | 30 fallos en 15 min (cualquier cuenta) → demora progresiva de 5 a 60 min | Rociar PINs comunes sobre muchas cuentas | Solo a ese origen |
-| K3 cuenta, todos los orígenes | email | Más de 10 fallos en 1 h → durante esa hora, el **PIN deja de aceptarse desde equipos no reconocidos**. Sigue funcionando el ingreso con código enviado por correo y desde un equipo reconocido | Ataque distribuido desde muchas IP | Ventana móvil de 1 h; no hay bloqueo de la cuenta |
+- **Formato:** 12 caracteres, `XXXX-XXXX-XXXX` (Crockford base32 = 60 bits; tolera minúsculas, espacios, O/0 e I/1). Se escribe en el campo de la clave. Vence en 45 minutos.
+- **"¿Olvidaste tu PIN?" pedido por la propia persona:**
+  - **no invalida** su PIN vigente; el correo lo dice;
+  - mientras haya un código vigente, un nuevo pedido **no lo reemplaza** ni envía otro correo. Así un tercero no puede invalidar el código que ya está en la casilla de la persona, ni inundarla.
+- **Reseteo del administrador:**
+  - inhabilita el PIN anterior y cierra las sesiones;
+  - deja de reconocer los equipos de esa persona y libera su umbral K3 (desbloqueo controlado);
+  - un pedido propio posterior hereda esa inhabilitación.
+- **Entrar con el código** obliga a crear un PIN nuevo y libera el umbral de la cuenta.
 
-**Equipo reconocido.** Al ingresar bien se entrega una cookie aparte:
-- se llama `mediterra_disp`;
-- va firmada, es `HttpOnly` y `SameSite=Strict`, y dura 90 días;
-- queda ligada al correo y a la época de la persona.
+## Cómo se reconoce un equipo y por qué no se puede falsificar
 
-Desde un equipo reconocido, K3 no aplica; solo K1 sobre ese equipo. La cookie se invalida con "Salir", con el reseteo del administrador y con el cambio de PIN, porque todos suben la época. La idea es la recomendación de OWASP contra el bloqueo de cuentas por terceros ("device cookies").
+Al ingresar correctamente, el servidor entrega una cookie aparte, `mediterra_disp`:
 
-**"¿Olvidaste tu PIN?" deja de inhabilitar el PIN.** El código pedido por la propia persona convive con su PIN hasta que lo usa: el que se use primero sirve, y el código obliga a crear un PIN nuevo. Solo el **reseteo del administrador** inhabilita el PIN anterior, como hoy.
+- **Atributos:** `HttpOnly` (el JavaScript de la página no la lee), `Secure`, `SameSite=Strict` (otro sitio no la usa), `Path=/api`, 90 días.
+- **Contenido:** tipo `disp`, correo, identificador aleatorio de 128 bits, **época de equipos** de la persona y vencimiento.
+- **Firma:** HMAC-SHA256 con una llave **derivada** de `SESSION_SECRET`, solo para este uso. Esa llave vive únicamente en el servidor.
+  - Sin ella no se puede fabricar ni alterar la cookie.
+  - Una cookie de sesión no sirve como cookie de equipo: la llave y el tipo son distintos.
+- **Validación:** firma, tipo, vencimiento, que el correo coincida con la cuenta que intenta ingresar y que la época sea la vigente.
+  - El cambio de PIN y el reseteo del administrador suben la época, y los equipos anteriores dejan de valer.
+  - "Salir" no la sube: cierra las sesiones, pero el equipo sigue siendo reconocido.
+- **La IP no forma parte del reconocimiento.** Un celular cambia de IP todo el tiempo.
+- **Qué permite:** **no da acceso**. Solo permite intentar el PIN desde ese equipo sin quedar sujeto a K3, con sus propios límites (K1 y KD).
+- **Si la roban** (requiere malware o acceso físico al navegador): el ladrón obtiene como máximo los intentos de K1 y KD de ese equipo, y aún necesita el PIN.
 
-Esto cambia la regla del login acordada en el commit 8d7116f para la recuperación propia. Requiere tu aprobación.
+**Comprobado en local:**
+- cookie de otra persona;
+- contenido alterado con la firma original;
+- firma inventada;
+- cookie de sesión usada como cookie de equipo;
+- cookie de época anterior.
 
-## Recuperación controlada
+Ninguna se reconoce.
 
-| Situación | Cómo se recupera | Quién |
+## Riesgo residual verificado
+
+Supuestos: atacante sin acceso al correo ni a un equipo reconocido de la persona; PIN de 6 dígitos al azar. Hay 999.980 PIN permitidos (se excluyen 20 repetidos o en secuencia).
+
+| Vía | Máximo por año | Probabilidad anual |
 |---|---|---|
-| La persona quedó con demora en su equipo (K1) | Espera, con un máximo de 60 min; desde otro equipo reconocido entra normal | Ella misma |
-| Ataque distribuido en curso sobre su cuenta (K3) | Entra desde un equipo reconocido, o con un código por correo | Ella misma |
-| Necesita entrar ya | "Desbloquear": el reseteo del administrador además borra los contadores K1/K3 de esa cuenta. El servidor calcula sus claves, porque no aparecen en claro en la base | Un administrador de `seg_administradores` |
-| Ningún administrador disponible | SQL Editor: borrar los contadores de identidad (bloque escrito en el runbook) | Con [AUT] |
+| PIN desde orígenes nuevos (K3) | 10 por ciclo. El bloqueo dura 30 días y el contador se reinicia 30 días después del último fallo: ≤ 13 ciclos → **130**. Más 10 por cada vez que la persona verifica con el código (V veces al año) | (130 + 10·V) / 999.980 → con V = 12: **0,025%** |
+| Código por correo | 5 por código y por origen; códigos de 60 bits (1,15·10¹⁸). Con 1.000.000 de orígenes: 5·10⁶ / 1,15·10¹⁸ ≈ 4·10⁻¹² por código; ≤ 11.680 códigos al año → **5·10⁻⁸** | despreciable |
+| Equipo reconocido robado | KD: 10 por 30 días → ~130, además de K1 | 0,013% (requiere robar la cookie del navegador de la persona) |
 
-**Aviso:** cuando se activa K3 en una cuenta, se envía un correo a esa persona y a los administradores, como máximo uno por hora por cuenta. Sirve para detectar un ataque en curso; no se presenta como una barrera.
+**Total sin robo de equipo: ~0,025% al año por cuenta** (antes 8,76%). Un PIN elegido por la persona (fechas, patrones) baja esa seguridad. La política solo rechaza dígitos repetidos y secuencias.
 
-## Riesgo residual
+## Lo que un tercero todavía puede hacer (sin bloqueos indefinidos)
 
-- **Adivinación distribuida:** un atacante con muchas IP puede sostener, como máximo, ~10 fallos por hora por cuenta (K3), es decir ~240 por día.
-  - Con PIN de 6 dígitos al azar son 10^6 combinaciones, así que la probabilidad de acertar en un año es ~8,8%. El cálculo: 240 × 365 / 10^6.
-  - Un PIN elegido por la persona (fechas, patrones) es más fácil. La política actual ya rechaza repetidos y secuencias, nada más.
-  - Bajarlo exige un umbral K3 menor, que molesta más a los usuarios legítimos en equipos nuevos, o un segundo factor, que sería una funcionalidad nueva.
-- **Molestia en un equipo nuevo durante un ataque:** quien no tenga un equipo reconocido debe usar el código por correo.
-- **NAT compartido:** con una IP de oficina compartida, K2 podría demorar a toda la oficina si se acumulan 30 fallos en 15 min. Es poco probable con uso normal.
-- **IPv6:** se agrupa por /64. Un atacante con muchos /64 queda acotado por K3.
-- **Cookie de equipo robada:** solo evita K3. El PIN se sigue exigiendo, con K1.
-
-## Implementación (cuando se apruebe)
-
-- **Base de datos:** una función nueva en Postgres que cuente solo fallos, lleve el escalón y lo reinicie al ingresar bien. Es SQL nuevo y requiere [AUT] para staging y producción. Alternativa sin SQL nuevo: escalones fijos con la función actual (5/15 min → 5 min, 10/1 h → 30 min, 20/24 h → 60 min), menos precisa porque cuenta también los ingresos correctos.
-- **Servidor:**
-  - `api/_segServidor.js` (contadores y equipo reconocido);
-  - `api/_reglasLogin.js` (código propio que no inhabilita el PIN);
-  - `api/auth/[op].js` (login, verificar, recuperar y "desbloquear" dentro de `admin-reset-pin`).
-  - `api/frisku-sp.js` y `osiris-auth` usarían las mismas claves.
-- **Pruebas:**
-  - escalones de K1 con tiempo real acortado;
-  - K2 con IP rotativas;
-  - K3 con dos instancias;
-  - equipo reconocido contra no reconocido;
-  - que el código propio no inhabilite el PIN;
-  - "desbloquear" del administrador;
-  - que nunca haya un bloqueo sin tope.
+- **Exigir el código desde equipos nuevos** de una persona durante 30 días, renovable con 10 intentos. Los equipos reconocidos no se ven afectados. Desde un equipo nuevo la persona entra con el código de su correo, y el tercero no puede agotarlo ni reemplazarlo.
+- **Demorar hasta 60 minutos un origen** que comparta con la persona, por ejemplo la misma IP pública, solo para orígenes no reconocidos.
+- **Enviar como máximo un código cada 45 minutos** al correo de la persona.
+- **Osiris (sesión dual, `REACT_APP_AUTH_DUAL`, hoy no activa en producción según P8):** con el umbral activo no evalúa el PIN y no tiene camino de código ni de equipo reconocido. Antes de activarla en producción necesita una de dos cosas, y queda como requisito:
+  - reconocer el equipo;
+  - aceptar la sesión vigente de la app.
