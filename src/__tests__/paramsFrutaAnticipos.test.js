@@ -27,6 +27,15 @@ const params = (extra = {}) => ({
   },
 });
 
+// Fecha controlada para los tests que dependen del "hoy" (new Date() al renderizar).
+// Fija el reloj solo dentro del test; la aplicación no se toca.
+function conFecha(fecha, fn) {
+  jest.useFakeTimers('modern');
+  jest.setSystemTime(fecha);
+  try { return fn(); } finally { jest.useRealTimers(); }
+}
+const HOY_SEP26 = new Date(2026, 8, 15, 12, 0, 0);   // 15-09-2026
+
 const pintar = (p = params(), props = {}) =>
   render(<ParamsFruta seasonKey="2026-2027" fruta="cerezas" params={p} setParams={()=>{}} {...props}/>);
 
@@ -89,11 +98,14 @@ test('con saldos bancarios, clasifica el cobro contra la fecha de cada cuenta', 
     "Allegria Foods||BICE||usd": { monto:10000, fecha:"2026-09-05", moneda:"usd" },
     "Allegria Foods||Santander||usd": { monto:5000, fecha:"2026-07-01", moneda:"usd" },
   };
-  pintar(params(), { saldosBancos: saldos });
-  // el cobro del 10-08-2026 cae entre la cuenta más atrasada (01-07) y la más
-  // reciente (05-09) → no se puede afirmar que esté conciliado
-  expect(texto().match(/no comprobable \(hay cuentas con corte anterior\)/g)).toHaveLength(2);
-  verTexto(/no se puede comprobar/);
+  // Con un "hoy" anterior al 05-09-2026 ese saldo sería futuro: se fija el reloj.
+  conFecha(HOY_SEP26, () => {
+    pintar(params(), { saldosBancos: saldos });
+    // el cobro del 10-08-2026 cae entre la cuenta más atrasada (01-07) y la más
+    // reciente (05-09) → no se puede afirmar que esté conciliado
+    expect(texto().match(/no comprobable \(hay cuentas con corte anterior\)/g)).toHaveLength(2);
+    verTexto(/no se puede comprobar/);
+  });
 });
 
 test('no deja borrar un anticipo con cobros registrados', () => {
@@ -113,11 +125,14 @@ test('avisa del sobre-anticipo sin compensarlo solo', () => {
 });
 
 test('marca el pendiente vencido y ofrece reprogramarlo a mano', () => {
-  const p = params({ anticipos_cliente:[{ id:"a1", mes:"Jul-26", usd_kg:0.10, realizaciones:[] }] });
-  pintar(p);           // hoy = Sep-26 → Jul-26 está vencido
-  verTexto(/vencido: Jul-26 ya pasó/);
-  verTexto(/reprogramar a Sep-26/);
-  verTexto(/No se da por cobrado ni se mueve solo/);
+  // Sin fijar el reloj, este test solo pasaba en Sep-26.
+  conFecha(HOY_SEP26, () => {
+    const p = params({ anticipos_cliente:[{ id:"a1", mes:"Jul-26", usd_kg:0.10, realizaciones:[] }] });
+    pintar(p);           // hoy = Sep-26 → Jul-26 está vencido
+    verTexto(/vencido: Jul-26 ya pasó/);
+    verTexto(/reprogramar a Sep-26/);
+    verTexto(/No se da por cobrado ni se mueve solo/);
+  });
 });
 
 test('avisa cuando el flujo está usando un override manual', () => {
