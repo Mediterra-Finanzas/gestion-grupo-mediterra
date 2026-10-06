@@ -22,7 +22,7 @@ const U = (nombre) => ({ nombre, email: em(nombre), cargo: 'Prueba', rol: 'edito
 const PIN = { Ana: '482916', Beto: '579135' };
 const puertoLibre = () => new Promise((r) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 
-const E = await levantarEntorno({ sembrar: { usuarios: [U('Ana'), U('Beto')], pins: { Ana_h: cred(PIN.Ana), Beto_h: cred(PIN.Beto) }, main: { estados: {} }, admins: [] } });
+const E = await levantarEntorno({ sembrar: { usuarios: [U('Ana'), U('Beto')], pins: { Ana_h: cred(PIN.Ana), Beto_h: cred(PIN.Beto) }, main: { estados: {} }, admins: ['beto@prueba.test'] }, env: { AUTH_RL_ID_MAX: '1000' } });   // límite alto: aquí se prueba la revocación, no el contador
 const hijos = [];
 async function instancia(extraEnv = {}) {
   const puerto = await puertoLibre();
@@ -70,7 +70,8 @@ try {
   const sinJson = await pedir(I1, 'POST', '/api/auth/logout', { cookie: a3, body: 'x', tipo: 'text/plain' });
   eq([sinJson.j && sinJson.j.revocado, await usa(I1, a3)], [false, 200], 'logout sin JSON (posible petición de otro sitio) → no revoca');
   const sinCookie = await pedir(I2, 'POST', '/api/auth/logout', { body: {} });
-  eq([sinCookie.status, sinCookie.j && sinCookie.j.revocado], [200, false], 'logout sin sesión → 200 revocado:false');
+  eq([sinCookie.status, sinCookie.j && sinCookie.j.revocado, sinCookie.j && sinCookie.j.motivo], [200, false, 'sin_sesion'], 'logout sin sesión → 200 revocado:false motivo sin_sesion (la app avisa)');
+  eq(st.j && st.j.motivo, 'ya_invalida', 'copia ya inválida → motivo ya_invalida (la app avisa)');
 
   console.log('Concurrencia (dos "Salir" simultáneos en instancias distintas):');
   const c1 = await login(I1, 'Ana'), c2 = await login(I2, 'Ana'), c3 = await login(I1, 'Ana');
@@ -82,6 +83,44 @@ try {
   ok(r1.status === 200 && r2.status === 200 && (r1.j.revocado || r2.j.revocado), `ambos responden 200; al menos uno revoca (${r1.j.revocado}/${r2.j.revocado})`);
   ok(epoca('Ana') >= e1 + 1, 'la época subió (la escritura condicionada no pierde la revocación)');
   eq([await usa(I1, c3), await usa(I2, c3), await usa(I1, c1), await usa(I2, c2)], [401, 401, 401, 401], 'todas las sesiones previas de Ana → 401');
+
+  console.log('Carreras sobre la fila pins (escritura condicionada):');
+  for (let i = 0; i < 6; i++) {
+    // "Salir" vs cambio de PIN de OTRA sesión de la misma persona: exactamente uno gana.
+    const s1 = await login(I1, 'Ana'), s2 = await login(I2, 'Ana');
+    const nuevo = ['618273', '739182'][i % 2];
+    const [lo2, cp] = await Promise.all([
+      pedir(I1, 'POST', '/api/auth/logout', { cookie: s1, body: { revocar: true } }),
+      pedir(I2, 'POST', '/api/auth/cambiar-pin', { cookie: s2, body: { pinActual: PIN.Ana, pinNuevo: nuevo } }),
+    ]);
+    const ganoSalir = lo2.j && lo2.j.revocado === true, ganoCambio = cp.status === 200;
+    ok(ganoSalir !== ganoCambio, `ronda ${i + 1}: "Salir" vs cambio de PIN → gana exactamente uno (salir=${ganoSalir}, cambio=${cp.status})`);
+    if (ganoCambio) {
+      PIN.Ana = nuevo;
+      eq([await usa(I1, cp.cookie), await usa(I2, s1)], [200, 401], `ronda ${i + 1}: el PIN nuevo quedó y la otra sesión cayó`);
+    }
+  }
+  for (let i = 0; i < 4; i++) {
+    // "Salir" de Ana vs reseteo de Ana por el admin Beto: no se pierde ni el código ni la época.
+    const sA = await login(I1, 'Ana');
+    const bAdm = await login(I2, 'Beto');
+    const e2 = epoca('Ana');
+    const [lo3, rs] = await Promise.all([
+      pedir(I1, 'POST', '/api/auth/logout', { cookie: sA, body: { revocar: true } }),
+      pedir(I2, 'POST', '/api/auth/admin-reset-pin', { cookie: bAdm, body: { nombre: 'Ana' } }),
+    ]);
+    const tieneTemp = E.psql(`select (value ? 'Ana_temp')::text from calendario_data where id='pins'`) === 'true';
+    const esperado = e2 + 1 + (lo3.j && lo3.j.revocado ? 1 : 0);
+    ok(rs.status === 200 && tieneTemp && epoca('Ana') === esperado,
+      `ronda ${i + 1}: reseteo y "Salir" simultáneos → el código provisorio sigue y la época = ${esperado} (obtenido ${epoca('Ana')})`);
+    // Volver a un PIN conocido para la siguiente ronda (como haría Ana con el código).
+    const cod = rs.j && rs.j.codigo;
+    const lt = await pedir(I1, 'POST', '/api/auth/login', { body: { email: em('Ana'), pin: cod } });
+    const nuevo = ['528391', '639402', '741503', '852614'][i];
+    await pedir(I1, 'POST', '/api/auth/cambiar-pin', { cookie: lt.cookie, body: { pinNuevo: nuevo } });
+    PIN.Ana = nuevo;
+  }
+  E.psql(`delete from frisku_sp_ratelimit`);
 
   console.log('Base no disponible:');
   const I3 = await instancia({ SUPABASE_URL: 'http://127.0.0.1:9' });

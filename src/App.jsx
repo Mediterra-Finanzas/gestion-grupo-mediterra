@@ -3074,7 +3074,15 @@ export default function App(){
         if(revocar){ try{ window.alert("No se pudo confirmar el cierre de tus sesiones en otros equipos. Vuelve a ingresar y usa Salir de nuevo, o pide a un administrador que resetee tu PIN."); }catch(e){} }
         fin();
       };
-      authSrv.logout(revocar).then((r)=>{ if(revocar && !(r && r.revocado===true) && !(r && r.revocado===false && r.ok)) return noConfirmada(); fin(); }, noConfirmada);
+      const yaTerminada = ()=>{
+        try{ window.alert("Tu sesión en este navegador ya había terminado, así que no se cerraron sesiones en otros equipos. Si quieres cerrarlas, ingresa de nuevo y usa Salir."); }catch(e){}
+        fin();
+      };
+      authSrv.logout(revocar).then((r)=>{
+        if(!revocar || (r && r.revocado===true)) return fin();
+        if(r && r.ok && (r.motivo==="sin_sesion" || r.motivo==="ya_invalida")) return yaTerminada();
+        noConfirmada();
+      }, noConfirmada);
     }
   }
 

@@ -69,6 +69,11 @@ async function cambiarPin(req, res, b) {
   const corteMs = R.corteCredenciales();
   let escritos = null;
   const w = await S.actualizarFila("pins", (valor) => {
+    // Dentro de la escritura condicionada: si entre la validación y este punto la sesión
+    // fue revocada ("Salir", reseteo, otro cambio), no se cambia el PIN.
+    if (s.ses.scope === "completa" && s.ses.fp !== R.huellaSesion(valor || {}, s.usuario.nombre)) {
+      return { abortar: { status: 401, error: "sin_sesion" } };
+    }
     const r = R.evaluarCambioPin({ usuario: s.usuario, pins: valor || {}, pinActual: b.pinActual, pinNuevo: b.pinNuevo,
       tel: b.tel, sesion: s.ses, ahora: Date.now(), corteMs });
     if (!r.ok) return { abortar: r };
@@ -129,19 +134,22 @@ async function recuperar(req, res, b) {
 async function logout(req, res, b) {
   const borrar = { "Set-Cookie": A.cookieBorrar() };
   const ses = A.sesionCualquierScope(req);
-  if (!ses || ses.scope !== "completa" || b.revocar === false) return S.json(res, 200, { ok: true, revocado: false }, borrar);
+  // motivo: "no_solicitada" (cierre por inactividad), "sin_sesion" (no hay sesión en este
+  // navegador) o "ya_invalida" (la sesión ya había terminado): el cliente avisa si pidió revocar.
+  if (b.revocar === false) return S.json(res, 200, { ok: true, revocado: false, motivo: "no_solicitada" }, borrar);
+  if (!ses || ses.scope !== "completa") return S.json(res, 200, { ok: true, revocado: false, motivo: "sin_sesion" }, borrar);
   if (A.faltanSecretos()) return S.json(res, 503, { error: "no_disponible", revocado: false }, borrar);
   try {
     const { usuarios } = await S.leerUsuarios();
     const u = R.buscarUsuario(usuarios, ses.email);
-    if (!u || u.nombre !== ses.nombre) return S.json(res, 200, { ok: true, revocado: false }, borrar);
+    if (!u || u.nombre !== ses.nombre) return S.json(res, 200, { ok: true, revocado: false, motivo: "sin_sesion" }, borrar);
     const w = await S.actualizarFila("pins", (valor) => {
       if (!ses.fp || ses.fp !== R.huellaSesion(valor, u.nombre)) return { abortar: "ya_invalida" };
       const v = { ...valor };
       v[`${u.nombre}_epoca`] = (Number(v[`${u.nombre}_epoca`]) || 0) + 1;
       return v;
     });
-    return S.json(res, 200, { ok: true, revocado: !!w.ok }, borrar);
+    return S.json(res, 200, w.ok ? { ok: true, revocado: true } : { ok: true, revocado: false, motivo: "ya_invalida" }, borrar);
   } catch (e) {
     console.error("auth logout: error interno");
     return S.json(res, 503, { error: "no_disponible", revocado: false }, borrar);
