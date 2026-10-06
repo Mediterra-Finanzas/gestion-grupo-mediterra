@@ -30,3 +30,11 @@ export function mesActual(hoy = new Date()) {
 
 /** Corte del saldo acumulado: el mes en curso dentro del horizonte. <0 si no está. */
 export function mesIdxActual(hoy = new Date()) { return mIdx(mesActual(hoy)); }
+
+/** Rótulo del horizonte derivado de la serie real (no escrito a mano):
+ *  "Apr-2026 → Jun-2031 · 63 meses". */
+export function rotuloHorizonte(meses = MESES_INFO) {
+  if (!meses.length) return "";
+  const a = meses[0], b = meses[meses.length - 1];
+  return `${MN[a.m]}-${a.y} → ${MN[b.m]}-${b.y} · ${meses.length} meses`;
+}

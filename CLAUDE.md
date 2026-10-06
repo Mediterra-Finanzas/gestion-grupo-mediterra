@@ -118,7 +118,7 @@ Sub-tabs dentro de FinanzasModule:
 
 #### Conceptos clave del flujo de caja
 
-- **65 meses** de proyección (`MESES_65`)
+- **63 meses** de proyección, Apr-26 → Jun-31 (`MESES_65` es un nombre histórico; el rótulo sale de `rotuloHorizonte()` en `src/horizonte.js`)
 - **Líneas base** vienen de `EMPRESAS_STATIC` por empresa
 - **AddedLines** = líneas que el usuario agrega manualmente (en `addedLines[seccion]`)
 - **SubLines** = sub-items de líneas con `subLines: true` (en `subLines[lineLabel]`)
@@ -521,6 +521,15 @@ pero Saldos Bancos, Flujo Empresas, Dashboard, Consolidado, Reporte Semanal (EUR
 omitida) y los Excel las nombran y rotulan el total "INCOMPLETO". `toUSD` devuelve
 `null` (no 0) si la fuente no trae la moneda. Tests: `src/__tests__/sinParidad.test.js`,
 `scripts/e2e/sin-paridad.mjs`.
+
+#### Créditos Totales Q1-26 = histórico estático (oct-2026)
+
+`CREDITOS_TRIM` (KPI del Dashboard, KPIs y tabla trimestral de Créditos) son cifras
+cargadas a mano a inicios de 2026: NO se derivan de `creditosData`. Están rotuladas
+"histórico estático". Propuesta pendiente: reemplazar por la deuda vigente
+calculada con `saldoCreditoAt` (misma fuente que "Saldo por Mes"). Referencia con
+los datos por defecto del repo: 8.375.219 al 31-03-2026 (vs 8.355.763 fijo) y
+6.718.187 al 31-10-2026 (`src/__tests__/horizonteRotulo.test.js`).
 
 #### Dashboard = Consolidado (oct-2026)
 

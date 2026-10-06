@@ -20,7 +20,7 @@ import {
   puedeBorrarAnticipo, nuevoIdAnticipo, clasificarRealizacionVsSaldos, conciliacionRealizaciones,
   pendientesVencidos,
 } from './anticipos.js';
-import { generarMeses } from './horizonte.js';
+import { generarMeses, rotuloHorizonte } from './horizonte.js';
 import {
   movimientosLado, resumenLado, movimientosSaldos, normalizarPrograma, normalizarCuota,
   cuotaAcordado, cuotaPendiente, cuotaRealizado, estPendiente, estDisponible,
@@ -31,7 +31,7 @@ import {
 import ProgramasPanel, { ResumenLado } from './ProgramasComerciales.jsx';
 
 // ═══════════════════════════════════════════════════════════════════
-// TIEMPO: Mar-26 → Jun-31 (65 meses)
+// TIEMPO: Apr-26 → Jun-31 (63 meses; ver src/horizonte.js — el nombre MESES_65 es histórico)
 // ═══════════════════════════════════════════════════════════════════
 const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -657,6 +657,8 @@ export const CREDITOS_DEFAULT = [
   {n:40,empresa:"Mediterra",acreedor:"Privado Particular",tipo_inst:"Privado",monto:17325,f_venc:"2027-12-01",tipo_cr:"Inversión",tasa:"12.6%",cuota:17325,pagado:false},
   {n:41,empresa:"Mediterra",acreedor:"Privado Particular",tipo_inst:"Privado",monto:550000,f_venc:"2028-01-01",tipo_cr:"Inversión",tasa:"12.6%",cuota:550000,pagado:false},
 ];
+// HISTÓRICO ESTÁTICO: cifras cargadas a mano a inicios de 2026. NO se derivan de
+// creditosData. La deuda vigente sale de saldoCreditoAt (vista "Saldo por Mes").
 const CREDITOS_TRIM = {
   quarters:["Q1 2026","Q2 2026","Q3 2026","Q4 2026","Q1 2027","Q2 2027","Q3 2027","Q4 2027","Q1 2028","Q2 2028","Q3 2028","Q4 2028"],
   pagos:   [21815,1064994,983763,1517473,922750,1348929,677657,972750,1016426,800196,0,0],
@@ -7738,7 +7740,7 @@ export function Dashboard({empresas, empresasConOverrides, saldosBancos, escenar
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
         <KPI label={`🇨🇱 Saldo bancos Chile (7 soc. al 100%)${spChile.length?" · INCOMPLETO":""}`}  value={$$(saldoCajaChile)}  color={C.green}/>
         <KPI label={`🇵🇪 Saldo bancos Allpa Perú (100%)${spPeru.length?" · INCOMPLETO":""}`}   value={$$(saldoCajaPerU)}   color={"#7c3aed"}/>
-        <KPI label="Créditos Totales Q1-26 (cifra fija, no se recalcula)" value={$$(8355763)}                 color={C.red}/>
+        <KPI label="Créditos Totales Q1-26 · HISTÓRICO ESTÁTICO (cargado a mano; no se actualiza con Créditos)" value={$$(CREDITOS_TRIM.saldos[0])} color={C.muted}/>
         <KPI label={`Saldo inicial consolidado · ${MESES_65[mesIdxHoy]}${spCons.length?" · INCOMPLETO":""}`} value={$$(caja.saldoIni)} color={C.blue}/>
         <KPI label={`Mínimo acumulado consolidado (${MESES_65[caja.minIdx]||""})`} value={$$(caja.min)} color={C.red}/>
         <KPI label={`Saldo final consolidado ${ultimoMes}`} value={$$(caja.final)} color={cf(caja.final)}/>
@@ -7971,8 +7973,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
 
       {vistaCred==="creditos" && (<>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
-        <KPI label="Deuda Total Q1-2026" value={$$(CREDITOS_TRIM.saldos[0])} color={C.red}/>
-        <KPI label="Pagos Q1-2026"       value={$$(CREDITOS_TRIM.pagos[0])}  color={C.yellow}/>
+        <KPI label="Deuda Total Q1-2026 · histórico estático" value={$$(CREDITOS_TRIM.saldos[0])} color={C.muted}/>
+        <KPI label="Pagos Q1-2026 · histórico estático"       value={$$(CREDITOS_TRIM.pagos[0])}  color={C.muted}/>
         <KPI label="N° Créditos"         value={creditosVisibles.length}             color={C.blue}/>
         <KPI label="Renovables"          value={creditosVisibles.filter(c=>c.renovable).length} color={C.orange}/>
       </div>
@@ -7987,7 +7989,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         );})}
       </Card>
       <Card style={{padding:"12px 16px"}}>
-        <SectionTitle>Saldo Deuda por Trimestre</SectionTitle>
+        <SectionTitle>Saldo Deuda por Trimestre — histórico estático</SectionTitle>
+        <div style={{fontSize:10,color:C.muted,margin:"-4px 0 8px"}}>Cifras cargadas a mano a inicios de 2026 (CREDITOS_TRIM). No se recalculan con los créditos de esta pantalla; para la deuda vigente usar "📅 Saldo por Mes".</div>
         <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead><tr style={{background:C.primary}}>
@@ -8694,7 +8697,7 @@ function fechaCuotaRenov(cq){
   return `${cq.anio}-${MES2NUM_SD[cq.mes]||'06'}-28`;
 }
 // Saldo de un crédito al cierre de fechaISO.
-function saldoCreditoAt(c, fechaISO){
+export function saldoCreditoAt(c, fechaISO){
   let d = (!c.pagado && c.f_venc && c.f_venc>fechaISO) ? (Number(c.cuota)||0) : 0;
   if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
     if((cq.tipo||'Solo Interés')==='Capital+Interés'){
@@ -13018,7 +13021,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
             <img src="/med.png" alt="Mediterra" style={{height:30,objectFit:"contain"}}
               onError={e=>{e.target.style.display="none";}}/>
           </div>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.7)"}}>Apr-2026 → Jun-2031 · 64 meses · USD</div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.7)"}}>{rotuloHorizonte(MESES_INFO)} · USD</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           {saved&&<span style={{fontSize:11,color:"rgba(255,255,255,0.85)",background:"rgba(255,255,255,0.1)",
