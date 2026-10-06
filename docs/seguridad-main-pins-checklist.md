@@ -221,8 +221,8 @@ Orden obligatorio si se autoriza: primero el SQL y después, si hace falta, desp
 | `POSTGREST_BIN=… node scripts/seguridad-main-pins/prueba-servidor.mjs` | 180/180, incluidas copias reales de cookies en tiempo real (~2 min de espera) |
 | `node scripts/seguridad-main-pins/prueba-informe.mjs` | 7/7 en Chromium real, con control positivo |
 | Dos instancias contra Postgres local (script del revisor, fuera del repositorio) | 8 permitidos de 16 alternados y 8 de 20 simultáneos |
-| `scripts/e2e/seguridad-auth-servidor.mjs` (builds con flag prendido y apagado) | Ver el informe final del commit |
-| `scripts/e2e/regresion-empresas.mjs` con el flag apagado | 12.032 celdas, 0 diferencias; 0 peticiones a producción |
+| `scripts/e2e/seguridad-auth-servidor.mjs` (builds con flag prendido y apagado) | 35/35 |
+| `scripts/e2e/regresion-empresas.mjs` con el flag apagado (commit 47c9d57; `src/` no cambió después) | 12.032 celdas, 0 diferencias; 0 peticiones a producción |
 
 **No probado:**
 - Vercel y Supabase reales;
