@@ -324,6 +324,17 @@ Verificación: `src/__tests__/prestamosSemanas.test.js` y
 `scripts/e2e/semanal-cuadre.mjs` (392 comprobaciones: Σ semanas = mes,
 ingresos − egresos = neto, Σ líneas = subtotal, saldo anterior + neto = saldo).
 
+#### Dashboard = Consolidado (oct-2026)
+
+"Saldo inicial / Mínimo / Saldo final consolidado" del Dashboard salen de
+`cajaGrupoBase()`, con la misma definición que la vista Consolidado sin activar
+Allpa: 6 sociedades línea a línea, saldo inicial = Saldos Bancos (fallback
+saldo estático), arrastre desde el mes en curso. Antes sumaba las 8 sociedades
+al 100% (incluidas las JV por VPP), desde Apr-26 y con el saldo estático. El
+Consolidado mostraba "Flujo Total" de los 63 meses; ahora "Flujo neto
+{mes en curso}–Jun-31", para que saldo inicial + flujo = saldo final. Ambas
+pantallas escriben el perímetro. Test: `src/__tests__/dashboardConsolidado.test.js`.
+
 #### Bug histórico arreglado (no volver a romper)
 
 El subtotal de categoría debe **incluir** las sublines de líneas con "Préstamos" en el nombre. Antes se excluían y generaba descuadre con el Flujo Neto. La exclusión `!l.label.includes("Préstamos")` fue removida del cálculo de subtotales — no volverla a poner.

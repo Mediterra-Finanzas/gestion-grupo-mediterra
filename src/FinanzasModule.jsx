@@ -4529,7 +4529,7 @@ export function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, 
 // ═══════════════════════════════════════════════════════════════════
 // CONSOLIDADO — dentro de Flujo Empresas
 // ═══════════════════════════════════════════════════════════════════
-function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={},escenarioNombre=null,paramsPart={},onSaveParamsPart=null}) {
+export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={},escenarioNombre=null,paramsPart={},onSaveParamsPart=null}) {
   const empNames=Object.keys(empresas);
   // Consolidación proporcional de Allpa (opción por empresa): se puede incluir
   // Allpa Chile, Allpa Perú, o ambas al mismo tiempo — cada una escalada por su
@@ -4654,6 +4654,13 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   },[flujoConsolidado,saldoIniConsolidado,mesIdxHoy]);
 
   // Derivados null-safe para KPIs/gráfico (los meses pasados son null).
+  // Flujo desde el mes en curso: saldo inicial + este flujo = saldo final.
+  // (El "Flujo Total" anterior sumaba también los meses ya pasados y no cerraba.)
+  const flujoDesdeHoyConsolidado = useMemo(
+    () => flujoConsolidado.slice(mesIdxHoy).reduce((a,b)=>a+(Number(b)||0),0),
+    [flujoConsolidado, mesIdxHoy]
+  );
+
   const {minAcum,minAcumIdx}=useMemo(()=>{
     const valid=acumConsolidado.filter(v=>v!=null);
     const mn=valid.length?Math.min(...valid):0;
@@ -4862,11 +4869,16 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
       </div>
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
-        <KPI label="Saldo Inicial Consolidado" value={$$(saldoIniConsolidado)} color={C.blue}/>
-        <KPI label="Flujo Total" value={$$(flujoConsolidado.reduce((a,b)=>a+(Number(b)||0),0))} color={cf(flujoConsolidado.reduce((a,b)=>a+(Number(b)||0),0))}/>
-        <KPI label={"Mínimo Acumulado ("+(MESES_65[minAcumIdx]||"")+")"} value={$$(minAcum)} color={C.red}/>
-        <KPI label="Saldo Final Jun-31" value={$$(acumConsolidado[acumConsolidado.length-1])} color={cf(acumConsolidado[acumConsolidado.length-1])}/>
+        <KPI label={`Saldo inicial consolidado · ${MESES_65[mesIdxHoy]}`} value={$$(saldoIniConsolidado)} color={C.blue}/>
+        <KPI label={`Flujo neto ${MESES_65[mesIdxHoy]}–${MESES_65[MESES_65.length-1]}`} value={$$(flujoDesdeHoyConsolidado)} color={cf(flujoDesdeHoyConsolidado)}/>
+        <KPI label={"Mínimo acumulado consolidado ("+(MESES_65[minAcumIdx]||"")+")"} value={$$(minAcum)} color={C.red}/>
+        <KPI label={`Saldo final consolidado ${MESES_65[MESES_65.length-1]}`} value={$$(acumConsolidado[acumConsolidado.length-1])} color={cf(acumConsolidado[acumConsolidado.length-1])}/>
         <KPI label="Empresas" value={empNamesConsolidado.length} color={C.yellow}/>
+      </div>
+      <div style={{fontSize:11,color:C.muted}}>
+        Perímetro: {empNamesConsolidado.join(", ")} · USD · saldo inicial = Saldos Bancos (o saldo estático si no hay) · arrastre desde {MESES_65[mesIdxHoy]}
+        {(onChile||onPeru) ? ` · Allpa incluida al % de participación (${[onChile?`Chile ${Math.round(pctChile*100)}%`:null, onPeru?`Perú ${Math.round(pctPeru*100)}%`:null].filter(Boolean).join(", ")})` : " · Allpa Chile y Perú por método patrimonio (fuera)"}
+        {" "}· {$$(saldoIniConsolidado)} + {$$(flujoDesdeHoyConsolidado)} = {$$(acumConsolidado[acumConsolidado.length-1])}
       </div>
       {/* Flujo al cierre de cada temporada */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
@@ -7551,21 +7563,44 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
 // ═══════════════════════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════════════════════
-function Dashboard({empresas, empresasConOverrides, saldosBancos}) {
-  // gmAcum y empTotals leen de empresasConOverrides para incluir addedLines y overrides.
+// Caja del grupo con la MISMA definición que la vista Consolidado (sin activar
+// Allpa): 6 sociedades línea a línea, saldo inicial = Saldos Bancos (o el
+// saldo estático si la empresa no tiene saldo cargado), arrastre desde el mes
+// en curso. El Dashboard antes sumaba las 8 sociedades al 100% (Allpa por VPP
+// incluida), desde Apr-26 y con el saldo estático: daba otra cifra con el
+// mismo rótulo. Un test compara las dos pantallas.
+export function cajaGrupoBase(empresasConOverrides, empresas, saldosBancos, mesIdxHoy) {
+  const nombres = Object.keys(empresas).filter(n => EMPRESAS_KEYS_CONSOLIDADO.includes(n) && empresasConOverrides[n]);
+  const flujo = Z65();
+  let saldoIni = 0;
+  nombres.forEach(n => {
+    const v = getSaldoBancoInicial(saldosBancos, n, empresas[n].saldo_ini);
+    saldoIni += isNaN(v) ? 0 : v;
+    empresasConOverrides[n].sections.forEach(sec => sec.lines.forEach(l => (l.proy||[]).forEach((v, i) => {
+      const num = Number(v); flujo[i] += (isNaN(num) ? 0 : num) * sec.signo;
+    })));
+  });
+  let a = saldoIni;
+  const acum = flujo.map((f, i) => { if (i < mesIdxHoy) return null; a += Number(f) || 0; return a; });
+  const validos = acum.filter(v => v != null);
+  const min = validos.length ? Math.min(...validos) : 0;
+  const flujoDesdeHoy = flujo.slice(mesIdxHoy).reduce((x, y) => x + (Number(y) || 0), 0);
+  return { nombres, saldoIni, flujo, acum, min, minIdx: acum.indexOf(min), final: acum[acum.length - 1], flujoDesdeHoy };
+}
+
+export function Dashboard({empresas, empresasConOverrides, saldosBancos, escenarioNombre=null}) {
+  // empTotals lee de empresasConOverrides para incluir addedLines y overrides.
   // empresas (raw) se mantiene solo para leer emoji/color (metadatos estáticos, sin overrides).
-  const gmAcum=useMemo(()=>{
-    let acc=Object.values(empresasConOverrides).reduce((s,e)=>s+(e.saldo_ini||0),0);
-    return MESES_65.map((_,i)=>{
-      let f=0;
-      Object.values(empresasConOverrides).forEach(e=>e.sections.forEach(sec=>sec.lines.forEach(l=>{
-        const num=Number(l.proy[i]);
-        f+=(isNaN(num)?0:num)*sec.signo;
-      })));
-      acc+=f;
-      return acc;
-    });
-  },[empresasConOverrides]);
+  const mesIdxHoy = useMemo(()=>{
+    const HOY=new Date();
+    const idx=MESES_65.indexOf(`${MN[HOY.getMonth()]}-${String(HOY.getFullYear()).slice(2)}`);
+    return idx>=0?idx:0;
+  },[]);
+  const caja = useMemo(
+    () => cajaGrupoBase(empresasConOverrides, empresas, saldosBancos, mesIdxHoy),
+    [empresasConOverrides, empresas, saldosBancos, mesIdxHoy]
+  );
+  const ultimoMes = MESES_65[MESES_65.length-1];
   const EMPRESAS_CHILE = ["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Allpa Farms","Osiris","Integrity Farms"];
   const EMPRESAS_PERU  = ["Allpa Farms Perú"];
   const HOY_DASH = new Date();
@@ -7596,22 +7631,29 @@ function Dashboard({empresas, empresasConOverrides, saldosBancos}) {
   const maxIng=empTotals[0]?.totalIng||1;
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{fontSize:11,color:C.muted}}>
+        Saldos bancarios: cada sociedad al 100% (incluye las JV Allpa). Proyección y mínimo: igual que la vista Consolidado —
+        {" "}{caja.nombres.length} sociedades línea a línea, Allpa Chile y Perú por método patrimonio (fuera) · USD ·
+        {" "}{escenarioNombre ? `escenario ${escenarioNombre}` : "escenario Base"} · desde {MESES_65[mesIdxHoy]} con saldos bancarios.
+      </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
-        <KPI label={`🇨🇱 Saldo Banco Chile`}  value={$$(saldoCajaChile)}  color={C.green}/>
-        <KPI label={`🇵🇪 Saldo Banco Perú`}   value={$$(saldoCajaPerU)}   color={"#7c3aed"}/>
-        <KPI label="Créditos Totales Q1-26" value={$$(8355763)}                 color={C.red}/>
-        <KPI label="Mínimo Acum. (65m)"     value={$$(Math.min(...gmAcum))}     color={C.red}/>
-        <KPI label="Saldo Final Jun-31"     value={$$(gmAcum[gmAcum.length-1])} color={cf(gmAcum[gmAcum.length-1])}/>
+        <KPI label={`🇨🇱 Saldo bancos Chile (7 soc. al 100%)`}  value={$$(saldoCajaChile)}  color={C.green}/>
+        <KPI label={`🇵🇪 Saldo bancos Allpa Perú (100%)`}   value={$$(saldoCajaPerU)}   color={"#7c3aed"}/>
+        <KPI label="Créditos Totales Q1-26 (cifra fija, no se recalcula)" value={$$(8355763)}                 color={C.red}/>
+        <KPI label={`Saldo inicial consolidado · ${MESES_65[mesIdxHoy]}`} value={$$(caja.saldoIni)} color={C.blue}/>
+        <KPI label={`Mínimo acumulado consolidado (${MESES_65[caja.minIdx]||""})`} value={$$(caja.min)} color={C.red}/>
+        <KPI label={`Saldo final consolidado ${ultimoMes}`} value={$$(caja.final)} color={cf(caja.final)}/>
       </div>
       <Card>
-        <SectionTitle>Flujo Acumulado Consolidado — Mar-26 → Jun-31 (6 Temporadas)</SectionTitle>
-        <LineChart months={MESES_65} values={gmAcum} color={C.accentL}/>
+        <SectionTitle>Saldo acumulado consolidado — {MESES_65[mesIdxHoy]} → {ultimoMes}</SectionTitle>
+        <LineChart months={MESES_65.slice(mesIdxHoy)} values={caja.acum.slice(mesIdxHoy)} color={C.accentL}/>
         <div style={{marginTop:8,padding:"8px 12px",background:`${C.red}18`,border:`1px solid ${C.red}33`,borderRadius:8,fontSize:11,color:C.muted}}>
-          ⚠️ Mínimo proyectado: <strong style={{color:C.red}}>{$$(Math.min(...gmAcum))}</strong>
+          ⚠️ Mínimo proyectado: <strong style={{color:C.red}}>{$$(caja.min)}</strong> en {MESES_65[caja.minIdx]||"—"}
+          {" "}· {$$(caja.saldoIni)} + flujo {MESES_65[mesIdxHoy]}–{ultimoMes} {$$(caja.flujoDesdeHoy)} = {$$(caja.final)}
         </div>
       </Card>
       <Card>
-        <SectionTitle>Ingresos Proyectados 65m por Empresa</SectionTitle>
+        <SectionTitle>Ingresos proyectados por empresa — cada sociedad al 100%, {MESES_65[0]} → {ultimoMes} ({MESES_65.length} meses)</SectionTitle>
         {empTotals.map(({n,totalIng})=>{
           const e=empresas[n];  // solo emoji y color — metadatos sin overrides
           return (
@@ -13037,7 +13079,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       </div>
 
       {/* ── Contenido por pestaña ──────────────────────────── */}
-      {tab==="dashboard"&&puedoVer("dashboard")&&accesoCompletoEmpresas&&<Dashboard empresas={empresas} empresasConOverrides={empresasConOverridesMain} saldosBancos={saldosBancos}/>}
+      {tab==="dashboard"&&puedoVer("dashboard")&&accesoCompletoEmpresas&&<Dashboard empresas={empresas} empresasConOverrides={empresasConOverridesMain} saldosBancos={saldosBancos} escenarioNombre={escActivo ? (escenarios.find(e=>e.id===escActivo)?.name || "Escenario") : null}/>}
 
       {tab==="flujo"&&puedoVer("flujo")&&(
         <div>
