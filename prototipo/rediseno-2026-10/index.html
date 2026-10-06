@@ -21,7 +21,7 @@
   --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
   --font: "Inter", "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --fs-xs: 11px; --fs-sm: 12px; --fs: 13px; --fs-md: 14px; --fs-lg: 16px; --fs-xl: 20px; --fs-2xl: 24px;
-  --row-h: 28px; --nav-w: 232px; --gap: 16px;
+  --row-h: 30px; --nav-w: 232px; --gap: 16px; --off: 77px;
 }
 /* ── Dirección B "Campo" (alternativa) ───────────────────────────────── */
 [data-dir="campo"] {
@@ -140,7 +140,8 @@ button, input, select { font: inherit; color: inherit; }
 
 /* ── Tabla financiera ────────────────────────────────────────────────── */
 .ftable-wrap { position: relative; overflow: auto; max-height: calc(100vh - 330px); min-height: 320px; background: var(--surface); border: 1px solid var(--border); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
-table.ft { border-collapse: separate; border-spacing: 0; font-size: var(--fs-sm); min-width: 100%; }
+table.ft { border-collapse: separate; border-spacing: 0; font-size: var(--fs); min-width: 100%; }
+.ft caption { caption-side: top; }
 .ft th, .ft td { height: var(--row-h); padding: 0 8px; border-bottom: 1px solid var(--border); white-space: nowrap; background: var(--surface); }
 .ft thead th { position: sticky; z-index: 3; background: var(--surface-2); font-weight: 600; color: var(--text-2); }
 .ft thead tr.r1 th { top: 0; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); border-bottom: 1px solid var(--border); }
@@ -152,7 +153,22 @@ table.ft { border-collapse: separate; border-spacing: 0; font-size: var(--fs-sm)
 .ft td.num, .ft th.num { min-width: 92px; }
 .ft .tlabel { position: sticky; left: 272px; }
 @media (max-width: 860px) { .ft .tlabel { left: 180px; } }
-.ft th.mes { cursor: pointer; } .ft th.mes:hover { color: var(--brand); text-decoration: underline; }
+.ft th.mes { cursor: pointer; }
+.ft th.mes:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.ctxbar { position: sticky; top: var(--off); z-index: 30; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 8px 12px; margin: 0 0 12px; background: var(--surface); border: 1px solid var(--border-strong); border-left: 4px solid var(--ctx, var(--brand)); border-radius: var(--radius); font-size: var(--fs); box-shadow: var(--shadow); }
+.ctxbar b { font-weight: 700; }
+.ctx-largo { display: contents; }
+.ctx-corto { display: none; }
+@media (max-width: 860px) { .ctx-largo { display: none; } .ctx-corto { display: inline; } .ctxbar { padding: 6px 10px; } }
+.ctxbar .sep { color: var(--border-strong); }
+.skip { position: absolute; left: 8px; top: -60px; border: 0; cursor: pointer; z-index: 100; background: var(--brand); color: var(--brand-ink); padding: 6px 10px; border-radius: var(--radius); }
+.skip:focus { top: 36px; }
+.help { position: fixed; inset: 0; background: rgba(15,23,42,.35); z-index: 85; display: none; align-items: center; justify-content: center; padding: 16px; }
+.help[data-open="true"] { display: flex; }
+.help .box { background: var(--surface); border-radius: var(--radius-lg); max-width: 520px; width: 100%; padding: 18px 20px; box-shadow: 0 20px 50px rgba(15,23,42,.3); }
+.help table { width: 100%; border-collapse: collapse; font-size: var(--fs); }
+.help td { padding: 5px 4px; border-bottom: 1px solid var(--border); }
+.help td:first-child { white-space: nowrap; width: 1%; padding-right: 14px; } .ft th.mes:hover { color: var(--brand); text-decoration: underline; }
 .ft .past { background: var(--col-past); color: var(--text-2); }
 .ft .now { background: var(--col-now); }
 .ft thead th.now { box-shadow: inset 0 -2px 0 #d97706; }
@@ -169,8 +185,10 @@ table.ft { border-collapse: separate; border-spacing: 0; font-size: var(--fs-sm)
 .ft tr.subl td { color: var(--text-2); }
 .ft tr.empchild .c0 { padding-left: 28px; }
 .ft tr.vpp td { color: var(--text-3); font-style: italic; }
-.ft tr.neto td { font-weight: 700; border-top: 2px solid var(--text); background: var(--surface); }
-.ft tr.saldo td { font-weight: 700; background: var(--brand-soft); }
+.ft tr.neto td { font-weight: 700; border-top: 2px solid var(--text); background: var(--surface); position: sticky; bottom: var(--row-h); z-index: 2; }
+.ft tr.saldo td { font-weight: 700; background: var(--brand-soft); position: sticky; bottom: 0; z-index: 2; box-shadow: 0 -1px 0 var(--border-strong); }
+.ft tr.neto td.c0, .ft tr.saldo td.c0 { z-index: 3; }
+.ft tr.neto td.tot, .ft tr.saldo td.tot { z-index: 3; }
 .ft tr.saldo td.c0 { color: var(--brand); }
 .ft tr.sinsaldo td { color: var(--text-3); font-weight: 400; font-style: italic; }
 .ft td.neg { color: var(--neg); }
@@ -186,7 +204,7 @@ table.ft { border-collapse: separate; border-spacing: 0; font-size: var(--fs-sm)
 .ft td.semsum { font-style: italic; }
 .ft mark { background: #fde68a; color: inherit; padding: 0 1px; border-radius: 2px; }
 [data-densidad="comoda"] { --row-h: 36px; }
-[data-densidad="comoda"] .ft { font-size: var(--fs); }
+[data-densidad="comoda"] .ft { font-size: var(--fs-md); }
 
 /* Panel de detalle */
 .drawer { position: fixed; right: 0; top: 31px; bottom: 0; width: min(380px, 100vw); background: var(--surface); border-left: 1px solid var(--border-strong); box-shadow: -8px 0 24px rgba(16,24,40,.12); z-index: 60; transform: translateX(100%); transition: transform .16s ease; display: flex; flex-direction: column; }
@@ -245,6 +263,7 @@ table.ft { border-collapse: separate; border-spacing: 0; font-size: var(--fs-sm)
 </style>
 </head>
 <body data-dir="libro" data-densidad="compacta">
+<button class="skip" id="skipLink" type="button">Saltar a la tabla</button>
 <div class="ficticio" role="note">
   <b>PROTOTIPO</b> Datos ficticios generados para evaluar el diseño. No son cifras de Grupo Mediterra ni salen de Supabase.
 </div>
@@ -280,6 +299,21 @@ table.ft { border-collapse: separate; border-spacing: 0; font-size: var(--fs-sm)
   </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="help" id="help" data-open="false" role="dialog" aria-modal="true" aria-labelledby="helpT">
+  <div class="box"><div style="display:flex;align-items:center"><h2 id="helpT" style="margin:0;font-size:var(--fs-lg);flex:1">Atajos de teclado</h2><button class="btn ghost" id="helpClose" aria-label="Cerrar ayuda">✕</button></div>
+  <table><tbody>
+    <tr><td><kbd>Ctrl</kbd> <kbd>K</kbd></td><td>Buscar empresa, módulo, tarea o línea</td></tr>
+    <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>Empresa anterior / siguiente (Flujo Empresas)</td></tr>
+    <tr><td><kbd>M</kbd> <kbd>S</kbd> <kbd>T</kbd></td><td>Vista Mensual / Semanal / 13 semanas</td></tr>
+    <tr><td><kbd>/</kbd></td><td>Ir a "Buscar línea"</td></tr>
+    <tr><td><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></td><td>Moverse entre celdas de la tabla</td></tr>
+    <tr><td><kbd>Inicio</kbd> <kbd>Fin</kbd></td><td>Primera / última celda de la fila</td></tr>
+    <tr><td><kbd>RePág</kbd> <kbd>AvPág</kbd></td><td>Subir / bajar 10 filas</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Detalle de la celda · abrir/cerrar semanas en un mes</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Cerrar panel o diálogo (vuelve a la celda)</td></tr>
+    <tr><td><kbd>?</kbd></td><td>Esta ayuda</td></tr>
+  </tbody></table></div>
+</div>
 
 <script>
 "use strict";
@@ -471,6 +505,7 @@ function crumbs(parts) { document.getElementById("crumbs").innerHTML = parts.map
 /* ═══════ Vista: Inicio ═══════ */
 function vistaInicio() {
   crumbs([["Inicio"]]);
+  document.title = "Inicio — Prototipo Mediterra";
   const sCons = saldos(CONS);
   const fin = sCons[11];
   let minI = HOY_IDX; sCons.forEach((v, i) => { if (v != null && i <= 11 && v < sCons[minI]) minI = i; });
@@ -545,6 +580,7 @@ function vistaFlujo(empId) {
   if (empId) estado.emp = empId;
   const emp = estado.emp === "cons" ? CONS : EMP[estado.emp];
   crumbs([["Inicio", "#/inicio"], ["Finanzas", "#/finanzas/flujo"], ["Flujo Empresas", "#/finanzas/flujo"], [emp.corto]]);
+  document.title = `Flujo · ${emp.corto} — Prototipo Mediterra`;
   const { idx, cols } = columnas();
   const sal = saldos(emp);
   const futuros = idx.filter(i => i >= HOY_IDX);
@@ -559,7 +595,7 @@ function vistaFlujo(empId) {
   const q = estado.q.trim();
 
   // Cabecera
-  let h1 = `<tr class="r1"><th class="c0" scope="col"></th>`, h2 = `<tr class="r2"><th class="c0" scope="col">Concepto</th>`;
+  let h1 = `<tr class="r1"><th class="c0" scope="col" style="color:var(--text)">${esc(emp.corto)} · US$</th>`, h2 = `<tr class="r2"><th class="c0" scope="col">Concepto</th>`;
   let grupo = null, span = 0; const grupos = [];
   cols.forEach(c => { const g = MESES[c.i].temp; if (g !== grupo) { if (grupo) grupos.push([grupo, span]); grupo = g; span = 0; } span++; }); grupos.push([grupo, span]);
   grupos.forEach(([g, n]) => { h1 += `<th colspan="${n}" style="text-align:left;border-left:2px solid var(--border-strong)"><span class="tlabel">Temporada ${g}</span></th>`; });
@@ -567,8 +603,9 @@ function vistaFlujo(empId) {
   cols.forEach(c => {
     const M = MESES[c.i];
     if (c.w != null) h2 += `<th class="num ${claseCol(c)}" scope="col">S${c.w + 1}<span class="sr"> de ${M.label}</span></th>`;
-    else if (c.mtot) h2 += `<th class="num mes ${claseCol(c)}" scope="col" data-mes="${c.i}" title="Contraer semanas">${M.label} <span aria-hidden="true">▾</span></th>`;
-    else h2 += `<th class="num mes ${claseCol(c)}" scope="col" data-mes="${c.i}" title="Ver semanas de ${M.label}">${M.label}${c.i < HOY_IDX ? ' <span class="tag" style="font-size:9px">Real</span>' : ""}</th>`;
+    else if (c.mtot) h2 += `<th class="num mes ${claseCol(c)}" scope="col" data-mes="${c.i}" tabindex="0" role="button" aria-expanded="true" title="Contraer semanas">${M.label} <span aria-hidden="true">▾</span></th>`;
+    else if (estado.modo === "13s") h2 += `<th class="num ${claseCol(c)}" scope="col">${M.label}</th>`;
+    else h2 += `<th class="num mes ${claseCol(c)}" scope="col" data-mes="${c.i}" tabindex="0" role="button" aria-expanded="false" title="Ver semanas de ${M.label}">${M.label}${c.i < HOY_IDX ? ' <span class="tag" style="font-size:11px">Real</span>' : ""}</th>`;
   });
   h2 += `<th class="tot num" scope="col">Total rango</th></tr>`;
 
@@ -624,10 +661,21 @@ function vistaFlujo(empId) {
     <button class="btn" disabled title="No disponible en el prototipo">Reporte semanal PDF</button>
     <span class="tag ok" title="Estado de guardado: ejemplo">● Guardado 10:42 · confirmado por el servidor</span></div>
   <div class="empbar" role="group" aria-label="Empresa">${empBtns}</div>
+  <div class="ctxbar" style="--ctx:${emp.color}" role="status" aria-live="polite" aria-label="Contexto de la tabla">
+    <span class="ctx-corto"><b>${esc(emp.corto)}</b> · US$ · ${estado.modo === "13s" ? "13 sem." : estado.rango === "temp" ? "Temp. 26-27" : estado.rango === "12m" ? "Oct-26–Sep-27" : "Jul-26–Jun-28"} · ${vistaTxt} · Base</span>
+    <span class="ctx-largo">
+    <span><b>${esc(emp.nombre)}</b>${estado.emp === "cons" ? " · 6 sociedades línea a línea · Allpa por VPP, aparte" : EMP[estado.emp].cons === "vpp" ? ` · JV ${EMP[estado.emp].pct}% (VPP: no suma al consolidado)` : ` · participación ${EMP[estado.emp].pct}%`}</span><span class="sep" aria-hidden="true">|</span>
+    <span>Moneda <b>US$</b></span><span class="sep" aria-hidden="true">|</span>
+    <span>Escenario <b>Base</b></span><span class="sep" aria-hidden="true">|</span>
+    <span>Período <b>${estado.modo === "13s" ? "13 semanas desde Oct-26" : estado.rango === "temp" ? "Temporada 26-27 (Jul-26 a Jun-27)" : estado.rango === "12m" ? "Oct-26 a Sep-27" : "Jul-26 a Jun-28"}</b></span><span class="sep" aria-hidden="true">|</span>
+    <span>Vista <b>${vistaTxt}</b></span><span class="sep" aria-hidden="true">|</span>
+    <span>Real hasta Sep-26 · proyección desde Oct-26 · saldo inicial al 05-10-2026</span>
+    </span>
+  </div>
   <section class="kpis" aria-label="Indicadores del rango">
-    <div class="kpi"><div class="l">Saldo inicial · Oct-26</div><div class="v">${NF.format(emp.saldo)}</div><div class="d">Saldos Bancos al 05-10</div></div>
-    <div class="kpi"><div class="l">Ingresos · ${horiz}</div><div class="v">${NF.format(ing)}</div><div class="d">${MESES[futuros[0]].label} a ${MESES[ultimo].label}</div></div>
-    <div class="kpi"><div class="l">Egresos · ${horiz}</div><div class="v">${NF.format(egr)}</div><div class="d">incluye cuotas de Créditos</div></div>
+    <div class="kpi"><div class="l">Saldo inicial US$ · Oct-26</div><div class="v">${NF.format(emp.saldo)}</div><div class="d">Saldos Bancos al 05-10</div></div>
+    <div class="kpi"><div class="l">Ingresos US$ · ${horiz}</div><div class="v">${NF.format(ing)}</div><div class="d">${MESES[futuros[0]].label} a ${MESES[ultimo].label}</div></div>
+    <div class="kpi"><div class="l">Egresos US$ · ${horiz}</div><div class="v">${NF.format(egr)}</div><div class="d">incluye cuotas de Créditos</div></div>
     <div class="kpi ${fn < 0 ? "bad" : ""}"><div class="l">Flujo neto</div><div class="v">${fmt(fn)}</div><div class="d">${NF.format(ing)} − ${NF.format(egr)}</div></div>
     <div class="kpi ${sal[mi] < 0 ? "bad" : ""}"><div class="l">Saldo mínimo</div><div class="v">${fmt(sal[mi])}</div><div class="d">en ${MESES[mi].label}</div></div>
     <div class="kpi ${sal[ultimo] < 0 ? "bad" : ""}"><div class="l">Saldo final · ${estado.modo === "13s" ? "semana 13" : MESES[ultimo].label}</div><div class="v">${fmt(estado.modo === "13s" ? emp.saldo + fn : sal[ultimo])}</div><div class="d">${NF.format(emp.saldo)} + ${fmt(fn)}</div></div>
@@ -643,7 +691,7 @@ function vistaFlujo(empId) {
     <button class="btn ghost" id="expAll">Expandir todo</button><button class="btn ghost" id="colAll">Contraer todo</button>
     <div class="seg" role="group" aria-label="Densidad"><button data-dens="compacta" aria-pressed="${document.body.dataset.densidad === "compacta"}">Compacta</button><button data-dens="comoda" aria-pressed="${document.body.dataset.densidad === "comoda"}">Cómoda</button></div>
   </div>
-  <div class="legend" style="color:var(--text);font-weight:600;background:var(--surface)"><span>Flujo de caja · ${esc(emp.nombre)}${estado.emp === "cons" ? " (6 sociedades línea a línea; Allpa por VPP, aparte)" : ""} · US$ · Escenario Base · ${vistaTxt}</span>${activos()}</div>
+  ${activos() ? `<div class="legend" style="background:var(--surface)">${activos()}</div>` : ""}
   <div class="legend" aria-label="Leyenda"><span><i class="mk ov"></i>Valor manual (reemplaza el cálculo)</span><span><i class="mk sem"></i>Suma de semanas (manda sobre el mensual)</span><span><i class="mk calc"></i>Calculado desde Créditos</span><span><i class="mk imp"></i>Sin desglose: el mes completo va a S1</span><span>Clic en un mes: ver sus semanas · clic en una celda: detalle</span></div>
   <div class="ftable-wrap" id="ftWrap"><table class="ft" role="grid" aria-describedby="ftCap"><caption id="ftCap" class="sr">Flujo de caja · ${esc(emp.nombre)} · US$ · Escenario Base · ${vistaTxt}</caption><thead>${h1}${h2}</thead><tbody>${filas.join("")}</tbody></table></div>
   <p style="color:var(--text-3);font-size:var(--fs-sm);margin-top:8px">Verificación del prototipo: consolidado = Σ de las 6 empresas línea a línea, y semanas = mes, en los 24 meses: <strong>${window.__verificacion === "ok" ? "cuadra" : "NO cuadra"}</strong>. Sin eliminaciones intercompany (supuesto del prototipo).</p>`;
@@ -697,7 +745,11 @@ function abrirDetalle(id, i, w) {
   const d = document.getElementById("drawer"); d.dataset.open = "true"; d.setAttribute("aria-hidden", "false");
   render(false); document.getElementById("dwClose").focus();
 }
-function cerrarDetalle() { const d = document.getElementById("drawer"); d.dataset.open = "false"; d.setAttribute("aria-hidden", "true"); estado.sel = null; render(false); }
+function cerrarDetalle() {
+  const d = document.getElementById("drawer"); d.dataset.open = "false"; d.setAttribute("aria-hidden", "true");
+  const sel = estado.sel; estado.sel = null; render(false);
+  if (sel) { const c = document.querySelector(`td.cell[data-l="${CSS.escape(sel.id)}"][data-i="${sel.i}"][data-w="${sel.w == null ? "" : sel.w}"]`); if (c) { document.querySelectorAll("td.cell[tabindex='0']").forEach(x => x.tabIndex = -1); c.tabIndex = 0; c.focus(); } }
+}
 
 /* ═══════ Vista genérica (fuera del alcance) ═══════ */
 function vistaFuera(nombre) {
@@ -741,19 +793,51 @@ document.addEventListener("click", ev => {
   if (t.id === "colAll") { CATS.forEach(k => estado.cerradas.add(k.cat)); render(false); return; }
   if (t.id === "limpiarQ") { estado.q = ""; render(false); return; }
   if (t.id === "dwClose") { cerrarDetalle(); return; }
+  if (t.id === "helpClose") { cerrarAyuda(); return; }
+  if (t.id === "skipLink") { if (!(location.hash || "").startsWith("#/finanzas/flujo")) { location.hash = "#/finanzas/flujo"; }
+    setTimeout(() => { const c = document.querySelector("td.cell[tabindex='0']") || document.querySelector("td.cell"); if (c) c.focus(); }, 50); return; }
   if (t.id === "searchBtn") { abrirPaleta(); return; }
   if (t.id === "menuBtn") { const n = document.getElementById("nav"); const o = n.dataset.open !== "true"; n.dataset.open = o; t.setAttribute("aria-expanded", o); return; }
 });
 document.addEventListener("keydown", ev => {
   if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k") { ev.preventDefault(); abrirPaleta(); return; }
-  if (ev.key === "Escape") { if (document.getElementById("paletteBg").dataset.open === "true") cerrarPaleta(); else if (document.getElementById("drawer").dataset.open === "true") cerrarDetalle(); return; }
-  if (ev.key === "Enter" && ev.target.matches("td.cell, tr.link")) { ev.target.click(); return; }
-  if (ev.target.matches("td.cell") && ["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Home","End"].includes(ev.key)) {
+  if (ev.key === "Escape") {
+    if (document.getElementById("help").dataset.open === "true") { cerrarAyuda(); return; }
+    if (document.getElementById("paletteBg").dataset.open === "true") cerrarPaleta(); else if (document.getElementById("drawer").dataset.open === "true") cerrarDetalle(); return;
+  }
+  if (ev.target.matches("th.mes") && (ev.key === "Enter" || ev.key === " ")) {
+    ev.preventDefault(); const i = ev.target.dataset.mes; ev.target.click();
+    const th = document.querySelector(`th.mes[data-mes="${i}"]`); if (th) th.focus(); return;
+  }
+  // Atajos globales (no mientras se escribe en un campo)
+  const escribiendo = ev.target.matches("input, select, textarea") || ev.ctrlKey || ev.metaKey || ev.altKey;
+  if (!escribiendo) {
+    const enFlujo = (location.hash || "").startsWith("#/finanzas/flujo");
+    if (ev.key === "?") { ev.preventDefault(); abrirAyuda(); return; }
+    if (enFlujo && (ev.key === "[" || ev.key === "]")) {
+      const orden = ["cons", ...EMP_ORDEN]; const k = orden.indexOf(estado.emp);
+      const sig = orden[(k + (ev.key === "]" ? 1 : -1) + orden.length) % orden.length];
+      location.hash = sig === "cons" ? "#/finanzas/flujo" : `#/finanzas/flujo/${sig}`; if (sig === "cons") { estado.emp = "cons"; render(true); }
+      toast(`Empresa: ${sig === "cons" ? "Consolidado" : EMP[sig].corto}`); return;
+    }
+    if (enFlujo && ["m", "s", "t"].includes(ev.key.toLowerCase())) {
+      estado.modo = { m: "mensual", s: "semanal", t: "13s" }[ev.key.toLowerCase()]; estado.abiertos.clear(); render(true);
+      toast(`Vista: ${{ mensual: "Mensual", semanal: "Semanal", "13s": "13 semanas" }[estado.modo]}`); return;
+    }
+    if (enFlujo && ev.key === "/") { ev.preventDefault(); const q = document.getElementById("q"); if (q) q.focus(); return; }
+  }
+  // preventDefault: si no, el mismo Enter "activa" el botón que recibe el foco (cerrar panel)
+  if (ev.key === "Enter" && ev.target.matches("td.cell, tr.link")) { ev.preventDefault(); ev.target.click(); return; }
+  if (ev.target.matches("td.cell") && ["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Home","End","PageUp","PageDown"].includes(ev.key)) {
     ev.preventDefault(); const td = ev.target, tr = td.parentElement, k = [...tr.children].indexOf(td);
     let dest = null;
     if (ev.key === "ArrowRight") dest = td.nextElementSibling; if (ev.key === "ArrowLeft") dest = td.previousElementSibling;
-    if (ev.key === "Home") dest = tr.querySelector("td.cell"); if (ev.key === "End") dest = [...tr.querySelectorAll("td.cell")].pop();
-    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") { let r = tr; do { r = ev.key === "ArrowDown" ? r.nextElementSibling : r.previousElementSibling; } while (r && !(r.children[k] && r.children[k].matches("td.cell"))); dest = r && r.children[k]; }
+    if (ev.key === "Home") dest = (ev.ctrlKey ? document : tr).querySelector("td.cell"); if (ev.key === "End") dest = [...(ev.ctrlKey ? document : tr).querySelectorAll("td.cell")].pop();
+    if (["ArrowDown","ArrowUp","PageDown","PageUp"].includes(ev.key)) {
+      const abajo = ev.key === "ArrowDown" || ev.key === "PageDown"; let pasos = ev.key.startsWith("Page") ? 10 : 1; let r = tr, ult = null;
+      while (pasos > 0) { do { r = abajo ? r.nextElementSibling : r.previousElementSibling; } while (r && !(r.children[k] && r.children[k].matches("td.cell"))); if (!r) break; ult = r; pasos--; }
+      dest = ult && ult.children[k];
+    }
     if (dest && dest.matches("td.cell")) { td.tabIndex = -1; dest.tabIndex = 0; dest.focus(); dest.scrollIntoView({ block: "nearest", inline: "nearest" }); }
   }
 });
@@ -790,10 +874,16 @@ document.getElementById("palInput").addEventListener("keydown", ev => {
 document.getElementById("palList").addEventListener("click", ev => { const li = ev.target.closest("li[data-k]"); if (li) irA(palItems[+li.dataset.k]); });
 document.getElementById("paletteBg").addEventListener("click", ev => { if (ev.target.id === "paletteBg") cerrarPaleta(); });
 function irA(x) { document.getElementById("paletteBg").dataset.open = "false"; if (x.q) { estado.q = x.q; estado.catFiltro = "todas"; } location.hash === x.h ? render(false) : (location.hash = x.h); }
+let ayudaFoco = null;
+function abrirAyuda() { ayudaFoco = document.activeElement; document.getElementById("help").dataset.open = "true"; document.getElementById("helpClose").focus(); }
+function cerrarAyuda() { document.getElementById("help").dataset.open = "false"; if (ayudaFoco) ayudaFoco.focus(); }
+function ajustarOffset() { const t = document.querySelector(".top"), f = document.querySelector(".ficticio"); if (t && f) document.documentElement.style.setProperty("--off", (t.offsetHeight + f.offsetHeight) + "px"); }
+window.addEventListener("resize", ajustarOffset);
 function toast(m) { const t = document.getElementById("toast"); t.textContent = m; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => { t.style.display = "none"; }, 2200); }
 
 try { const d = localStorage.getItem("proto-dir"); if (d) { document.body.dataset.dir = d; document.querySelectorAll(".dirsw .seg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.dir === d)); } } catch (e) {}
 render(true);
+ajustarOffset();
 window.scrollTo(0, 0);
 </script>
 </body>
