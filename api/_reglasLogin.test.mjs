@@ -124,6 +124,27 @@ console.log("Huella de sesión y tiempos:");
 eq(login({}, "nadie@prueba.test", "482916").error, "credenciales", "email inexistente → credenciales (genérico)");
 eq(R.evaluarLogin({ usuarios: [U[1], { ...U[1], nombre: "Beto2" }], pins: {}, email: "beto@prueba.test", pin: "1", ahora: AHORA }).detalle, "sin_usuario", "email duplicado en el padrón → fallo cerrado");
 
+console.log("Código propio vs reseteo del administrador (D4):");
+{
+  const base = { Beto_h: cred("482916", { pol: "6dig", fecha: hoyISO }) };
+  const propio = { ...base, Beto_temp: R.crearTempCred("731904", AHORA, "propio") };
+  eq(login(propio, "beto@prueba.test", "482916").ok, true, "código PROPIO pendiente → el PIN vigente sigue entrando");
+  const rc = login(propio, "beto@prueba.test", "731904");
+  eq([rc.ok, rc.debeCambiarPin, rc.viaCodigo], [true, true, true], "…y el código también (obliga a cambiar el PIN)");
+  const admin = { ...base, Beto_temp: R.crearTempCred("731904", AHORA, "admin") };
+  eq(login(admin, "beto@prueba.test", "482916").ok, false, "reseteo del ADMIN pendiente → el PIN anterior NO entra");
+  eq(login({ ...base, Beto_temp: R.crearTempCred("731904", AHORA) }, "beto@prueba.test", "482916").ok, false, "código sin origen (antiguo) → se trata como del admin");
+  eq([R.origenTemp(propio.Beto_temp), R.origenTemp(admin.Beto_temp), R.origenTemp("123456"), R.origenTemp(null)], ["propio", "admin", "admin", null], "origenTemp");
+  const vencido = { ...base, Beto_temp: R.crearTempCred("731904", AHORA - 46 * 60000, "propio") };
+  eq(login(vencido, "beto@prueba.test", "482916").ok, true, "código propio VENCIDO no bloquea el PIN vigente");
+  const sc = R.evaluarLogin({ usuarios: U, pins: propio, email: "beto@prueba.test", pin: "482916", ahora: AHORA, soloCodigo: true });
+  eq([sc.ok, sc.error], [false, "verificacion_requerida"], "soloCodigo: el PIN correcto NO se evalúa");
+  const sc2 = R.evaluarLogin({ usuarios: U, pins: propio, email: "beto@prueba.test", pin: "731904", ahora: AHORA, soloCodigo: true });
+  eq([sc2.ok, sc2.viaCodigo], [true, true], "soloCodigo: el código del correo sí entra");
+  const cp = R.evaluarCambioPin({ usuario: U[1], pins: propio, pinActual: "482916", pinNuevo: "730518", ahora: AHORA });
+  eq([cp.ok, R.epocaDispositivo(cp.nuevosPins, "Beto"), "Beto_temp" in cp.nuevosPins], [true, 1, false], "cambiar el PIN con código propio pendiente: acepta el PIN actual, sube la época de equipos y borra el código");
+}
+
 console.log("Cambio de PIN:");
 {
   const actual = cred("482916", { pol: "6dig", fecha: haceDias(10) });

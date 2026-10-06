@@ -90,10 +90,22 @@ function anteriorAlCorte(cred, corteMs) {
 }
 function generarCodigo6() { return String(crypto.randomInt(0, 1000000)).padStart(6, "0"); }
 // JSON string a guardar en pins[`${nombre}_temp`] (mismo formato que crearTempCred del cliente).
-function crearTempCred(codigo, ahora) {
+// `origen` (D4): "propio" = lo pidió la persona ("¿Olvidaste tu PIN?"): su PIN vigente
+// SIGUE valiendo hasta que complete el cambio. "admin" = reseteo del administrador (o
+// cuenta comprometida): el PIN anterior queda inhabilitado. Un código sin origen
+// (antiguo o en texto plano) se trata como "admin".
+function crearTempCred(codigo, ahora, origen = "admin") {
   const cred = hashPin(codigo, ahora);
   cred.exp = (Number.isFinite(ahora) ? ahora : Date.now()) + TEMP_TTL_MS;
+  cred.origen = origen === "propio" ? "propio" : "admin";
   return JSON.stringify(cred);
+}
+// Origen del código pendiente (o null si no hay). Usado al emitir uno nuevo: un pedido
+// propio NO puede rebajar un reseteo del administrador (el nuevo hereda "admin").
+function origenTemp(rawTemp) {
+  if (!rawTemp) return null;
+  const c = comoCred(rawTemp);
+  return c && c.origen === "propio" ? "propio" : "admin";
 }
 
 // ── Código provisorio (réplica de estadoTemp / verificarTemp) ──
@@ -105,11 +117,11 @@ function estadoTemp(rawTemp, ahora, expPlano, corteMs) {
   const cred = comoCred(rawTemp);
   if (cred && cred.salt && cred.hash) {
     const expirado = !cred.exp || now > cred.exp || anteriorAlCorte(cred, corteMs);
-    return { existe: true, vigente: !expirado, expirado, cred, legacy: false };
+    return { existe: true, vigente: !expirado, expirado, cred, legacy: false, origen: cred.origen === "propio" ? "propio" : "admin" };
   }
   const exp = typeof expPlano === "number" ? expPlano : Date.parse(expPlano || "");
   const expirado = !(Number.isFinite(exp) && now <= exp);
-  return { existe: true, vigente: !expirado, expirado, cred: null, legacy: true, plano: String(rawTemp) };
+  return { existe: true, vigente: !expirado, expirado, cred: null, legacy: true, plano: String(rawTemp), origen: "admin" };
 }
 function tempDe(P, nombre, ahora, corteMs) {
   return estadoTemp(P[`${nombre}_temp`], ahora, P[`${nombre}_temp_exp`], corteMs);
@@ -152,6 +164,10 @@ function huellaCredencial(pins, nombre) {
   const s = JSON.stringify([p[`${nombre}_h`] || null, p[`${nombre}_temp`] || null]);
   return crypto.createHash("sha256").update(s).digest("hex").slice(0, 32);
 }
+// Época de los equipos reconocidos de una persona (cookie mediterra_disp, D4). La suben el
+// cambio de PIN y el reseteo del administrador: los equipos reconocidos antes dejan de serlo.
+function epocaDispositivo(pins, nombre) { return Number((pins || {})[`${nombre}_epoca_disp`]) || 0; }
+
 // Huella de la sesión "completa": PIN vigente (_h) + época (`_epoca`, la sube el
 // reseteo del administrador). Si cambia, toda sesión emitida antes deja de valer.
 // No incluye _temp: pedir un código (público) no debe cerrar la sesión de nadie.
@@ -168,7 +184,10 @@ function huellaSesion(pins, nombre) {
 //  → { ok:true, usuario, debeCambiarPin:true, motivo:"temp"|"politica"|"vencido" }
 // "desactivado" y "debe_recuperar" se informan SOLO con la credencial correcta (si no,
 // revelarían que la cuenta existe). Todos los caminos hacen un PBKDF2 (mismo tiempo).
-function evaluarLogin({ usuarios, pins, email, pin, ahora, corteMs = null }) {
+// `soloCodigo` (D4): la cuenta superó el umbral de fallos desde orígenes no reconocidos;
+// desde este origen solo vale el código enviado por correo (el PIN NO se evalúa).
+// Resultado con viaCodigo:true si entró con el código.
+function evaluarLogin({ usuarios, pins, email, pin, ahora, corteMs = null, soloCodigo = false }) {
   const pinIn = typeof pin === "string" ? pin.trim() : "";
   if (!pinIn || pinIn.length > 64) { trabajoFicticio(pinIn); return { ok: false, error: "credenciales", detalle: "forma" }; }
   const u = buscarUsuario(usuarios, email);
@@ -176,12 +195,20 @@ function evaluarLogin({ usuarios, pins, email, pin, ahora, corteMs = null }) {
   const P = pins && typeof pins === "object" ? pins : {};
   const desact = (detalle) => ({ ok: false, error: u.desactivado ? "desactivado" : "credenciales", detalle });
   const est = tempDe(P, u.nombre, ahora, corteMs);
-  if (est.existe) {
-    if (est.expirado) { trabajoFicticio(pinIn); return { ok: false, error: "credenciales", detalle: "temp_vencido" }; }
-    if (!verificarTemp(pinIn, est)) return { ok: false, error: "credenciales", detalle: "pin_con_temp" };
+  if (est.existe && est.vigente && verificarTemp(pinIn, est)) {
     if (u.desactivado) return desact("desactivado");
-    return { ok: true, usuario: u, debeCambiarPin: true, motivo: "temp" };
+    return { ok: true, usuario: u, debeCambiarPin: true, motivo: "temp", viaCodigo: true };
   }
+  if (soloCodigo) {
+    if (!(est.existe && est.vigente)) trabajoFicticio(pinIn);
+    return { ok: false, error: "verificacion_requerida", detalle: est.existe && est.vigente ? "codigo" : "sin_codigo" };
+  }
+  if (est.existe && est.origen === "admin") {
+    // Reseteo del administrador: el PIN anterior está inhabilitado.
+    if (est.expirado) { trabajoFicticio(pinIn); return { ok: false, error: "credenciales", detalle: "temp_vencido" }; }
+    return { ok: false, error: "credenciales", detalle: "pin_con_temp" };
+  }
+  // Sin código, o código propio (vigente o vencido): el PIN vigente sigue valiendo.
   const credH = P[`${u.nombre}_h`];
   if (!credH) { trabajoFicticio(pinIn); return { ok: false, error: "credenciales", detalle: "sin_h" }; }   // sin respaldo a texto plano
   if (!verificarPin(pinIn, comoCred(credH))) return { ok: false, error: "credenciales", detalle: "pin" };
@@ -203,7 +230,9 @@ function evaluarCambioPin({ usuario, pins, pinActual, pinNuevo, tel, sesion, aho
   const credH = P[`${nombre}_h`];
   const traeActual = typeof pinActual === "string" && pinActual.length > 0;
   if (traeActual) {
-    if (est.existe) {
+    if (est.existe && est.origen === "propio" && est.vigente && verificarTemp(pinActual, est)) {
+      // código propio correcto
+    } else if (est.existe && est.origen === "admin") {
       if (est.expirado) return { ok: false, status: 401, error: "credenciales", detalle: "temp_vencido" };
       if (!verificarTemp(pinActual, est)) return { ok: false, status: 401, error: "credenciales", detalle: "temp" };
     } else if (!credH || !verificarPin(pinActual, comoCred(credH))) {
@@ -215,7 +244,7 @@ function evaluarCambioPin({ usuario, pins, pinActual, pinNuevo, tel, sesion, aho
   } else {
     const okHuella = sesion && sesion.scope === "cambio_pin" && sesion.fp && sesion.fp === huellaCredencial(P, nombre);
     if (!okHuella) return { ok: false, status: 401, error: "credenciales", detalle: "sin_pin_actual" };
-    if (est.existe && est.expirado) return { ok: false, status: 401, error: "credenciales", detalle: "temp_vencido" };
+    if (est.existe && est.origen === "admin" && est.expirado) return { ok: false, status: 401, error: "credenciales", detalle: "temp_vencido" };
   }
   const vp = pinNuevoValido(pinNuevo);
   if (!vp.ok) return { ok: false, status: 400, error: "pin_invalido", detalle: vp.msg };
@@ -244,6 +273,8 @@ function evaluarCambioPin({ usuario, pins, pinActual, pinNuevo, tel, sesion, aho
   delete nuevosPins[nombre];              // override plano residual
   delete nuevosPins[`${nombre}_temp`];    // el código provisorio queda invalidado
   delete nuevosPins[`${nombre}_temp_exp`];
+  // Cambiar el PIN deja de reconocer los demás equipos (D4); el que lo cambió recibe uno nuevo.
+  nuevosPins[`${nombre}_epoca_disp`] = epocaDispositivo(P, nombre) + 1;
   return { ok: true, nuevosPins };
 }
 
@@ -349,7 +380,7 @@ module.exports = {
   TEMP_TTL_MS, DIAS_VIGENCIA_PIN, CAMPOS_ROSTER, CLAVES_MAIN, CLAVES_CONFIG,
   pinNuevoValido, normalizarCelular, hashPin, generarCodigo6, crearTempCred,
   estadoTemp, verificarTemp, decidirMigracion, buscarUsuario, huellaCredencial, huellaSesion,
-  corteCredenciales, anteriorAlCorte, trabajoFicticio,
+  corteCredenciales, anteriorAlCorte, trabajoFicticio, origenTemp, epocaDispositivo,
   evaluarLogin, evaluarCambioPin, evaluarRecuperacion,
   filtrarRoster, esCampoCredencial, validarUsuariosEntrantes, fusionarUsuarios, espejoUsuarios,
   puedeEditarConfig, aplicarPatchMain, mainParaCliente,

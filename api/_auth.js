@@ -125,6 +125,8 @@ function sesionDeRequest(req) {
 // ---- acceso a Supabase con la llave de servicio (solo servidor) ----
 async function supaFetch(path, opts = {}) {
   const url = `${SUPA_URL}/rest/v1/${path}`;
+  // Fuera de producción, solo destinos autorizados (DESTINOS_PERMITIDOS); en producción no actúa.
+  require("./_destinos").exigirDestinoPermitido(url, "supabase");
   const headers = Object.assign({
     apikey: SERVICE_KEY,
     Authorization: `Bearer ${SERVICE_KEY}`,

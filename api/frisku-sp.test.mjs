@@ -351,6 +351,12 @@ async function run() {
     eq(r2.statusCode, 503, "contador compartido no disponible → 503 (fallo cerrado)");
     const h3 = mkHandler({ limiteLogin: async () => { throw new Error("x"); } });
     eq((await loginOk(h3)).statusCode, 503, "contador compartido lanza → 503");
+    estado = "verificacion"; r2 = await loginOk(h2);
+    eq(r2.statusCode, 403, "umbral por cuenta superado → 403 verificacion_requerida (no prueba el PIN)");
+    let liberado = 0;
+    const h4 = mkHandler({ limiteLogin: async () => ({ estado: "ok", liberar: async () => { liberado++; } }) });
+    eq((await loginOk(h4)).statusCode, 200, "reserva con liberar → login normal");
+    eq(liberado, 1, "PIN correcto → se libera el contador");
   }
   console.log(`\nfrisku-sp endpoint: ${pass} pass / ${fail} fail`);
   process.exit(fail ? 1 : 0);

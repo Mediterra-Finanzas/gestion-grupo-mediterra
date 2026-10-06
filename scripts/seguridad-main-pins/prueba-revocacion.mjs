@@ -120,7 +120,7 @@ try {
     await pedir(I1, 'POST', '/api/auth/cambiar-pin', { cookie: lt.cookie, body: { pinNuevo: nuevo } });
     PIN.Ana = nuevo;
   }
-  E.psql(`delete from frisku_sp_ratelimit`);
+  E.psql(`delete from frisku_sp_ratelimit; delete from seg_intentos`);
 
   console.log('Carrera FORZADA (puntos de pausa, ambos órdenes):');
   {

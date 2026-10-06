@@ -165,10 +165,16 @@ function crearHandler(deps = {}) {
     if (!ip) return json(res, 503, { error: "no_disponible" });   // sin IP confiable → no se puede limitar → cerrado
     if (!await limitar(ip, RL_IP, res)) return;
     if (!await limitar(email, RL_ID, res)) return;
+    // Contadores combinados de la app (api/_intentos.js): devuelve "ok" | "bloqueado" |
+    // "verificacion" | "no_disponible", o { estado:"ok", liberar } para liberar si el PIN es correcto.
+    let liberarLogin = null;
     if (limiteLogin) {
       let l;
-      try { l = await limiteLogin(email); } catch (e) { l = "no_disponible"; }
+      try { l = await limiteLogin(email, ip); } catch (e) { l = "no_disponible"; }
+      if (l && typeof l === "object") { liberarLogin = l.liberar || null; l = l.estado; }
       if (l === "bloqueado") return json(res, 429, { error: "rate_limit" }, { "Retry-After": String(Math.ceil(RL_ID.bloqueoMs / 1000)) });
+      // Umbral por cuenta superado: desde aquí no se prueba el PIN (verificación por correo en la app).
+      if (l === "verificacion") return json(res, 403, { error: "verificacion_requerida" });
       if (l !== "ok") return json(res, 503, { error: "no_disponible" });
     }
     if (!secret) return json(res, 503, { error: "no_configurado" });
@@ -178,6 +184,7 @@ function crearHandler(deps = {}) {
     const r = A.evaluarAcceso({ usuarios: datos.usuarios, pins: datos.pins, email, pin, secret });
     if (!r.ok && r.motivo === "sin_capability") return json(res, 403, { error: "sin_capability" });
     if (!r.ok) return json(res, 401, { error: "credenciales" });
+    if (liberarLogin) { try { await liberarLogin(); } catch (e) { /* el contador vence solo */ } }
     const token = A.firmarSesionSp(r.sub, secret, ahora());     // sesión NUEVA cada login (anti-fijación)
     return json(res, 200, { ok: true, cap: A.CAP }, { "Set-Cookie": A.cookieSesionSp(token) });
   }
@@ -258,8 +265,14 @@ async function leerDatosProd(fetchImpl) {
 
 const handlerProd = crearHandler({
   leerDatos: leerDatosProd,
-  // Mismo contador que /api/auth/login (requiere AUTH_RATELIMIT_SECRET; sin él → 503).
-  limiteLogin: (email) => { const S = require("./_segServidor"); return S.limitar(`login:${email}`, S.reglas().id); },
+  // Mismos contadores combinados que /api/auth/login (requiere AUTH_RATELIMIT_SECRET; sin él → 503).
+  limiteLogin: async (email, ip) => {
+    const I = require("./_intentos");
+    const r = await I.reservarLogin({ email, ip, dispositivo: null, canal: "frisku" });
+    if (!r.ok) return r.status === 429 ? "bloqueado" : "verificacion";
+    if (r.soloCodigo) return "verificacion";
+    return { estado: "ok", liberar: () => r.liberar(false) };
+  },
   // PRODUCCIÓN: limiter distribuido en Supabase (RPC frisku_sp_rl_consumir). Si falta
   // FRISKU_SP_RATELIMIT_SECRET o la service key, golpe() lanza → login 503 (fail-closed).
   rate: RL.crearLimiterSupabase({

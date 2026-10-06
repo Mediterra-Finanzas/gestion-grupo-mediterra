@@ -94,7 +94,7 @@ export async function levantarEntorno({ build, puerto, sembrar = {}, env = {} } 
     create policy cd_anon_auth_select on public.calendario_data as permissive for select to authenticated, anon using ((id !~~ 'backup%'::text) and (id !~~ 'main_pre_restore%'::text));
     create policy cd_anon_auth_update on public.calendario_data as permissive for update to authenticated, anon using ((id !~~ 'backup%'::text) and (id !~~ 'main_pre_restore%'::text)) with check ((id !~~ 'backup%'::text) and (id !~~ 'main_pre_restore%'::text));
     create policy cd_service_all on public.calendario_data as permissive for all to service_role using (true) with check (true);`);
-  for (const f of [path.join(AQUI, 'produccion_triggers_existentes.sql'), path.join(RAIZ, 'api/sql/frisku_sp_ratelimit.sql')]) {
+  for (const f of [path.join(AQUI, 'produccion_triggers_existentes.sql'), path.join(RAIZ, 'api/sql/frisku_sp_ratelimit.sql'), path.join(RAIZ, 'api/sql/seg_intentos.sql')]) {
     const t = psqlTexto(fs.readFileSync(f, 'utf8'));
     if (!t.ok) throw new Error(`No se pudo aplicar ${path.basename(f)}: ${t.salida.slice(0, 400)}`);
   }

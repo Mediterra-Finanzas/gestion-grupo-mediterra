@@ -23,7 +23,7 @@ const ok = (c, m) => { if (c) { pass++; console.log('  ✓ ' + m); } else { fail
 const eq = (a, b, m) => ok(JSON.stringify(a) === JSON.stringify(b), JSON.stringify(a) === JSON.stringify(b) ? m : `${m} (esperado ${JSON.stringify(b)}, obtenido ${JSON.stringify(a)})`);
 // Cada sección parte sin contadores de rate limit (las pruebas reusan los mismos correos).
 let E = null;
-const titulo = (t) => { console.log('\n' + t); if (E) E.psql('delete from frisku_sp_ratelimit'); };
+const titulo = (t) => { console.log('\n' + t); if (E) E.psql('delete from frisku_sp_ratelimit; delete from seg_intentos'); };
 
 const DIA = 86400000;
 const hoy = new Date().toISOString().slice(0, 10);
@@ -260,7 +260,7 @@ try {
     eq((await pedir('POST', '/api/auth/recuperar', { body: { email: em('Zoe') } })).status, 200, 'recuperar Zoe → 200');
     const cod = codigoDe(em('Zoe'));
     ok(/^\d{6}$/.test(cod || '') && !JSON.stringify(filaDB('pins')).includes(`"${cod}"`), 'código de 6 dígitos por correo; en pins solo su hash');
-    eq((await login(em('Zoe'), PIN.Zoe)).status, 401, 'tras pedir código, el PIN antiguo no entra');
+    eq((await login(em('Zoe'), PIN.Zoe)).status, 200, 'tras pedir código, el PIN vigente SIGUE entrando (D4: pedirlo no lo inhabilita)');
     const l = await login(em('Zoe'), cod);
     eq([l.status, l.j.motivo], [200, 'temp'], 'con el código entra a cambio obligatorio');
     eq((await pedir('POST', '/api/auth/cambiar-pin', { cookie: l.cookie, body: { pinNuevo: '851937' } })).status, 200, 'crea PIN nuevo');
@@ -359,9 +359,13 @@ try {
     };
     const roster = (ck) => pedir('GET', '/api/datos/roster', { cookie: ck });
     const pinsAntes = filaDB('pins'), mainAntes = filaDB('main');
-    E.psql(`delete from frisku_sp_ratelimit`);
+    E.psql(`delete from frisku_sp_ratelimit; delete from seg_intentos`);
     const r = await login(em('Zoe'), PIN.Zoe);
-    ok(r.status === 200 && r.cookie && !/max-age/i.test(r.setCookie), 'cookie "completa" SIN Max-Age (cerrar el navegador la descarta)');
+    const cSes = r.setCookie.split(/,\s*(?=[a-z_]+=)/i).find((c) => c.startsWith('mediterra_sess='));
+    const cDisp = r.setCookie.split(/,\s*(?=[a-z_]+=)/i).find((c) => c.startsWith('mediterra_disp='));
+    ok(r.status === 200 && cSes && !/max-age/i.test(cSes), 'cookie de sesión "completa" SIN Max-Age (cerrar el navegador la descarta)');
+    ok(cDisp && /max-age=7776000/i.test(cDisp) && /path=\/api\/auth/i.test(cDisp) && /httponly/i.test(cDisp) && /samesite=strict/i.test(cDisp),
+      'cookie de EQUIPO aparte: persistente 90 días, HttpOnly, SameSite=Strict, solo /api/auth (no da acceso)');
     const p0 = decod(r.cookie);
     eq((await roster(firmar({ ...p0, act: Date.now() - 31 * 60000 }))).status, 401, '31 min sin uso → 401 (inactividad controlada en el servidor)');
     const { fp, ...sinFp } = p0;
@@ -400,7 +404,7 @@ try {
     eq(filaDB('main'), '{roto', '…y main NO se sobrescribe (no se borran las Tareas)');
     E.psql(`set session_replication_role = replica; update calendario_data set value='${JSON.stringify(mainAntes).replace(/'/g, "''")}'::jsonb, updated_at=now() where id='main'`);
     // Corte de credenciales (AUTH_CREDENCIALES_DESDE).
-    E.psql(`delete from frisku_sp_ratelimit`);
+    E.psql(`delete from frisku_sp_ratelimit; delete from seg_intentos`);
     process.env.AUTH_CREDENCIALES_DESDE = new Date().toISOString();
     const lc = await login(em('Beto'), PIN.Beto);
     eq([lc.status, lc.j && lc.j.error, lc.cookie], [401, 'debe_recuperar', null], 'con corte: PIN anterior (aunque sea correcto) → 401 debe_recuperar, sin cookie');
@@ -416,7 +420,7 @@ try {
     eq((await login(em('Beto'), '318642')).status, 503, 'corte mal configurado → 503 (falla cerrado)');
     delete process.env.AUTH_CREDENCIALES_DESDE;
     fijarFila('pins', pinsAntes);
-    E.psql(`delete from frisku_sp_ratelimit`);
+    E.psql(`delete from frisku_sp_ratelimit; delete from seg_intentos`);
   }
 
   titulo('(b) Sesión reproducida SIN falsificar (copias reales de cookies, tiempo real):');
@@ -425,7 +429,7 @@ try {
     // cookie) es reenviar la misma cookie: aquí se reenvían copias reales, sin firmar nada.
     const roster = (ck) => pedir('GET', '/api/datos/roster', { cookie: ck });
     const pinsAntes = filaDB('pins');
-    E.psql(`delete from frisku_sp_ratelimit`);
+    E.psql(`delete from frisku_sp_ratelimit; delete from seg_intentos`);
     process.env.AUTH_INACTIVIDAD_MIN = '2';
     const espera = (ms) => new Promise((r) => setTimeout(r, ms));
     // Cambio de PIN: la copia vieja deja de servir.
@@ -457,7 +461,7 @@ try {
     eq((await roster(activa0)).status, 401, 'la copia ANTERIOR a la renovación de Ines (último uso hace 125 s) → 401');
     eq((await roster(activa1)).status, 200, 'la cookie renovada de Ines (último uso hace 55 s) sigue valiendo');
     delete process.env.AUTH_INACTIVIDAD_MIN;
-    E.psql(`delete from frisku_sp_ratelimit`);
+    E.psql(`delete from frisku_sp_ratelimit; delete from seg_intentos`);
   }
 
   titulo('(b) verificar (servidor a servidor):');
@@ -574,7 +578,7 @@ try {
     eq([l.j.motivo, c.status, (await login(em('Ines'), '629384')).j.debeCambiarPin], ['temp', 200, false], '"¿Olvidaste tu PIN?" → correo → código → PIN nuevo → entra');
     const ana = await completa('Ana');
     const rs = await pedir('POST', '/api/auth/admin-reset-pin', { cookie: ana, body: { nombre: 'Rita' } });
-    E.psql(`delete from frisku_sp_ratelimit`); // Rita quedó bloqueada en (b); en producción el bloqueo expira solo (15 min)
+    E.psql(`delete from frisku_sp_ratelimit; delete from seg_intentos`); // Rita quedó bloqueada en (b); en producción el bloqueo expira solo (15 min)
     const lr = await login(em('Rita'), rs.j.codigo);
     eq([rs.status, lr.j.motivo, (await pedir('POST', '/api/auth/cambiar-pin', { cookie: lr.cookie, body: { pinNuevo: '629385' } })).status], [200, 'temp', 200], 'reseteo por admin (seg_administradores) → entra y crea PIN');
     // Último recurso (nadie puede entrar, sin correo): SQL Editor con rol postgres.

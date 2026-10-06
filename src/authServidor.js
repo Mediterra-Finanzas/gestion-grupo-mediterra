@@ -105,6 +105,9 @@ export function mensajeErrorLogin(e) {
   const c = e && e.codigo;
   if (c === "credenciales") return "Correo o PIN incorrecto.";
   if (c === "desactivado") return "Tu cuenta no está activa. Contacta al administrador.";
+  if (c === "verificacion_requerida") return "Por seguridad, desde este equipo necesitas un código enviado a tu correo. Usa \"¿Olvidaste tu PIN?\" y escribe el código en lugar del PIN.";
+  if (c === "codigo_agotado") return "Ese código ya no se puede usar (demasiados intentos). Pide uno nuevo con \"¿Olvidaste tu PIN?\".";
+  if (c === "verificacion_bloqueada") return "Se superó el límite de intentos con código para esta cuenta. Ingresa desde un equipo donde ya hayas entrado o pide ayuda a un administrador.";
   if (c === "debe_recuperar") return "Por seguridad tu PIN debe restablecerse por correo. Usa \"¿Olvidaste tu PIN?\" para recibir un código.";
   if (c === "bloqueado") return "Demasiados intentos fallidos. Espera unos minutos antes de volver a intentar.";
   if (c === "sin_conexion") return "No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.";

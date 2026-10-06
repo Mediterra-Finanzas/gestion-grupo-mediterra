@@ -23,6 +23,7 @@ const crypto = require("crypto");
 const A = require("../_auth");
 const R = require("../_reglasLogin");
 const S = require("../_segServidor");
+const I = require("../_intentos");
 
 const METODO = { login: "POST", "cambiar-pin": "POST", recuperar: "POST", sesion: "GET", logout: "POST", "admin-reset-pin": "POST", verificar: "POST" };
 
@@ -33,7 +34,35 @@ function cookieDe(usuario, scope, pins) {
 }
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 // Errores de login que se devuelven tal cual (el resto → "credenciales").
-const ESTADO_LOGIN = { desactivado: 403, debe_recuperar: 401 };
+const ESTADO_LOGIN = { desactivado: 403, debe_recuperar: 401, verificacion_requerida: 403 };
+
+// Núcleo común de login (app y osiris-auth): reserva el intento en los contadores
+// combinados (api/_intentos.js) ANTES de evaluar, evalúa y libera si es correcto.
+// → { fallo:{status,error,retry} } | { r, pins, usuario, em, dispositivo, epocaD }
+async function nucleoLogin({ email, pin, ip, canal, req }) {
+  let usuarios, pins, corteMs;
+  try { ({ usuarios } = await S.leerUsuarios()); pins = await S.leerPins(); corteMs = R.corteCredenciales(); }
+  catch (e) { return { fallo: { status: 503, error: "no_disponible" } }; }
+  const em = email.trim().toLowerCase();
+  const u = R.buscarUsuario(usuarios, em);
+  const epocaD = u ? R.epocaDispositivo(pins, u.nombre) : 0;
+  const dispositivo = req && u ? I.dispositivoReconocido(req, em, epocaD) : null;
+  const ahora = Date.now();
+  const est = u ? R.estadoTemp(pins[`${u.nombre}_temp`], ahora, pins[`${u.nombre}_temp_exp`], corteMs) : { existe: false };
+  const hayCodigo = !!(est.existe && est.vigente);
+  const idCodigo = hayCodigo ? (est.cred && est.cred.salt ? String(est.cred.salt).slice(0, 16) : "plano") : "";
+  let reserva;
+  try { reserva = await I.reservarLogin({ email: em, ip, dispositivo, canal, hayCodigo, idCodigo }); }
+  catch (e) { return { fallo: { status: 503, error: "no_disponible" } }; }
+  if (!reserva.ok) return { fallo: { status: reserva.status, error: reserva.error, retry: reserva.retry } };
+  const r = R.evaluarLogin({ usuarios, pins, email, pin, ahora, corteMs, soloCodigo: reserva.soloCodigo });
+  if (r.ok) { try { await reserva.liberar(!!r.viaCodigo); } catch (e) { /* el contador vence solo */ } }
+  return { r, pins, usuario: u, em, dispositivo: reserva.dispositivo, epocaD };
+}
+function respuestaFallo(res, f) {
+  const extra = f.retry ? { "Retry-After": String(f.retry) } : undefined;
+  return S.json(res, f.status, { error: f.error }, extra);
+}
 function str(v, max) { return typeof v === "string" && v.length > 0 && v.length <= max ? v : null; }
 
 async function login(req, res, b) {
@@ -41,23 +70,17 @@ async function login(req, res, b) {
   if (!email || !pin) return S.json(res, 401, { error: "credenciales" });
   const ip = S.ipDe(req);
   if (!ip) return S.json(res, 503, { error: "no_disponible" });
-  const rg = S.reglas();
-  for (const [k, r] of [[`ip:${ip}`, rg.ip], [`login:${email.trim().toLowerCase()}`, rg.id]]) {
-    const l = await S.limitar(k, r);
-    if (l === "bloqueado") return S.json(res, 429, { error: "bloqueado" });
-    if (l !== "ok") return S.json(res, 503, { error: "no_disponible" });
-  }
-  let usuarios, pins, corteMs;
-  try { ({ usuarios } = await S.leerUsuarios()); pins = await S.leerPins(); corteMs = R.corteCredenciales(); }
-  catch (e) { return S.json(res, 503, { error: "no_disponible" }); }
-  const r = R.evaluarLogin({ usuarios, pins, email, pin, ahora: Date.now(), corteMs });
+  const n = await nucleoLogin({ email, pin, ip, canal: "app", req });
+  if (n.fallo) return respuestaFallo(res, n.fallo);
+  const { r, pins } = n;
   if (!r.ok) return S.json(res, ESTADO_LOGIN[r.error] || 401, { error: ESTADO_LOGIN[r.error] ? r.error : "credenciales" });
   if (r.debeCambiarPin) {
     return S.json(res, 200, { ok: true, debeCambiarPin: true, motivo: r.motivo, nombre: r.usuario.nombre },
       { "Set-Cookie": cookieDe(r.usuario, "cambio_pin", pins) });
   }
+  // Ingreso correcto: este equipo queda (o sigue) reconocido para esta persona.
   return S.json(res, 200, { ok: true, debeCambiarPin: false, usuario: R.filtrarRoster(r.usuario) },
-    { "Set-Cookie": cookieDe(r.usuario, "completa", pins) });
+    { "Set-Cookie": [cookieDe(r.usuario, "completa", pins), I.cookieDisp(n.em, n.epocaD, n.dispositivo)] });
 }
 
 async function cambiarPin(req, res, b) {
@@ -84,17 +107,29 @@ async function cambiarPin(req, res, b) {
   if (w.abortado) return S.json(res, w.abortado.status, { error: w.abortado.error });
   // La cookie nueva lleva la huella del PIN recién guardado: las demás sesiones de
   // esta persona (otro navegador, un tercero) quedan fuera.
-  return S.json(res, 200, { ok: true, usuario: R.filtrarRoster(s.usuario) }, { "Set-Cookie": cookieDe(s.usuario, "completa", escritos) });
+  // Cambiar el PIN subió la época de equipos: solo este equipo queda reconocido.
+  const prev = I.leerDisp(req);
+  const em = String(s.usuario.email || "").trim().toLowerCase();
+  const idDisp = prev && prev.e === em ? prev.d : null;
+  return S.json(res, 200, { ok: true, usuario: R.filtrarRoster(s.usuario) },
+    { "Set-Cookie": [cookieDe(s.usuario, "completa", escritos), I.cookieDisp(em, R.epocaDispositivo(escritos, s.usuario.nombre), idDisp)] });
 }
 
 // Emite un código provisorio (hash + exp en pins[`${nombre}_temp`]) y lo envía por correo.
-// `subirEpoca` (reseteo del administrador) además cierra todas las sesiones de esa persona.
-async function emitirCodigo(usuario, saludo, subirEpoca) {
+// `admin` (reseteo del administrador): inhabilita el PIN anterior, cierra todas las sesiones
+// (época) y deja de reconocer sus equipos. Pedido propio: el PIN vigente sigue valiendo,
+// salvo que haya un reseteo del administrador pendiente (el código nuevo lo hereda).
+async function emitirCodigo(usuario, saludo, admin) {
   const codigo = R.generarCodigo6();
   await S.actualizarFila("pins", (valor) => {
-    const v = { ...(valor || {}), [`${usuario.nombre}_temp`]: R.crearTempCred(codigo, Date.now()) };
+    const previo = R.origenTemp((valor || {})[`${usuario.nombre}_temp`]);
+    const origen = !admin && previo !== "admin" ? "propio" : "admin";
+    const v = { ...(valor || {}), [`${usuario.nombre}_temp`]: R.crearTempCred(codigo, Date.now(), origen) };
     delete v[`${usuario.nombre}_temp_exp`];
-    if (subirEpoca) v[`${usuario.nombre}_epoca`] = (Number(v[`${usuario.nombre}_epoca`]) || 0) + 1;
+    if (admin) {
+      v[`${usuario.nombre}_epoca`] = (Number(v[`${usuario.nombre}_epoca`]) || 0) + 1;
+      v[`${usuario.nombre}_epoca_disp`] = R.epocaDispositivo(v, usuario.nombre) + 1;
+    }
     return v;
   });
   let enviado = false;
@@ -122,7 +157,7 @@ async function recuperar(req, res, b) {
     const { usuarios } = await S.leerUsuarios();
     const pins = await S.leerPins();
     const d = R.evaluarRecuperacion({ usuarios, pins, email, tel: b.tel });
-    if (d.emitir) await emitirCodigo(d.usuario, false);
+    if (d.emitir) await emitirCodigo(d.usuario, false, false);
   } catch (e) { console.error("auth recuperar: error interno"); }
   return OK();
 }
@@ -178,7 +213,10 @@ async function adminResetPin(req, res, b) {
   const objetivo = nombre ? s.usuarios.filter((u) => u && u.nombre === nombre) : [];
   if (objetivo.length !== 1) return S.json(res, 404, { error: "no_encontrado" });
   const { codigo, enviado } = await emitirCodigo(objetivo[0], true, true);
-  return S.json(res, 200, { ok: true, codigo, correoEnviado: enviado });
+  // Desbloqueo controlado: libera el umbral por cuenta y los contadores de código.
+  let desbloqueado = true;
+  try { await I.desbloquearCuenta(objetivo[0].email); } catch (e) { desbloqueado = false; }
+  return S.json(res, 200, { ok: true, codigo, correoEnviado: enviado, desbloqueado });
 }
 
 async function verificar(req, res, b) {
@@ -189,15 +227,12 @@ async function verificar(req, res, b) {
   if (!recibido || !crypto.timingSafeEqual(h(recibido), h(esperado))) return S.json(res, 401, { error: "sin_permiso" });
   const email = str(b.email, 320), pin = str(b.pin, 64);
   if (!email || !pin) return S.json(res, 401, { error: "credenciales" });
-  // Mismo contador que el login de la app: osiris-auth no suma intentos aparte.
-  const l = await S.limitar(`login:${email.trim().toLowerCase()}`, S.reglas().id);
-  if (l === "bloqueado") return S.json(res, 429, { error: "bloqueado" });
-  if (l !== "ok") return S.json(res, 503, { error: "no_disponible" });
-  let usuarios, pins, corteMs;
-  try { ({ usuarios } = await S.leerUsuarios()); pins = await S.leerPins(); corteMs = R.corteCredenciales(); }
-  catch (e) { return S.json(res, 503, { error: "no_disponible" }); }
-  const r = R.evaluarLogin({ usuarios, pins, email, pin, ahora: Date.now(), corteMs });
-  if (!r.ok) return S.json(res, 401, { error: "credenciales" });
+  // Mismos contadores que el login de la app (cuenta y umbral por cuenta). osiris-auth no
+  // reenvía la IP del cliente: su origen es el canal "osiris" (sin equipo reconocido).
+  const n = await nucleoLogin({ email, pin, ip: null, canal: "osiris", req: null });
+  if (n.fallo) return respuestaFallo(res, n.fallo);
+  const r = n.r;
+  if (!r.ok) return S.json(res, 401, { error: r.error === "verificacion_requerida" ? "verificacion_requerida" : "credenciales" });
   return S.json(res, 200, { ok: true, email: String(r.usuario.email).trim().toLowerCase(), nombre: r.usuario.nombre, debeCambiarPin: !!r.debeCambiarPin });
 }
 
