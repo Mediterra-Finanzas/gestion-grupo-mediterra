@@ -14,8 +14,11 @@
 //   3. Sin _temp: se valida contra `<Nombre>_h` (PBKDF2). SIN respaldo a PIN en
 //      texto plano: quien no tenga _h debe usar "¿Olvidaste tu PIN?".
 //   4. PIN correcto pero sin sello pol:"6dig" o con más de 60 días → debe cambiarlo.
-// Los códigos provisorios antiguos en texto plano (sin exp) se aceptan como en el
-// cliente, pero SIEMPRE obligan a crear un PIN nuevo.
+//   5. Código provisorio en texto plano: solo con `<Nombre>_temp_exp` vigente (lo fija el
+//      administrador por SQL, docs/seguridad-main-pins-servidor.md). Sin vencimiento → no sirve.
+//   6. Corte de credenciales (AUTH_CREDENCIALES_DESDE, opcional): un _h o _temp emitido
+//      ANTES del corte (o sin sello `ts`) ya no da acceso; se recupera por correo. Existe
+//      porque los hashes fueron legibles con la llave pública hasta la fase B.
 
 const crypto = require("crypto");
 const { verificarPin, normalizarEmail } = require("./_friskuSpAuth");
@@ -60,29 +63,56 @@ function normalizarCelular(input) {
   return { ok: false, msg: "Ingresa un celular válido (9 dígitos, ej. 9 1234 5678)." };
 }
 
-function hashPin(pin) {
+function hashPin(pin, ahora) {
   const salt = crypto.randomBytes(16);
   const hash = crypto.pbkdf2Sync(String(pin), salt, PIN_ITER, 32, "sha256").toString("hex");
-  return { v: 1, iter: PIN_ITER, salt: salt.toString("hex"), hash };
+  // ts = instante de emisión (lo usa el corte de credenciales).
+  return { v: 1, iter: PIN_ITER, salt: salt.toString("hex"), hash, ts: new Date(Number.isFinite(ahora) ? ahora : Date.now()).toISOString() };
+}
+// Mismo costo que verificar un PIN real: iguala el tiempo de respuesta cuando el
+// correo no existe, la cuenta no tiene _h o está desactivada (no enumera cuentas).
+const CRED_FICTICIA = { iter: PIN_ITER, salt: "00".repeat(16), hash: "00".repeat(32) };
+function trabajoFicticio(pin) { verificarPin(String(pin || ""), CRED_FICTICIA); }
+
+// Corte de credenciales (ms) desde AUTH_CREDENCIALES_DESDE (ISO 8601) o null (sin corte).
+function corteCredenciales(env) {
+  const v = (env || process.env).AUTH_CREDENCIALES_DESDE;
+  if (!v) return null;
+  const t = Date.parse(v);
+  if (!Number.isFinite(t)) throw new Error("AUTH_CREDENCIALES_DESDE_invalido");
+  return t;
+}
+// ¿La credencial (objeto) fue emitida antes del corte? Sin `ts` = antigua.
+function anteriorAlCorte(cred, corteMs) {
+  if (!corteMs) return false;
+  const t = cred && cred.ts ? Date.parse(cred.ts) : NaN;
+  return !(Number.isFinite(t) && t >= corteMs);
 }
 function generarCodigo6() { return String(crypto.randomInt(0, 1000000)).padStart(6, "0"); }
 // JSON string a guardar en pins[`${nombre}_temp`] (mismo formato que crearTempCred del cliente).
 function crearTempCred(codigo, ahora) {
-  const cred = hashPin(codigo);
+  const cred = hashPin(codigo, ahora);
   cred.exp = (Number.isFinite(ahora) ? ahora : Date.now()) + TEMP_TTL_MS;
   return JSON.stringify(cred);
 }
 
 // ── Código provisorio (réplica de estadoTemp / verificarTemp) ──
-function estadoTemp(rawTemp, ahora) {
+// `expPlano` = pins[`${nombre}_temp_exp`] (ms o ISO): obligatorio para un código en texto
+// plano. Con corte, un código hasheado emitido antes del corte cuenta como vencido.
+function estadoTemp(rawTemp, ahora, expPlano, corteMs) {
   const now = Number.isFinite(ahora) ? ahora : Date.now();
   if (!rawTemp) return { existe: false, vigente: false, expirado: false, cred: null, legacy: false };
   const cred = comoCred(rawTemp);
   if (cred && cred.salt && cred.hash) {
-    const expirado = !!(cred.exp && now > cred.exp);
+    const expirado = !cred.exp || now > cred.exp || anteriorAlCorte(cred, corteMs);
     return { existe: true, vigente: !expirado, expirado, cred, legacy: false };
   }
-  return { existe: true, vigente: true, expirado: false, cred: null, legacy: true, plano: String(rawTemp) };
+  const exp = typeof expPlano === "number" ? expPlano : Date.parse(expPlano || "");
+  const expirado = !(Number.isFinite(exp) && now <= exp);
+  return { existe: true, vigente: !expirado, expirado, cred: null, legacy: true, plano: String(rawTemp) };
+}
+function tempDe(P, nombre, ahora, corteMs) {
+  return estadoTemp(P[`${nombre}_temp`], ahora, P[`${nombre}_temp_exp`], corteMs);
 }
 function verificarTemp(codigo, est) {
   if (!est || !est.existe || !est.vigente) return false;
@@ -122,28 +152,41 @@ function huellaCredencial(pins, nombre) {
   const s = JSON.stringify([p[`${nombre}_h`] || null, p[`${nombre}_temp`] || null]);
   return crypto.createHash("sha256").update(s).digest("hex").slice(0, 32);
 }
+// Huella de la sesión "completa": PIN vigente (_h) + época (`_epoca`, la sube el
+// reseteo del administrador). Si cambia, toda sesión emitida antes deja de valer.
+// No incluye _temp: pedir un código (público) no debe cerrar la sesión de nadie.
+function huellaSesion(pins, nombre) {
+  const p = pins || {};
+  const s = JSON.stringify(["s", p[`${nombre}_h`] || null, p[`${nombre}_epoca`] || 0]);
+  return crypto.createHash("sha256").update(s).digest("hex").slice(0, 32);
+}
 
 // Decisión de login. Respuesta genérica ante fallo (no distingue email inexistente
 // de PIN incorrecto). `detalle` es solo para pruebas/auditoría, NO va al cliente.
-//  → { ok:false, error:"credenciales"|"desactivado", detalle }
+//  → { ok:false, error:"credenciales"|"desactivado"|"debe_recuperar", detalle }
 //  → { ok:true, usuario, debeCambiarPin:false }
 //  → { ok:true, usuario, debeCambiarPin:true, motivo:"temp"|"politica"|"vencido" }
-function evaluarLogin({ usuarios, pins, email, pin, ahora }) {
+// "desactivado" y "debe_recuperar" se informan SOLO con la credencial correcta (si no,
+// revelarían que la cuenta existe). Todos los caminos hacen un PBKDF2 (mismo tiempo).
+function evaluarLogin({ usuarios, pins, email, pin, ahora, corteMs = null }) {
   const pinIn = typeof pin === "string" ? pin.trim() : "";
-  if (!pinIn || pinIn.length > 64) return { ok: false, error: "credenciales", detalle: "forma" };
+  if (!pinIn || pinIn.length > 64) { trabajoFicticio(pinIn); return { ok: false, error: "credenciales", detalle: "forma" }; }
   const u = buscarUsuario(usuarios, email);
-  if (!u) return { ok: false, error: "credenciales", detalle: "sin_usuario" };
-  if (u.desactivado) return { ok: false, error: "desactivado", detalle: "desactivado" };
+  if (!u) { trabajoFicticio(pinIn); return { ok: false, error: "credenciales", detalle: "sin_usuario" }; }
   const P = pins && typeof pins === "object" ? pins : {};
-  const est = estadoTemp(P[`${u.nombre}_temp`], ahora);
+  const desact = (detalle) => ({ ok: false, error: u.desactivado ? "desactivado" : "credenciales", detalle });
+  const est = tempDe(P, u.nombre, ahora, corteMs);
   if (est.existe) {
-    if (est.expirado) return { ok: false, error: "credenciales", detalle: "temp_vencido" };
+    if (est.expirado) { trabajoFicticio(pinIn); return { ok: false, error: "credenciales", detalle: "temp_vencido" }; }
     if (!verificarTemp(pinIn, est)) return { ok: false, error: "credenciales", detalle: "pin_con_temp" };
+    if (u.desactivado) return desact("desactivado");
     return { ok: true, usuario: u, debeCambiarPin: true, motivo: "temp" };
   }
   const credH = P[`${u.nombre}_h`];
-  if (!credH) return { ok: false, error: "credenciales", detalle: "sin_h" };   // sin respaldo a texto plano
+  if (!credH) { trabajoFicticio(pinIn); return { ok: false, error: "credenciales", detalle: "sin_h" }; }   // sin respaldo a texto plano
   if (!verificarPin(pinIn, comoCred(credH))) return { ok: false, error: "credenciales", detalle: "pin" };
+  if (u.desactivado) return desact("desactivado");
+  if (anteriorAlCorte(comoCred(credH), corteMs)) return { ok: false, error: "debe_recuperar", detalle: "anterior_al_corte" };
   const mig = decidirMigracion(credH, ahora);
   if (mig.debe) return { ok: true, usuario: u, debeCambiarPin: true, motivo: mig.motivo };
   return { ok: true, usuario: u, debeCambiarPin: false };
@@ -152,11 +195,11 @@ function evaluarLogin({ usuarios, pins, email, pin, ahora }) {
 // Cambio de PIN. `sesion` = payload de la cookie (scope, fp). Si no viene pinActual,
 // solo se acepta una sesión "cambio_pin" cuya huella coincide con la credencial actual.
 //  → { ok:false, status, error, detalle } | { ok:true, nuevosPins }
-function evaluarCambioPin({ usuario, pins, pinActual, pinNuevo, tel, sesion, ahora }) {
+function evaluarCambioPin({ usuario, pins, pinActual, pinNuevo, tel, sesion, ahora, corteMs = null }) {
   const nombre = usuario && usuario.nombre;
   if (!nombre) return { ok: false, status: 401, error: "sin_sesion" };
   const P = pins && typeof pins === "object" ? pins : {};
-  const est = estadoTemp(P[`${nombre}_temp`], ahora);
+  const est = tempDe(P, nombre, ahora, corteMs);
   const credH = P[`${nombre}_h`];
   const traeActual = typeof pinActual === "string" && pinActual.length > 0;
   if (traeActual) {
@@ -165,6 +208,9 @@ function evaluarCambioPin({ usuario, pins, pinActual, pinNuevo, tel, sesion, aho
       if (!verificarTemp(pinActual, est)) return { ok: false, status: 401, error: "credenciales", detalle: "temp" };
     } else if (!credH || !verificarPin(pinActual, comoCred(credH))) {
       return { ok: false, status: 401, error: "credenciales", detalle: "pin_actual" };
+    } else if (anteriorAlCorte(comoCred(credH), corteMs)) {
+      // El PIN anterior al corte pudo filtrarse: no basta para fijar uno nuevo.
+      return { ok: false, status: 401, error: "debe_recuperar", detalle: "anterior_al_corte" };
     }
   } else {
     const okHuella = sesion && sesion.scope === "cambio_pin" && sesion.fp && sesion.fp === huellaCredencial(P, nombre);
@@ -188,7 +234,7 @@ function evaluarCambioPin({ usuario, pins, pinActual, pinNuevo, tel, sesion, aho
   for (const c of recientes) {
     if (verificarPin(pinNuevo, c)) return { ok: false, status: 400, error: "pin_repetido" };
   }
-  const cred = hashPin(pinNuevo);
+  const cred = hashPin(pinNuevo, ahora);
   cred.fecha = new Date(Number.isFinite(ahora) ? ahora : Date.now()).toISOString().slice(0, 10);
   cred.pol = "6dig";
   const nuevosPins = { ...P };
@@ -197,6 +243,7 @@ function evaluarCambioPin({ usuario, pins, pinActual, pinNuevo, tel, sesion, aho
   if (telNorm) nuevosPins[`${nombre}_tel`] = telNorm;
   delete nuevosPins[nombre];              // override plano residual
   delete nuevosPins[`${nombre}_temp`];    // el código provisorio queda invalidado
+  delete nuevosPins[`${nombre}_temp_exp`];
   return { ok: true, nuevosPins };
 }
 
@@ -301,7 +348,8 @@ function mainParaCliente(valor) {
 module.exports = {
   TEMP_TTL_MS, DIAS_VIGENCIA_PIN, CAMPOS_ROSTER, CLAVES_MAIN, CLAVES_CONFIG,
   pinNuevoValido, normalizarCelular, hashPin, generarCodigo6, crearTempCred,
-  estadoTemp, verificarTemp, decidirMigracion, buscarUsuario, huellaCredencial,
+  estadoTemp, verificarTemp, decidirMigracion, buscarUsuario, huellaCredencial, huellaSesion,
+  corteCredenciales, anteriorAlCorte, trabajoFicticio,
   evaluarLogin, evaluarCambioPin, evaluarRecuperacion,
   filtrarRoster, esCampoCredencial, validarUsuariosEntrantes, fusionarUsuarios, espejoUsuarios,
   puedeEditarConfig, aplicarPatchMain, mainParaCliente,

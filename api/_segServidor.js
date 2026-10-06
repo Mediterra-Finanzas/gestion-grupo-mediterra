@@ -37,10 +37,13 @@ function ipDe(req) {
 }
 
 // ── Filas de calendario_data (service_role) ──
-function parseValor(v) {
-  if (typeof v === "string") { try { return { valor: JSON.parse(v), eraTexto: true }; } catch (e) { return { valor: null, eraTexto: true }; } }
+// Una fila que existe pero no se puede leer como JSON NUNCA se trata como vacía:
+// escribir encima borraría su contenido (todos los PIN, las Tareas). Se lanza → 503.
+function parseValor(v, id) {
+  if (typeof v === "string") { try { return { valor: JSON.parse(v), eraTexto: true }; } catch (e) { throw new Error(`leer_${id}_json_invalido`); } }
   return { valor: v, eraTexto: false };
 }
+function esObjeto(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
 async function leerFila(id) {
   const r = await A.supaFetch(`calendario_data?id=eq.${encodeURIComponent(id)}&select=value,updated_at`, {
     headers: { "Cache-Control": "no-cache" },
@@ -49,7 +52,7 @@ async function leerFila(id) {
   const filas = await r.json();
   if (!Array.isArray(filas) || filas.length > 1) throw new Error(`leer_${id}_forma`);
   if (filas.length === 0) return { existe: false, valor: null, version: null, eraTexto: false };
-  const { valor, eraTexto } = parseValor(filas[0].value);
+  const { valor, eraTexto } = parseValor(filas[0].value, id);
   return { existe: true, valor, version: filas[0].updated_at || null, eraTexto };
 }
 // Escritura condicionada a la versión leída (PATCH ... &updated_at=eq.<versión>).
@@ -80,9 +83,11 @@ async function escribirFila(id, valor, version, eraTexto) {
 }
 // Lee-modifica-escribe con reintento ante conflicto. `cambio(valor)` devuelve el
 // valor nuevo o { abortar: <resultado> } para no escribir.
+// Las filas que se actualizan así (pins) son objetos: otra forma → lanza, no se pisa.
 async function actualizarFila(id, cambio, intentos = 4) {
   for (let i = 0; i < intentos; i++) {
     const f = await leerFila(id);
+    if (f.existe && !esObjeto(f.valor)) throw new Error(`${id}_forma`);
     const nuevo = cambio(f.valor, f);
     if (nuevo && nuevo.abortar !== undefined) return { abortado: nuevo.abortar };
     const w = await escribirFila(id, nuevo, f.existe ? f.version : null, f.eraTexto);
@@ -98,7 +103,7 @@ async function leerUsuarios() {
 }
 async function leerPins() {
   const f = await leerFila("pins");
-  if (f.existe && (!f.valor || typeof f.valor !== "object" || Array.isArray(f.valor))) throw new Error("pins_forma");
+  if (f.existe && !esObjeto(f.valor)) throw new Error("pins_forma");
   return f.existe ? f.valor : {};
 }
 
@@ -114,16 +119,41 @@ async function esAdmin(email) {
   return Array.isArray(filas) && filas.length === 1;
 }
 
+// Inactividad máxima de una sesión "completa" (minutos; AUTH_INACTIVIDAD_MIN, 30 por
+// defecto, igual que el cierre automático del navegador). Se renueva al usarla.
+function inactividadMs() {
+  const x = parseInt(process.env.AUTH_INACTIVIDAD_MIN || "", 10);
+  return (Number.isFinite(x) && x > 0 ? x : 30) * 60 * 1000;
+}
+const RENOVAR_MS = 60 * 1000;
+// Cookie "completa" para `usuario` con la huella de los pins dados.
+function cookieCompleta(usuario, pins, exp) {
+  const fp = R.huellaSesion(pins, usuario.nombre);
+  return A.cookieSesion(A.crearToken({ email: usuario.email, nombre: usuario.nombre, scope: "completa", fp, exp }), "completa");
+}
+
 // Sesión: cookie HMAC válida + usuario vigente en la fila `usuarios` (por email,
 // mismo nombre). Desactivado o ausente → 401. Scope "completa" salvo que se pida otro.
+// Una sesión "completa" además exige: huella = PIN vigente + época (un cambio de PIN o
+// un reseteo del administrador la invalida) y uso dentro del límite de inactividad.
+// Con `res`, renueva la cookie (último uso) como máximo una vez por minuto.
 // → { ok:true, ses, usuario, usuarios } | { ok:false, status, error }
-async function resolverSesion(req, { permitirCambioPin = false } = {}) {
+async function resolverSesion(req, { permitirCambioPin = false } = {}, res) {
   const ses = A.sesionCualquierScope(req);
   if (!ses) return { ok: false, status: 401, error: "sin_sesion" };
   if (ses.scope !== "completa" && !permitirCambioPin) return { ok: false, status: 403, error: "sin_permiso" };
+  const ahora = Date.now();
+  if (ses.scope === "completa" && !(Number.isFinite(ses.act) && ahora - ses.act <= inactividadMs())) {
+    return { ok: false, status: 401, error: "sin_sesion" };
+  }
   const { usuarios, version } = await leerUsuarios();
   const u = R.buscarUsuario(usuarios, ses.email);
   if (!u || u.nombre !== ses.nombre || u.desactivado) return { ok: false, status: 401, error: "sin_sesion" };
+  if (ses.scope === "completa") {
+    const pins = await leerPins();
+    if (!ses.fp || ses.fp !== R.huellaSesion(pins, u.nombre)) return { ok: false, status: 401, error: "sin_sesion" };
+    if (res && ahora - ses.act > RENOVAR_MS) res.setHeader("Set-Cookie", cookieCompleta(u, pins, ses.exp));
+  }
   return { ok: true, ses, usuario: u, usuarios, versionUsuarios: version };
 }
 
@@ -173,5 +203,5 @@ const __pruebas = {
 module.exports = {
   MAX_BODY, json, hdr, cuerpo, esJSON, ipDe,
   leerFila, escribirFila, actualizarFila, leerUsuarios, leerPins,
-  esAdmin, resolverSesion, reglas, limitar, enviarCorreo, textoCodigo, __pruebas,
+  esAdmin, resolverSesion, cookieCompleta, inactividadMs, reglas, limitar, enviarCorreo, textoCodigo, __pruebas,
 };

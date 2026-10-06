@@ -67,12 +67,15 @@ function verificarSesion(token) {
 }
 
 // El rol NUNCA va en la cookie: los permisos se releen en el servidor en cada
-// petición (fila `usuarios` y tabla seg_administradores). `fp` (opcional) es la
-// huella de la credencial vigente al emitir una sesión "cambio_pin".
-function crearToken({ email, nombre, scope = "completa", fp }) {
+// petición (fila `usuarios` y tabla seg_administradores). `fp` es la huella de la
+// credencial vigente al emitir (cambio_pin: _h+_temp; completa: _h+época) y `act`
+// el último uso: el servidor rechaza la sesión si cambió la credencial o si pasó
+// el límite de inactividad. `exp` (opcional) conserva el vencimiento absoluto al renovar.
+function crearToken({ email, nombre, scope = "completa", fp, exp }) {
   if (!SCOPES.includes(scope)) throw new Error("scope_invalido");
   const ms = scope === "cambio_pin" ? CAMBIO_PIN_MIN * 60 * 1000 : SESION_HORAS * 3600 * 1000;
-  const payload = { email, nombre, scope, exp: Date.now() + ms };
+  const ahora = Date.now();
+  const payload = { email, nombre, scope, exp: Number.isFinite(exp) ? exp : ahora + ms, act: ahora };
   if (fp) payload.fp = fp;
   return firmarSesion(payload);
 }
@@ -86,9 +89,11 @@ function leerCookie(req, nombre) {
   }
   return null;
 }
+// Cookie de SESIÓN del navegador (sin Max-Age): cerrar el navegador la descarta, como
+// hoy sessionStorage. El vencimiento real lo controla el servidor (exp + inactividad).
 function cookieSesion(token, scope = "completa") {
-  const maxAge = scope === "cambio_pin" ? CAMBIO_PIN_MIN * 60 : SESION_HORAS * 3600;
-  return `${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`;
+  const maxAge = scope === "cambio_pin" ? `; Max-Age=${CAMBIO_PIN_MIN * 60}` : "";
+  return `${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Strict; Path=/${maxAge}`;
 }
 function cookieBorrar() {
   return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`;

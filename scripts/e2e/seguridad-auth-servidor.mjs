@@ -304,7 +304,10 @@ try {
   // 9 — logout (Angelo)
   await a.page.evaluate(() => sessionStorage.removeItem('mediterra_modulo'));
   await a.page.goto(env.url, { waitUntil: 'domcontentloaded' }); await esperarHub(a);
+  // Salir borra la cookie y RECARGA la página: esperar la recarga antes de contar el formulario.
+  const recarga = a.page.waitForEvent('load', { timeout: 15000 }).catch(() => {});
   await enHub(a).click();
+  await recarga;
   await formLogin(a).waitFor({ timeout: 15000 }).catch(() => {});
   check('9a. Salir vuelve al login (POST /api/auth/logout)', (await formLogin(a).count()) > 0 && a.pedidas.some((x) => x.ruta === '/api/auth/logout'));
   await a.page.reload({ waitUntil: 'domcontentloaded' }); await a.page.waitForTimeout(3000);

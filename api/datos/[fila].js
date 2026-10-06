@@ -35,6 +35,8 @@ async function putUsuarios(res, s, b) {
 async function patchMain(res, s, b) {
   const f = await S.leerFila("main");
   if (!f.existe) return S.json(res, 409, { error: "conflicto", version: null });
+  // Un main que no es objeto no se reescribe (se perderían las Tareas).
+  if (!f.valor || typeof f.valor !== "object" || Array.isArray(f.valor)) return S.json(res, 503, { error: "no_disponible" });
   if (typeof b.version !== "string" || b.version !== f.version) return S.json(res, 409, { error: "conflicto", version: f.version });
   const puedeConfig = R.puedeEditarConfig(s.usuario, await S.esAdmin(s.usuario.email));
   const r = R.aplicarPatchMain(f.valor, b.patch, { puedeConfig });
@@ -61,7 +63,7 @@ module.exports = async function handler(req, res) {
     if (!b) return S.json(res, 400, { error: "body_invalido" });
   }
   try {
-    const s = await S.resolverSesion(req);
+    const s = await S.resolverSesion(req, {}, res);
     if (!s.ok) return S.json(res, s.status, { error: s.error });
     if (fila === "roster" || (fila === "usuarios" && req.method === "GET")) {
       const out = { usuarios: s.usuarios.map(R.filtrarRoster) };

@@ -92,5 +92,17 @@ ok(A.cookieBorrarSp().includes("Max-Age=0"), "cookie borrar: Max-Age=0");
 // escaneo: ni el token ni la cookie exponen PIN/hash/email
 ok(!tok.includes(PIN) && !ck.includes("ejemplo.test"), "sesión/cookie: sin PIN ni email");
 
+// Mismas reglas que el login de la app (temp pendiente, PIN vencido, corte)
+{
+  const acc = (p, extra = {}) => A.evaluarAcceso({ usuarios, pins: p, email: "uno@ejemplo.test", pin: PIN, secret: SECRET, ...extra }).motivo;
+  eq(acc({ ...pins, "Trabajador Uno_temp": "{}" }), "credenciales", "acceso: con código provisorio pendiente el PIN anterior no sirve");
+  const c = JSON.parse(mkCred(PIN)); c.fecha = "2026-01-01";
+  eq(acc({ ...pins, "Trabajador Uno_h": JSON.stringify(c) }, { ahoraMs: Date.parse("2026-10-06") }), "credenciales", "acceso: PIN con más de 60 días → credenciales");
+  c.fecha = "2026-10-01";
+  eq(A.evaluarAcceso({ usuarios, pins: { ...pins, "Trabajador Uno_h": JSON.stringify(c) }, email: "uno@ejemplo.test", pin: PIN, secret: SECRET, ahoraMs: Date.parse("2026-10-06") }).ok, true, "acceso: PIN vigente → ok");
+  process.env.AUTH_CREDENCIALES_DESDE = "2026-10-01T00:00:00Z";
+  eq(acc(pins), "credenciales", "acceso: PIN anterior al corte de credenciales → credenciales");
+  delete process.env.AUTH_CREDENCIALES_DESDE;
+}
 console.log(`\n_friskuSpAuth: ${pass} pass / ${fail} fail`);
 process.exit(fail ? 1 : 0);

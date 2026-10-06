@@ -101,7 +101,7 @@ try {
     const r = await rest('GET', 'calendario_data?id=eq.pins&select=value');
     ok(r.status === 200 && r.j[0] && r.j[0].value.Ana_h, 'VULNERABLE: anon LEE la fila pins (hashes de todos)');
     const orig = filaDB('pins');
-    const w = await rest('PATCH', 'calendario_data?id=eq.pins', { body: { value: { ...orig, Ana_temp: '777123' } }, prefer: 'return=representation' });
+    const w = await rest('PATCH', 'calendario_data?id=eq.pins', { body: { value: { ...orig, Ana_temp: tempCred('777123', Date.now() + 40 * 60000) } }, prefer: 'return=representation' });
     ok(w.status === 200 && w.j.length === 1, 'VULNERABLE: anon ESCRIBE pins (código provisorio para la admin Ana)');
     const l = await login(em('Ana'), '777123');
     const c = await pedir('POST', '/api/auth/cambiar-pin', { cookie: l.cookie, body: { pinNuevo: '730518' } });
@@ -119,6 +119,19 @@ try {
     ok(!fa.ok && /falta public.seg_administradores/.test(fa.salida) && fotoPoliticas() === FOTO_HOY, 'fase A sin fase 0 → ABORTA sin tocar nada');
     const fb = await E.aplicar('faseB_bloquear_lectura.sql');
     ok(!fb.ok && /se esperaba el estado A/.test(fb.salida) && fotoPoliticas() === FOTO_HOY, 'fase B desde HOY → ABORTA sin tocar nada');
+  }
+
+  {
+    const txt = require('fs').readFileSync(path.join(RAIZ, 'supabase/seguridad_main_pins/consultas_previas.sql'), 'utf8');
+    const bloque = (cod) => txt.split(/\n(?=-- M\d\.)/).find((b) => b.startsWith(`-- ${cod}.`));
+    const m1 = E.psqlTexto(bloque('M1'));
+    ok(m1.ok && /main\|jsonb\|object/.test(m1.salida) && /pins\|jsonb\|object/.test(m1.salida) && /usuarios\|jsonb\|array/.test(m1.salida), 'consultas_previas M1: tipo de columna y de cada fila');
+    const m4 = E.psqlTexto(bloque('M4'));
+    // 14 usuarios · 1 desactivada (Caro) · Gabi sin _h · Dani sin 6dig · Eva vencida · 12 activos sin sello ts
+    // · Fede/Fito con código hasheado · Tomas con celular · Gabi con PIN plano
+    eq(m4.ok ? m4.salida.trim() : m4.salida, '14|1|0|0|0|1|1|1|12|0|2|1|1', 'consultas_previas M4: conteos de quién quedaría sin acceso');
+    const m5 = E.psqlTexto(bloque('M5'));
+    eq(m5.ok ? m5.salida.trim() : m5.salida, '1|1|0', 'consultas_previas M5: RPC y tabla del rate limit presentes, aún sin seg_administradores');
   }
 
   // ═══════════════════════ FASE 0 ═══════════════════════
@@ -308,6 +321,77 @@ try {
     fijarFila('usuarios', usuarios);
   }
 
+  titulo('(b) Sesión: cierre del navegador, inactividad, huella de credencial, filas dañadas, corte:');
+  {
+    const A = require(path.join(RAIZ, 'api/_auth.js'));
+    const decod = (ck) => A.verificarSesion(decodeURIComponent(ck.split('=').slice(1).join('=')));
+    const firmar = (p) => {
+      const b64 = (x) => Buffer.from(x).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const body = b64(JSON.stringify(p));
+      return 'mediterra_sess=' + encodeURIComponent(body + '.' + b64(crypto.createHmac('sha256', process.env.SESSION_SECRET).update(body).digest()));
+    };
+    const roster = (ck) => pedir('GET', '/api/datos/roster', { cookie: ck });
+    const pinsAntes = filaDB('pins'), mainAntes = filaDB('main');
+    E.psql(`delete from frisku_sp_ratelimit`);
+    const r = await login(em('Zoe'), PIN.Zoe);
+    ok(r.status === 200 && r.cookie && !/max-age/i.test(r.setCookie), 'cookie "completa" SIN Max-Age (cerrar el navegador la descarta)');
+    const p0 = decod(r.cookie);
+    eq((await roster(firmar({ ...p0, act: Date.now() - 31 * 60000 }))).status, 401, '31 min sin uso → 401 (inactividad controlada en el servidor)');
+    const { fp, ...sinFp } = p0;
+    eq((await roster(firmar(sinFp))).status, 401, 'cookie sin huella (emitida antes de este cambio) → 401');
+    const ren = await roster(firmar({ ...p0, act: Date.now() - 5 * 60000 }));
+    ok(ren.status === 200 && /mediterra_sess=/.test(ren.setCookie) && decod(ren.cookie).exp === p0.exp, 'uso tras 5 min → renueva el último uso sin alargar el vencimiento de 12 h');
+    const otra = (await login(em('Zoe'), PIN.Zoe)).cookie;
+    const c = await pedir('POST', '/api/auth/cambiar-pin', { cookie: r.cookie, body: { pinActual: PIN.Zoe, pinNuevo: '318642' } });
+    eq(c.status, 200, 'Zoe cambia su PIN');
+    eq((await roster(otra)).status, 401, 'cambiar el PIN cierra las DEMÁS sesiones de esa persona');
+    eq((await roster(c.cookie)).status, 200, '…y la sesión que lo cambió sigue');
+    await pedir('POST', '/api/auth/recuperar', { body: { email: em('Zoe') } });
+    eq((await roster(c.cookie)).status, 200, 'pedir un código (público) NO cierra la sesión de nadie');
+    const ana = await completa('Ana');
+    const rita = await completa('Rita');
+    eq((await roster(rita)).status, 200, 'Rita con sesión');
+    eq((await pedir('POST', '/api/auth/admin-reset-pin', { cookie: ana, body: { nombre: 'Rita' } })).status, 200, 'Ana resetea a Rita');
+    eq((await roster(rita)).status, 401, 'el reseteo del administrador expulsa a Rita en la siguiente petición');
+    // Tiempo de recuperar: igual exista o no el correo.
+    const t = async (email) => { const a = Date.now(); await pedir('POST', '/api/auth/recuperar', { body: { email } }); return Date.now() - a; };
+    const tNo = await t('nadie@prueba.test'), tSi = await t(em('Beto'));
+    ok(tNo >= 2900 && tSi >= 2900 && Math.abs(tNo - tSi) < 500, `recuperar responde en ≥ 3 s exista o no el correo (${tNo} ms vs ${tSi} ms)`);
+    fijarFila('pins', pinsAntes);
+    // Fila dañada: nunca se trata como vacía.
+    E.psql(`update calendario_data set value = to_jsonb('{no-es-json'::text), updated_at = now() where id = 'pins'`);
+    await pedir('POST', '/api/auth/recuperar', { body: { email: em('Beto') } });
+    eq(filaDB('pins'), '{no-es-json', 'pins ilegible + recuperar (público) → NO se sobrescribe (no se borran los PIN)');
+    eq((await login(em('Beto'), PIN.Beto)).status, 503, 'pins ilegible → login 503');
+    fijarFila('pins', pinsAntes);
+    const beto = await completa('Beto');
+    const gm = await pedir('GET', '/api/datos/main', { cookie: beto });
+    // (los triggers de main impedirían dañarla: se simula con ellos desactivados en esta sesión)
+    E.psql(`set session_replication_role = replica; update calendario_data set value = to_jsonb('{roto'::text) where id = 'main'`);
+    const pm = await pedir('PATCH', '/api/datos/main', { cookie: beto, body: { patch: { estados: {} }, version: gm.j.version } });
+    ok(pm.status === 503 || pm.status === 409, `main ilegible → PATCH rechazado (${pm.status})`);
+    eq(filaDB('main'), '{roto', '…y main NO se sobrescribe (no se borran las Tareas)');
+    E.psql(`set session_replication_role = replica; update calendario_data set value='${JSON.stringify(mainAntes).replace(/'/g, "''")}'::jsonb, updated_at=now() where id='main'`);
+    // Corte de credenciales (AUTH_CREDENCIALES_DESDE).
+    E.psql(`delete from frisku_sp_ratelimit`);
+    process.env.AUTH_CREDENCIALES_DESDE = new Date().toISOString();
+    const lc = await login(em('Beto'), PIN.Beto);
+    eq([lc.status, lc.j && lc.j.error, lc.cookie], [401, 'debe_recuperar', null], 'con corte: PIN anterior (aunque sea correcto) → 401 debe_recuperar, sin cookie');
+    eq((await login(em('Beto'), '000000')).j.error, 'credenciales', 'con corte y PIN incorrecto → credenciales (no revela nada)');
+    eq((await pedir('POST', '/api/auth/cambiar-pin', { cookie: beto, body: { pinActual: PIN.Beto, pinNuevo: '318642' } })).status, 401, 'con corte: la sesión emitida antes sigue, pero el PIN viejo no sirve para fijar uno nuevo');
+    await pedir('POST', '/api/auth/recuperar', { body: { email: em('Beto') } });
+    const cod = codigoDe(em('Beto'));
+    const lt = await login(em('Beto'), cod);
+    const cp = await pedir('POST', '/api/auth/cambiar-pin', { cookie: lt.cookie, body: { pinNuevo: '318642' } });
+    const ln = await login(em('Beto'), '318642');
+    eq([lt.j && lt.j.motivo, cp.status, ln.j && ln.j.debeCambiarPin], ['temp', 200, false], 'con corte: recupera por correo → crea PIN → entra normal');
+    process.env.AUTH_CREDENCIALES_DESDE = 'no-es-fecha';
+    eq((await login(em('Beto'), '318642')).status, 503, 'corte mal configurado → 503 (falla cerrado)');
+    delete process.env.AUTH_CREDENCIALES_DESDE;
+    fijarFila('pins', pinsAntes);
+    E.psql(`delete from frisku_sp_ratelimit`);
+  }
+
   titulo('(b) verificar (servidor a servidor):');
   {
     const v = (h, body) => pedir('POST', '/api/auth/verificar', { headers: h, body });
@@ -319,8 +403,10 @@ try {
     eq((await v(S, { email: em('Caro'), pin: PIN.Caro })).status, 401, 'desactivado → 401');
     eq((await v(S, { email: em('Gabi'), pin: '1357' })).status, 401, 'PIN plano → 401');
     const pinsAhora = filaDB('pins'); pinsAhora.Tomas_temp = '640299'; fijarFila('pins', pinsAhora);
-    eq((await v(S, { email: em('Tomas'), pin: '640299' })).j.debeCambiarPin, true, '_temp plano → 200 pero debeCambiarPin:true');
-    delete pinsAhora.Tomas_temp; fijarFila('pins', pinsAhora);
+    eq((await v(S, { email: em('Tomas'), pin: '640299' })).status, 401, '_temp plano SIN _temp_exp → 401 (no es una puerta permanente)');
+    pinsAhora.Tomas_temp_exp = Date.now() + 3600000; fijarFila('pins', pinsAhora);
+    eq((await v(S, { email: em('Tomas'), pin: '640299' })).j.debeCambiarPin, true, '_temp plano con _temp_exp vigente → 200 pero debeCambiarPin:true');
+    delete pinsAhora.Tomas_temp; delete pinsAhora.Tomas_temp_exp; fijarFila('pins', pinsAhora);
   }
 
   titulo('(b) Edge Function osiris-auth (lógica real bajo Node con un shim de Deno):');
@@ -387,11 +473,12 @@ try {
     const lr = await login(em('Rita'), rs.j.codigo);
     eq([rs.status, lr.j.motivo, (await pedir('POST', '/api/auth/cambiar-pin', { cookie: lr.cookie, body: { pinNuevo: '629385' } })).status], [200, 'temp', 200], 'reseteo por admin (seg_administradores) → entra y crea PIN');
     // Último recurso (nadie puede entrar, sin correo): SQL Editor con rol postgres.
-    E.psql(`update calendario_data set value = jsonb_set(value, '{Ana_temp}', '"583920"') where id='pins'`);
+    // (exactamente el bloque del documento: código + vencimiento en 2 horas)
+    E.psql(`update calendario_data set value = value || jsonb_build_object('Ana_temp', '583920', 'Ana_temp_exp', (extract(epoch from now() + interval '2 hours') * 1000)::bigint), updated_at = now() where id = 'pins' and jsonb_typeof(value) = 'object'`);
     const la = await login(em('Ana'), '583920');
     const ca = await pedir('POST', '/api/auth/cambiar-pin', { cookie: la.cookie, body: { pinNuevo: '629386' } });
     eq([la.j.motivo, ca.status], ['temp', 200], 'SQL Editor: código provisorio en texto plano → entra solo a cambio obligatorio');
-    ok(!JSON.stringify(filaDB('pins')).includes('583920'), '…y al cambiar el PIN el código plano desaparece');
+    ok(!JSON.stringify(filaDB('pins')).includes('583920') && !('Ana_temp_exp' in filaDB('pins')), '…y al cambiar el PIN el código plano y su vencimiento desaparecen');
     E.psql(`insert into seg_administradores (email, motivo, otorgado_por) values ('ines@prueba.test','respaldo','SQL Editor')`);
     eq((await pedir('POST', '/api/auth/admin-reset-pin', { cookie: await completa('Ines', '629384'), body: { nombre: 'Tomas' } })).status, 200, 'SQL Editor: dar admin a otra persona → puede resetear');
   }

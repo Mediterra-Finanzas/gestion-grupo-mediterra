@@ -64,7 +64,7 @@ function idOpaco(nombre, secret) {
 // (no distingue email inexistente de PIN incorrecto → no permite enumerar emails).
 //   usuarios: array de la fila "usuarios"; pins: objeto de la fila "pins".
 // Devuelve { ok:true, sub } | { ok:false, motivo:"credenciales"|"sin_capability" }.
-function evaluarAcceso({ usuarios, pins, email, pin, secret }) {
+function evaluarAcceso({ usuarios, pins, email, pin, secret, ahoraMs }) {
   const arr = Array.isArray(usuarios) ? usuarios : [];
   const em = normalizarEmail(email);
   if (!em || typeof pin !== "string" || !pin) return { ok: false, motivo: "credenciales" };
@@ -79,6 +79,15 @@ function evaluarAcceso({ usuarios, pins, email, pin, secret }) {
   const cred = pins && Object.prototype.hasOwnProperty.call(pins, `${user.nombre}_h`) ? pins[`${user.nombre}_h`] : null;
   if (!credVigente(cred)) return { ok: false, motivo: "credenciales" };
   if (!verificarPin(pin, cred)) return { ok: false, motivo: "credenciales" };
+  // Mismas reglas que el login de la app (api/_reglasLogin.js, regla 8d7116f): con un
+  // código provisorio pendiente (_temp) el PIN anterior está inhabilitado; un PIN vencido
+  // (>60 días) o anterior al corte de credenciales no da acceso hasta cambiarlo/recuperarlo.
+  const RL = require("./_reglasLogin");   // diferido: _reglasLogin importa este módulo
+  if (pins[`${user.nombre}_temp`]) return { ok: false, motivo: "credenciales" };
+  if (RL.decidirMigracion(cred, ahoraMs).debe) return { ok: false, motivo: "credenciales" };
+  let corteMs;
+  try { corteMs = RL.corteCredenciales(); } catch (e) { return { ok: false, motivo: "credenciales" }; }
+  if (RL.anteriorAlCorte(typeof cred === "string" ? safeParse(cred) : cred, corteMs)) return { ok: false, motivo: "credenciales" };
   // Credencial correcta: recién aquí se distingue la falta de capability (no filtra emails).
   if (!tieneCapabilidadFrisku(user)) return { ok: false, motivo: "sin_capability" };
   return { ok: true, sub: idOpaco(user.nombre, secret) };

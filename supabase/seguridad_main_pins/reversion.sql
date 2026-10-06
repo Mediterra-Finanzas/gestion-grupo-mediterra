@@ -9,8 +9,10 @@
 --   ((id !~~ 'backup%') AND (id !~~ 'main_pre_restore%')), cd_service_all intacta y
 --   TRUNCATE, REFERENCES, TRIGGER otorgados de nuevo a anon y authenticated.
 -- Para volver solo un paso (p. ej. de C a B) ejecutar solo la sección de esa fase.
--- REQUIERE ANTES de revertir A o B: volver a desplegar el cliente que lee/escribe esas
---   filas con la llave pública si se va a apagar el modo servidor (si no, no hace falta).
+-- ORDEN: PRIMERO este SQL (vuelve a HOY) y DESPUÉS, solo si se quiere, desplegar el cliente
+--   con el flag apagado. Al revés no: con B aplicada el cliente con el flag apagado no puede
+--   iniciar sesión (lee pins/usuarios con la llave pública y ve 0 filas). El cliente con el
+--   flag prendido funciona en cualquier fase (usa la llave de servicio en el servidor).
 -- Lo que revertir REABRE: la lectura/escritura pública de pins/usuarios/main (las
 --   vulnerabilidades que estas fases cierran).
 -- VERIFICAR: verificacion.sql → estado "HOY".

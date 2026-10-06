@@ -103,6 +103,7 @@ export function mensajeErrorLogin(e) {
   const c = e && e.codigo;
   if (c === "credenciales") return "Correo o PIN incorrecto.";
   if (c === "desactivado") return "Tu cuenta no está activa. Contacta al administrador.";
+  if (c === "debe_recuperar") return "Por seguridad tu PIN debe restablecerse por correo. Usa \"¿Olvidaste tu PIN?\" para recibir un código.";
   if (c === "bloqueado") return "Demasiados intentos fallidos. Espera unos minutos antes de volver a intentar.";
   if (c === "sin_conexion") return "No se pudo conectar con el servidor. Revisa tu conexión e intenta de nuevo.";
   return "No se pudo iniciar sesión. Intenta de nuevo en unos minutos.";

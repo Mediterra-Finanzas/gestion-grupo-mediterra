@@ -23,9 +23,13 @@ const S = require("../_segServidor");
 const METODO = { login: "POST", "cambiar-pin": "POST", recuperar: "POST", sesion: "GET", logout: "POST", "admin-reset-pin": "POST", verificar: "POST" };
 
 function cookieDe(usuario, scope, pins) {
-  const fp = scope === "cambio_pin" ? R.huellaCredencial(pins, usuario.nombre) : undefined;
+  if (scope === "completa") return S.cookieCompleta(usuario, pins);
+  const fp = R.huellaCredencial(pins, usuario.nombre);
   return A.cookieSesion(A.crearToken({ email: usuario.email, nombre: usuario.nombre, scope, fp }), scope);
 }
+const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+// Errores de login que se devuelven tal cual (el resto → "credenciales").
+const ESTADO_LOGIN = { desactivado: 403, debe_recuperar: 401 };
 function str(v, max) { return typeof v === "string" && v.length > 0 && v.length <= max ? v : null; }
 
 async function login(req, res, b) {
@@ -39,17 +43,17 @@ async function login(req, res, b) {
     if (l === "bloqueado") return S.json(res, 429, { error: "bloqueado" });
     if (l !== "ok") return S.json(res, 503, { error: "no_disponible" });
   }
-  let usuarios, pins;
-  try { ({ usuarios } = await S.leerUsuarios()); pins = await S.leerPins(); }
+  let usuarios, pins, corteMs;
+  try { ({ usuarios } = await S.leerUsuarios()); pins = await S.leerPins(); corteMs = R.corteCredenciales(); }
   catch (e) { return S.json(res, 503, { error: "no_disponible" }); }
-  const r = R.evaluarLogin({ usuarios, pins, email, pin, ahora: Date.now() });
-  if (!r.ok) return S.json(res, r.error === "desactivado" ? 403 : 401, { error: r.error });
+  const r = R.evaluarLogin({ usuarios, pins, email, pin, ahora: Date.now(), corteMs });
+  if (!r.ok) return S.json(res, ESTADO_LOGIN[r.error] || 401, { error: ESTADO_LOGIN[r.error] ? r.error : "credenciales" });
   if (r.debeCambiarPin) {
     return S.json(res, 200, { ok: true, debeCambiarPin: true, motivo: r.motivo, nombre: r.usuario.nombre },
       { "Set-Cookie": cookieDe(r.usuario, "cambio_pin", pins) });
   }
   return S.json(res, 200, { ok: true, debeCambiarPin: false, usuario: R.filtrarRoster(r.usuario) },
-    { "Set-Cookie": cookieDe(r.usuario, "completa") });
+    { "Set-Cookie": cookieDe(r.usuario, "completa", pins) });
 }
 
 async function cambiarPin(req, res, b) {
@@ -58,19 +62,31 @@ async function cambiarPin(req, res, b) {
   const l = await S.limitar(`cambio:${s.usuario.nombre}`, S.reglas().id);
   if (l === "bloqueado") return S.json(res, 429, { error: "bloqueado" });
   if (l !== "ok") return S.json(res, 503, { error: "no_disponible" });
+  const corteMs = R.corteCredenciales();
+  let escritos = null;
   const w = await S.actualizarFila("pins", (valor) => {
     const r = R.evaluarCambioPin({ usuario: s.usuario, pins: valor || {}, pinActual: b.pinActual, pinNuevo: b.pinNuevo,
-      tel: b.tel, sesion: s.ses, ahora: Date.now() });
-    return r.ok ? r.nuevosPins : { abortar: r };
+      tel: b.tel, sesion: s.ses, ahora: Date.now(), corteMs });
+    if (!r.ok) return { abortar: r };
+    escritos = r.nuevosPins;
+    return r.nuevosPins;
   });
   if (w.abortado) return S.json(res, w.abortado.status, { error: w.abortado.error });
-  return S.json(res, 200, { ok: true, usuario: R.filtrarRoster(s.usuario) }, { "Set-Cookie": cookieDe(s.usuario, "completa") });
+  // La cookie nueva lleva la huella del PIN recién guardado: las demás sesiones de
+  // esta persona (otro navegador, un tercero) quedan fuera.
+  return S.json(res, 200, { ok: true, usuario: R.filtrarRoster(s.usuario) }, { "Set-Cookie": cookieDe(s.usuario, "completa", escritos) });
 }
 
 // Emite un código provisorio (hash + exp en pins[`${nombre}_temp`]) y lo envía por correo.
-async function emitirCodigo(usuario, saludo) {
+// `subirEpoca` (reseteo del administrador) además cierra todas las sesiones de esa persona.
+async function emitirCodigo(usuario, saludo, subirEpoca) {
   const codigo = R.generarCodigo6();
-  await S.actualizarFila("pins", (valor) => ({ ...(valor || {}), [`${usuario.nombre}_temp`]: R.crearTempCred(codigo, Date.now()) }));
+  await S.actualizarFila("pins", (valor) => {
+    const v = { ...(valor || {}), [`${usuario.nombre}_temp`]: R.crearTempCred(codigo, Date.now()) };
+    delete v[`${usuario.nombre}_temp_exp`];
+    if (subirEpoca) v[`${usuario.nombre}_epoca`] = (Number(v[`${usuario.nombre}_epoca`]) || 0) + 1;
+    return v;
+  });
   let enviado = false;
   try {
     const r = await S.enviarCorreo({ to: usuario.email, subject: "Código provisorio - Mediterra", message: S.textoCodigo(usuario.nombre, codigo, saludo) });
@@ -79,8 +95,12 @@ async function emitirCodigo(usuario, saludo) {
   return { codigo, enviado };
 }
 
+// Respuesta SIEMPRE igual y no antes de RECUPERAR_MIN_MS: sin ese piso, el tiempo
+// (escritura + SMTP) revelaría si el correo existe y si el celular coincide.
+const RECUPERAR_MIN_MS = 3000;
 async function recuperar(req, res, b) {
-  const OK = () => S.json(res, 200, { ok: true });
+  const t0 = Date.now();
+  const OK = async () => { await espera(Math.max(0, RECUPERAR_MIN_MS - (Date.now() - t0))); return S.json(res, 200, { ok: true }); };
   const email = str(b.email, 320);
   if (!email) return OK();
   const ip = S.ipDe(req);
@@ -99,7 +119,7 @@ async function recuperar(req, res, b) {
 
 async function sesion(req, res) {
   let s;
-  try { s = await S.resolverSesion(req, { permitirCambioPin: true }); }
+  try { s = await S.resolverSesion(req, { permitirCambioPin: true }, res); }
   catch (e) { return S.json(res, 503, { error: "no_disponible" }); }
   if (!s.ok) return S.json(res, 401, { error: "sin_sesion" }, { "Set-Cookie": A.cookieBorrar() });
   if (s.ses.scope === "cambio_pin") {
@@ -116,7 +136,7 @@ async function adminResetPin(req, res, b) {
   const nombre = str(b.nombre, 200);
   const objetivo = nombre ? s.usuarios.filter((u) => u && u.nombre === nombre) : [];
   if (objetivo.length !== 1) return S.json(res, 404, { error: "no_encontrado" });
-  const { codigo, enviado } = await emitirCodigo(objetivo[0], true);
+  const { codigo, enviado } = await emitirCodigo(objetivo[0], true, true);
   return S.json(res, 200, { ok: true, codigo, correoEnviado: enviado });
 }
 
@@ -128,13 +148,14 @@ async function verificar(req, res, b) {
   if (!recibido || !crypto.timingSafeEqual(h(recibido), h(esperado))) return S.json(res, 401, { error: "sin_permiso" });
   const email = str(b.email, 320), pin = str(b.pin, 64);
   if (!email || !pin) return S.json(res, 401, { error: "credenciales" });
-  const l = await S.limitar(`verificar:${email.trim().toLowerCase()}`, S.reglas().id);
+  // Mismo contador que el login de la app: osiris-auth no suma intentos aparte.
+  const l = await S.limitar(`login:${email.trim().toLowerCase()}`, S.reglas().id);
   if (l === "bloqueado") return S.json(res, 429, { error: "bloqueado" });
   if (l !== "ok") return S.json(res, 503, { error: "no_disponible" });
-  let usuarios, pins;
-  try { ({ usuarios } = await S.leerUsuarios()); pins = await S.leerPins(); }
+  let usuarios, pins, corteMs;
+  try { ({ usuarios } = await S.leerUsuarios()); pins = await S.leerPins(); corteMs = R.corteCredenciales(); }
   catch (e) { return S.json(res, 503, { error: "no_disponible" }); }
-  const r = R.evaluarLogin({ usuarios, pins, email, pin, ahora: Date.now() });
+  const r = R.evaluarLogin({ usuarios, pins, email, pin, ahora: Date.now(), corteMs });
   if (!r.ok) return S.json(res, 401, { error: "credenciales" });
   return S.json(res, 200, { ok: true, email: String(r.usuario.email).trim().toLowerCase(), nombre: r.usuario.nombre, debeCambiarPin: !!r.debeCambiarPin });
 }

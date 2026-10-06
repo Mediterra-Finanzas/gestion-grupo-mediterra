@@ -69,13 +69,57 @@ console.log("Otros casos:");
 {
   const pins = { Caro_h: cred("482916", { pol: "6dig", fecha: hoyISO }) };
   eq(login(pins, "caro@prueba.test", "482916").error, "desactivado", "cuenta desactivada → desactivado");
-  eq(login(pins, "caro@prueba.test", "000000").error, "desactivado", "desactivado se informa antes del PIN (igual que el cliente)");
+  eq(login(pins, "caro@prueba.test", "000000").error, "credenciales", "desactivado con PIN incorrecto → genérico (no revela que la cuenta existe)");
 }
 {
-  const pins = { Beto_h: cred("482916", { pol: "6dig", fecha: hoyISO }), Beto_temp: "550231" };
+  const pins = { Beto_h: cred("482916", { pol: "6dig", fecha: hoyISO }), Beto_temp: "550231", Beto_temp_exp: AHORA + 3600000 };
   const r = login(pins, "beto@prueba.test", "550231");
-  eq([r.ok, r.debeCambiarPin, r.motivo], [true, true, "temp"], "código temp legacy en texto plano → entra pero DEBE cambiar");
-  eq(login(pins, "beto@prueba.test", "482916").ok, false, "temp legacy presente → el PIN antiguo no entra");
+  eq([r.ok, r.debeCambiarPin, r.motivo], [true, true, "temp"], "código en texto plano CON _temp_exp vigente → entra pero DEBE cambiar");
+  eq(login(pins, "beto@prueba.test", "482916").ok, false, "temp plano presente → el PIN antiguo no entra");
+  eq(login({ ...pins, Beto_temp_exp: AHORA - 1 }, "beto@prueba.test", "550231").detalle, "temp_vencido", "temp plano con _temp_exp vencido → rechazo");
+  eq(login({ ...pins, Beto_temp_exp: undefined }, "beto@prueba.test", "550231").detalle, "temp_vencido", "temp plano SIN _temp_exp → no sirve (no queda una puerta permanente)");
+  eq(login({ ...pins, Beto_temp_exp: new Date(AHORA + 60000).toISOString() }, "beto@prueba.test", "550231").ok, true, "_temp_exp en ISO también vale");
+  const c = R.evaluarCambioPin({ usuario: U[1], pins, pinActual: "550231", pinNuevo: "730518", ahora: AHORA });
+  eq([c.ok, "Beto_temp" in c.nuevosPins, "Beto_temp_exp" in c.nuevosPins], [true, false, false], "cambiar PIN borra _temp y _temp_exp");
+}
+
+console.log("Corte de credenciales (AUTH_CREDENCIALES_DESDE):");
+{
+  const corteMs = AHORA - DIA;
+  const L = (pins, email, pin) => R.evaluarLogin({ usuarios: U, pins, email, pin, ahora: AHORA, corteMs });
+  const vieja = { Beto_h: cred("482916", { pol: "6dig", fecha: hoyISO }) };   // sin ts
+  eq(L(vieja, "beto@prueba.test", "482916").error, "debe_recuperar", "_h sin sello ts con corte → debe recuperar por correo");
+  eq(L(vieja, "beto@prueba.test", "111111").error, "credenciales", "… con PIN incorrecto → genérico (no revela nada)");
+  const antes = { Beto_h: cred("482916", { pol: "6dig", fecha: hoyISO, ts: new Date(corteMs - 1).toISOString() }) };
+  eq(L(antes, "beto@prueba.test", "482916").error, "debe_recuperar", "_h emitido 1 ms antes del corte → debe recuperar");
+  const despues = { Beto_h: cred("482916", { pol: "6dig", fecha: hoyISO, ts: new Date(corteMs).toISOString() }) };
+  eq([L(despues, "beto@prueba.test", "482916").ok, L(despues, "beto@prueba.test", "482916").debeCambiarPin], [true, false], "_h emitido en el corte o después → entra normal");
+  eq(login(vieja, "beto@prueba.test", "482916").ok, true, "SIN corte configurado → comportamiento de hoy");
+  const tempViejo = { ...vieja, Beto_temp: JSON.stringify({ ...JSON.parse(R.crearTempCred("731904", AHORA)), ts: new Date(corteMs - 1).toISOString() }) };
+  eq(L(tempViejo, "beto@prueba.test", "731904").detalle, "temp_vencido", "código hasheado emitido antes del corte → vencido");
+  const tempNuevo = { ...vieja, Beto_temp: R.crearTempCred("731904", AHORA) };
+  eq(L(tempNuevo, "beto@prueba.test", "731904").motivo, "temp", "código emitido tras el corte (recuperación por correo) → entra a crear PIN");
+  const c1 = R.evaluarCambioPin({ usuario: U[1], pins: vieja, pinActual: "482916", pinNuevo: "730518", ahora: AHORA, corteMs });
+  eq([c1.ok, c1.error], [false, "debe_recuperar"], "cambiar PIN presentando un PIN anterior al corte → rechazo");
+  const c2 = R.evaluarCambioPin({ usuario: U[1], pins: tempNuevo, pinActual: "731904", pinNuevo: "730518", ahora: AHORA, corteMs });
+  ok(c2.ok && !R.anteriorAlCorte(JSON.parse(c2.nuevosPins.Beto_h), corteMs), "PIN creado con código posterior al corte → queda con ts vigente");
+  eq(R.corteCredenciales({}), null, "sin variable → sin corte");
+  let lanzo = false; try { R.corteCredenciales({ AUTH_CREDENCIALES_DESDE: "no-es-fecha" }); } catch (e) { lanzo = true; }
+  ok(lanzo, "variable inválida → error (falla cerrado, no se ignora)");
+}
+
+console.log("Huella de sesión y tiempos:");
+{
+  const p1 = { Ana_h: cred("482916", { pol: "6dig" }) };
+  const h1 = R.huellaSesion(p1, "Ana");
+  eq(R.huellaSesion({ ...p1, Ana_temp: "x" }, "Ana"), h1, "pedir un código (_temp) NO cambia la huella de sesión");
+  ok(R.huellaSesion({ ...p1, Ana_epoca: 1 }, "Ana") !== h1, "subir la época (reseteo del admin) cambia la huella");
+  ok(R.huellaSesion({ Ana_h: cred("730518", { pol: "6dig" }) }, "Ana") !== h1, "cambiar el PIN cambia la huella");
+  const t = (fn) => { const a = process.hrtime.bigint(); fn(); return Number(process.hrtime.bigint() - a) / 1e6; };
+  const P = { Ana_h: JSON.stringify(R.hashPin("482916", AHORA)) };
+  const real = Math.min(...[1, 2, 3].map(() => t(() => R.evaluarLogin({ usuarios: U, pins: P, email: "ana@prueba.test", pin: "000000", ahora: AHORA }))));
+  const nadie = Math.min(...[1, 2, 3].map(() => t(() => R.evaluarLogin({ usuarios: U, pins: P, email: "nadie@prueba.test", pin: "000000", ahora: AHORA }))));
+  ok(nadie > real * 0.5, `email inexistente cuesta lo mismo que uno real (${nadie.toFixed(0)} ms vs ${real.toFixed(0)} ms)`);
 }
 eq(login({}, "nadie@prueba.test", "482916").error, "credenciales", "email inexistente → credenciales (genérico)");
 eq(R.evaluarLogin({ usuarios: [U[1], { ...U[1], nombre: "Beto2" }], pins: {}, email: "beto@prueba.test", pin: "1", ahora: AHORA }).detalle, "sin_usuario", "email duplicado en el padrón → fallo cerrado");
