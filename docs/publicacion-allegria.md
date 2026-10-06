@@ -115,21 +115,64 @@ Los cinco tienen que terminar en verde y los dos últimos deben reportar
    `docs/propuesta-carga-allegria.md`: primero lo que no depende de
    definiciones (programas sin anticipos), después lo conciliado.
 
+## Punto de reversión (comprobado el 2026-10-06)
+
+| | SHA | Comprobación |
+|---|---|---|
+| `origin/main` antes del merge | **9d90ed2** | `docs(osiris): acta del aviso de reajuste` |
+| Desplegado en producción | **9d90ed2** | Deployment de Vercel `Production – gestion-grupo-mediterra`, estado `success`, 2026-10-05T10:52:24Z (GitHub Deployments API) |
+| Candidato a publicar | **eed095f** | rama `claude/vigilant-cray-uf21ws` |
+
+`main` y producción están en el MISMO commit: Vercel despliega a producción
+automáticamente desde `main`, así que el merge es el deploy. No hay un paso de
+promoción manual que sirva de pausa.
+
+`9d90ed2` es el punto de reversión. **No** lo es ningún commit de la rama:
+`517342f` es de la rama y contiene los defectos que `eed095f` corrige.
+
+El merge debe hacerse con `--no-ff`. La rama desciende directo de `9d90ed2`,
+así que un merge por omisión sería fast-forward y no dejaría commit de merge
+que revertir.
+
 ## Vuelta atrás
 
-El cambio no migra datos, así que revertir el código es suficiente y no deja
-datos huérfanos:
+Siempre conservando historia. **No usar `git reset --hard` sobre `main`**: una
+rama publicada y desplegada no se reescribe.
+
+### Antes de usar las funciones nuevas (sin ningún dato cargado)
 
 ```bash
-git revert -m 1 <sha-del-merge>     # devuelve main al estado anterior
+git revert -m 1 <sha-del-merge>     # un commit nuevo que deshace el merge
 git push origin main                # Vercel redespliega solo
 ```
 
-Un registro ya cargado con la funcionalidad nueva (un programa, un saldo, un
-monto informado) queda guardado en la fila `finanzas` y es ignorado por el
-código anterior: no rompe el flujo viejo, y vuelve a estar visible al
-redesplegar. Por eso conviene publicar la funcionalidad **antes** de cargar
-datos: la vuelta atrás es limpia mientras no haya datos nuevos.
+`main` vuelve al contenido de `9d90ed2` y producción con él. No hay dato que
+limpiar porque el cambio no escribe ni migra nada.
+
+### Después de usar las funciones nuevas (con datos ya cargados)
+
+El mismo `git revert -m 1`, y además hay que saber qué queda en el dato:
+
+- Lo cargado con la funcionalidad nueva vive dentro de la fila `finanzas` de
+  `calendario_data`, en campos que el código anterior **no lee**:
+  `programas`, `movimientos_sin_asignar`, `saldos_favor`, `antecedentes`,
+  `decisiones_sin_fecha`, `liq_definitiva_cliente` / `_productor`, y dentro de
+  cada estimación los campos `v` y `estimacion_caja`.
+- El código anterior los ignora: el flujo vuelve a lo que proyectaba antes y
+  no se rompe. Los montos que se proyectaban por programas **desaparecen de la
+  proyección** mientras la reversión esté activa. Eso es lo que hay que avisar
+  al equipo, porque el flujo va a mostrar menos caja comprometida, no un error.
+- El código anterior **sí escribe** esa misma fila. Un guardado posterior la
+  reescribe completa, así que los campos nuevos pueden perderse. Antes de
+  revertir con datos ya cargados: tomar una copia de la fila `finanzas`
+  (`calendario_data`, `id='finanzas'`) y guardarla fuera de la base. El
+  respaldo diario es genérico y la cubre, pero una copia puntual no depende de
+  a qué hora corrió.
+- Al redesplegar la versión nueva, lo cargado vuelve a estar visible, siempre
+  que no haya habido un guardado del código viejo encima.
+
+Por eso conviene publicar la funcionalidad **antes** de cargar datos: mientras
+no haya datos nuevos, la vuelta atrás es solo un revert.
 
 ## Lo que esta publicación NO hace
 

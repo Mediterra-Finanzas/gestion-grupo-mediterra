@@ -327,7 +327,12 @@ Reglas que no hay que romper:
   `resumenLado()` informa `vencidoContractual` / `vencidosContractuales[]`
   aparte de las cubetas. `proyeccionEstimada` totaliza cuánto de la proyección
   descansa en fechas estimadas. Para una cuota SIN fecha pactada está la marca
-  simple `mes_estimado` (ahí no hay dos fechas que preservar).
+  simple `mes_estimado` (ahí no hay dos fechas que preservar). La cuota muestra
+  las cuatro cosas a la vez: fecha contractual, condición de vencida, mes de
+  caja estimado y motivo (con usuario y fecha), en edición y en solo lectura.
+  Fijado con `src/__tests__/cuotaVencidaPantalla.test.js`, que renderiza el
+  panel real con el caso TUNGSHING (contractual Sep-26 vencido + caja estimada
+  en Feb-27): una estimación futura NO puede borrar el vencimiento.
 - **Un compromiso vencido no se traslada solo**: el pendiente con mes anterior
   al corte se proyecta antes del corte, se lista como vencido y no entra al
   saldo acumulado. Reprogramar es explícito.
@@ -385,7 +390,8 @@ comparación de Excel lee el valor EN CACHÉ: es control de forma, no prueba de
 las fórmulas), **`src/__tests__/excelRecalcFlujo.test.js`** (`RECALC=1`: Excel
 recalculado en LibreOffice contra `calcAllegria`, mes a mes, en los seis
 escenarios que la comparación en caché no podía ver),
-`src/__tests__/saldosExcelRecalc.test.js` (`RECALC=1`), y
+`src/__tests__/saldosExcelRecalc.test.js` (`RECALC=1`),
+`src/__tests__/cuotaVencidaPantalla.test.js` (RTL: lo que la cuota muestra), y
 `scripts/e2e/programas-allegria.mjs` + `regresion-empresas.mjs` (navegador +
 Excel recalculado, datos sintéticos).
 
