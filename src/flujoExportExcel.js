@@ -17,6 +17,7 @@
 import { antRealizado, antPendiente } from './anticipos.js';
 import {
   normalizarPrograma, normalizarCuota, cuotaAcordado, cuotaRealizado, cuotaPendiente,
+  referenciasInvalidas,
   estAcordado, estSustituido, estPendiente, estRealizadoOriginado, esDato,
   normalizarSaldo, resumenSaldo, compensacionesPorDestino,
   tratoSinFecha, mesProyeccion,
@@ -676,6 +677,22 @@ function bloqueLiquidacionLado({
     put(rAr,5,{ t:'n', v:realizadoArchivado, s:PS.inNum });
     setR(getR()+1);
     descsBloque.push({ f:`${ref(rAr,5)}`, v:realizadoArchivado });
+  }
+  // Referencias inválidas: una sustitución que apunta a un id inexistente no
+  // sustituye nada, así que el monto queda proyectado dos veces. Va como fila
+  // informativa (constante, FUERA de los descuentos): el archivo tiene que decir
+  // lo mismo que la pantalla, no esconderlo.
+  const refsInv = referenciasInvalidas({ estimaciones: ests, programas, lado });
+  if (refsInv.length) {
+    const rRi = getR();
+    put(rRi,1,{ t:'s', v:`   ⚠ ${refsInv.length} referencia(s) inválida(s) pendiente(s) de resolver — el monto queda proyectado dos veces`, s:PS.txtSub });
+    setR(getR()+1);
+    refsInv.forEach(x => {
+      const r2 = getR();
+      put(r2,1,{ t:'s', v:`      ↳ ${x.contraparte ? x.contraparte + ' · ' : ''}apunta a ${x.idHuerfano || 'sin identificador'} (no existe)`, s:PS.txtSub });
+      put(r2,5,{ t:'n', v:Number(x.usd)||0, s:PS.inNum });
+      setR(getR()+1);
+    });
   }
   const compBloque = Number(comp.__bloque__) || 0;
   if (compBloque > 0) {

@@ -28,7 +28,7 @@ import {
   cuotaAcordado, cuotaPendiente, cuotaRealizado, estPendiente, estDisponible,
   estSobreSustituida, efectoImputacion, imputarMovimiento, moverRealizacion,
   archivarPrograma, tieneHistorial, nuevoIdPrograma, nuevoIdCuota, esDato,
-  MODELO_VERSION,
+  MODELO_VERSION, normalizarIdentidades,
 } from './programas.js';
 import ProgramasPanel, { ResumenLado } from './ProgramasComerciales.jsx';
 
@@ -287,6 +287,40 @@ async function dbLoadBancos() {
 }
 async function dbSaveBancos(saldos) {
   return dbSave({ saldos }, "finanzas_bancos");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AUTORIZACIÓN EN LA RUTA DE GUARDADO
+// Qué pestaña gobierna cada campo del blob de la fila `finanzas`. Antes el único
+// gate de persistAll era cargaOkRef: la interfaz escondía los controles de una
+// pestaña en "ver", pero cualquier otro camino que cambiara el estado reescribía
+// la fila COMPLETA, incluidas las pestañas que esa sesión no puede ver. Esto no
+// reemplaza RLS ni el guardia del servidor (siguen pendientes): cierra la vía
+// accidental desde la propia app.
+// ═══════════════════════════════════════════════════════════════════
+export const CAMPO_PESTANA = {
+  finanzas_real:"flujo", sub_lines:"flujo", added_lines:"flujo", intercompany:"flujo",
+  allegria_params:"flujo", allegria_comision_arandanos:"flujo", params_emp:"flujo",
+  params_as:"flujo", params_if:"flujo", params_af:"flujo", params_ap:"flujo",
+  params_osiris:"flujo", params_participacion:"flujo", params_frisku:"flujo",
+  creditos_data:"creditos",
+};
+
+// Decide si este guardado está autorizado. `puedoEdit(pestaña) -> boolean`.
+//  - con overrides: se exige permiso de CADA campo presente (undefined no cuenta);
+//  - sin overrides (auto-save del blob completo): se exige el del flujo, que es lo
+//    que el blob arrastra;
+//  - sin función de permiso (no llegó todavía): no se bloquea, para no romper los
+//    caminos que no tienen contexto de permisos.
+// Devuelve { ok:true } o { ok:false, motivo:"sin_permiso", pestanas:[...] }.
+export function autorizacionGuardado(overrides, puedoEdit) {
+  if (typeof puedoEdit !== "function") return { ok:true };
+  const campos = Object.keys(overrides || {}).filter(k => overrides[k] !== undefined);
+  const pestanas = campos.length
+    ? [...new Set(campos.map(k => CAMPO_PESTANA[k]).filter(Boolean))]
+    : ["flujo"];
+  const sinPermiso = pestanas.filter(t => !puedoEdit(t));
+  return sinPermiso.length ? { ok:false, motivo:"sin_permiso", pestanas:sinPermiso } : { ok:true };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2028,7 +2062,9 @@ function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
 
   // `v: MODELO_VERSION` al crear: una estimación nueva sin mes queda reservada
   // (pendiente de calendarizar), no se trata como registro antiguo.
-  const addRow=()=>onChange([...lista, normalizarAnticipo({mes:"",usd_kg:0,v:MODELO_VERSION})]);
+  // `id` al CREAR: los normalizadores ya no acuñan identidad (corren en cada
+  // render). Sin esto la estimación nacería sin id y no sería referenciable.
+  const addRow=()=>onChange([...lista, normalizarAnticipo({id:nuevoIdAnticipo(),mes:"",usd_kg:0,v:MODELO_VERSION})]);
   const updRow=(i,field,val)=>{const n=[...lista];n[i]={...normalizarAnticipo(n[i]),[field]:val};onChange(n);};
   const delRow=i=>{
     const a=lista[i];
@@ -12152,6 +12188,21 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const [loading,setLoading]=useState(true);
   const [saved,setSaved]=useState(null);
   const [avisoPersist,setAvisoPersist]=useState(null); // F0-B: aviso en pantalla cuando el flujo/escenario/bancos NO se guardó.
+  // Estado VISIBLE del guardado del flujo (registrar pagos, aplicar un movimiento
+  // de la bandeja, reasignar, archivar). Mismo vocabulario que App.jsx:
+  // "guardando" / "ok" / "error" / "conflicto". Una operación NO se declara
+  // guardada hasta que el servidor lo confirmó (persistContract).
+  const [estadoPersist,setEstadoPersist]=useState("idle");
+  const estadoPersistRef = React.useRef("idle");
+  // Conflicto pendiente de la fila: { valorServidor, version } + las DOS salidas
+  // explícitas. Mientras está puesto, el contrato no escribe nada.
+  const [conflictoFila,setConflictoFila]=useState(null);
+  // Registros antiguos sin identificador detectados al cargar: { cambios, valor }.
+  // Se normalizan en memoria y la ESCRITURA es un paso explícito (ver banner).
+  const [normPendiente,setNormPendiente]=useState(null);
+  const [normBusy,setNormBusy]=useState(false);
+  const normPendienteRef   = React.useRef(null);
+  const migrarIdentidadesRef = React.useRef(null);
   // ── Escenarios (workspaces paralelos del flujo) ──
   // escActivo: null = Base (original, fila "finanzas"); si no, id del escenario.
   const [escenarios,setEscenarios]=useState([]);   // [{id,name,createdAt}]
@@ -12425,7 +12476,29 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     if(d?.finanzas_real) setRealData(d.finanzas_real);
     else if(d?.calendario_data) setRealData(d.calendario_data);
     else if(d&&!d.calendario_data&&!d.allegria_params&&!d.finanzas_real) setRealData(d);
-    if(d?.allegria_params) setParams(prev=>({...defaultParams(),...d.allegria_params}));
+    if(d?.allegria_params) {
+      // IDENTIDAD ESTABLE. Los normalizadores del modelo ya NO acuñan `id` (corrían
+      // en cada render, así que un registro guardado sin id recibía uno nuevo cada
+      // vez y una sustitución declarada contra él proyectaba el mismo dinero dos
+      // veces, sin aviso). `normalizarIdentidades` asigna identidad a los registros
+      // antiguos UNA vez, de forma determinista (hash del contenido y la posición,
+      // prefijo `mig_`), idempotente, conservando todos los campos y sin tocar un id
+      // existente.
+      // Se aplica EN MEMORIA al cargar, para que la pantalla trabaje con identidad
+      // firme desde el primer render. NO se escribe acá: escribir al abrir el módulo
+      // es justo lo que se corrigió. La escritura es un paso explícito del CFO
+      // (banner + botón), que pasa por el contrato de concurrencia.
+      let normalizado = d.allegria_params, pendiente = null;
+      try {
+        const idn = normalizarIdentidades(d.allegria_params);
+        normalizado = idn.valor;
+        if(idn.huboCambios) pendiente = { cambios: idn.cambios, valor: idn.valor };
+      } catch(e) {
+        console.error("[identidades] no se pudo normalizar:", e);
+      }
+      setParams(prev=>({...defaultParams(),...normalizado}));
+      setNormPendiente(pendiente);
+    }
     if(d?.allegria_comision_arandanos) {
       setAllegraComisionArandanos(d.allegria_comision_arandanos);
     } else {
@@ -12511,6 +12584,16 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           }
         }).catch(()=>{});
         cargaOkRef.current = true; setLoading(false);
+        // MIGRACIÓN DECLARADA de identificadores. Se corre UNA vez, recién
+        // después de una carga exitosa (si la carga falla, `cargaOkRef` queda en
+        // false y no se escribe nada), y es idempotente. No es una escritura
+        // silenciosa al abrir: va con estado visible y deja su registro; el
+        // banner solo desaparece cuando el servidor confirmó.
+        // Se hace acá y no en el auto-save porque la identidad tiene que quedar
+        // guardada ANTES de poder declarar una sustitución contra un registro
+        // antiguo. Hasta que esté, la pantalla bloquea ese control.
+        // El disparo va en un efecto propio (más abajo): `setNormPendiente` de
+        // `applyData` todavía no se reflejó en este mismo tick.
       })
       .catch(e=>{ console.error("[Finanzas] Carga falló — GUARDADO DESHABILITADO esta sesión (no se sobrescribe Supabase):", e); setLoading(false); });
 
@@ -12610,6 +12693,13 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // escribe nada → un parpadeo de conexión no puede sobrescribir Finanzas con
   // los defaults vacíos en memoria.
   const cargaOkRef       = React.useRef(false);
+  // Hay un cambio con debounce agendado y todavía sin escribir. Si el módulo se
+  // desmonta en esa ventana, el guardado se COMPLETA en vez de descartarse
+  // (antes el cleanup hacía clearTimeout y la operación se perdía en silencio).
+  const cambioPendienteRef = React.useRef(false);
+  // persistAll es un useCallback con deps [] (se llama desde muchos sitios), así
+  // que el permiso de la pestaña llega por ref, no por closure.
+  const puedoEditRef     = React.useRef(null);
   useEffect(()=>{ realDataRef.current     = realData;     },[realData]);
   useEffect(()=>{ paramsRef.current       = params;       },[params]);
   useEffect(()=>{ allegraComisionArandanosRef.current = allegraComisionArandanos; },[allegraComisionArandanos]);
@@ -12690,6 +12780,17 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       console.warn("[persistAll] Bloqueado — la carga inicial falló; no se guarda para no borrar datos.");
       return { ok:false, motivo:"sin_carga" };
     }
+    // AUTORIZACIÓN en la ruta de guardado (no solo en la interfaz). Antes el único
+    // gate era cargaOkRef: una sesión con la pestaña del flujo en "ver" no veía los
+    // controles, pero cualquier otro camino que cambiara `params`/`saldosBancos`
+    // reescribía la fila COMPLETA, incluidas las pestañas que no puede ver. Esto no
+    // reemplaza a RLS ni al guardia del servidor (sigue pendiente): cierra la vía
+    // accidental. No afecta a Rendiciones (fila aparte) ni a los escenarios.
+    const autz = autorizacionGuardado(overrides, puedoEditRef.current);
+    if(!autz.ok){
+      console.warn("[persistAll] Bloqueado — sin permiso de edición en:", (autz.pestanas||[]).join(", "));
+      return autz;
+    }
     // F0-B: se ELIMINA la ventana de 10 s que devolvía éxito SIN escribir (R2 del
     // RCA). El gate real es cargaOkRef (arriba). Nunca se declara guardado sin
     // escritura confirmada por el servidor.
@@ -12714,6 +12815,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     // Base: guarda el blob completo y actualiza el cache del base vivo.
     const rowId = activeRowRef.current;
     let res;
+    setEstadoPersist("guardando");
     if(rowId === "finanzas"){
       baseBlobRef.current = blob;
       res = await dbSave(blob, "finanzas");
@@ -12732,8 +12834,109 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     if(res && !res.ok){
       setAvisoPersist(construirAvisoDesde(rowId, res, rowId==="finanzas" ? "el Flujo de Caja" : "el Modelo/Escenario"));
     }
+    // Estado VISIBLE. "guardado" solo cuando el servidor confirmó. Un conflicto
+    // pendiente NO es un error de red: deja la fila bloqueada hasta que se elija
+    // una de las dos salidas (recuperar el servidor o conservar lo local).
+    if(res && res.motivo === persist.MOTIVOS.CONFLICTO_PENDIENTE){
+      setEstadoPersist("conflicto");
+      setConflictoFila({ rowId, valorServidor: res.valorServidor, version: res.version });
+    } else if(res && res.ok){
+      setEstadoPersist("ok");
+      setConflictoFila(null);
+      setTimeout(()=>setEstadoPersist(p=>p==="ok"?"idle":p),2000);
+    } else {
+      setEstadoPersist("error");
+    }
     return res;
   },[]); // eslint-disable-line
+
+  // ── Normalización controlada de identificadores ───────────────────────────────
+  // Paso EXPLÍCITO, no automático. Escribe la identidad que ya está en memoria
+  // usando `persistAll`, así hereda el gate anti-borrado (`cargaOkRef`), el de
+  // permiso, el contrato de concurrencia optimista y el estado visible. No se
+  // persiste tras una carga fallida porque `cargaOkRef` sigue en false.
+  // Es idempotente: si se corre dos veces, la segunda no encuentra cambios.
+  const normalizarIdentidadesAhora = useCallback(async ()=>{
+    if(!normPendiente) return;
+    setNormBusy(true);
+    try {
+      // Se recalcula sobre el estado VIVO, no sobre la foto de la carga: el CFO
+      // pudo editar algo entremedio y esa edición no se puede perder.
+      const idn = normalizarIdentidades(paramsRef.current || {});
+      if(!idn.huboCambios){ setNormPendiente(null); return; }
+      const r = await persistAll({ allegria_params: idn.valor });
+      if(r && r.ok){
+        setParams(prev=>({...prev, ...idn.valor}));
+        setNormPendiente(null);
+        setSaved(`✅ ${idn.cambios.length} registros quedaron con identificador propio.`);
+        setTimeout(()=>setSaved(null),6000);
+        try {
+          if(window.auditLog) window.auditLog({
+            modulo:"finanzas", accion:"normalizar_identidades",
+            detalle:`${idn.cambios.length} registros sin id recibieron identidad`,
+            cambios: idn.cambios, usuario: usuarioActual?.nombre || "",
+          });
+        } catch(_){}
+      }
+      // Si no se confirmó, `persistAll` ya dejó el aviso y el estado en error o en
+      // conflicto. El banner sigue puesto: la normalización NO se declara hecha.
+      return r;
+    } finally { setNormBusy(false); }
+  },[normPendiente, persistAll, usuarioActual]); // eslint-disable-line
+
+  // Mantiene la ref del permiso al día para el gate de autorización de persistAll.
+  useEffect(()=>{ puedoEditRef.current = puedoEdit; },[tabPermisos,esAdmin]); // eslint-disable-line
+  useEffect(()=>{ estadoPersistRef.current = estadoPersist; },[estadoPersist]);
+  useEffect(()=>{ normPendienteRef.current = normPendiente; },[normPendiente]);
+  useEffect(()=>{ migrarIdentidadesRef.current = normalizarIdentidadesAhora; },[normalizarIdentidadesAhora]);
+  // Dispara la migración declarada de identificadores UNA vez por sesión, en
+  // cuanto hay carga exitosa y hay registros sin identidad. Si no se confirma,
+  // no se reintenta sola: el banner queda con su botón (reintentar en bucle
+  // contra un conflicto o un 403 solo generaría ruido).
+  const migracionIntentadaRef = React.useRef(false);
+  useEffect(()=>{
+    if(loading || !normPendiente || migracionIntentadaRef.current) return;
+    if(!cargaOkRef.current) return;
+    migracionIntentadaRef.current = true;
+    normalizarIdentidadesAhora();
+  },[loading, normPendiente, normalizarIdentidadesAhora]); // eslint-disable-line
+
+  // ── Las DOS salidas explícitas del conflicto pendiente ────────────────────────
+  // (a) Recuperar el estado vigente del servidor: DESCARTA lo local y lo aplica a
+  //     la pantalla. (b) Conservar lo local: declara escribir encima de la versión
+  //     vigente. Nunca se fusionan dos operaciones financieras automáticamente.
+  const recuperarDelServidorFila = useCallback(async ()=>{
+    const rowId = (conflictoFila && conflictoFila.rowId) || activeRowRef.current;
+    setEstadoPersist("guardando");
+    const r = await persist.recuperarDelServidor(rowId);
+    if(!r || r.ok===false){
+      setEstadoPersist("error");
+      setAvisoPersist(construirAvisoDesde(rowId, r, "el Flujo de Caja"));
+      return r;
+    }
+    if(r.value) applyData(r.value);
+    setConflictoFila(null);
+    setEstadoPersist("ok");
+    setSaved("✅ Se cargó la versión del servidor. Tu cambio local se descartó.");
+    setTimeout(()=>setSaved(null),5000);
+    setTimeout(()=>setEstadoPersist(p=>p==="ok"?"idle":p),2000);
+    return r;
+  },[conflictoFila]); // eslint-disable-line
+
+  const conservarLocalFila = useCallback(async ()=>{
+    const rowId = (conflictoFila && conflictoFila.rowId) || activeRowRef.current;
+    setEstadoPersist("guardando");
+    const d = await persist.reconciliarConservandoLocal(rowId);
+    if(!d || d.ok===false){
+      setEstadoPersist("error");
+      setAvisoPersist(construirAvisoDesde(rowId, d, "el Flujo de Caja"));
+      return d;
+    }
+    setConflictoFila(null);
+    const r = await persistAll();
+    if(r && r.ok){ setSaved("✅ Se guardó tu versión sobre la del servidor."); setTimeout(()=>setSaved(null),5000); }
+    return r;
+  },[conflictoFila, persistAll]); // eslint-disable-line
 
   // Construye el blob completo del estado actual (para cachear el base vivo).
   const buildBlob = useCallback(()=>({
@@ -12878,7 +13081,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       realDataRef.current = next;
       setTimeout(()=>{
         persistAll({ finanzas_real:next })
-          .then(ok=>{ setSaved(ok?"✅ Proyección guardada":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
+          .then(r=>{ setSaved(r&&r.ok?"✅ Proyección guardada":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
       },0);
       return next;
     });
@@ -12976,7 +13179,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     creditosRef.current = final;
     setTimeout(()=>{
       persistAll({ creditos_data: final })
-        .then(ok=>{ setSaved(ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
+        .then(r=>{ setSaved(r&&r.ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
     }, 0);
   },[persistAll, usuarioActual]);
 
@@ -12986,7 +13189,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     intercompanyRef.current = newList;
     setTimeout(()=>{
       persistAll({ intercompany: newList })
-        .then(ok=>{ setSaved(ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
+        .then(r=>{ setSaved(r&&r.ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
     },0);
   },[persistAll]);
 
@@ -12999,7 +13202,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       subLinesRef.current = next;
       setTimeout(()=>{
         persistAll({ sub_lines: next })
-          .then(ok=>{ setSaved(ok ? "✅ Guardado" : "⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
+          .then(r=>{ setSaved(r&&r.ok ? "✅ Guardado" : "⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
       }, 0);
       return next;
     });
@@ -13011,7 +13214,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       addedLinesRef.current = next;
       setTimeout(()=>{
         persistAll({ added_lines: next })
-          .then(ok=>{ setSaved(ok ? "✅ Guardado" : "⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
+          .then(r=>{ setSaved(r&&r.ok ? "✅ Guardado" : "⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
       }, 0);
       return next;
     });
@@ -13023,7 +13226,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const next = typeof updater === "function" ? updater(prev) : updater;
       paramsAFRef.current = next;
       setTimeout(()=>persistAll({ params_af:next })
-        .then(ok=>{setSaved(ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
+        .then(r=>{setSaved(r&&r.ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
       return next;
     });
   },[persistAll]);
@@ -13034,7 +13237,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const next = typeof updater === "function" ? updater(prev) : updater;
       paramsAPRef.current = next;
       setTimeout(()=>persistAll({ params_ap:next })
-        .then(ok=>{setSaved(ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
+        .then(r=>{setSaved(r&&r.ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
       return next;
     });
   },[persistAll]);
@@ -13045,7 +13248,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const next = typeof updater === "function" ? updater(prev) : updater;
       paramsOsirisRef.current = next;
       setTimeout(()=>persistAll({ params_osiris:next })
-        .then(ok=>{setSaved(ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
+        .then(r=>{setSaved(r&&r.ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
       return next;
     });
   },[persistAll]);
@@ -13056,7 +13259,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const next = typeof updater === "function" ? updater(prev) : updater;
       paramsPartRef.current = next;
       setTimeout(()=>persistAll({ params_participacion:next })
-        .then(ok=>{setSaved(ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
+        .then(r=>{setSaved(r&&r.ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
       return next;
     });
   },[persistAll]);
@@ -13067,7 +13270,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const next = typeof updater === "function" ? updater(prev) : updater;
       paramsIFRef.current = next;
       setTimeout(()=>persistAll({ params_if:next })
-        .then(ok=>{setSaved(ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
+        .then(r=>{setSaved(r&&r.ok?"✅ Guardado":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
       return next;
     });
   },[persistAll]);
@@ -13078,7 +13281,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       const next = typeof updater === "function" ? updater(prev) : updater;
       paramsASRef.current = next;
       setTimeout(()=>persistAll({ params_as:next })
-        .then(ok=>{setSaved(ok?"✅ Parámetros guardados":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
+        .then(r=>{setSaved(r&&r.ok?"✅ Parámetros guardados":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
       return next;
     });
   },[persistAll]);
@@ -13090,7 +13293,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       next[empresa] = typeof updater === "function" ? updater(next[empresa]) : updater;
       paramsEmpRef.current = next;
       setTimeout(()=>persistAll({ params_emp:next })
-        .then(ok=>{setSaved(ok?"✅ Parámetros guardados":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
+        .then(r=>{setSaved(r&&r.ok?"✅ Parámetros guardados":"⚠️ Error");setTimeout(()=>setSaved(null),2000);}),0);
       return next;
     });
   },[persistAll]);
@@ -13166,9 +13369,39 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   useEffect(()=>{
     if(loading) return;
-    const t=setTimeout(()=>persistAll(),800);
+    cambioPendienteRef.current = true;
+    const t=setTimeout(()=>{ cambioPendienteRef.current = false; persistAll(); },800);
     return ()=>clearTimeout(t);
   },[params,saldosBancos,loading]); // eslint-disable-line
+
+  // ── Salir del módulo con una operación pendiente ──────────────────────────────
+  // El efecto de arriba hace clearTimeout en su cleanup. Eso está bien cuando se
+  // re-ejecuta por otro cambio (el nuevo timer lo reemplaza), pero al DESMONTAR
+  // perdía el guardado en silencio: registrar un pago, aplicar un movimiento de la
+  // bandeja, reasignar o archivar y volver al Hub antes de los 800 ms descartaba la
+  // operación sin avisar. Este efecto tiene deps [] → su cleanup corre SOLO al
+  // desmontar, y ahí se COMPLETA el guardado en vez de descartarlo.
+  // Al cerrar/recargar la pestaña no se intenta guardar (el navegador cancela los
+  // requests en vuelo): se avisa, igual que OsirisModule.
+  useEffect(()=>{
+    const alCerrar = (e)=>{
+      let sucio = false;
+      try { sucio = persist.isDirty("finanzas") || !!persist.conflictoPendiente("finanzas"); } catch(_){}
+      if(cambioPendienteRef.current || sucio || estadoPersistRef.current==="guardando"){
+        e.preventDefault(); e.returnValue = ""; return "";
+      }
+    };
+    window.addEventListener("beforeunload", alCerrar);
+    return ()=>{
+      window.removeEventListener("beforeunload", alCerrar);
+      if(cambioPendienteRef.current){
+        cambioPendienteRef.current = false;
+        // Sin await: el componente ya se va. La petición queda en vuelo y el
+        // contrato confirma o no contra el servidor; no se declara guardada acá.
+        persistAll();
+      }
+    };
+  },[]); // eslint-disable-line
 
   // ── Print CSS ─────────────────────────────────────────────────
   useEffect(()=>{
@@ -13213,6 +13446,83 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       overflowX:"hidden",
     }}>
       <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
+      {/* Estado VISIBLE del guardado. Una operación no se declara guardada hasta
+          que el servidor lo confirmó; "guardando" permanece mientras está en vuelo,
+          así la guía no depende de adivinar cuánto esperar. */}
+      {estadoPersist!=="idle" && (
+        <div style={{position:"fixed",right:16,bottom:16,zIndex:9998,
+          padding:"8px 14px",borderRadius:8,fontSize:12,fontWeight:600,
+          border:"1px solid "+( estadoPersist==="ok"?C.green: estadoPersist==="guardando"?C.accent:"#dc2626"),
+          background:( estadoPersist==="ok"?C.green: estadoPersist==="guardando"?C.accent:"#dc2626")+"1f",
+          color:( estadoPersist==="ok"?C.green: estadoPersist==="guardando"?C.accent:"#dc2626")}}>
+          {estadoPersist==="guardando" && "Guardando..."}
+          {estadoPersist==="ok" && "Guardado"}
+          {estadoPersist==="error" && "No se guardó — ver el aviso"}
+          {estadoPersist==="conflicto" && "No se guardó: otra sesión cambió los datos"}
+        </div>
+      )}
+      {/* Registros antiguos sin identificador. Mientras no se normalicen, declarar
+          una sustitución contra uno de ellos proyecta el mismo dinero dos veces.
+          La normalización es un paso explícito y se puede repetir sin efecto. */}
+      {normPendiente && puedoEdit("flujo") && (
+        <div style={{margin:"0 0 16px",padding:14,borderRadius:8,
+          background:"#f59e0b14",border:"1px solid #f59e0b55"}}>
+          <div style={{fontWeight:800,fontSize:13,color:"#fbbf24",marginBottom:6}}>
+            {normPendiente.cambios.length} registros guardados sin identificador propio
+          </div>
+          <div style={{fontSize:12,lineHeight:1.6,color:C.sub,marginBottom:10}}>
+            Son registros anteriores al modelo actual. En pantalla ya trabajan con una
+            identidad firme, pero esa identidad todavía no está guardada. Hasta que lo
+            esté, <strong>declarar una sustitución contra uno de ellos proyectaría el
+            mismo monto dos veces</strong>, porque la referencia no calzaría.
+            <br/>
+            Normalizar solo agrega el identificador: no cambia montos, meses, historial
+            ni ningún otro campo, no toca los registros que ya tienen identidad, y
+            repetirlo no hace nada.
+          </div>
+          <button onClick={normalizarIdentidadesAhora} disabled={normBusy}
+            style={{padding:"8px 14px",borderRadius:6,border:"1px solid #f59e0b",
+              background:"#f59e0b22",color:"#fbbf24",fontWeight:700,fontSize:12,
+              cursor:normBusy?"default":"pointer",opacity:normBusy?0.6:1}}>
+            {normBusy ? "Normalizando..." : "Normalizar y guardar los identificadores"}
+          </button>
+        </div>
+      )}
+      {/* Conflicto pendiente: la fila queda BLOQUEADA para escritura y los cambios
+          locales se conservan. Solo salen de acá las dos decisiones explícitas; no
+          se fusionan dos operaciones financieras de forma automática. */}
+      {conflictoFila && (
+        <div style={{position:"fixed",left:"50%",top:"12%",transform:"translateX(-50%)",zIndex:9999,
+          maxWidth:620,padding:18,borderRadius:10,background:"#1f2937",
+          border:"2px solid #f59e0b",boxShadow:"0 12px 40px rgba(0,0,0,0.5)",color:"#f9fafb"}}>
+          <div style={{fontWeight:800,fontSize:14,marginBottom:8,color:"#fbbf24"}}>
+            Tu cambio NO se guardó: otra sesión modificó estos datos
+          </div>
+          <div style={{fontSize:12,lineHeight:1.6,marginBottom:14}}>
+            Mientras esto no se resuelva no se escribe nada en el servidor, y tu cambio
+            sigue en pantalla sin perderse. No se combinan las dos versiones de forma
+            automática porque son operaciones financieras: la decisión es tuya.
+            <div style={{marginTop:8}}>
+              <strong>Recuperar la del servidor</strong> descarta lo que escribiste acá.
+              <br/>
+              <strong>Conservar la mía</strong> escribe tu versión encima de la del
+              servidor, y se pierde lo que haya hecho la otra sesión.
+            </div>
+          </div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <button onClick={recuperarDelServidorFila}
+              style={{padding:"8px 14px",borderRadius:6,border:"1px solid "+C.accent,
+                background:C.accent+"22",color:C.accent,fontWeight:700,fontSize:12,cursor:"pointer"}}>
+              Recuperar la versión del servidor (descarta mi cambio)
+            </button>
+            <button onClick={conservarLocalFila}
+              style={{padding:"8px 14px",borderRadius:6,border:"1px solid #f59e0b",
+                background:"#f59e0b22",color:"#fbbf24",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+              Conservar mi versión (reemplaza la del servidor)
+            </button>
+          </div>
+        </div>
+      )}
       {/* ── Header ─────────────────────────────────────────── */}
       <div style={{
         background:C.primary,

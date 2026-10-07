@@ -221,9 +221,13 @@ describe('formato de los campos de parámetros', () => {
     fireEvent.blur(input);
   };
 
+  // Los valores escritos son DISTINTOS del valor que ya tiene el campo: escribir
+  // el mismo texto que ya está no es un cambio y no emite nada (se comprueba
+  // aparte, abajo). Antes este caso tapaba el resultado: 'fob_usd_kg' ya venía
+  // en 0,6, así que escribir «0,6» no probaba el formato.
   test.each([
-    ['FOB US$/kg', 'fob_usd_kg', '0.6', 0.6],
-    ['FOB US$/kg', 'fob_usd_kg', '0,6', 0.6],
+    ['FOB US$/kg', 'fob_usd_kg', '0.45', 0.45],
+    ['FOB US$/kg', 'fob_usd_kg', '0,45', 0.45],
     ['Materiales US$/kg', 'mat_usd_kg', '0.178', 0.178],
     ['Servicios US$/kg', 'srv_usd_kg', '1.2', 1.2],
     ['Desc. exportadora', 'desc_exp_pct', '6.5', 6.5],
@@ -234,6 +238,30 @@ describe('formato de los campos de parámetros', () => {
     // Si el texto es igual al valor actual no hay cambio y no se guarda nada: queda el valor de antes.
     const guardado = g.leer()?.["2026-2027"]?.cerezas?.[campo] ?? params()["2026-2027"].cerezas[campo];
     expect(guardado).toBe(esperado);
+  });
+
+  // Escrituras sin cambio efectivo: entrar a un campo y salir sin tocar nada, o
+  // reescribir el mismo valor, NO puede generar un guardado. Cada uno de esos
+  // eventos reescribía la fila `finanzas` completa (~4,4 MB) por tabular.
+  test('entrar y salir de un campo sin escribir no guarda nada', () => {
+    const g = guardar();
+    render(<ParamsFruta seasonKey="2026-2027" fruta="cerezas" params={params()} setParams={g.set}/>);
+    const lbl = screen.getByText('FOB US$/kg');
+    const input = lbl.parentElement.querySelector('input');
+    fireEvent.focus(input);
+    fireEvent.blur(input);
+    expect(g.leer()).toBeNull();
+  });
+
+  test('reescribir el mismo valor tampoco guarda', () => {
+    const g = guardar();
+    render(<ParamsFruta seasonKey="2026-2027" fruta="cerezas" params={params()} setParams={g.set}/>);
+    escribir('FOB US$/kg', '0,6');   // el campo ya vale 0,6
+    expect(g.leer()).toBeNull();
+    // Y cambiarlo de verdad sí guarda, para que la prueba de arriba no pase por
+    // un campo que simplemente no funciona.
+    escribir('FOB US$/kg', '0,61');
+    expect(g.leer()["2026-2027"].cerezas.fob_usd_kg).toBe(0.61);
   });
 
   test('KG a exportar sí acepta separador de miles', () => {

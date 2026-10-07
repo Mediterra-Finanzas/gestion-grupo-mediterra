@@ -9,7 +9,7 @@ import React from "react";
 import "@testing-library/jest-dom";
 import { render, screen, fireEvent } from "@testing-library/react";
 import ProgramasPanel from "../ProgramasComerciales.jsx";
-import { moverRealizacion, resumenLado, estPendiente, MODELO_VERSION } from "../programas.js";
+import { moverRealizacion, resumenLado, estPendiente, origenesRealizacion, MODELO_VERSION } from "../programas.js";
 import { realizacionesVigentes, normalizarAnticipo } from "../anticipos.js";
 import { MESES, mIdx } from "../horizonte.js";
 
@@ -153,8 +153,21 @@ describe("reasignar · guardado y recarga", () => {
     const enc=buscarRea(m2.estimaciones, m2.programas, "r1");
     expect(enc.en).toEqual({tipo:"cuota", id:"c2"});
     expect(identidadIgual(enc.r, REA)).toBe(true);
-    // El origen registrado es el primero: la trazabilidad no se pisa.
-    expect(enc.r.origen).toEqual({tipo:"estimacion", id:"e1"});
+    // `origen` pasa a ser el contenedor del que SALIÓ (c1) y el anterior se
+    // conserva en `origenesPrevios`: la trazabilidad no se pierde, y la cadena
+    // completa es lo que mantiene a e1 con su pendiente consumido.
+    // (Antes `origen` guardaba el primero. Eso fijaba un comportamiento
+    // defectuoso: una realización nacida en la bandeja o en un antecedente
+    // conservaba ESE origen al moverla desde una estimación, así que
+    // `estRealizadoOriginado` dejaba de atribuírsela y la estimación reabría
+    // su pendiente, proyectando el mismo dinero dos veces.)
+    expect(enc.r.origen).toEqual({tipo:"cuota", id:"c1"});
+    expect(enc.r.origenesPrevios).toEqual([{tipo:"estimacion", id:"e1"}]);
+    expect(origenesRealizacion(enc.r)).toEqual([
+      {tipo:"cuota", id:"c1"}, {tipo:"estimacion", id:"e1"}]);
+    // Lo decisivo: mover dos veces NO reabre el pendiente de la estimación.
+    expect(Math.round(estPendiente(normalizarAnticipo(m2.estimaciones[0]), KG, m2.programas)))
+      .toBe(80000);                                       // 200.000 − 120.000
   });
 });
 
