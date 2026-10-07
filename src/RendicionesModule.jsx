@@ -18,6 +18,7 @@ import {
 } from "./friskuHelpers";
 import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import { enviarEmail } from "./emailHelper";
+import { meTocaAprobar, puedeAprobarRendicion, puedeMarcarPagada, puedeDevolverAprobada } from "./permisos/acciones";
 
 const APP_URL = "https://gestion-grupo-mediterra.vercel.app";
 
@@ -838,14 +839,8 @@ function aprobadorDe(r, aprobadores, usuarios) {
   const u = (usuarios || []).find(x => (x.email || "").toLowerCase() === email);
   return [{ email, nombre: u?.nombre || email }];
 }
-// ¿Le toca a este usuario aprobar la rendición ahora?
-// Sin aprobador asignado (cadena vacía) → SOLO Admin/CFO. Ya no "cualquier aprobador".
-function meTocaAprobar(r, miEmail, admin, esCFO) {
-  if (admin) return true;              // admin/CFO puede aprobar cualquier paso (override de autoridad)
-  const paso = pasoActual(r);
-  if (!paso) return !!esCFO;           // sin aprobador asignado → solo CFO/admin
-  return (paso.email || "").toLowerCase() === (miEmail || "").toLowerCase();
-}
+// meTocaAprobar vive en src/permisos/acciones.js (misma regla), junto con los
+// guardas de cada acción: la pantalla y la acción usan la MISMA función.
 
 // ═══════════════════════════════════════════════════════════════════
 // Componente principal
@@ -866,6 +861,9 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   // Puede aprobar (supervisor, editor, o fallback legacy para rendiciones sin cadena).
   const esAprobador = verTodas || nivelRendiciones === "editar";
   const miEmail = (usuarioActual?.email || "").toLowerCase();
+  // Rol "consulta" = solo visualiza: no aprueba, no paga ni devuelve (sí carga lo suyo: decisión pendiente).
+  const consulta = usuarioActual?.rol === "consulta" || (typeof esSoloConsulta === "function" ? !!esSoloConsulta(nombreUsuario) : !!esSoloConsulta);
+  const yo = { admin, esCFO, rendVerTodas: !!usuarioActual?.rendVerTodas, consulta, email: miEmail, nombre: nombreUsuario };
   // Puede cargar rendiciones en nombre de otros: admin, flag rendPorOtros (Gestión
   // de Usuarios), o email en la lista legacy EMAILS_RINDEN_POR_OTROS (retrocompat).
   const puedeRendirPorOtros = admin || !!usuarioActual?.rendPorOtros || EMAILS_RINDEN_POR_OTROS.map(e => e.toLowerCase()).includes(miEmail);
@@ -1113,6 +1111,8 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   };
 
   const aprobarRechazar = (r, accion, coment) => {
+    // La acción revisa el permiso aunque la llame algo distinto del botón.
+    if (!puedeAprobarRendicion(yo, r)) { setAviso({ id: "permiso", tipo: "error", texto: `No te corresponde ${accion === "rechazar" ? "rechazar" : "aprobar"} la rendición #${r?.folio ?? ""} en su estado actual.` }); return; }
     // Rechazo en cualquier nivel → vuelve al trabajador; al reenviar arranca de 0.
     if (accion === "rechazar") {
       upsert(pushHist({
@@ -1175,12 +1175,14 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   };
 
   const marcarPagada = (r) => {
+    if (!puedeMarcarPagada(yo, r)) { setAviso({ id: "permiso", tipo: "error", texto: `No se puede marcar pagada la rendición #${r?.folio ?? ""}: debe estar aprobada y tu perfil debe tener la pestaña Pagos (no consulta).` }); return; }
     upsert(pushHist({ ...r, estado: "pagada", pagadoEn: nowISO(), pagadoPor: nombreUsuario }, "pagada"));
   };
 
   // Devolver una rendición YA APROBADA (no pagada) al trabajador para que corrija/incorpore un gasto.
   // La usa quien la aprobó o un admin. Al reenviarla, vuelve a pasar por la cadena desde el nivel 1.
   const devolverParaCorreccion = (r, motivo) => {
+    if (!puedeDevolverAprobada(yo, r)) { setAviso({ id: "permiso", tipo: "error", texto: `Solo quien aprobó la rendición #${r?.folio ?? ""} o un administrador puede devolverla.` }); return; }
     upsert(pushHist({
       ...r, estado: "rechazada", devuelta: true,
       comentarioRevisor: motivo || "Devuelta para incorporar o corregir un gasto.",
@@ -1278,7 +1280,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
       )}
       {tab === "aprobar" && muestraAprobar && (
         <BandejaAprobar rends={porAprobar} onAbrir={setEditId} tcData={tcData}
-          miEmail={miEmail} esAprobador={esAprobador} admin={admin} esCFO={esCFO}
+          miEmail={miEmail} esAprobador={esAprobador} admin={admin} esCFO={esCFO} consulta={consulta}
           aprobadasMias={aprobadasMias} onDevolver={devolverParaCorreccion}
           onAprobar={r => { setRevisar({ id: r.id, accion: "aprobar" }); setComentario(""); }}
           onRechazar={r => { setRevisar({ id: r.id, accion: "rechazar" }); setComentario(""); }}
@@ -1287,7 +1289,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
       )}
       {tab === "pagos" && verTodas && (
         <BandejaPagos rends={paraPago} onAbrir={setEditId} onPagar={marcarPagada} tcData={tcData}
-          puedeDevolver={r => r.estado === "aprobada" && (admin || r.revisadoPor === nombreUsuario)}
+          puedeDevolver={r => puedeDevolverAprobada(yo, r)} puedePagar={r => puedeMarcarPagada(yo, r)}
           onDevolver={devolverParaCorreccion} />
       )}
       {tab === "reportes" && verTodas && (
@@ -1314,7 +1316,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
           valorKm={config.valorKm}
           personasExternas={config.personasExternas || []} onGuardarPersonas={guardarPersonasExternas}
           categoriasExtra={config.categoriasExtra || []} onGuardarCategorias={guardarCategorias}
-          puedeDevolver={editRend.estado === "aprobada" && (admin || editRend.revisadoPor === nombreUsuario)}
+          puedeDevolver={puedeDevolverAprobada(yo, editRend)}
           onDevolver={devolverParaCorreccion}
         />
       )}
@@ -1504,7 +1506,7 @@ function MisRendiciones({ rends, onCrear, onAbrir, onEliminar, tcData, admin, va
 // ───────────────────────────────────────────────────────────────────
 // Tab: Por Aprobar
 // ───────────────────────────────────────────────────────────────────
-function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tcData, miEmail, esAprobador, admin, esCFO, aprobadasMias = [], onDevolver }) {
+function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tcData, miEmail, esAprobador, admin, esCFO, consulta = false, aprobadasMias = [], onDevolver }) {
   return (
     <div>
       <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>{rends.length} rendición(es) esperando revisión</div>
@@ -1537,7 +1539,7 @@ function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tc
           const cad = Array.isArray(r.cadena) ? r.cadena : [];
           const idx = r.nivelActual || 0;
           const actual = cad[idx];
-          const miTurno = meTocaAprobar(r, miEmail, admin, esCFO);
+          const miTurno = !consulta && meTocaAprobar(r, miEmail, admin, esCFO);
           return (
             <RendCard key={r.id} r={r} onClick={() => onAbrir(r.id)} mostrarTrabajador tcData={tcData}>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1572,7 +1574,7 @@ function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tc
 // ───────────────────────────────────────────────────────────────────
 // Tab: Pagos
 // ───────────────────────────────────────────────────────────────────
-function BandejaPagos({ rends, onAbrir, onPagar, tcData, puedeDevolver, onDevolver }) {
+function BandejaPagos({ rends, onAbrir, onPagar, tcData, puedeDevolver, onDevolver, puedePagar = () => true }) {
   return (
     <div>
       <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>{rends.length} rendición(es) aprobada(s) pendiente(s) de pago</div>
@@ -1592,7 +1594,7 @@ function BandejaPagos({ rends, onAbrir, onPagar, tcData, puedeDevolver, onDevolv
                 onDevolver?.(r, motivo);
               }}>↩ Devolver</Btn>
             )}
-            <Btn kind="accent" small onClick={() => onPagar(r)}>Marcar pagada</Btn>
+            {puedePagar(r) && <Btn kind="accent" small onClick={() => onPagar(r)}>Marcar pagada</Btn>}
           </RendCard>
         ))}
       </div>

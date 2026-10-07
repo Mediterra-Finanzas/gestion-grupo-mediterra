@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { permisoTabAllegria } from "./permisos/acciones";
 import { theme } from "./theme";
 import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
 import AvisoPersistencia from "./AvisoPersistencia.jsx";
@@ -2220,6 +2221,10 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   // Permisos
   const rolActual = usuarioActual?.rol || "editor";
   const can = rolActual === "admin" || (rolActual === "editor" && !esSoloConsulta(usuarioActual?.nombre));
+  // Pestañas configuradas en Gestión de Usuarios: un "ver" o "sin_acceso" EXPLÍCITO se respeta
+  // (antes el módulo ignoraba tabPermisos). Lo no configurado queda como estaba.
+  const pt = (vista) => permisoTabAllegria(can, tabPermisos, vista);
+  const sinAcceso = <div style={{padding:24,color:"#64748b"}}>Tu perfil no tiene acceso a esta sección.</div>;
 
   // GUARD anti-borrado: solo se guarda tras una carga EXITOSA.
   const cargaOkRef = useRef(false);
@@ -2268,6 +2273,8 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   const setLiqCliente = fn => setData(p=>({...p, liqCliente: typeof fn==="function"?fn(p.liqCliente||[]):fn}));
   const setAnticipos = fn => setData(p=>({...p, anticipos: typeof fn==="function"?fn(p.anticipos||[]):fn}));
   const setCobranza = fn => setData(p=>({...p, cobranza: typeof fn==="function"?fn(p.cobranza||[]):fn}));
+  // La escritura también revisa el permiso de la pestaña (no solo el botón).
+  const conPermiso = (vista, setter) => (fn) => { if(!pt(vista).editar) return; setter(fn); };
   const setEspeciesAllegria = fn => setData(p=>({...p, especiesAllegria: typeof fn==="function"?fn(p.especiesAllegria||ESPECIES_ALLEGRIA_INIT):fn}));
   const setVariedadesAllegria = fn => setData(p=>({...p, variedadesAllegria: typeof fn==="function"?fn(p.variedadesAllegria||[]):fn}));
 
@@ -2318,13 +2325,13 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
           )}
         </div>
         <Card>
-          {subApp==="clientes"&&<ClientesModule data={data.clientes||[]} setData={setClientes} can={can}/>}
-          {subApp==="productores"&&<ProductoresModule data={data.productores||[]} setData={setProductores} can={can}/>}
+          {subApp==="clientes"&&(pt("clientes").ver?<ClientesModule data={data.clientes||[]} setData={conPermiso("clientes",setClientes)} can={pt("clientes").editar}/>:sinAcceso)}
+          {subApp==="productores"&&(pt("productores").ver?<ProductoresModule data={data.productores||[]} setData={conPermiso("productores",setProductores)} can={pt("productores").editar}/>:sinAcceso)}
           {subApp==="programa"&&<ProgramaComercialModule data={data.programaComercial||[]} setData={setProgramaComercial} productores={data.productores||[]} clientes={data.clientes||[]} can={can}/>}
           {subApp==="recepcion"&&<RecepcionProcesoModule data={data.recepciones||[]} setData={setRecepciones} productores={data.productores||[]} can={can}/>}
           {subApp==="stock"&&<StockPalletsModule data={data.stockPT||[]} setData={setStockPT} can={can}/>}
           {subApp==="materiales"&&<MaterialesInventarioModule data={data.materiales||[]} setData={setMateriales} recetas={data.recetas||[]} setRecetas={setRecetas} embarques={data.embarques||[]} can={can}/>}
-          {subApp==="embarques"&&<EmbarquesModule data={data.embarques||[]} setData={setEmbarques} clientes={data.clientes||[]} productores={data.productores||[]} stockPT={data.stockPT||[]} setStockPT={setStockPT} can={can} temporada={tempSeleccionada}/>}
+          {subApp==="embarques"&&(pt("embarques").ver?<EmbarquesModule data={data.embarques||[]} setData={conPermiso("embarques",setEmbarques)} clientes={data.clientes||[]} productores={data.productores||[]} stockPT={data.stockPT||[]} setStockPT={conPermiso("embarques",setStockPT)} can={pt("embarques").editar} temporada={tempSeleccionada}/>:sinAcceso)}
           {subApp==="liquidaciones"&&<div>
             <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
               <button onClick={()=>setLiqTab("cliente")} style={{padding:"8px 16px",borderRadius:8,border:liqTab==="cliente"?"2px solid #2563eb":"1px solid #e2e8f0",background:liqTab==="cliente"?"#2563eb":"#fff",color:liqTab==="cliente"?"#fff":"#1e293b",cursor:"pointer",fontSize:12,fontWeight:700}}>📥 Liq. Cliente</button>
@@ -2333,10 +2340,10 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
               <button onClick={()=>setLiqTab("cobranza")} style={{padding:"8px 16px",borderRadius:8,border:liqTab==="cobranza"?"2px solid #7c3aed":"1px solid #e2e8f0",background:liqTab==="cobranza"?"#7c3aed":"#fff",color:liqTab==="cobranza"?"#fff":"#1e293b",cursor:"pointer",fontSize:12,fontWeight:700}}>📋 Cobranza</button>
             </div>
             <div style={{fontSize:10,color:"#94a3b8",marginBottom:12}}>Flujo: Liq. Cliente (primero) → Ajustes/Comparativas → Liq. Productor → Anticipos → Cobranza</div>
-            {liqTab==="cliente"&&<LiquidacionClienteModule data={data.liqCliente||[]} setData={setLiqCliente} embarques={data.embarques||[]} can={can} temporada={tempSeleccionada}/>}
-            {liqTab==="productor"&&<LiquidacionesModule data={data.liquidaciones||[]} setData={setLiquidaciones} embarques={data.embarques||[]} productores={data.productores||[]} can={can} temporada={tempSeleccionada}/>}
-            {liqTab==="anticipos"&&<AnticiposModule data={data.anticipos||[]} setData={setAnticipos} clientes={data.clientes||[]} productores={data.productores||[]} can={can} temporada={tempSeleccionada}/>}
-            {liqTab==="cobranza"&&<CobranzaModule data={data.cobranza||[]} setData={setCobranza} embarques={data.embarques||[]} liquidaciones={data.liquidaciones||[]} can={can} temporada={tempSeleccionada}/>}
+            {liqTab==="cliente"&&(pt("liq_cliente").ver?<LiquidacionClienteModule data={data.liqCliente||[]} setData={conPermiso("liq_cliente",setLiqCliente)} embarques={data.embarques||[]} can={pt("liq_cliente").editar} temporada={tempSeleccionada}/>:sinAcceso)}
+            {liqTab==="productor"&&(pt("liq_productor").ver?<LiquidacionesModule data={data.liquidaciones||[]} setData={conPermiso("liq_productor",setLiquidaciones)} embarques={data.embarques||[]} productores={data.productores||[]} can={pt("liq_productor").editar} temporada={tempSeleccionada}/>:sinAcceso)}
+            {liqTab==="anticipos"&&(pt("anticipos").ver?<AnticiposModule data={data.anticipos||[]} setData={conPermiso("anticipos",setAnticipos)} clientes={data.clientes||[]} productores={data.productores||[]} can={pt("anticipos").editar} temporada={tempSeleccionada}/>:sinAcceso)}
+            {liqTab==="cobranza"&&(pt("cobranza").ver?<CobranzaModule data={data.cobranza||[]} setData={conPermiso("cobranza",setCobranza)} embarques={data.embarques||[]} liquidaciones={data.liquidaciones||[]} can={pt("cobranza").editar} temporada={tempSeleccionada}/>:sinAcceso)}
           </div>}
           {subApp==="dashboard"&&<PlaceholderModule icon="📈" title="Dashboard Allegria Foods" desc="KPIs por temporada · Volumen por fruta/destino · Resumen financiero · Alertas"/>}
         </Card>

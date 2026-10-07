@@ -3742,7 +3742,10 @@ Equipo Mediterra`);
       <div style={{fontFamily:"sans-serif",background:"#0f1117",minHeight:"100vh"}}>
         <ContabilidadModule
           usuario={usuarioFresco}
-          canEdit={!esSoloConsulta}
+          // Antes: canEdit={!esSoloConsulta} — negaba una FUNCIÓN y daba siempre false, así que
+          // solo edita quien tiene esCFO. Se deja explícito SIN cambiar el comportamiento:
+          // dar edición a los contadores es una decisión pendiente (docs/estado-rama-2026-10.md).
+          canEdit={false}
           esCFO={usuarioFresco?.esCFO}
           onBack={()=>setModuloActivo(null)}
         />

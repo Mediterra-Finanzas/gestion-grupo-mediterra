@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { topeConsulta, permisoParametros } from "./permisos/acciones";
 import InputNumero from "./InputNumero.jsx";
 import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
@@ -12168,9 +12169,13 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const esAdmin = usuarioActual?.rol==="admin";
   const canEdit = esAdmin || ["Angelo Huerta","Carol Machuca"].includes(usuarioActual?.nombre||"");
 
-  const perm     = (tabId) => tabPermisos?.[tabId] ?? "editar";
+  // Rol "consulta" (solo visualiza): tope "ver" en todas las pestañas. Antes FinanzasModule
+  // recibía esSoloConsulta y no lo usaba, así que un usuario consulta editaba por el default.
+  const perm     = (tabId) => topeConsulta(usuarioActual?.rol, tabPermisos?.[tabId] ?? "editar");
   const puedoVer = (tabId) => esAdmin || perm(tabId) !== "sin_acceso";
   const puedoEdit= (tabId) => esAdmin || (perm(tabId) !== "ver" && perm(tabId) !== "sin_acceso");
+  // Sub-vista Parámetros: respeta la pestaña "params" configurada (antes no tenía efecto).
+  const permParams = permisoParametros({ esAdmin, nivelFlujo: perm("flujo"), nivelParams: perm("params") });
 
   // Permisos por empresa (defensa en profundidad: filtra UI Y cálculos).
   // El blob completo permanece en state — el filtro es solo a nivel de vista.
@@ -13350,7 +13355,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
             <span style={{fontSize:10,color:C.muted,fontWeight:600,marginRight:4}}>Vista:</span>
             {[
               {id:"flujo",  label:"📈 Flujo de Caja"},
-              {id:"params", label:"⚡ Parámetros"},
+              ...(permParams.ver ? [{id:"params", label:"⚡ Parámetros"}] : []),
             ].map(st=>{
               const emp=empresas[empTab];
               const color=emp?.color||C.accent;
@@ -13416,7 +13421,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 creditosData={creditosData}/>
             </div>
           )}
-          {flujoSubTab==="params"&&(()=>{
+          {flujoSubTab==="params"&&permParams.ver&&(()=>{
             const emp=empresas[empTab];
             const empColor=emp?.color||C.accent;
             const esAllegria=empTab==="Allegria Foods";
@@ -13426,29 +13431,29 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 empNombre={empTab}
                 empColor={empColor}
                 params={esAllegria?params:undefined}
-                setParams={esAllegria&&puedoEdit("flujo")?setParams:undefined}
+                setParams={esAllegria&&permParams.editar?setParams:undefined}
                 allegraComisionArandanos={esAllegria?allegraComisionArandanos:undefined}
-                setAllegraComisionArandanos={esAllegria&&puedoEdit("flujo")?handleSaveAllegraComisionArandanos:undefined}
+                setAllegraComisionArandanos={esAllegria&&permParams.editar?handleSaveAllegraComisionArandanos:undefined}
                 paramsEmp={esAllegria?undefined:{...empParamsData}}
-                setParamsEmp={!esAllegria&&puedoEdit("flujo")
+                setParamsEmp={!esAllegria&&permParams.editar
                   ? (updater)=>setParamsEmpresa(empTab,updater)
                   : ()=>{}}
                 paramsAS={empTab==="Allegria Service"?paramsAS:undefined}
-                setParamsAS={empTab==="Allegria Service"&&puedoEdit("flujo")?handleSaveParamsAS:undefined}
+                setParamsAS={empTab==="Allegria Service"&&permParams.editar?handleSaveParamsAS:undefined}
                 paramsIF={empTab==="Integrity Farms"?paramsIF:undefined}
-                setParamsIF={empTab==="Integrity Farms"&&puedoEdit("flujo")?handleSaveParamsIF:undefined}
+                setParamsIF={empTab==="Integrity Farms"&&permParams.editar?handleSaveParamsIF:undefined}
                 paramsFrisku={empTab==="Frisku Foods"?paramsFrisku:undefined}
-                setParamsFrisku={empTab==="Frisku Foods"&&puedoEdit("flujo")?handleSaveParamsFrisku:undefined}
+                setParamsFrisku={empTab==="Frisku Foods"&&permParams.editar?handleSaveParamsFrisku:undefined}
                 paramsAF={empTab==="Allpa Farms"?paramsAF:undefined}
-                setParamsAF={empTab==="Allpa Farms"&&puedoEdit("flujo")?handleSaveParamsAF:undefined}
+                setParamsAF={empTab==="Allpa Farms"&&permParams.editar?handleSaveParamsAF:undefined}
                 paramsAP={empTab==="Allpa Farms Perú"?paramsAP:undefined}
-                setParamsAP={empTab==="Allpa Farms Perú"&&puedoEdit("flujo")?handleSaveParamsAP:undefined}
+                setParamsAP={empTab==="Allpa Farms Perú"&&permParams.editar?handleSaveParamsAP:undefined}
                 paramsOsiris={empTab==="Osiris"?paramsOsiris:undefined}
-                setParamsOsiris={empTab==="Osiris"&&puedoEdit("flujo")?handleSaveParamsOsiris:undefined}
+                setParamsOsiris={empTab==="Osiris"&&permParams.editar?handleSaveParamsOsiris:undefined}
                 saldosBancos={saldosBancos}
                 usuario={usuarioActual?.nombre||""}
                 overridesEmpresa={realData?.[empTab]?._proyOverrides||{}}
-                readOnly={!puedoEdit("flujo")}
+                readOnly={!permParams.editar}
               />
             );
           })()}
