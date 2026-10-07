@@ -94,6 +94,63 @@ delta-cero sin acceso a nada. Da otras cifras —12 contratos, 11 filas, 5.421.2
 4.608.054 neto— y el delta sigue siendo cero. **No reemplaza al de 23**: es más viejo y más
 chico, y se nombra para que nadie confunda una medición con la otra.
 
+## 2 bis · Revisión en navegador, entorno aislado
+
+La capa de pantalla no tiene pruebas, así que se verifica a mano sobre el **bundle del
+candidato final**, en un entorno que no toca producción.
+
+**Cómo se arma.** Copia desechable del commit exacto (`git worktree --detach`), en la que se
+reemplaza el destino productivo por `http://127.0.0.1:3070`. Se comprueba que el bundle quede
+con **cero** referencias a producción antes de servirlo. La copia se descarta después; no se
+retira la configuración con restauraciones masivas.
+
+**Contra qué se prueba.** Postgres + PostgREST locales en contenedores, con una copia de la
+fila `osiris` más un contrato sintético `ct_sintetico_b`: 41,97 há × US$3.000, reajuste 2 %
+confirmado desde 2026-07-01, y la temporada 2029/2030 con factura 999 pagada, para que haya
+una fila protegida. Usuarios sintéticos con permisos distintos (`@prueba.invalid`).
+
+**Las cifras objetivo se calculan antes, con el motor**, para que la pantalla tenga contra qué
+compararse: total base 629.550, con reajuste **647.533,99**, y la previa debe anunciar
+3 filas que cambian, 1 protegida y **US$ 17.983,99**.
+
+### Lo comprobado en el candidato
+
+| | Resultado |
+|---|---|
+| Vista previa en pantalla | 3 cambian · 1 protegida · 0 bloqueadas · $17.983,99 |
+| Diálogo que se confirma | los mismos cuatro números |
+| Cálculo efectivo | Fact total **$647.533,99** |
+| Desglose por fila | `base $125.910 + ajuste $5.086,76 (x1.0404)` |
+| Fila protegida 2029/2030 | **$125.910**, intacta, con su factura |
+| Historial guardado | `impacto US$ 17.983,99`, autor real, fecha de hoy |
+| Negarse en la confirmación | no cambia nada |
+| Persistencia tras recargar | se reconstruye idéntico |
+| Desactivar | vuelve a $629.550, con los dos eventos en el historial |
+| Reactivar | tercer evento fechado hoy, después de la baja |
+| Permisos | invocando el manejador de React **salteando el `disabled`**, la acción responde "Sin permiso de edicion en esta pestana" y no escribe. Vale para activar y para desactivar |
+| Concurrencia | otra sesión escribe la fila → "⚠️ NO se guardó · conflicto". **El reintento también se rechaza** y la escritura ajena queda intacta |
+
+La prueba de permisos se hace salteando el `disabled` a propósito: deshabilitar un control no
+desconecta su manejador. Ese fue el agujero de T3, y es la razón por la que la guarda tiene
+que estar dentro de la acción.
+
+### Lo comprobado en la recuperación
+
+Mismo contrato, ya activado. Calcula **$647.533,99**, idéntico. Conserva activación, sello e
+historial. Ofrece **Desactivar** —que era H7— y al desactivar no atrapa nada: fecha, respaldo,
+regla y sello quedan guardados, así que el candidato puede reactivar. Después de desactivar no
+hay botón de activar y el aviso explica por qué. La concurrencia se comporta igual.
+
+**Lo que el navegador NO pudo comprobar allá:** que `activar()` rechace *dentro* de la acción.
+La interfaz de la recuperación no expone ningún camino que la alcance, así que eso lo sostienen
+las pruebas de versión, no el navegador.
+
+### Lo que esta revisión encontró y las pruebas no
+
+**R4.** Con el reajuste activado y $647.533,99 en pantalla, el encabezado seguía afirmando que
+los montos no llevaban reajuste y que la activación no estaba hecha. Ninguna prueba lo iba a
+ver: el motor estaba bien, la pantalla llamaba a la función equivocada.
+
 ## 3 · Lo que las pruebas NO cubren
 
 - **Render de React.** No hay pruebas de componente. Los defectos H1, H3, H7 y H8 de la primera
@@ -112,7 +169,14 @@ chico, y se nombra para que nadie confunda una medición con la otra.
   | Control | Qué cubre | Qué NO cubre |
   |---|---|---|
   | `no-undef` real | **cualquier** referencia indefinida del archivo entero, con alias y constantes incluidas | otros archivos; errores que no sean referencias libres |
-  | escapes en texto JSX | secuencias `\uXXXX` escritas en **texto** JSX, que no se decodifican y se imprimen literales | las mismas secuencias dentro de cadenas o template literals, donde sí se decodifican y son correctas |
+  | escapes en JSX | `\uXXXX`, `\xNN`, `\n`, `\t` y `\r` escritas en **texto** JSX **y en atributos** JSX, donde no se decodifican y se imprimen literales | las mismas secuencias dentro de cadenas o template literals de una expresión, donde sí se decodifican y son correctas |
+  | sin spread al activar | que la pantalla no le pase un spread del registro anterior a `activarReajuste`, que era R3 | cualquier otra forma de arrastrar un campo viejo |
+  | aviso con activación | que la pantalla no llame al aviso que ignora la activación, que era R4 | que el texto del aviso sea el correcto; eso lo comprueban las pruebas de R4 |
+
+  La segunda y la cuarta son reglas sobre el **sitio de llamada real**, no réplicas de lo que
+  la pantalla hace. Esa distinción importa: la primera prueba de R3 replicaba los argumentos
+  en vez de mirar la pantalla, y la tercera revisión demostró que reponer el spread dejaba la
+  suite en verde.
 
   Las dos corren un linter **en memoria**, sobre ese único archivo y con esas dos reglas. No
   tocan la configuración de lint del proyecto. Van con `noInlineConfig`, porque si no el

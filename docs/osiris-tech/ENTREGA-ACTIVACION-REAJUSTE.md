@@ -86,6 +86,41 @@ R2 apareció además en el navegador antes que en la revisión: la tabla de vist
 "—" en todas las temporadas. Lo atribuí a que faltaba cargar la fecha. Estaba mirando el defecto
 sin reconocerlo.
 
+## 2 quater · Lo que encontraron la TERCERA revisión y el navegador
+
+La tercera revisión verificó R1–R3 y confirmó los tres. Pero encontró que **R3 no tenía
+control de regresión**: la prueba replicaba los argumentos de la pantalla en vez de mirar la
+pantalla, así que al reponer el spread en el sitio de llamada la suite quedaba en verde,
+31 de 31. Una versión anterior de esta acta afirmaba lo contrario; queda corregido. Ahora hay
+una regla que mira **el sitio de llamada real** y falla si el spread vuelve.
+
+La revisión en navegador, en paralelo, encontró un defecto que ninguna prueba veía:
+
+| | Lo que estaba mal | Cómo quedó |
+|---|---|---|
+| **R4** | Con el reajuste **activado** y **$647.533,99** en pantalla, el encabezado seguía diciendo *"Estos montos no llevan reajuste (…) Conectarlo requiere una activación explícita, que no está hecha"*. El aviso es de la entrega A y nunca contempló que la activación pudiera existir. Estaba en cinco lugares, incluidos la columna del Excel y el marcador de la lista | `reajusteOperativoConActivacion` mira primero la activación. Los cinco lugares la usan, y una regla impide volver al aviso ciego |
+| **R5** | A un usuario de **solo lectura** se le mostraba el diálogo de confirmación económica y recién después se le decía que no tenía permiso | Se comprueba el permiso antes de preguntar. La guarda dentro de la acción, que es la que vale, no se tocó |
+| **R6** | Al `¿Confirmas?` de desactivar le faltaba el signo de apertura | Corregido |
+| **N2** | La regla de escapes solo miraba texto JSX. En los **atributos** JSX los escapes tampoco se decodifican, así que tenía un punto ciego | Mira texto y atributos, y cubre `\uXXXX`, `\xNN`, `\n`, `\t`, `\r` |
+| **N3** | Un describe se llamaba *"sin activar, nada se mueve"*, pero desde R2 ese caso da cero por otra razón: le faltan fecha y respaldo | Renombrado y re-encuadrado, con la razón escrita |
+
+R4 merece subrayarse: **ninguna prueba lo iba a encontrar**, porque las pruebas comprueban el
+motor y el defecto era que la pantalla llamaba a la función equivocada. Lo encontró mirar la
+pantalla después de activar.
+
+**Dos cosas que quedan sin tocar, por estar fuera del alcance:**
+
+- **`activar()` acepta estados que no aplican nada** (conflicto con la configuración antigua,
+  regla sin declarar, regla sin respaldo): devuelve `ok:true`, sella términos y escribe un
+  evento con impacto 0, aunque el motor después no aplique nada. Es **preexistente**, no lo
+  introdujo este paquete, y no mueve importes. Pero deja un sello y una entrada de bitácora de
+  una activación que no aplica. Conviene resolverlo antes de habilitar activaciones
+  productivas.
+- **El ida y vuelta de la recuperación se afirma de un solo lado.** `TABLA_EDITADO` solo se
+  comprueba en la rama de recuperación. Hoy vale por construcción —`OsirisModule.jsx` es
+  idéntico y la bandera no entra al cálculo—, pero si las ramas divergen deja de ser un ida y
+  vuelta.
+
 **Una observación que la revisión dejó anotada y no se cambió.** `reajusteDeTemporada` recibe
 `ct.rcMesCobro` crudo, no el mes ya resuelto (`ct.rcMesCobro || RC_MES_DEFAULT_POR_PAIS[país] ||
 "Abril"`), así que un contrato peruano o mexicano sin mes explícito ve "Abril" dentro del

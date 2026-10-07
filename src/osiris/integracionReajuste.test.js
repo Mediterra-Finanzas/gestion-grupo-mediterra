@@ -239,11 +239,48 @@ describe("H1 · referencias no definidas en el código modificado", () => {
     // R1: en TEXTO JSX una secuencia de escape no se decodifica, se imprime
     // literal. Dentro de una cadena o un template literal sí se decodifica.
     // Esta regla mira exactamente los nodos de texto.
+    // Vale igual para los ATRIBUTOS: en JSX, la cadena de un atributo tampoco
+    // decodifica escapes. La primera version de esta regla solo miraba el
+    // texto y dejaba ese punto ciego.
+    const ESCAPES = /\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2}|\\[ntr]/g;
     linter.defineRule("escape-en-texto-jsx", {
       create: (ctx) => ({
         JSXText(node) {
-          const m = (node.value || "").match(/\\u[0-9a-fA-F]{4}/g);
+          const m = (node.value || "").match(ESCAPES);
           if (m) ctx.report({ node, message: "escape literal en texto JSX: " + m.join(" ") });
+        },
+        JSXAttribute(node) {
+          const v = node.value;
+          if (!v || v.type !== "Literal" || typeof v.value !== "string") return;
+          const m = v.value.match(ESCAPES);
+          if (m) ctx.report({ node, message: "escape literal en atributo JSX: " + m.join(" ") });
+        },
+      }),
+    });
+    // R3 no tenia control: la prueba de abajo replica los argumentos de la
+    // pantalla, pero no mira la pantalla. Restaurar el spread en el sitio de
+    // llamada dejaba la suite en verde. Esta regla mira el sitio real.
+    // R4: `reajusteOperativo` no sabe nada de activaciones, asi que despues de
+    // activar seguia diciendo "estos montos no llevan reajuste" encima de un
+    // total que si lo llevaba. La pantalla tiene que usar la envoltura.
+    linter.defineRule("aviso-con-activacion", {
+      create: (ctx) => ({
+        CallExpression(node) {
+          if (node.callee && node.callee.name === "reajusteOperativo") {
+            ctx.report({ node, message: "la pantalla debe usar reajusteOperativoConActivacion" });
+          }
+        },
+      }),
+    });
+    linter.defineRule("sin-spread-al-activar", {
+      create: (ctx) => ({
+        CallExpression(node) {
+          if (!node.callee || node.callee.name !== "activarReajuste") return;
+          const arg = node.arguments[1];
+          if (!arg || arg.type !== "ObjectExpression") return;
+          if (arg.properties.some((p) => p.type === "SpreadElement" || p.type === "ExperimentalSpreadProperty")) {
+            ctx.report({ node, message: "activarReajuste recibe un spread: arrastra la fecha de la activacion anterior" });
+          }
         },
       }),
     });
@@ -256,7 +293,8 @@ describe("H1 · referencias no definidas en el código modificado", () => {
       },
       env: { browser: true, es2021: true, node: true },
       noInlineConfig: true,
-      rules: { "no-undef": "error", "escape-en-texto-jsx": "error" },
+      rules: { "no-undef": "error", "escape-en-texto-jsx": "error",
+        "sin-spread-al-activar": "error", "aviso-con-activacion": "error" },
     };
     return (src, regla) => linter.verify(src, cfg)
       .filter((m) => m.ruleId === regla)
@@ -283,11 +321,35 @@ describe("H1 · referencias no definidas en el código modificado", () => {
     expect(revisor()(leer("../OsirisModule.jsx"), "escape-en-texto-jsx")).toEqual([]);
   });
 
+  test("la pantalla no le pasa un spread a activarReajuste", () => {
+    expect(revisor()(leer("../OsirisModule.jsx"), "sin-spread-al-activar")).toEqual([]);
+  });
+
+  test("y el control lo detecta si alguien lo repone", () => {
+    const src = leer("../OsirisModule.jsx")
+      .replace("activarReajuste(r, {", "activarReajuste(r, {...(r.reajusteActivacion||{}),");
+    expect(revisor()(src, "sin-spread-al-activar").length).toBeGreaterThan(0);
+  });
+
+  test("el control de escapes también mira los atributos JSX", () => {
+    const con = '<div><input placeholder="a ' + String.fromCharCode(92) + 'u00b7 b" /></div>;';
+    expect(revisor()(con, "escape-en-texto-jsx").length).toBeGreaterThan(0);
+  });
+
   test("el control de escapes detecta uno reintroducido", () => {
     const src = leer("../OsirisModule.jsx").replace(
       "Sellado: {act.pct} % ·",
       "Sellado: {act.pct} % " + String.fromCharCode(92) + "u00b7");
     expect(revisor()(src, "escape-en-texto-jsx").length).toBeGreaterThan(0);
+  });
+
+  test("la pantalla usa el aviso que sabe de la activación", () => {
+    expect(revisor()(leer("../OsirisModule.jsx"), "aviso-con-activacion")).toEqual([]);
+  });
+
+  test("y el control lo detecta si alguien vuelve al aviso ciego", () => {
+    const src = leer("../OsirisModule.jsx").replace("reajusteOperativoConActivacion(r)", "reajusteOperativo(r)");
+    expect(revisor()(src, "aviso-con-activacion").length).toBeGreaterThan(0);
   });
 
   test("no quedó ninguna lectura del global que nadie asigna", () => {
@@ -444,5 +506,61 @@ dCrear("R3 · reactivar desde la pantalla no puede quedar fechado hacia atrás",
     expect(h.map((e) => e.evento)).toEqual(["activacion", "desactivacion", "reactivacion"]);
     expect(h[2].motivoAnterior).toMatch(/respaldo/);
     expect(h[2].anterior).toEqual({ pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio" });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// R4 · encontrado en la revisión en navegador, no por las pruebas: con el
+// reajuste ya activado y $647.533,99 en pantalla, el encabezado seguía
+// diciendo "Estos montos no llevan reajuste (...) la activación no está
+// hecha". El aviso es de la entrega A y nunca contempló que la activación
+// pudiera existir.
+describe("R4 · el aviso no puede contradecir al importe", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const {
+    reajusteOperativoConActivacion,
+  } = require("./reajusteAplicado");
+  const {
+    reajusteOperativo, REAJUSTE_ACTIVADO_APLICANDO, REAJUSTE_REGISTRADO_SIN_APLICAR,
+  } = require("./condicionesConfigurables");
+
+  test("sin activar sigue diciendo que no se aplica", () => {
+    const ro = reajusteOperativoConActivacion(CONTRATO());
+    expect(ro.estado).toBe(REAJUSTE_REGISTRADO_SIN_APLICAR);
+    expect(ro.aplica).toBe(false);
+    expect(ro.aviso).toMatch(/no se está aplicando/);
+  });
+
+  test("activado dice que SÍ se aplica, con el porcentaje sellado", () => {
+    const ro = reajusteOperativoConActivacion(CONTRATO({ reajusteActivacion: ACTIVACION }));
+    expect(ro.estado).toBe(REAJUSTE_ACTIVADO_APLICANDO);
+    expect(ro.aplica).toBe(true);
+    expect(ro.pct).toBe(2);
+    expect(ro.aviso).toMatch(/YA lo incluyen/);
+    expect(ro.aviso).toMatch(/2026-07-01/);
+    // Y no puede quedar ni rastro de la afirmación contraria.
+    expect(ro.aviso).not.toMatch(/no se está aplicando/);
+    expect(ro.aviso).not.toMatch(/que no está hecha/);
+  });
+
+  test("avisa que las filas con factura o pago no se recalculan", () => {
+    const ro = reajusteOperativoConActivacion(CONTRATO({ reajusteActivacion: ACTIVACION }));
+    expect(ro.aviso).toMatch(/factura o pago/);
+  });
+
+  test("la función vieja sigue intacta: es la envoltura la que decide", () => {
+    // `reajusteOperativo` no cambió. Quien no le pase por la envoltura sigue
+    // viendo lo de antes, que es justamente el defecto; por eso hay un
+    // control de código que lo impide en la pantalla.
+    const ct = CONTRATO({ reajusteActivacion: ACTIVACION });
+    expect(reajusteOperativo(ct).estado).toBe(REAJUSTE_REGISTRADO_SIN_APLICAR);
+  });
+
+  test("una activación incompleta no se anuncia como aplicándose", () => {
+    const ro = reajusteOperativoConActivacion(CONTRATO({
+      reajusteActivacion: { activado: true },        // sin fecha ni respaldo
+    }));
+    expect(ro.estado).toBe(REAJUSTE_REGISTRADO_SIN_APLICAR);
+    expect(ro.aplica).toBe(false);
   });
 });

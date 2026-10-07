@@ -35,11 +35,13 @@ import {
   ACCION, netoNoDefinitivo, territorioDe,
   reajusteOperativo, contratosConReajusteSinDefinir,
   REAJUSTE_APLICANDO, REAJUSTE_MARCADO_SIN_DEFINICION, REAJUSTE_REGISTRADO_SIN_APLICAR,
+  REAJUSTE_ACTIVADO_APLICANDO,
 } from "./osiris/condicionesConfigurables";
 import {
   reajusteDeFila as reajusteActivadoDeFila, estadoActivacion, previsualizarActivacion,
   puedeCrearActivacion, puedeEditarTerminos, activar as activarReajuste, desactivar as desactivarReajuste,
   puedeDesactivar, previsualizarDesactivacion, historialActivacion, identidadDe,
+  reajusteOperativoConActivacion,
   antecedentesDeCobro, REGLAS_FECHA,
   ACTIVADO as REAJ_ACTIVADO, MODIFICACION_PENDIENTE as REAJ_MODIF_PENDIENTE,
   CONFLICTO_CON_ANTIGUA as REAJ_CONFLICTO, SIN_ACTIVAR as REAJ_SIN_ACTIVAR,
@@ -7550,8 +7552,9 @@ async function exportarContratos(filtrado) {
     r.tipoContractFee==="Sin Contract Fee"?"—":(r.montoContractFee||0),
     r.valorRoyaltyPlanta||"",
     r.valorRoyaltyComercial||"",
-    (()=>{ const ro=reajusteOperativo(r);
-      return ro.estado===REAJUSTE_APLICANDO ? ("Aplicando "+ro.pct+" %/año")
+    (()=>{ const ro=reajusteOperativoConActivacion(r);
+      return ro.estado===REAJUSTE_ACTIVADO_APLICANDO ? ("Activado — aplicando "+ro.pct+" %/año")
+        : ro.estado===REAJUSTE_APLICANDO ? ("Aplicando "+ro.pct+" %/año")
         : ro.estado===REAJUSTE_MARCADO_SIN_DEFINICION ? "Marcado sin definición — NO se aplica"
         : ro.estado===REAJUSTE_REGISTRADO_SIN_APLICAR ? "Registrado — todavía NO se aplica"
         : "Sin reajuste"; })(),
@@ -9051,7 +9054,7 @@ Motivo del retiro:`, "");
                     la pantalla decia "Sujeto a Inflacion" y no se reajustaba nada.
                     Esto lo dice. No cambia ningun importe. */}
                 {(()=>{
-                  const ro = reajusteOperativo(r);
+                  const ro = reajusteOperativoConActivacion(r);
                   if(!ro.aviso) return null;
                   return (
                     <div style={{gridColumn:"1 / -1",marginTop:8,fontSize:10,lineHeight:1.6,
@@ -9910,19 +9913,23 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
                     <div style={{fontSize:13,fontWeight:800,color:C.text}}>📈 Royalty Comercial <span style={{fontSize:10,fontWeight:500,color:C.muted}}>(paga el cliente)</span> {inflPct>0
                       ? <span style={{fontSize:10,color:C.am}}>· inflación {N(inflPct)}%/año</span>
-                      : (reajusteOperativo(r).estado!==REAJUSTE_APLICANDO && reajusteOperativo(r).aviso
+                      : reajusteOperativoConActivacion(r).estado===REAJUSTE_ACTIVADO_APLICANDO
+                          ? <span style={{fontSize:10,color:C.success}}>· reajuste aplicado {N(reajusteOperativoConActivacion(r).pct)}%/año</span>
+                      : (reajusteOperativoConActivacion(r).estado!==REAJUSTE_APLICANDO && reajusteOperativoConActivacion(r).aviso
                           ? <span style={{fontSize:10,color:C.am}}>· sin reajuste aplicado</span>
                           : null)}</div>
                     <div style={{fontSize:11,color:C.muted}}>Fact total: <strong style={{color:C.text}}>${N(rcFact.toFixed(2))}</strong> · Neto: <strong style={{color:C.success}}>${N(rcCobro.toFixed(2))}</strong></div>
                   </div>
                   {(()=>{
-                    const ro = reajusteOperativo(r);
+                    const ro = reajusteOperativoConActivacion(r);
                     if(!ro.aviso) return null;
+                    const aplicando = ro.estado===REAJUSTE_ACTIVADO_APLICANDO;
                     return (
                       <div style={{fontSize:10,lineHeight:1.6,marginBottom:10,
-                        background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,
-                        borderRadius:8,padding:"7px 11px",color:C.am||"#854d0e"}}>
-                        <strong>Estos montos no llevan reajuste.</strong> {ro.aviso}
+                        background:aplicando?(C.okBg||"#dcfce7"):(C.amBg||"#fef9c3"),
+                        border:`1px solid ${aplicando?C.success:(C.am||"#ca8a04")}`,
+                        borderRadius:8,padding:"7px 11px",color:aplicando?(C.okTxt||"#166534"):(C.am||"#854d0e")}}>
+                        <strong>{aplicando?"Estos montos YA llevan el reajuste.":"Estos montos no llevan reajuste."}</strong> {ro.aviso}
                       </div>
                     );
                   })()}
@@ -10058,7 +10065,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                   "\nSe deja de aplicar: US$ "+Math.abs(pd.diferencia).toFixed(2)+
                                   "\n\nPor que se desactiva? (obligatorio)");
                                 if(!motivo||!motivo.trim()) return;
-                                const ok = window.confirm("Confirmas desactivar y dejar de aplicar US$ "+Math.abs(pd.diferencia).toFixed(2)+"?");
+                                const ok = window.confirm("¿Confirmas desactivar y dejar de aplicar US$ "+Math.abs(pd.diferencia).toFixed(2)+"?");
                                 if(!ok) return;
                                 const res = desactivarReajuste(r,{motivo, usuarioActual, confirmado:true, impacto:pd.diferencia, puedeEditar:can});
                                 if(!res.ok){ window.alert(res.motivo); return; }
@@ -10069,6 +10076,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                             : !permiso.puede
                             ? <span style={{fontSize:10,color:C.danger,fontWeight:700}}>{permiso.motivo}</span>
                             : <button disabled={!can} onClick={()=>{
+                                if(!can){ window.alert("Sin permiso de edicion en esta pestana."); return; }
                                 const ident = identidadDe(usuarioActual);
                                 if(!ident.valida){ window.alert(ident.motivo); return; }
                                 const ok = window.confirm(
@@ -10949,7 +10957,10 @@ La orden conserva sus despachos, facturas y cuotas. Queda registrado quién la a
                   {/* Decia "+IPC" por tener la casilla puesta, sin mirar si habia
                       porcentaje. Al lado del importe, eso afirma un ajuste que no ocurre. */}
                   {(()=>{
-                    const ro = reajusteOperativo(r);
+                    const ro = reajusteOperativoConActivacion(r);
+                    if(ro.estado===REAJUSTE_ACTIVADO_APLICANDO)
+                      return <span title="Reajuste activado: el motor lo esta aplicando."
+                        style={{fontSize:9,color:C.success,marginLeft:4,fontWeight:700}}>+{N(ro.pct)}%/año</span>;
                     if(ro.estado===REAJUSTE_APLICANDO)
                       return <span style={{fontSize:9,color:C.am,marginLeft:4}}>+{N(ro.pct)}%/año</span>;
                     if(ro.estado===REAJUSTE_MARCADO_SIN_DEFINICION)

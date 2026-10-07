@@ -27,7 +27,10 @@
 // contrato tiene que respaldar.** Este modelo NO la supone. Mientras no esté
 // respaldada, no aplica nada y entrega los escenarios por separado.
 
-import { configReajuste, faltantesReajuste, estadoReajuste } from "./condicionesConfigurables";
+import {
+  configReajuste, faltantesReajuste, estadoReajuste,
+  reajusteOperativo, REAJUSTE_ACTIVADO_APLICANDO,
+} from "./condicionesConfigurables";
 
 // ── Version de recuperacion ───────────────────────────────────────────────
 //
@@ -623,4 +626,30 @@ function resumenDeFilas(ct, filas, opciones) {
 // directo.
 export function previsualizarActivacion(ct, filas, opciones) {
   return resumenDeFilas(comoSiSeActivara(ct), filas, opciones);
+}
+
+// ── El aviso operativo, sabiendo si hay una activacion vigente ────────────
+//
+// `reajusteOperativo` se escribio antes de que la activacion existiera, asi
+// que con el antecedente confirmado siempre decia "registrado, NO aplicado".
+// Despues de activar eso quedaba afirmando lo contrario de lo que la pantalla
+// acababa de hacer: el aviso decia "estos montos no llevan reajuste" encima
+// de un total que si lo llevaba. Esta funcion mira primero la activacion.
+//
+// Vive aca y no en condicionesConfigurables.js porque necesita
+// `estadoActivacion`, y ese modulo no puede importar de este sin armar un
+// ciclo. Las pantallas llaman a esta.
+export function reajusteOperativoConActivacion(ct) {
+  const act = estadoActivacion(ct);
+  if (!act.activo) return reajusteOperativo(ct);
+  const pct = Number(act.pct) || 0;
+  return {
+    estado: REAJUSTE_ACTIVADO_APLICANDO, aplica: true, pct,
+    titulo: "Reajuste activado: " + pct + " %/año",
+    aviso: "El reajuste está activado y el motor lo está aplicando. Los importes de " +
+      "esta pantalla YA lo incluyen. Se aplica con los términos sellados al activar " +
+      "(" + pct + " % desde " + act.fechaReferencia + ", por " + act.regla.regla + "), " +
+      "y las temporadas con factura o pago registrado no se recalculan.",
+    detalle: "Activado el " + (act.fecha || "—") + (act.usuario ? " por " + act.usuario : "") + ".",
+  };
 }
