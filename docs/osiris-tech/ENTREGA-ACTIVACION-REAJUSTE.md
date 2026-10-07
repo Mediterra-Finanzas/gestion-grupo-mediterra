@@ -146,9 +146,6 @@ control con una garantía.
   introdujo este paquete, y no mueve importes. Pero deja un sello y una entrada de bitácora de
   una activación que no aplica. Conviene resolverlo antes de habilitar activaciones
   productivas.
-- **El campo del porcentaje convierte lo no numérico en cero** (`parseFloat(valor) || 0`). Es de
-  la entrega A y no se tocó, pero es un sitio donde una definición ausente se vuelve un cero. Lo
-  que este paquete hace es impedir la consecuencia dañina: que ese cero se active.
 - **El ida y vuelta de la recuperación se afirma de un solo lado.** `TABLA_EDITADO` solo se
   comprueba en la rama de recuperación. Hoy vale por construcción —`OsirisModule.jsx` es
   idéntico y la bandera no entra al cálculo—, pero si las ramas divergen deja de ser un ida y

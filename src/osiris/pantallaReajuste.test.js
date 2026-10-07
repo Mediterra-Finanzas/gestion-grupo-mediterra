@@ -410,3 +410,142 @@ dNoCrear("Recuperación · la pantalla no ofrece crear, y lo explica", () => {
     expect(guardado).toBe(null);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+// El campo del porcentaje. Era el arreglo que motivó el paquete y no tenía
+// ninguna prueba que lo custodiara: revertirlo a `parseFloat(valor)||0`
+// dejaba toda la batería en verde. Esto dispara el onChange REAL.
+describe("El campo del porcentaje no convierte nada en cero", () => {
+  const abrirFacturacion = (contrato, onSave) => {
+    const utils = render(
+      <ControlContratos
+        data={[contrato]} setData={onSave || (() => {})}
+        clientes={[]} setClientes={() => {}} viverosData={[]} setViveros={() => {}}
+        can={true} usuarioActual={USUARIO}
+        tiposAnexoPersist={[]} setTiposAnexoPersist={() => {}}
+        tiposContratoPersist={[]} setTiposContratoPersist={() => {}}
+      />
+    );
+    fireEvent.click(screen.getByText(/Ver/));
+    fireEvent.click(screen.getByText(/Facturación/));
+    return utils;
+  };
+  const campoPct = (container) =>
+    [...container.ownerDocument.querySelectorAll('input[placeholder="sin definir"][type="number"]')][0];
+
+  const escribir = (ct, valor) => {
+    let guardado = null;
+    const { container } = abrirFacturacion(ct, (f) => {
+      guardado = typeof f === "function" ? f([ct]) : f;
+    });
+    const input = campoPct(container);
+    expect(input).toBeTruthy();
+    fireEvent.change(input, { target: { value: valor } });
+    return guardado && guardado[0].reajuste;
+  };
+
+  test("vaciarlo deja el porcentaje sin definir, NO en cero", () => {
+    const r = escribir(CONTRATO(), "");
+    expect(r.pct).toBe("");
+    expect(r.pct).not.toBe(0);
+  });
+
+  test("un valor normal se guarda tal cual", () => {
+    const r = escribir(CONTRATO(), "3.5");
+    expect(r.pct).toBe("3.5");
+  });
+
+  test("escribirlo deja la marca de origen", () => {
+    const r = escribir(CONTRATO(), "4");
+    expect(r.pctOrigen).toBe("ingresado");
+  });
+
+  test("editar OTRO campo del reajuste no deja la marca", () => {
+    let guardado = null;
+    const ct = CONTRATO();
+    const { container } = abrirFacturacion(ct, (f) => {
+      guardado = typeof f === "function" ? f([ct]) : f;
+    });
+    const ref = container.ownerDocument
+      .querySelector('input[placeholder="p. ej. Annexure D 1.2.5, p.24"]');
+    expect(ref).toBeTruthy();
+    fireEvent.change(ref, { target: { value: "Clausula nueva" } });
+    expect(guardado).not.toBe(null);
+    expect(guardado[0].reajuste.pctOrigen).toBe(undefined);
+  });
+
+  test("sin permiso no escribe, ni siquiera salteando el disabled", () => {
+    let guardado = null;
+    const ct = CONTRATO();
+    const { container } = render(
+      <ControlContratos
+        data={[ct]} setData={(f) => { guardado = typeof f === "function" ? f([ct]) : f; }}
+        clientes={[]} setClientes={() => {}} viverosData={[]} setViveros={() => {}}
+        can={false} usuarioActual={USUARIO}
+        tiposAnexoPersist={[]} setTiposAnexoPersist={() => {}}
+        tiposContratoPersist={[]} setTiposContratoPersist={() => {}}
+      />
+    );
+    fireEvent.click(screen.getByText(/Ver/));
+    fireEvent.click(screen.getByText(/Facturación/));
+    const input = campoPct(container);
+    fireEvent.change(input, { target: { value: "9" } });
+    expect(guardado).toBe(null);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// D-N1 · la guarda contra activación redundante se apoyaba en la bandera
+// cruda, no en el estado. Una activación MARCADA pero incompleta dejaba el
+// contrato sin salida: la pantalla ofrecía Activar y la acción respondía
+// "ya hay una activación vigente", que además era falso.
+dCrear("Una activación incompleta no deja el contrato sin salida", () => {
+  const { activar, estadoActivacion } = require("./reajusteAplicado");
+  const ARGS = { puedeEditar: true, usuarioActual: USUARIO, confirmado: true };
+
+  test("activar sin los términos no marca nada", () => {
+    const ct = CONTRATO();
+    const res = activar(ct, Object.assign({}, ARGS));
+    expect(res.ok).toBe(false);
+    expect(res.motivo).toMatch(/Faltan los terminos de la activacion/);
+    expect(res.contrato).toBe(ct);
+    expect(ct.reajusteActivacion).toBe(undefined);      // ni el campo se creó
+  });
+
+  test("si quedara una marcada e incompleta, se puede completar y activar", () => {
+    // El estado que el defecto dejaba irrecuperable.
+    const atascado = CONTRATO({
+      reajusteActivacion: { activado: true, fechaReferencia: "", respaldo: "", reglaFecha: "" },
+    });
+    expect(estadoActivacion(atascado).activo).toBe(false);
+    const res = activar(atascado, Object.assign({}, ARGS, {
+      fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+      reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula 1.2.5",
+    }));
+    expect(res.ok).toBe(true);
+    expect(estadoActivacion(res.contrato).activo).toBe(true);
+    expect(res.contrato.reajusteActivacion.sello.fechaReferencia).toBe("2026-07-01");
+  });
+
+  test("los términos sellados no se pueden borrar salteando el disabled", () => {
+    let guardado = null;
+    const ct = CONTRATO({ reajusteActivacion: ACTIVACION });
+    const { container } = render(
+      <ControlContratos
+        data={[ct]} setData={(f) => { guardado = typeof f === "function" ? f([ct]) : f; }}
+        clientes={[]} setClientes={() => {}} viverosData={[]} setViveros={() => {}}
+        can={true} usuarioActual={USUARIO}
+        tiposAnexoPersist={[]} setTiposAnexoPersist={() => {}}
+        tiposContratoPersist={[]} setTiposContratoPersist={() => {}}
+      />
+    );
+    fireEvent.click(screen.getByText(/Ver/));
+    fireEvent.click(screen.getByText(/Cobros derivados/));
+    const respaldo = container.ownerDocument.querySelector('input[placeholder="clausula que lo dice"]');
+    expect(respaldo).toBeTruthy();
+    expect(respaldo.disabled).toBe(true);
+    // `disabled` no desconecta el handler: esa es la prueba.
+    fireEvent.change(respaldo, { target: { value: "" } });
+    expect(guardado).toBe(null);
+  });
+});

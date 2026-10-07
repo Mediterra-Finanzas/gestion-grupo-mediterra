@@ -108,18 +108,33 @@ MSYS_NO_PATHCONV=1 CI=true npx react-scripts test --watchAll=false \
   --testPathIgnorePatterns "/node_modules/" "/build/"
 ```
 
-**Contraprueba, que es lo que le da valor.** Se repone cada llamada anterior en
-`OsirisModule.jsx` y se comprueba que la prueba falla. El archivo se restaura y se verifica el
-md5 (`1034b5097146aecd982ca9db08493803`, idéntico antes y después):
+**Contraprueba, que es lo que le da valor.** Se repone cada defecto y se comprueba que la
+prueba falla. Los archivos se restauran y se verifica el hash. En la última corrida:
+
+| Archivo | SHA-256, antes y después |
+|---|---|
+| `src/OsirisModule.jsx` | `beaf56e3d9c045cc61096d0522d0830ce137543057ed1c22510a468c4645d603` |
+| `src/osiris/reajusteAplicado.js` | `2b7aba3e4f64c79984d42479c0c96d94634dd8f52b69526323a7cd92e9d254c4` |
+
+> Una versión anterior de este documento publicaba un md5 que **no correspondía a ningún
+> commit**: era el del archivo en el momento de una corrida previa, y el archivo cambió después.
+> Es justamente el dato que sostiene "el archivo se restauró", así que queda corregido.
 
 | Reversión | Resultado |
 |---|---|
-| Volver al aviso que ignora la activación (R4) | **2 pruebas fallan** |
-| Quitarle el detalle de filas al aviso (R7) | **2 pruebas fallan** |
-| Reponer el spread en `activarReajuste` (R3) | **1 prueba falla** |
-| Calcular la previa sobre las filas ya ajustadas (H3) | **1 prueba falla** |
+| Volver al aviso que ignora la activación (R4) | **2 fallan** |
+| Quitarle el detalle de filas al aviso (R7) | **2 fallan** |
+| Reponer el spread en `activarReajuste` (R3) | **1 falla** |
+| Calcular la previa sobre las filas ya ajustadas (H3) | **1 falla** |
+| Campo del porcentaje de vuelta a `parseFloat(valor) \|\| 0` | **2 fallan** |
+| `upA` sin la guarda del sello | **1 falla** |
+| `activar()` sin exigir los términos | **1 falla** |
+| La guarda mirando la bandera cruda en vez del estado | **1 falla** |
+| La columna Diferencia escondiendo las bajas | **pasa: sin red** |
 
-Las cuatro fallan **sin que la regla de linter intervenga**.
+Todas fallan **sin que la regla de linter intervenga**. La última no: hoy no existe un camino
+que produzca una diferencia negativa, así que el cambio de la columna es **defensivo y no tiene
+prueba de render**. Lo que sí queda fijado es la semántica del modelo.
 
 **Una advertencia sobre las contrapruebas mismas.** La cuarta, en su primera versión, pasaba —y
 parecía decir que el control no servía—. El planteo estaba mal: reponer las filas ajustadas es

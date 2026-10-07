@@ -796,3 +796,31 @@ dNoCrear("Recuperación · el rechazo ocurre dentro de la acción", () => {
     expect(historialActivacion(res.contrato).slice(-1)[0].evento).toBe("desactivacion");
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+// Desde que la diferencia se mide contra el importe actual, puede ser
+// negativa. Hoy no hay un camino que lo produzca —el motor y la previa usan
+// el mismo sello—, así que esto fija la semántica del modelo, no el render.
+// La pantalla se cambió para no esconder una baja, y ese cambio es
+// defensivo: no tiene prueba porque el estado no es alcanzable.
+describe("La diferencia contra el actual puede ser negativa", () => {
+  const { reajusteDeFila } = require("./reajusteAplicado");
+  const { CONTRATO } = require("./fixturesReajuste");
+
+  test("si el actual fuera mayor que el propuesto, la diferencia baja", () => {
+    const ct = CONTRATO({ reajusteActivacion: ACTIVACION });
+    const d = reajusteDeFila(ct, { temporada: "2027/2028", montoFact: 125910 },
+      { mesCobro: "Abril", actual: 140000 });
+    expect(d.base).toBe(125910);
+    expect(d.actual).toBe(140000);
+    expect(d.ajustado).toBeCloseTo(128428.2, 2);
+    expect(d.diferencia).toBeCloseTo(-11571.8, 2);
+  });
+
+  test("sin pasar el actual, se asume la base y la diferencia es la de siempre", () => {
+    const ct = CONTRATO({ reajusteActivacion: ACTIVACION });
+    const d = reajusteDeFila(ct, { temporada: "2027/2028", montoFact: 125910 }, { mesCobro: "Abril" });
+    expect(d.actual).toBe(125910);
+    expect(d.diferencia).toBeCloseTo(2518.2, 2);
+  });
+});
