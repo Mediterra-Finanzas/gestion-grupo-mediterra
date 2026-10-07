@@ -175,7 +175,7 @@ Con datos **ficticios** (créditos por defecto) y corte al 07-10-2026:
 
 | # | Perfil afectado | Comportamiento actual (main) | Esperado según permiso explícito | Riesgo | Estado en la rama |
 |---|---|---|---|---|---|
-| P1 | Quien tenga `rendVerTodas` (por defecto Milagros, Carol, Michelle, Pablo), incluido un rol **consulta** | "Marcar pagada" no revisa rol ni estado dentro de la acción | La pestaña Pagos es de `rendVerTodas`/CFO/admin (regla vigente). Consulta "solo visualiza". Solo se paga lo aprobado | Pago registrado por quien no corresponde; estado de pago falso | **Corregido**: exige aprobada y no consulta, también dentro de la acción. **Quién paga** sigue siendo decisión pendiente (D1) |
+| P1 | Quien tenga `rendVerTodas` (por defecto Milagros, Carol, Michelle, Pablo), incluido un rol **consulta** | "Marcar pagada" visible y ejecutable para todo `rendVerTodas`; la acción no revisaba rol ni estado | Solo quien tenga **autorización explícita** para pagar: admin y esCFO (CLAUDE.md: "Pagos = admin o esCFO"). `rendVerTodas` es un permiso de ver ("solo lectura; solo el dueño modifica"). Además, aprobada y no consulta | Pago registrado por quien no corresponde; estado de pago falso | **Corregido**: solo admin/esCFO, con aprobada y no consulta, también dentro de la acción. **Cambia el acceso actual de Carol y Milagros** (hoy pueden pagar y reciben los avisos de pago): ampliarlo es la decisión D1 |
 | P2 | Todos los que tengan una cadena en Gestión de Usuarios | `cadenaAprobacion` se edita pero no se usa: manda `config.aprobadores` de Rendiciones | No hay un permiso explícito que contradiga: hay **dos** configuraciones y una sin efecto | Se cree que aprueba X y aprueba Y | **Pendiente** (D2): elegir cuál manda |
 | P3 | Carol, Michelle, Pablo en Contabilidad | `canEdit={!esSoloConsulta}` es siempre `false`: solo edita esCFO | La matriz (borrador) propone admin + contadores, con `[DECISIÓN]` abierta | Contadores sin poder editar, o se les da edición sin decidirlo | **Sin cambio de comportamiento**: se dejó explícito `canEdit={false}`. Decisión D3 |
 | P4 | Toda pestaña sin valor guardado | `getTabPerm` devuelve "editar" por defecto; en Frisku las claves resumen/documentos/bi/reportes/tablero no existen en la configuración | Sin permiso explícito no hay contradicción | Una pestaña nueva nace abierta | **Pendiente** (D4): cambiarlo a "sin acceso" puede bloquear a usuarios legítimos |
@@ -190,11 +190,36 @@ Otros puntos revisados, sin defecto: Tareas, Frisku y Osiris ya bloqueaban el ro
 
 | Prueba | Qué cubre | Resultado |
 |---|---|---|
-| `src/__tests__/permisosAcciones.test.js` | Cada guarda llamada **directamente**, con estados que la pantalla no ofrecería: pagar algo no aprobado, aprobar fuera de turno, devolver sin haber aprobado, editar como consulta | 24 casos, todos verdes |
-| `src/__tests__/rendicionesPermisosPantalla.test.js` | Pantalla real con Supabase simulado: Carol paga y se guarda; consulta ve Pagos sin el botón y no escribe; la aprobadora asignada ve "Aprobar" y consulta no | 4/4. **Contra el código anterior: 2 fallas** (consulta podía pagar y aprobar) |
+| `src/__tests__/permisosAcciones.test.js` | Cada guarda llamada **directamente**, con estados que la pantalla no ofrecería: pagar algo no aprobado, pagar con `rendVerTodas` sin autorización, aprobar fuera de turno, devolver sin haber aprobado, editar como consulta | 25 casos, todos verdes |
+| `src/__tests__/rendicionesPermisosPantalla.test.js` | Pantalla real con Supabase simulado: Angelo (admin) paga y se guarda; Carol y consulta ven Pagos sin el botón y no escriben; la aprobadora asignada ve "Aprobar" y consulta no | 5/5. **Contra el código de `main`: 3 fallas** (Carol y consulta podían pagar; consulta podía aprobar) |
 | `scripts/e2e/permisos.mjs` (navegador) | Admin de control; Carol con "params", "clientes" y "cobranza" restringidos; Milagros con rol consulta | **14/14** con la corrección. **Build anterior: 9/14** (5 fallas = los defectos) |
 
-Los accesos legítimos (admin; Carol pagando; Carol editando bancos sin configurar) pasan antes y después: **no se bloqueó a nadie que tuviera permiso**.
+Los accesos con permiso explícito (admin pagando y editando; Carol editando bancos sin configurar; la aprobadora asignada aprobando) pasan antes y después. **Excepción deliberada:** Carol y Milagros dejan de poder marcar pagada, porque `rendVerTodas` no es una autorización explícita para pagar (ver D1 en la matriz).
+
+### 4.3 Matriz de accesos para D1–D6 (para tu decisión)
+
+Fuente: valores **por defecto del código** de `main` (3a9d33e). **No leí la fila `usuarios` de producción**, que manda sobre estos valores y puede tener otros. "Rama" = lo que cambia la rama. "Propuesta" es mi recomendación: **no está implementada** salvo donde dice "Rama".
+
+Personas: A = Angelo (admin, esCFO) · C = Carol (editor; Finanzas, Contabilidad, Osiris; `rendVerTodas`, `rendPorOtros`) · Mi = Michelle (editor; Contabilidad; `rendVerTodas`; autorizadora de nóminas) · P = Pablo (editor; Contabilidad; `rendVerTodas`) · Ma = Milagros (editor; Tareas; `rendVerTodas`; lista heredada "rinde por otros") · N = Nicolás (gerente técnico; Osiris) · Co = rol consulta (sin usuario por defecto) · T = resto del personal (solo Rendiciones).
+
+| D | Recurso · acción | A | C | Mi | P | Ma | N | Co | T | Propuesta recomendada |
+|---|---|---|---|---|---|---|---|---|---|---|
+| D1 | Rendiciones · **marcar pagada** | Sí | Sí → **No (rama)** | Sí → **No (rama)** | Sí → **No (rama)** | Sí → **No (rama)** | No | Sí si `rendVerTodas` → **No (rama)** | No | Un permiso explícito "puede pagar rendiciones" por persona, asignado por el admin. Candidatos a confirmar: A, C y Ma (hoy reciben los avisos de pago) |
+| D1 | Rendiciones · ver todas (Pagos y Reportes) | Sí | Sí | Sí | Sí | Sí | No | Sí si `rendVerTodas` | No | Sin cambio; revisar si Mi y P deben ver las de todo el personal |
+| D2 | Rendiciones · aprobar | Siempre (override) | Si es la aprobadora asignada | Ídem | Ídem | Ídem | Ídem | Ídem → **No (rama)** | Ídem | Una sola fuente: el aprobador del maestro de Rendiciones (`config.aprobadores`, el único que funciona). La "cadena" de Gestión de Usuarios no tiene efecto: retirarla o rotularla |
+| D2 | Rendiciones · sin aprobador asignado | Sí | No | No | No | No | No | No | No | Sin cambio (solo admin/CFO) |
+| D2 | Rendiciones · devolver una aprobada | Sí | Si la aprobó | Ídem | Ídem | Ídem | Ídem | Ídem → **No (rama)** | Ídem | Sin cambio |
+| D3 | Contabilidad · ver | Sí | Sí | Sí | Sí | No | No | No | No | Sin cambio |
+| D3 | Contabilidad · crear y editar | Sí (esCFO) | No | No | No | No | No | No | No | Mi y P (contadores) editan; C a tu criterio. La matriz borrador proponía admin + Mi, P y C |
+| D4 | Pestaña sin valor configurado (cualquier módulo) | Editar | Editar | Editar | Editar | Editar | Editar | Editar → **Ver (rama, solo Finanzas)** | — | Guardar explícito el nivel efectivo de hoy para cada persona y pestaña existente (nadie pierde acceso) y que las pestañas **nuevas** nazcan "sin acceso" |
+| D5 | Nóminas · ver | Sí | Sí | No (sin pestaña) | No | No | No | Sí si tiene Finanzas → **Ver (rama)** | No | La matriz borrador proponía solo A + esCFO. Recomiendo A y C, y Mi solo si dará V°B° |
+| D5 | Nóminas · preparar y editar | Sí | Sí | No | No | No | No | **No (rama)** | No | Sin cambio |
+| D5 | Nóminas · V°B° (revisión → aprobada1) | No | Sí | Sí por nombre, pero **sin acceso a la pestaña** | No | No | No | No | No | **Separación de funciones**: quien preparó la nómina no da su V°B°. Hoy C puede preparar y dar V°B° a la misma nómina |
+| D5 | Nóminas · aprobación final | Sí | No | No | No | No | No | No | No | Igual, con la misma separación: A no aprueba al final una nómina que preparó |
+| D6 | Rendiciones · crear y editar las propias | Sí | Sí | Sí | Sí | Sí | Sí | Sí | Sí | Mantener para consulta (es su gasto, no datos financieros); confirmar |
+| D6 | Rendiciones · crear por otra persona | Sí | Sí | No | No | Sí | No | No | No | Pasar la lista heredada de Ma a su permiso en Gestión de Usuarios |
+
+**La separación de funciones en Nóminas (D5) es un hallazgo nuevo:** el código no lo impide. Ver `FinanzasModule.jsx` `puedeAvanzar`: borrador y preparada → cualquier editor; revisión → Carol o Michelle; aprobada1 → admin.
 
 ## 5. Protección del servidor
 
@@ -221,6 +246,10 @@ Prueba de la etapa 1 en Postgres local con roles simulados (`node scripts/seguri
 
 **No es Supabase real**: falta probarla en un proyecto de prueba.
 
+**Alcance:** la propuesta cubre **solo `calendario_data`**. No demuestra protección de las otras tablas definidas en el repositorio (137 más), ni de las funciones, ni de los 6 buckets de Storage. Cada una necesita su propia evaluación con los metadatos reales.
+
+**Pendiente, sin activar:** cualquier etapa de RLS espera dos cosas: confirmar el commit desplegado y correr la consulta de metadatos autorizada.
+
 ## 6. Despliegue, rollback y recuperación
 
 **Commits:**
@@ -240,13 +269,24 @@ Para confirmarlo: Vercel → proyecto → Deployments → Production → el SHA 
 
 Es compatibilidad **contra ese commit**, no contra producción, hasta confirmar el SHA desplegado.
 
-**Rollback sin descargar respaldos con credenciales.** Ningún paso de rollback necesita un respaldo descargado: la rama no migra datos y la versión anterior lee lo que escribe la nueva (verificado). Se retira la recomendación anterior de "guardar un respaldo descargado antes del merge". Para recuperar datos, sin sacar credenciales de Supabase:
+**Rollback sin descargar respaldos con credenciales.** Volver a la versión anterior del código no necesita un respaldo descargado: la rama no migra datos y la versión anterior lee lo que escribe la nueva (verificado localmente contra `3a9d33e`).
 
-1. **Respaldo nativo de Supabase / PITR**: queda en el proveedor, incluye credenciales y no pasa por un computador. Hay que confirmar en el panel si está activo (es lectura).
-2. **Historial de versiones de la etapa 1**: en el servidor, no legible con la llave pública. Requiere tu aprobación para activarlo.
-3. **auto-v4 + `scripts/respaldo/restaurar.mjs`**: restauración fila por fila desde el equipo de un administrador. Nunca restaura `pins`, reinyecta las credenciales vigentes y guarda una foto previa. auto-v4 sigue desactivado.
+**Vías de recuperación de DATOS, clasificadas:**
 
-El "💾 Respaldo" descargable (v3) es **saneado**: no trae credenciales y sirve como foto de datos de negocio, pero no es requisito de nada.
+| Clase | Vía | Situación |
+|---|---|---|
+| Disponible y verificada | — | **Ninguna.** No hay una restauración de datos de producción verificada |
+| Disponible sin verificar | "💾 Respaldo" de la versión publicada (v1, manual, solo admin) | Existe en el código publicado. Incluye **`pins`** y todas las filas menos `backup_*`. No probado en producción |
+| Disponible sin verificar, **con riesgo** | "📤 Restaurar" de la versión publicada | Existe. Restaura **todas** las filas del archivo, incluida `pins`, sin plan ni control de versión: puede pisar PIN y datos actuales. No usar sin revisión |
+| Disponible sin verificar | Filas `backup_*` antiguas en `calendario_data` | Según el código, existían. Contienen credenciales. No confirmado en producción |
+| Disponible sin verificar | Rollback de código: "Promote" de un deployment anterior en Vercel | Es una función de Vercel. No se probó desde acá |
+| Sin confirmar que exista | Respaldo nativo de Supabase | [Probable] por el plan Pro, pero no confirmado. Se ve en el panel; es una lectura |
+| Propuesta, no activa | PITR (restauración a un punto en el tiempo) | Complemento pagado; requiere tu aprobación |
+| Propuesta, no activa | Historial de versiones (RLS etapa 1) | Probado solo en Postgres local. **No está activado** |
+| Propuesta, no activa | auto-v4 + `scripts/respaldo/restaurar.mjs` | Construido y probado en aislamiento. Desactivado. No restaura `pins` y reinyecta las credenciales vigentes |
+| Propuesta, no activa | Copia externa completa (`pg_dump` + buckets, cifrada) | Plan en `docs/plan-recuperacion.md` |
+
+El "💾 Respaldo" v3 de la rama (saneado) no está publicado: no se cuenta como vía disponible.
 
 **Inventario y recuperación**: sin cambios respecto de `docs/plan-recuperacion.md`.
 - Tablas: 138 definidas en el repo.
@@ -278,16 +318,26 @@ Ningún commit fuera del grupo TC usa algo del grupo TC. Por eso la **etapa 1 = 
 | `consolidado-semanal` · `tc-politica` · `rollback` | — | 85 · 25/25 · 13/13 |
 | Regresión 8 empresas · reasignar-bandeja (de `main`) | — | 12.032 celdas, 0 diferencias · 37/37 |
 
-Como los grupos son independientes, los permisos (`3302695`) podrían integrarse **antes** y por separado, si das prioridad a permisos.
+Como los grupos son independientes, los permisos podrían integrarse **antes** y por separado.
+
+**Grupo de permisos sobre `main` vigente (3a9d33e), comprobado sin publicar:**
+- Son 7 archivos: `src/permisos/acciones.js`, `RendicionesModule.jsx`, `AllegriaModule.jsx`, `FinanzasModule.jsx`, las dos pruebas jest y `scripts/e2e/permisos.mjs`. Salen de `3302695` y de la parte de permisos de `1059b1c`.
+- Quedan **fuera**: el comentario de Contabilidad en `App.jsx` (no cambia comportamiento y choca con el ErrorBoundary, que no está en `main`), la propuesta SQL y las herramientas de datos.
+- Se aplica limpio sobre `3a9d33e`. Resultado: build OK; 41 pruebas (permisos + `autorizacionGuardado` de `main`); navegador 14/14.
+- **Se prepara como rama de integración recién cuando cierres la matriz (§4.3)**: si la matriz cambia, cambia el conjunto.
 
 ## 8. Copia mínima para verificar fechas y leasing
 
-1. En la app, "💾 Respaldo". Sale saneado: sin `pins`, PIN, hashes, tokens ni `backup_*`.
-2. Abrir **en tu computador** `scripts/datos/extraer-creditos-minimo.html` (doble clic) y elegir ese archivo.
-   - La página tiene la red bloqueada por su política de seguridad.
-   - Descarga `creditos-minimo-AAAA-MM-DD.json` solo con la lista de créditos y los campos que usan los cálculos.
-   - Descarta notas, RUT, contactos, saldos, nóminas, usuarios y documentos, y lista los campos descartados.
-3. Entregar solo ese archivo por un canal autorizado. Con él:
+**Formato de la versión publicada:** el botón "💾 Respaldo" de `main` genera "Mediterra Hub Backup v1" (`tablas[id].data`). Es el mismo formato en `8df9862` y en `3a9d33e`, sin cambios desde el 24-09-2026, así que vale para cualquiera de los dos que esté desplegado. **Incluye `pins` (PIN cifrados)** y los datos de todos los módulos.
+
+Procedimiento (todo en tu computador):
+1. En la app publicada, "💾 Respaldo" (requiere rol admin). El archivo original **no se comparte, no se sube a la rama y se elimina** después del paso 2. `.gitignore` bloquea `backup_mediterra_*.json` y `creditos-minimo-*.json`.
+2. Abrir `scripts/datos/extraer-creditos-minimo.html` (doble clic) y elegir el archivo.
+   - La página no tiene acceso a la red.
+   - Solo lee la fila `finanzas` → `creditos_data`. `pins`, usuarios y el resto nunca entran al archivo de salida.
+   - Conserva únicamente: id, n, empresa, acreedor, tipo, moneda, monto, cuota, tasas, fechas (inicio, vencimiento, desembolso, pago), pagado, renovable, plazo y la tabla de cuotas de socio.
+   - Lista los campos descartados.
+3. Entregar solo `creditos-minimo-AAAA-MM-DD.json` por un canal autorizado. Con él:
 
 ```
 COMPARAR_TZ_ARCHIVO=creditos-minimo.json COMPARAR_TZ_SALIDA=salida npm run comparar:tz
@@ -297,8 +347,8 @@ Produce:
 - el cambio por cuota, mes, semana y empresa (CSV y JSON);
 - `verificacion-leasing-capital.json`: tasa implícita por pago de leasing, capital por vencer y por conciliar al corte.
 
-Prueba de la cadena completa con datos ficticios (`node scripts/datos/prueba-extractor.mjs`): **8/8**.
-- El archivo no trae notas, RUT, contactos ni otras filas.
+Prueba de la cadena completa con datos ficticios (`node scripts/datos/prueba-extractor.mjs`): **16/16**, con el formato publicado (v1, incluida una fila `pins` ficticia) y con el v3.
+- El archivo no trae PIN ni hashes, notas, RUT, contactos ni otras filas.
 - La página no hace pedidos de red.
 - La comparación da 10 cuotas, igual que con los datos por defecto.
 - Se corrigió que la herramienta no leía el formato v3 del respaldo.
@@ -316,15 +366,10 @@ Probada en Postgres local: corre completa y rechaza una escritura.
 
 | # | Decisión |
 |---|---|
-| D1 | Quién marca rendiciones como pagadas. Hoy: todo `rendVerTodas` + CFO + admin. Los avisos de pago van solo a Carol, Milagros y Angelo |
-| D2 | Qué manda para aprobar rendiciones: la cadena de Gestión de Usuarios o el aprobador del maestro de Rendiciones |
-| D3 | Si los contadores editan Contabilidad |
-| D4 | Valor por defecto de una pestaña no configurada ("editar" hoy) |
-| D5 | Círculo de Nóminas (la matriz propone admin + esCFO) |
-| D6 | Si el rol consulta puede cargar sus propias rendiciones (hoy sí) |
-| D7 | Activar la etapa 1 del servidor (después de medir el tamaño de las filas) |
-| D8 | Migración de claves del calendario (11 meses), preparada y sin ejecutar |
-| D9 | Integrar en dos etapas, o adelantar los permisos |
+| D1–D6 | Resolver las diferencias de la matriz §4.3 (pagar, aprobador, Contabilidad, pestañas sin configurar, Nóminas y separación de funciones, rendiciones de consulta) |
+| D7 | Etapa 1 de RLS: **pendiente**. Antes: confirmar el commit desplegado y correr la consulta de metadatos |
+| D8 | Migración de claves del calendario (11 meses): **pendiente**, con los mismos requisitos previos |
+| D9 | Permisos como primer grupo de integración (propuesto). Sin merge hasta cerrar D1–D6 |
 | D10 | Confirmar el SHA desplegado y correr la consulta de metadatos |
 
 ## 11. Riesgos vigentes
