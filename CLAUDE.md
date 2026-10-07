@@ -405,8 +405,10 @@ Reglas que no hay que romper:
   duplica. `aplicarMovimiento({movimiento, estimaciones, programas, usd, hacia,
   usuario})` crea una realización en la estimación o cuota destino con la
   **fecha y la referencia del movimiento** y `origen:{tipo:"bandeja", id}`.
-  Admite aplicación **parcial**, y la pantalla muestra siempre *aplicado* y
-  *sin asignar*.
+  Admite aplicación **parcial**, y la pantalla muestra cada importe **con su
+  efecto**: «aplicado X · ya descuenta en su operación» y «sin asignar Y ·
+  solo este importe no descuenta». Sin esa aclaración el rótulo se leía como
+  si el movimiento entero siguiera sin descontar.
   **Lo aplicado NO se lleva en un contador aparte**: `aplicadoDeMovimiento`
   cuenta las realizaciones VIGENTES originadas en el movimiento, estén donde
   estén. Así el mismo dinero no se aplica dos veces (se valida contra lo que

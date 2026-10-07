@@ -521,7 +521,7 @@ check('convertido deja constancia de a dónde fue',
 // Rótulo nuevo de la bandeja: muestra cuánto está aplicado y cuánto sigue sin
 // asignar. Un movimiento recién convertido tiene 0 aplicado y todo sin asignar.
 check('y el movimiento aparece en la bandeja, sin aplicar y sin descontar',
-      /2026-08-14[\s\S]{0,160}\$255,000[\s\S]{0,200}aplicado\s*\$0[\s\S]{0,80}sin asignar\s*\$255,000[\s\S]{0,40}no descuenta/.test(tC),
+      /2026-08-14[\s\S]{0,160}\$255,000[\s\S]{0,200}aplicado\s*\$0[\s\S]{0,120}sin asignar\s*\$255,000\s*·\s*solo este importe no descuenta/.test(tC),
       (tC.match(/aplicado[^\n]*|sin asignar[^\n]*/g) || []).slice(0, 2).join(' | '));
 await page.screenshot({ path: `${OUT}/programas/09-antecedente-convertido.png`, fullPage: true });
 const costoTrasConv = await leerLinea('Costo Fruta Exportación');

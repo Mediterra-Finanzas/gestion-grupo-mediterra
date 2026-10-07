@@ -427,11 +427,14 @@ function Columna({
                 <span style={{ color: C.muted2 }}>anulado · {m.motivoAnulacion}</span>
               ) : (
                 <>
+                  {/* Cada importe con su efecto, para que no quede dudoso cuál
+                      descuenta: el aplicado YA descuenta en su operación; el
+                      que sigue sin asignar es el único que no descuenta. */}
                   <span style={{ color: aplicado > 0 ? C.success : C.muted2 }}>
-                    aplicado {$$(aplicado)}
+                    aplicado {$$(aplicado)}{aplicado > 0 ? " · ya descuenta en su operación" : ""}
                   </span>
                   <span style={{ color: resta > 0 ? C.warning : C.muted2 }}>
-                    sin asignar {$$(resta)}{resta > 0 ? " · no descuenta" : ""}
+                    sin asignar {$$(resta)}{resta > 0 ? " · solo este importe no descuenta" : ""}
                   </span>
                   {!readOnly && resta > 0 && (
                     <button onClick={() => setAplic({ movId: m.id, usd: resta, destinoTipo: "", destinoId: "" })}
@@ -470,9 +473,10 @@ function Columna({
                 <button onClick={() => setAplic(null)}
                   style={{ padding: "3px 7px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 9 }}>Cancelar</button>
                 <div style={{ flexBasis: "100%", fontSize: 9, color: C.muted2, marginTop: 2 }}>
-                  Un movimiento de la bandeja todavía no descuenta de ninguna liquidación. Al
-                  aplicarlo pasa a ser cobro/pago de esa operación y recién ahí descuenta: el
-                  realizado aplicado sube, el dinero registrado no. Se puede aplicar por partes.
+                  Mientras está sin asignar, el movimiento no descuenta de ninguna liquidación.
+                  Al aplicarlo, ESE importe pasa a ser cobro/pago de la operación destino y
+                  descuenta de SU liquidación; el realizado sube y el dinero registrado no. Se
+                  puede aplicar por partes: lo que quede sin asignar sigue sin descontar.
                 </div>
               </div>
             )}

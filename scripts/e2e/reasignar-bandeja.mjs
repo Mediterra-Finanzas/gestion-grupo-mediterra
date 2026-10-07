@@ -199,8 +199,9 @@ console.log('\n=== 4 · bandeja → cuota (parcial) y → estimación (el resto)
 await irAParametros(); await esperar(600);
 {
   const t = await texto();
-  check('la bandeja muestra aplicado 0 y sin asignar 100.000',
-        /aplicado\s*\$?0/.test(t) && /sin asignar\s*\$?100,000/.test(t),
+  check('la bandeja muestra aplicado 0 y sin asignar 100.000, con su efecto',
+        /aplicado\s*\$?0/.test(t) &&
+        /sin asignar\s*\$?100,000\s*·\s*solo este importe no descuenta/.test(t),
         (t.match(/aplicado[^\n]*|sin asignar[^\n]*/g) || []).slice(0, 2).join(' | '));
   check('ya no existe el botón «quitar»', !(await page.getByRole('button', { name: /^quitar$/ }).count()));
 }
@@ -225,8 +226,9 @@ check('ESPERADO: el realizado total sube a 180.000 (120.000 + 60.000 aplicados)'
 await esperar(500);
 {
   const t = await texto();
-  check('ESPERADO: la bandeja muestra aplicado 60.000 y sin asignar 40.000',
-        /aplicado\s*\$?60,000/.test(t) && /sin asignar\s*\$?40,000/.test(t),
+  check('ESPERADO: aplicado 60.000 YA DESCUENTA y sin asignar 40.000 no',
+        /aplicado\s*\$?60,000\s*·\s*ya descuenta en su operación/.test(t) &&
+        /sin asignar\s*\$?40,000\s*·\s*solo este importe no descuenta/.test(t),
         (t.match(/aplicado[^\n]*|sin asignar[^\n]*/g) || []).slice(0, 2).join(' | '));
 }
 await page.screenshot({ path: `${OUT}/reasignar/03-bandeja-parcial.png`, fullPage: true });

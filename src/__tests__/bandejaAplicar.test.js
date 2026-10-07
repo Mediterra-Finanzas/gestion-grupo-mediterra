@@ -151,10 +151,11 @@ describe("bandeja · la pantalla", () => {
     return { onChange, onEst, onSin };
   };
 
-  test("muestra aplicado y sin asignar, y ya no existe «quitar»", () => {
+  test("muestra aplicado y sin asignar, con su efecto, y ya no existe «quitar»", () => {
     pintar(false);
     expect(screen.getByText(/aplicado 0/)).toBeInTheDocument();
-    expect(screen.getByText(/sin asignar 100\.000/)).toBeInTheDocument();
+    // Sin nada aplicado, el único importe que no descuenta es el total.
+    expect(screen.getByText(/sin asignar 100\.000 · solo este importe no descuenta/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^quitar$/i })).toBeNull();
     expect(screen.getByRole("button", { name: /^aplicar$/i })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^anular$/i }).length).toBeGreaterThan(0);
@@ -165,7 +166,8 @@ describe("bandeja · la pantalla", () => {
     fireEvent.click(screen.getByRole("button", { name: /^aplicar$/i }));
     expect(screen.getByText(/estimación Nov-26 · acordado 200\.000/)).toBeInTheDocument();
     expect(screen.getByText(/cuota Nov-26 · WLH · acordado 120\.000/)).toBeInTheDocument();
-    expect(screen.getByText(/todavía no descuenta de ninguna liquidación/i)).toBeInTheDocument();
+    expect(screen.getByText(/Mientras está sin asignar, el movimiento no descuenta/i)).toBeInTheDocument();
+    expect(screen.getByText(/descuenta de SU liquidación/i)).toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
     expect(onEst).not.toHaveBeenCalled();
     expect(onSin).not.toHaveBeenCalled();
