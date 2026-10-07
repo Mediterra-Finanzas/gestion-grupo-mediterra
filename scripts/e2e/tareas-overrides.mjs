@@ -129,9 +129,19 @@ await esperar(3000);
   check('ESPERADO: tras recargar la frecuencia sigue en el servidor',
         !!idCambiado && o[idCambiado] && o[idCambiado].frecuencia === destino,
         idCambiado ? JSON.stringify(o[idCambiado] || null).slice(0, 160) : '(sin id)');
-  const t = await page.locator('body').innerText();
-  check('ESPERADO: y la pantalla la muestra con la frecuencia nueva',
-        t.includes(nombreTarea), `«${nombreTarea}» visible: ${t.includes(nombreTarea)}`);
+  // La tarea tiene que haberse MOVIDO a la pestaña de su frecuencia nueva: es
+  // lo que prueba que el dato guardado se está usando. Buscarla en la pestaña
+  // por defecto no probaría nada (ahí ya no va).
+  const pestana = { Diaria: /📋 Diarias/, Semanal: /📅 Semanales/, Quincenal: /🗓 Quincenales/,
+    Mensual: /📆 Mensuales/, Anual: /🗃 Anuales/, Puntual: /📌 Puntuales/ }[destino];
+  let visible = false;
+  if (pestana) {
+    const b = page.getByRole('button', { name: pestana });
+    if (await b.count()) { await b.first().click(); await esperar(1200); }
+    visible = (await page.locator('body').innerText()).includes(nombreTarea);
+  }
+  check(`ESPERADO: la tarea aparece en la pestaña de su frecuencia nueva (${destino})`,
+        visible, `«${nombreTarea}» en ${destino}: ${visible}`);
 }
 await page.screenshot({ path: `${OUT}/tareas/02-tras-recarga.png`, fullPage: true });
 

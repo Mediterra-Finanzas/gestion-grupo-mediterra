@@ -2834,6 +2834,11 @@ export default function App(){
   useEffect(()=>{ tareasConfigRef.current = tareasConfig;   },[tareasConfig]);
   useEffect(()=>{ supervisoresRef.current = supervisores;   },[supervisores]);
   useEffect(()=>{ tareasExtraRef.current  = tareasExtra;    },[tareasExtra]);
+  // Faltaba este espejo: `tareasOverridesRef` se creaba con el valor INICIAL
+  // (`{}`) y nunca se actualizaba, así que el payload de `main` incluía el
+  // campo pero siempre vacío. Cambiar la frecuencia de una tarea no se
+  // guardaba NUNCA, ni por el guardado manual ni por el auto-save.
+  useEffect(()=>{ tareasOverridesRef.current = tareasOverrides; },[tareasOverrides]);
   useEffect(()=>{ pinsRef.current         = pinsPersonalizados; },[pinsPersonalizados]);
   useEffect(()=>{ recsDoneRef.current     = recsDone;       },[recsDone]);
   useEffect(()=>{ recsComRef.current      = recsComentarios;},[recsComentarios]);

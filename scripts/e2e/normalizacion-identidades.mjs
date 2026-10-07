@@ -157,9 +157,32 @@ const texto = async () => await page.locator('body').innerText();
 const delServidor = () => JSON.parse(JSON.stringify(leerFila(store, 'finanzas').allegria_params));
 let avisoAparecio = false;
 
+// El aviso se retira en cuanto el servidor confirma, y contra el almacén falso
+// eso ocurre en milisegundos. Para poder OBSERVARLO se frena el primer PATCH de
+// la fila `finanzas`; el retraso no cambia el comportamiento, solo lo hace
+// visible. Se libera en cuanto pasa.
+let frenarPrimerPatch = true;
+await ctx.route('**bywovqayuzodbzwsriet.supabase.co/**', async (route) => {
+  const r = route.request();
+  if (frenarPrimerPatch && r.method() === 'PATCH' && /id=eq\.finanzas&/.test(r.url())) {
+    frenarPrimerPatch = false;
+    await new Promise(res => setTimeout(res, 12000));
+  }
+  await route.fallback();
+});
+
 console.log('\n=== 1 · el aviso aparece con la cuenta correcta ===');
 await login(page);
 await entrarFinanzas(page);
+// Se muestrea el aviso EN CUANTO carga el módulo, mientras el PATCH sigue
+// frenado: el aviso existe desde que la carga detecta los registros sin
+// identidad y hasta que el servidor confirma. Después se navega.
+let avisoTexto = '';
+for (let i = 0; i < 100; i++) {
+  const t = await texto();
+  if (/registros guardados sin identificador propio/.test(t)) { avisoTexto = t; break; }
+  await esperar(80);
+}
 await irAFlujoEmpresas(page);
 await elegirEmpresa(page, 'Allegria Foods');
 await subTab(page, /Parámetros/);
@@ -169,7 +192,7 @@ await subTab(page, /Parámetros/);
 }
 await esperar(1500);
 {
-  const t = await texto();
+  const t = avisoTexto || await texto();
   const m = t.match(/(\d+)\s+registros guardados sin identificador propio/);
   avisoAparecio = !!m;
   check('el aviso nombra los 29 registros sin identificador',

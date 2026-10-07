@@ -87,6 +87,28 @@ const esperar = (ms) => page.waitForTimeout(ms);
 const bandeja = () => page.locator(
   'xpath=//div[normalize-space(text())="Movimientos pendientes de conciliación"]/parent::div').first();
 const texto = async () => await page.locator('body').innerText();
+// Escribir en un InputNumero sin pisarse con su propio re-render. `lib.mjs`
+// documenta la guarda: al recibir el foco el campo pasa de "1.000.000" a crudo,
+// y escribir en ese mismo instante deja el valor a medias. Sin esto el recorrido
+// era intermitente (importes como 10000060000, o 5.000 donde iban 25.000).
+async function escribirMonto(loc, valor) {
+  await loc.click();
+  await page.waitForTimeout(80);
+  await loc.fill(String(valor));
+  await loc.evaluate(e => e.blur());
+  await page.waitForTimeout(150);
+  const visto = await loc.inputValue().catch(() => null);
+  if (visto !== null && visto.replace(/[^\d]/g, '') !== String(valor).replace(/[^\d]/g, '')) {
+    // Segundo intento: si el campo quedó con otra cosa, se reescribe antes de
+    // seguir. Un importe mal tecleado haría fallar una aserción por un motivo
+    // que no es el que se está probando.
+    await loc.click();
+    await page.waitForTimeout(120);
+    await loc.fill(String(valor));
+    await loc.evaluate(e => e.blur());
+    await page.waitForTimeout(200);
+  }
+}
 async function irAParametros() {
   await subTab(page, /Parámetros/);
   const t = page.getByRole('button', { name: 'Temporada 2026-2027' });
@@ -210,7 +232,7 @@ await esperar(500);
 {
   const form = bandeja();
   const inp = form.locator('input').first();
-  await inp.fill(''); await inp.type('60000'); await inp.blur(); await esperar(300);
+  await escribirMonto(inp, 60000); await esperar(300);
   const dest = await elegirEnSelect(form.locator('select').first(), /cuota Dec-26 · SNF/);
   check('el destino ofrece una cuota', !!dest, String(dest));
   aceptar = true;
@@ -280,7 +302,7 @@ console.log('\n=== 6 · cancelar el formulario de la bandeja ===');
     const form = bandeja();
     await form.locator('input[type=date]').first().fill('2026-09-02');
     const monto = form.locator('input[placeholder="US$"]').first();
-    await monto.fill(''); await monto.type('25000'); await monto.blur();
+    await escribirMonto(monto, 25000);
     await form.locator('input[placeholder="referencia / cartola"]').first().fill('cartola 9002');
     await form.getByRole('button', { name: /^Guardar$/ }).first().click();
     await esperar(900);
@@ -376,7 +398,7 @@ console.log('\n=== 8 · estado visible del guardado y salir del módulo ===');
       const form = bandeja();
       await form.locator('input[type=date]').first().fill('2026-09-20');
       const monto = form.locator('input[placeholder="US$"]').first();
-      await monto.fill(''); await monto.type('11000'); await monto.blur();
+      await escribirMonto(monto, 11000);
       await form.locator('input[placeholder="referencia / cartola"]').first().fill('cartola 9020');
       await form.getByRole('button', { name: /^Guardar$/ }).first().click();
       // Se mira la SECUENCIA, no un instante: primero "Guardando..." (el PATCH
