@@ -98,7 +98,8 @@ const ESTADOS = {
 
 // ── Helpers ────────────────────────────────────────────────────────
 const uid = (p = "rnd") => `${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-const hoyISO = () => new Date().toISOString().slice(0, 10);
+// Fecha LOCAL (toISOString es UTC: en Chile, de noche, daba el día siguiente)
+const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const nowISO = () => new Date().toISOString();
 
 function fmtMonto(n, moneda = "CLP") {

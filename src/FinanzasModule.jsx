@@ -748,7 +748,7 @@ export function cuotasPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
 // Semana (etiqueta de SEMANAS_MES) de una fecha dentro de su mes. Si la semana
 // ISO cae fuera de la lista del mes, va a la última semana del mes (misma
 // regla que se usaba para el vencimiento).
-function semanaEnMes(fecha, mes) {
+export function semanaEnMes(fecha, mes) {
   const sem = semanaDeDate(fecha);
   const sems = SEMANAS_MES[mes] || [];
   return sems.includes(sem) ? sem : (sems[sems.length-1] || sem);
@@ -4610,10 +4610,10 @@ function fechasSaldosEmpresa(saldosBancos, empNombre) {
     const parts=key.split("||");
     if(parts[0]!==empNombre) return;
     if(!rec?.monto||!rec?.fecha) return;
-    const f=new Date(rec.fecha);
+    const f=fechaLocal(rec.fecha);
     if(isNaN(f.getTime())||f>HOY) return;
     const cuentaKey=`${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
-    if(!porCuenta[cuentaKey]||new Date(porCuenta[cuentaKey])<f) porCuenta[cuentaKey]=rec.fecha;
+    if(!porCuenta[cuentaKey]||fechaLocal(porCuenta[cuentaKey])<f) porCuenta[cuentaKey]=rec.fecha;
   });
   return Object.values(porCuenta);
 }
@@ -6116,7 +6116,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Flujo_Consolidado_${temporada.key}_${new Date().toISOString().slice(0,10)}.xlsx`;
+    a.download = `Flujo_Consolidado_${temporada.key}_${hoyISOlocal()}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
     window.auditLog&&window.auditLog("exportar", {modulo:"finanzas", seccion:"Flujo Consolidado Waterfall",
@@ -8008,7 +8008,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
             </tr></thead>
             <tbody>
               {filtered.map(c=>{
-                const vencProx=new Date(c.f_venc)<=new Date("2026-12-31");
+                // Vence antes del cierre del año EN CURSO (antes: fecha fija 2026-12-31)
+                const vencProx=!!c.f_venc&&c.f_venc<=`${new Date().getFullYear()}-12-31`;
                 const e=empresas[c.empresa]||{emoji:"🏢",color:C.blue};
                 return (
                   <tr key={c.n} style={{borderBottom:`1px solid ${C.border}22`,
@@ -8530,7 +8531,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                           </div>
                           <div>
                             <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Mes Ingreso</div>
-                            <select value={ren.mes_ingreso||""} onChange={e=>updRen(ri,{mes_ingreso:e.target.value,anio_ingreso:ren.anio_ingreso||(form.f_venc?new Date(form.f_venc).getFullYear():new Date().getFullYear())})}
+                            <select value={ren.mes_ingreso||""} onChange={e=>updRen(ri,{mes_ingreso:e.target.value,anio_ingreso:ren.anio_ingreso||(form.f_venc?fechaLocal(form.f_venc).getFullYear():new Date().getFullYear())})}
                               style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none"}}>
                               <option value="">— mes —</option>
                               {["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"].map(m=><option key={m}>{m}</option>)}
@@ -8539,7 +8540,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                           <div>
                             <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Año Ingreso</div>
                             <InputNumero formato="entero" value={ren.anio_ingreso||""} onChange={n=>updRen(ri,{anio_ingreso:n})}
-                              placeholder={form.f_venc?String(new Date(form.f_venc).getFullYear()):"2026"}
+                              placeholder={form.f_venc?String(fechaLocal(form.f_venc).getFullYear()):"2026"}
                               style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
                           </div>
                         </div>
@@ -9373,7 +9374,7 @@ function Intercompany({transferencias=[],onSave,empresas={},canEdit}) {
   const [filtroDest,setFiltroDest] = useState("Todas");
   const [filtroTipo,setFiltroTipo] = useState("Todos");
   const [form,setForm]     = useState({
-    fecha:new Date().toISOString().slice(0,10),
+    fecha:hoyISOlocal(),
     origen:"",destino:"",tipo:"Préstamo",
     monto:"",descripcion:"",mes:"",
   });
@@ -9404,7 +9405,7 @@ function Intercompany({transferencias=[],onSave,empresas={},canEdit}) {
   }).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
 
   function openNew() {
-    setForm({fecha:new Date().toISOString().slice(0,10),origen:"",destino:"",tipo:"Préstamo",monto:"",descripcion:"",mes:""});
+    setForm({fecha:hoyISOlocal(),origen:"",destino:"",tipo:"Préstamo",monto:"",descripcion:"",mes:""});
     setEditId(null);
     setModal(true);
   }
@@ -9429,7 +9430,7 @@ function Intercompany({transferencias=[],onSave,empresas={},canEdit}) {
     onSave(transferencias.filter(t=>t.id!==id));
   }
 
-  const fmtFecha=s=>{if(!s)return"—";const d=new Date(s);return`${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;}
+  const fmtFecha=s=>{if(!s)return"—";const d=fechaLocal(s);return`${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;}
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -10170,7 +10171,7 @@ function reporte_exportarListado(empresasData) {
   ws["!cols"] = [{ wch: 18 }, { wch: 12 }, { wch: 11 }, { wch: 26 }, { wch: 44 }, { wch: 14 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Movimientos 8 semanas");
-  XLSX.writeFile(wb, `Reporte_Semanal_movimientos_completo_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(wb, `Reporte_Semanal_movimientos_completo_${hoyISOlocal()}.xlsx`);
   return filas.length;
 }
 
@@ -11492,7 +11493,7 @@ function ReporteSemanalModule({
     let masReciente = null;
     Object.values(saldosBancos || {}).forEach(s => {
       if(s?.fecha) {
-        const f = new Date(s.fecha);
+        const f = fechaLocal(s.fecha);
         if(!masReciente || f > masReciente) masReciente = f;
       }
     });
@@ -11554,7 +11555,7 @@ function ReporteSemanalModule({
         kpisGrupo,
       });
 
-      const hoy = new Date().toISOString().slice(0, 10);
+      const hoy = hoyISOlocal();
       const nombreArchivo = `Reporte_Semanal_Flujo_de_Caja_Grupo_Mediterra_${hoy}_W${semanaISO}.pdf`;
       doc.save(nombreArchivo);
 
@@ -13520,7 +13521,7 @@ function nominaVacia(empresa, semana, año, numero=1) {
   return {
     id: `nom_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
     empresa, semana, año, numero,
-    fecha: new Date().toISOString().slice(0,10),
+    fecha: hoyISOlocal(),
     tc: 0, // tipo de cambio CLP/USD
     estado: "borrador",
     preparadoPor: "",
@@ -13664,7 +13665,7 @@ async function generarDocInternoLinea(ctx, item, usuario, overrides = {}) {
     empresaOrigen: ctx.empresa,
     contraparteLabel,
     contraparte: (overrides.contraparte != null ? overrides.contraparte : item.proveedor) || "—",
-    fecha: ctx.fecha || new Date().toISOString().slice(0,10),
+    fecha: ctx.fecha || hoyISOlocal(),
     monto, moneda,
     concepto: ((overrides.concepto != null ? overrides.concepto : item.concepto) || "").trim() || conceptoDefault,
     observaciones: (overrides.observaciones || "").trim(),
@@ -15139,7 +15140,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
         return;
       }
     }
-    const ahora = new Date().toISOString().slice(0,10);
+    const ahora = hoyISOlocal();
     let patch = {estado: next};
     if(next==="preparada")  patch.preparadoPor  = usuario?.nombre||"";
     if(next==="revision") {
@@ -16002,7 +16003,7 @@ async function ejecutarMigracion(usuario, onLog) {
   const url = URL.createObjectURL(blobFile);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `nominas_respaldo_${new Date().toISOString().slice(0,10)}.json`;
+  a.download = `nominas_respaldo_${hoyISOlocal()}.json`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
   onLog('Respaldo descargado');
@@ -17402,7 +17403,7 @@ async function exportAuditoriaExcel(eventos, filtrosInfo) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `Auditoria_${new Date().toISOString().slice(0,10)}.xlsx`;
+  a.download = `Auditoria_${hoyISOlocal()}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -17417,7 +17418,7 @@ function AuditoriaModule({usuario}) {
     const d = new Date(); d.setDate(d.getDate()-30);
     return d.toISOString().slice(0,10);
   });
-  const [filtroHasta, setFiltroHasta] = useState(new Date().toISOString().slice(0,10));
+  const [filtroHasta, setFiltroHasta] = useState(hoyISOlocal());
   const [busqueda, setBusqueda] = useState("");
   const [eventoDetalle, setEventoDetalle] = useState(null);
   const [autoRefresh, setAutoRefresh] = useState(false);

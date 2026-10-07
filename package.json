@@ -18,7 +18,8 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "test:cl": "TZ=America/Santiago react-scripts test --watchAll=false"
+    "test:cl": "TZ=America/Santiago react-scripts test --watchAll=false",
+    "comparar:tz": "COMPARAR_TZ_EJECUTAR=1 TZ=America/Santiago react-scripts test --watchAll=false --testPathPattern compararZonaHoraria"
   },
   "eslintConfig": {
     "extends": [
