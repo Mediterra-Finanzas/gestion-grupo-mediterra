@@ -16,8 +16,16 @@ import React from "react";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { ControlContratos } from "../OsirisModule";
 import { ACTIVACION } from "./fixturesReajuste";
+import { ACTIVACIONES_NUEVAS_HABILITADAS } from "./reajusteAplicado";
 
 const USUARIO = { nombre: "Prueba Pantalla", email: "pantalla@invalid" };
+
+// El mismo archivo corre en las dos versiones. Lo que depende de CREAR una
+// activacion solo aplica donde esta permitido; alla donde no, se comprueba
+// el rechazo, que es justamente lo que no puede quedar sin probar.
+const sePuedeCrear = ACTIVACIONES_NUEVAS_HABILITADAS;
+const dCrear = sePuedeCrear ? describe : describe.skip;
+const dNoCrear = sePuedeCrear ? describe.skip : describe;
 
 // Contrato sintético, el mismo caso de 41,97 há × US$3.000 al 2 %.
 const CONTRATO = (extra) => Object.assign({
@@ -104,7 +112,9 @@ describe("La pantalla muestra lo que el motor calcula", () => {
       puedeEditar: true, usuarioActual: USUARIO, confirmado: true,
     });
     expect(res.ok).toBe(false);
-    expect(res.motivo).toMatch(/Ya hay una activacion vigente con estos mismos terminos/);
+    expect(res.motivo).toMatch(sePuedeCrear
+      ? /Ya hay una activacion vigente con estos mismos terminos/
+      : /no permite crear nuevas/);
     expect(res.contrato).toBe(ct);                       // ni un evento más
     // Y los términos sellados siguen bloqueados para edición.
     expect(puedeEditarTerminos(ct).puede).toBe(false);
@@ -118,7 +128,9 @@ describe("La pantalla muestra lo que el motor calcula", () => {
       puedeEditar: true, usuarioActual: USUARIO, confirmado: true,
     });
     expect(res.ok).toBe(false);
-    expect(res.motivo).toMatch(/no esta habilitada en este paquete/);
+    expect(res.motivo).toMatch(sePuedeCrear
+      ? /no esta habilitada en este paquete/
+      : /no permite crear nuevas/);
     expect(res.contrato.reajusteActivacion.sello).toEqual({
       pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio",
     });
@@ -178,7 +190,7 @@ describe("La vista previa de la pantalla no muestra ceros al decidir", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-describe("Las acciones de la pantalla, ejecutadas de verdad", () => {
+dCrear("Las acciones de la pantalla, ejecutadas de verdad", () => {
   // Esto ejercita el sitio de llamada real de `activarReajuste`. Si alguien
   // repone el spread del registro anterior, la fecha del evento deja de ser
   // la de hoy y esta prueba falla.
@@ -295,6 +307,106 @@ describe("Las acciones de la pantalla, ejecutadas de verdad", () => {
     // es lo mismo: la accion rechaza y no escribe nada.
     expect(vistos.join(" ")).toMatch(/no tiene efecto sobre ningun importe/);
     expect(vistos.join(" ")).toMatch(/No consta si ese 0 se ingreso asi/);
+    expect(guardado).toBe(null);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// Lo que la PANTALLA de la recuperación tiene que hacer. La creación no
+// aplica allá, pero el rechazo sí, y no puede quedar sin probar.
+dNoCrear("Recuperación · la pantalla no ofrece crear, y lo explica", () => {
+  test("sin activación: no hay botón de activar, y dice por qué", () => {
+    const { container } = abrirCobros(CONTRATO({
+      reajusteActivacion: {
+        activado: false, fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+        reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula 1.2.5",
+      },
+    }));
+    expect(screen.queryByText("Activar el reajuste")).toBe(null);
+    expect(textoDe(container.ownerDocument)).toMatch(/no permite crear nuevas/);
+    // Y los importes son los de la base: nada se activó por la vía que sea.
+    expect(textoDe(container.ownerDocument)).toMatch(/\$629\.550/);
+  });
+
+  test("con activación vigente: los importes se conservan y SÍ se puede desactivar", () => {
+    const { container } = abrirCobros(CONTRATO({
+      reajusteActivacion: ACTIVACION,
+      rcPagos: { "2029/2030": { nFact: "999", pagado: true } },
+    }));
+    const t = textoDe(container.ownerDocument);
+    expect(t).toMatch(/\$647\.533,99/);                 // no volvió a la base
+    expect(t).toMatch(/Estos montos YA llevan el reajuste/);
+    // H7: el aviso de "no se pueden crear nuevas" no puede tapar Desactivar.
+    expect(screen.getByText("Desactivar")).toBeTruthy();
+    expect(screen.queryByText("Activar el reajuste")).toBe(null);
+  });
+
+  test("desactivar desde la pantalla exige motivo y confirmación, y vuelve a la base", () => {
+    let guardado = null;
+    const ct = CONTRATO({
+      reajusteActivacion: ACTIVACION,
+      rcPagos: { "2029/2030": { nFact: "999", pagado: true } },
+    });
+    render(
+      <ControlContratos
+        data={[ct]} setData={(f) => { guardado = typeof f === "function" ? f([ct]) : f; }}
+        clientes={[]} setClientes={() => {}} viverosData={[]} setViveros={() => {}}
+        can={true} usuarioActual={USUARIO}
+        tiposAnexoPersist={[]} setTiposAnexoPersist={() => {}}
+        tiposContratoPersist={[]} setTiposContratoPersist={() => {}}
+      />
+    );
+    fireEvent.click(screen.getByText(/Ver/));
+    fireEvent.click(screen.getByText(/Cobros derivados/));
+
+    const orig = { confirm: window.confirm, prompt: window.prompt, alert: window.alert };
+    const vistos = [];
+    // Primero: sin motivo, no pasa nada.
+    window.prompt = (x) => (vistos.push(String(x)), "");
+    window.confirm = (x) => (vistos.push(String(x)), true);
+    window.alert = (x) => { vistos.push(String(x)); };
+    try {
+      fireEvent.click(screen.getByText("Desactivar"));
+      expect(guardado).toBe(null);
+      // Ahora con motivo y confirmación.
+      window.prompt = (x) => (vistos.push(String(x)), "Se anulo el respaldo");
+      fireEvent.click(screen.getByText("Desactivar"));
+    } finally { Object.assign(window, orig); }
+
+    expect(vistos.join(" ")).toMatch(/Desactivar devuelve importes a la base/);
+    expect(vistos.join(" ")).toMatch(/Se deja de aplicar: US\$ 17983\.99/);
+    expect(guardado).not.toBe(null);
+    const act = guardado[0].reajusteActivacion;
+    expect(act.activado).toBe(false);
+    expect(act.desactivadoMotivo).toMatch(/respaldo/);
+    // El sello y el historial quedan: el candidato puede reactivar.
+    expect(act.sello).toEqual({ pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio" });
+    expect(act.historial.slice(-1)[0].evento).toBe("desactivacion");
+  });
+
+  test("sin permiso, desactivar queda bloqueado también dentro de la acción", () => {
+    let guardado = null;
+    const ct = CONTRATO({ reajusteActivacion: ACTIVACION });
+    render(
+      <ControlContratos
+        data={[ct]} setData={(f) => { guardado = typeof f === "function" ? f([ct]) : f; }}
+        clientes={[]} setClientes={() => {}} viverosData={[]} setViveros={() => {}}
+        can={false} usuarioActual={USUARIO}
+        tiposAnexoPersist={[]} setTiposAnexoPersist={() => {}}
+        tiposContratoPersist={[]} setTiposContratoPersist={() => {}}
+      />
+    );
+    fireEvent.click(screen.getByText(/Ver/));
+    fireEvent.click(screen.getByText(/Cobros derivados/));
+    const boton = screen.getByText("Desactivar");
+    expect(boton.disabled).toBe(true);
+    const orig = window.alert; const vistos = [];
+    window.alert = (x) => { vistos.push(String(x)); };
+    try {
+      const k = Object.keys(boton).find((x) => x.startsWith("__reactProps$"));
+      boton[k].onClick({ preventDefault() {}, stopPropagation() {} });
+    } finally { window.alert = orig; }
+    expect(vistos.join(" ")).toMatch(/Sin permiso de edicion/);
     expect(guardado).toBe(null);
   });
 });
