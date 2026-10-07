@@ -59,7 +59,14 @@ function mesesTemporada(seasonKey) {
   return (s && s.months && s.months.length) ? s.months : MESES_65;
 }
 
-export const SEMANAS_MES = {
+// Calendario semanal: 4 semanas por mes. Apr-26..Dec-27 es la tabla original,
+// escrita a mano; sus etiquetas son CLAVES de datos guardados ("Datos reales por
+// semana", realData[emp][mes][semana]) y NO se cambian. En 12 de esos 21 meses la
+// tabla parte una semana antes que la semana del día 1, así que la primera semana
+// real del mes cae en S2 (ver docs; corregirlo exige migrar esas claves).
+// Jan-28..Jun-31 se generan con la regla de la app (semanaDeDate): la semana del
+// día 1 y las 3 siguientes; los días posteriores van a la última (semanaEnMes).
+const SEMANAS_MES_FIJA = {
   "Apr-26":["S14","S15","S16","S17"],
   "May-26":["S18","S19","S20","S21"],"Jun-26":["S22","S23","S24","S25"],
   "Jul-26":["S27","S28","S29","S30"],"Aug-26":["S31","S32","S33","S34"],
@@ -72,6 +79,17 @@ export const SEMANAS_MES = {
   "Sep-27":["S36","S37","S38","S39"],"Oct-27":["S40","S41","S42","S43"],
   "Nov-27":["S44","S45","S46","S47"],"Dec-27":["S48","S49","S50","S51"],
 };
+function generarSemanasMes() {
+  const out = {};
+  MESES_INFO.forEach(mo => {
+    if (SEMANAS_MES_FIJA[mo.label]) { out[mo.label] = SEMANAS_MES_FIJA[mo.label]; return; }
+    const w1 = Number(semanaDeDate(new Date(mo.y, mo.m, 1)).slice(1));
+    out[mo.label] = [0, 1, 2, 3].map(k => `S${String(w1 + k).padStart(2, "0")}`);
+  });
+  return out;
+}
+export const SEMANAS_MES = generarSemanasMes();
+
 
 const Z65  = () => Array(63).fill(0); // 63 meses: Apr-26 → Jun-31
 function ext(arr) { const r=[...(arr||[])]; while(r.length<63) r.push(0); if(r.length>63) r.splice(63); return r; }
@@ -733,6 +751,17 @@ function semanaEnMes(fecha, mes) {
   const sem = semanaDeDate(fecha);
   const sems = SEMANAS_MES[mes] || [];
   return sems.includes(sem) ? sem : (sems[sems.length-1] || sem);
+}
+
+// Semana real de una fecha en el calendario del flujo: { mes, mesIdx, semIdx, semana }.
+// Misma regla que ubica las cuotas (semanaEnMes). La usan la columna "semana
+// actual" de Flujo Empresas y el inicio de la ventana del Reporte Semanal.
+export function posicionSemana(fecha = new Date()) {
+  const mes = mesDeDate(fecha);
+  const sems = SEMANAS_MES[mes] || [];
+  const semana = semanaEnMes(fecha, mes);
+  const k = sems.indexOf(semana);
+  return { mes, mesIdx: MESES_65.indexOf(mes), semIdx: k >= 0 ? k : Math.max(0, sems.length - 1), semana };
 }
 
 // Calcula array proy[64] de pagos de préstamos desde CREDITOS para una empresa
@@ -6268,12 +6297,9 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   const isMonthOpen=mes=>openMonth[mes]!==false;
 
   // ── Semana ISO actual (ej: "S16") ─────────────────────────────
-  const semanaHoy = useMemo(()=>{
-    const hoy = new Date();
-    const jan1 = new Date(hoy.getFullYear(),0,4);
-    const week = 1+Math.round(((hoy-jan1)/86400000-3+((jan1.getDay()+6)%7))/7);
-    return `S${String(week).padStart(2,"0")}`;
-  },[]);
+  // Misma regla que las cuotas y el Reporte (posicionSemana); antes era la semana
+  // ISO, que no siempre coincide con la numeración del calendario del flujo.
+  const semanaHoy = useMemo(()=>posicionSemana(new Date()).semana,[]);
   // Mes actual exacto ej "Apr-26" — evita mostrar saldo banco en años futuros con misma semana
   const mesHoyLabel = useMemo(()=>{
     const hoy = new Date();
@@ -10036,8 +10062,8 @@ export function reporte_getMovimientos4Semanas(empNombre, realData, empresas, sa
 
   // Iterar las próximas 8 semanas (≈ mayo + junio): mes actual + mes siguiente
   // Semana actual aproximada según día del mes
-  const diaMes = HOY.getDate();
-  const semIdxActual = Math.min(3, Math.floor((diaMes - 1) / 7));
+  // Semana REAL de hoy en el calendario del flujo (antes: floor((día−1)/7))
+  const semIdxActual = posicionSemana(HOY).semIdx;
 
   // Generar lista de (mesIdx, semIdx) cubriendo las próximas 8 semanas
   const semanas4 = [];
@@ -10045,7 +10071,7 @@ export function reporte_getMovimientos4Semanas(empNombre, realData, empresas, sa
   while(semanas4.length < 8) {
     semanas4.push({ mesIdx: curMes, semIdx: curSem, isLastInMonth: curSem === motor.nSemanas(curMes) - 1 });
     curSem++;
-    if(curSem > 3) { curSem = 0; curMes++; }
+    if(curSem >= motor.nSemanas(curMes)) { curSem = 0; curMes++; }
     if(curMes >= MESES_65.length) break;
   }
 
@@ -10132,10 +10158,36 @@ export function reporte_getMovimientos4Semanas(empNombre, realData, empresas, sa
     const ing = deSem(ingresos), egr = deSem(compromisos);
     return { mesIdx: si.mesIdx, semIdx: si.semIdx, ingresos: ing, egresos: egr, neto: ing - egr };
   });
-  return { compromisos: compromisos.slice(0, 50), ingresos: ingresos.slice(0, 50), semanas,
+  // Listas COMPLETAS (antes se recortaban a 50 y el "resto agrupado" del PDF y el
+  // resumen del CFO quedaban cortos). El PDF muestra top 5 + resto agrupado; el
+  // detalle completo se exporta desde la pantalla.
+  return { compromisos, ingresos, semanas,
     // KPI "Compromisos/Ingresos 8 Sem.": sobre la lista COMPLETA, no la recortada a 50
     totalCompromisos: compromisos.reduce((t, c) => t + c.monto, 0), totalIngresos: ingresos.reduce((t, c) => t + c.monto, 0),
-    recortados: { compromisos: Math.max(0, compromisos.length - 50), ingresos: Math.max(0, ingresos.length - 50) } };
+    ventana: semanas4.map(si => `${displayMes(si.mesIdx)} S${si.semIdx + 1}`) };
+}
+
+// Listado COMPLETO de movimientos de la ventana (todas las empresas incluidas),
+// para consultar o exportar lo que el PDF resume en top 5 + resto agrupado.
+export function reporte_listadoCompleto(empresasData) {
+  const filas = [];
+  (empresasData || []).forEach(e => {
+    [["Compromiso", e.compromisos], ["Ingreso", e.ingresos]].forEach(([tipo, lista]) => (lista || []).forEach(x => filas.push({
+      empresa: e.nombre, tipo, semana: x.mes, mesIdx: x.mesIdx, semIdx: x.semIdx, categoria: x.catLabel, concepto: x.label, monto: x.monto, valor: x.valor,
+    })));
+  });
+  return filas.sort((a, b) => (a.mesIdx - b.mesIdx) || (a.semIdx - b.semIdx) || a.empresa.localeCompare(b.empresa) || (b.monto - a.monto));
+}
+function reporte_exportarListado(empresasData) {
+  const filas = reporte_listadoCompleto(empresasData);
+  const aoa = [["Empresa", "Tipo", "Semana", "Categoría", "Concepto", "Monto USD"]].concat(
+    filas.map(f => [f.empresa, f.tipo, f.semana, f.categoria, f.concepto, Math.round(f.monto * 100) / 100]));
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 18 }, { wch: 12 }, { wch: 11 }, { wch: 26 }, { wch: 44 }, { wch: 14 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Movimientos 8 semanas");
+  XLSX.writeFile(wb, `Reporte_Semanal_movimientos_completo_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  return filas.length;
 }
 
 // Detectar alertas para una empresa
@@ -10370,6 +10422,7 @@ function reporte_armarDatosEmpresa(empNombre, realData, empresas, saldosBancos, 
     saldoTotal: saldos.totalUSD,
     proyecciones,
     compromisos: movs.compromisos,
+    ventana: movs.ventana,
     totalCompromisos: movs.totalCompromisos,
     totalIngresos: movs.totalIngresos,
     ingresos: movs.ingresos,
@@ -11427,6 +11480,7 @@ function ReporteSemanalModule({
 }) {
   const [subTab, setSubTab] = useState("generar"); // "generar" | "umbrales" | "destinatarios" | "historial"
   const [generando, setGenerando] = useState(false);
+  const [verListado, setVerListado] = useState(false);
   const [errorGen, setErrorGen] = useState(null);
   const [exitoGen, setExitoGen] = useState(null);
 
@@ -11595,6 +11649,33 @@ function ReporteSemanalModule({
               </div>
             ))}
           </div>
+          {(()=>{
+            const filas = reporte_listadoCompleto(empresasParaReporte);
+            const nComp = filas.filter(f=>f.tipo==="Compromiso").length, nIng = filas.length - nComp;
+            const ventana = empresasParaReporte[0]?.ventana || [];
+            return (
+              <div data-listado="movimientos" style={{padding:"8px 12px",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,fontSize:11,color:C.text,marginBottom:14}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <span>Movimientos {ventana.length?`${ventana[0]} → ${ventana[ventana.length-1]}`:"8 semanas"}: <strong>{nComp} compromisos</strong> y <strong>{nIng} ingresos</strong>. El PDF detalla el top 5 por empresa y agrupa el resto por categoría (los totales incluyen todo).</span>
+                  <button onClick={()=>setVerListado(v=>!v)} style={{marginLeft:"auto",padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.accentL,cursor:"pointer",fontSize:11}}>{verListado?"Ocultar listado":"Ver listado completo"}</button>
+                  <button onClick={()=>reporte_exportarListado(empresasParaReporte)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.green,cursor:"pointer",fontSize:11}}>Exportar listado completo (Excel)</button>
+                </div>
+                {verListado&&(
+                  <div style={{maxHeight:360,overflow:"auto",marginTop:8}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+                      <thead><tr>{["Semana","Empresa","Tipo","Categoría","Concepto","Monto USD"].map(h=><th key={h} style={{textAlign:h==="Monto USD"?"right":"left",padding:"4px 6px",borderBottom:`1px solid ${C.border}`,color:C.muted,position:"sticky",top:0,background:C.card}}>{h}</th>)}</tr></thead>
+                      <tbody>{filas.map((f,i)=>(
+                        <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+                          <td style={{padding:"3px 6px"}}>{f.semana}</td><td style={{padding:"3px 6px"}}>{f.empresa}</td><td style={{padding:"3px 6px"}}>{f.tipo}</td>
+                          <td style={{padding:"3px 6px"}}>{f.categoria}</td><td style={{padding:"3px 6px"}}>{f.concepto}</td>
+                          <td style={{padding:"3px 6px",textAlign:"right",color:f.tipo==="Ingreso"?C.green:C.red}}>{_formatUSD(f.monto)}</td>
+                        </tr>))}</tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {kpisGrupo.saldoOmitidas.length>0&&(
             <div role="status" data-aviso="sin-paridad" style={{padding:"8px 12px",background:`${C.yellow}18`,border:`1px solid ${C.yellow}66`,borderRadius:8,fontSize:11,color:C.text,marginBottom:14}}>
               <strong style={{color:C.yellow}}>⚠ Saldo bancos del grupo incompleto:</strong> {kpisGrupo.saldoOmitidas.length} cuenta(s) sin conversión a USD en este reporte no suman —{" "}

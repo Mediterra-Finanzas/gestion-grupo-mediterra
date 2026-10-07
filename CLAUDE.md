@@ -507,13 +507,20 @@ S1 si el mapa no cuadra con el mes o hay override.
 
 Diferencias que quedan (pendientes de decisión):
 - Imputación mixta según origen (S1 vs última semana): decisión de Angelo.
-- Reporte: la ventana de 8 semanas parte en `min(3, floor((día−1)/7))`, no en la
-  semana ISO real; listado recortado a 50 ítems por empresa con `Math.abs`
-  (`monto`). Los KPI "Compromisos/Ingresos 8 Sem." ya usan la lista completa
-  (`totalCompromisos`); `semanas[]` trae el neto con signo para cuadrar.
+- Reporte: los ítems muestran `monto` = |valor| (`valor` trae el signo) y
+  `semanas[]` trae el neto con signo para cuadrar.
 - Una línea agregada con mensual en un mes ya iniciado cae en S1 aunque S1 esté
   fuera de la ventana (antes se movía a la primera semana visible).
-- Meses posteriores a Dec-27 no tienen lista en `SEMANAS_MES`.
+- ~~Meses posteriores a Dec-27 sin lista~~: el calendario cubre los 63 meses
+  (`generarSemanasMes`). Apr-26..Dec-27 es la tabla original (sus etiquetas son
+  claves de `realData[emp][mes][semana]`, no se tocan); Jan-28..Jun-31 se generan
+  con la regla de la app (semana del día 1 + 3). Pendiente de decisión: en 12 de los
+  21 meses originales la tabla parte una semana antes que el día 1 (la primera
+  semana real cae en S2); corregirlo exige migrar esas claves.
+- `posicionSemana(fecha)` es la semana real (misma regla que las cuotas) para la
+  columna "hoy" de Flujo Empresas y el inicio de la ventana del Reporte.
+- El Reporte ya no recorta a 50: listas completas, ver/exportar en pantalla
+  (`reporte_listadoCompleto`), PDF con top 5 + resto agrupado sobre el total.
 
 Tests: `src/__tests__/motorSemanal.test.js` (motor = Consolidado mensual, Σ semanas
 = mes, cambio de año, 5.ª semana, mixtos), `src/__tests__/reporteSemanalMotor.test.js`

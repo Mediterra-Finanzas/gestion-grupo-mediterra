@@ -31,7 +31,7 @@ const subLinesGlobal = { Mediterra: { "Pago Préstamos - Total": [
 const addedLinesGlobal = { Mediterra: { egr_var: [
   { label: "Gasto mixto", vals: { [iM("Dec-26")]: 4000, [`${iM("Jan-27")}_2`]: 1500, [iM("Jan-27")]: 777 } },
 ] } };
-const HOY = new Date(2026, 10, 25);   // 25-nov-2026 → semana 4 de noviembre
+const HOY = new Date(2026, 10, 25);   // 25-nov-2026 → semana real S48 → última de Nov-26 (S44..S47)
 
 describe.each(Object.keys(empresas))("%s", (n) => {
   test("Σ ítems de cada semana = flujo neto semanal de Flujo Empresas", () => {
@@ -61,5 +61,19 @@ test("Mediterra: préstamos en su semana real, override y líneas mixtas según 
   expect(de("Gasto mixto", "Dec-26", 0)).toBe(4000);                       // mensual sin semanas → S1
   expect(de("Gasto mixto", "Jan-27", 0)).toBe(0);                          // Jan-27 tiene semana: 777 no se suma
   expect(de("Gasto mixto", "Jan-27", 2)).toBe(1500);
-  expect(r.recortados).toEqual({ compromisos: 0, ingresos: 0 });            // el listado se recorta a 50; aquí no alcanza
+  expect(r.compromisos.length + r.ingresos.length).toBe(todos.length);     // listas completas, sin recorte
+});
+
+describe("ventana del Reporte: arranca en la semana REAL y cruza mes y año", () => {
+  const ventana = (d) => reporte_getMovimientos4Semanas("Mediterra", realData, empresas, {}, subLinesGlobal, addedLinesGlobal, CREDITOS, d).semanas.map(s => `${MESES[s.mesIdx]} S${s.semIdx + 1}`);
+  test.each([
+    // 07-oct-2026 (miércoles): S41 → 2.ª semana de Oct-26 (S40..S43). Antes: floor(6/7)=0 → S1
+    [new Date(2026, 9, 7), ["Oct-26 S2", "Oct-26 S3", "Oct-26 S4", "Nov-26 S1", "Nov-26 S2", "Nov-26 S3", "Nov-26 S4", "Dec-26 S1"]],
+    // 20-dic-2026: S52, no está en Dec-26 (S48..S51) → última; cruza a 2027
+    [new Date(2026, 11, 20), ["Dec-26 S4", "Jan-27 S1", "Jan-27 S2", "Jan-27 S3", "Jan-27 S4", "Feb-27 S1", "Feb-27 S2", "Feb-27 S3"]],
+    // 01-ene-2027: S01 → 1.ª semana de Jan-27
+    [new Date(2027, 0, 1), ["Jan-27 S1", "Jan-27 S2", "Jan-27 S3", "Jan-27 S4", "Feb-27 S1", "Feb-27 S2", "Feb-27 S3", "Feb-27 S4"]],
+    // 30-dic-2030 (fuera de la tabla original): calendario generado, cruza a 2031
+    [new Date(2030, 11, 30), ["Dec-30 S4", "Jan-31 S1", "Jan-31 S2", "Jan-31 S3", "Jan-31 S4", "Feb-31 S1", "Feb-31 S2", "Feb-31 S3"]],
+  ])("%s", (d, esperado) => expect(ventana(d)).toEqual(esperado));
 });
