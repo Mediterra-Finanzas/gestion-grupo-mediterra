@@ -36,13 +36,13 @@ describe("1 · importes idénticos al candidato, en todas las temporadas", () =>
 
   test("el total tambien", () => {
     const tot = Object.keys(CANDIDATO).reduce((s, t) => s + f[t].montoFact, 0);
-    expect(r2(tot)).toBeCloseTo(655240.69, 2);
+    expect(r2(tot)).toBeCloseTo(TOTAL_CANDIDATO, 2);
   });
 
   test("y el reajuste sigue aplicándose: no volvió a la base", () => {
     const base = porTemp(filas(CONTRATO()));
     const dif = Object.keys(CANDIDATO).reduce((s, t) => s + (f[t].montoFact - base[t].montoFact), 0);
-    expect(r2(dif)).toBeCloseTo(25690.69, 2);   // los US$ que un rollback sin soporte borraría
+    expect(r2(dif)).toBeCloseTo(DIFERENCIA, 2);   // los US$ que un rollback sin soporte borraría
   });
 });
 
