@@ -9993,7 +9993,12 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                     const antes = antecedentesDeFila;
                     const prev = previaRC;
                     const ra = r.reajusteActivacion||{};
-                    const upA = (campo,val)=>{ if(!can) return; upd(r.id,"reajusteActivacion",{...(r.reajusteActivacion||{}),[campo]:val}); };
+                    // Los cuatro campos estan `disabled` cuando hay una activacion
+                    // vigente, pero `disabled` NO desconecta el handler: ese fue el
+                    // agujero de T3. Sin esta condicion se podia borrar el respaldo
+                    // de un contrato activo con un evento sintetico y apagar el
+                    // reajuste -25.690,69 sin motivo, sin confirmacion y sin historial.
+                    const upA = (campo,val)=>{ if(!can || !edit.puede) return; upd(r.id,"reajusteActivacion",{...(r.reajusteActivacion||{}),[campo]:val}); };
                     const col = act.estado===REAJ_ACTIVADO ? C.success
                       : act.estado===REAJ_MODIF_PENDIENTE ? (C.am||"#ca8a04")
                       : act.estado===REAJ_CONFLICTO ? C.danger : C.border;
@@ -10074,7 +10079,9 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                   <td style={{padding:"4px 8px",textAlign:"right",color:C.muted}}>${N(d.base.toFixed(2))}</td>
                                   <td style={{padding:"4px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(d.actual.toFixed(2))}</td>
                                   <td style={{padding:"4px 8px",textAlign:"right"}}>{d.intocable||d.bloqueado?"\u2014":`$${N(d.ajustado.toFixed(2))}`}</td>
-                                  <td style={{padding:"4px 8px",textAlign:"right",color:d.diferencia>0?C.success:C.muted2}}>{d.diferencia>0?`+$${N(d.diferencia.toFixed(2))}`:"\u2014"}</td>
+                                  {/* Desde que la diferencia se mide contra el importe actual puede
+                                      ser NEGATIVA. Mostrar solo las positivas ocultaria una baja. */}
+                                  <td style={{padding:"4px 8px",textAlign:"right",color:d.diferencia>0?C.success:d.diferencia<0?C.danger:C.muted2}}>{d.diferencia===0?"\u2014":`${d.diferencia>0?"+":"−"}$${N(Math.abs(d.diferencia).toFixed(2))}`}</td>
                                   <td style={{padding:"4px 8px",fontSize:9,color:C.muted}}>
                                     {d.intocable?"protegida: tiene factura o pago"
                                       :d.reglaPendiente?"bloqueada: regla pendiente"

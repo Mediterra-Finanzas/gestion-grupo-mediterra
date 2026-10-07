@@ -331,7 +331,25 @@ export function activar(ct, datos) {
   // a activar: no hay nada que registrar, y resellar terminos por esta via
   // seria una modificacion economica sin vista previa ni confirmacion. Para
   // cambiar los terminos hay que desactivar, que es una operacion propia.
-  if (previa.activado === true) {
+  // Exigir los terminos ANTES de escribir nada. Sin esto se podia marcar
+  // `activado:true` con los cuatro campos vacios, sellar un sello vacio y
+  // dejar un evento de historial de algo que no aplica.
+  const faltanTerminos = [];
+  if (!aFecha(d.fechaReferencia)) faltanTerminos.push("fecha de referencia");
+  if (!txt(d.respaldo)) faltanTerminos.push("respaldo de la fecha");
+  if (!txt(d.reglaFecha)) faltanTerminos.push("regla de fecha aplicable");
+  if (faltanTerminos.length)
+    return {
+      ok: false,
+      motivo: "Faltan los terminos de la activacion: " + faltanTerminos.join(", ") +
+        ". No se marca nada hasta que esten.",
+      contrato: ct,
+    };
+
+  // La guarda mira el ESTADO, no la bandera cruda. Una activacion marcada
+  // pero incompleta no es una activacion vigente, y bloquearla aca dejaba al
+  // contrato sin ninguna accion disponible desde la pantalla.
+  if (estadoActivacion(ct).activo === true) {
     const propuesto = sellarTerminos(cfg, d);
     const sello = previa.sello || {};
     const mismos = sello.pct === propuesto.pct &&
