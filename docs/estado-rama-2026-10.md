@@ -14,6 +14,13 @@ Correcciones a entregas anteriores:
 - El rollback se había verificado contra `8df9862`. `main` avanzó a **`3a9d33e`** el 07-10-2026 a las 12:07 UTC (otra sesión). La rama ya lo integró y el rollback se repitió contra ese commit (sección 6).
 - "Osiris marca cuotas pagadas sin control de rol" era **falso**: el cambio queda en borrador y "Guardar" exige el permiso del módulo.
 
+**Novedades (07-10-2026, tarde):**
+- La matriz de decisiones se reduce a seis preguntas (§4.3), basada en los valores por defecto.
+- **Aclaración sobre "haré commit de la corrección":** se refería **solo a "Marcar pagada"** (commit `1059b1c`). La regla de Nóminas **no se modificó**: `git diff origin/main` no muestra cambios en `AUTORIZADORES`, `puedeAvanzar` ni `puedeRetroceder`. La separación de funciones sigue siendo una propuesta.
+- Que "Marcar pagada" quede limitado a admin/CFO en el conjunto preparado es una **decisión provisional**, señalada en la pregunta 1.
+- Corrección de redacción: los PIN están como **hash PBKDF2**, no cifrados. `.gitignore` **previene** subidas accidentales; no las impide. El respaldo original **no se borra automáticamente**: se conserva local y protegido hasta que decidas su conservación.
+- Sin cambios de código en esta actualización, salvo textos del extractor y de este documento. No se repitieron pruebas.
+
 ---
 
 ## 1. Fechas y cálculos
@@ -196,30 +203,23 @@ Otros puntos revisados, sin defecto: Tareas, Frisku y Osiris ya bloqueaban el ro
 
 Los accesos con permiso explícito (admin pagando y editando; Carol editando bancos sin configurar; la aprobadora asignada aprobando) pasan antes y después. **Excepción deliberada:** Carol y Milagros dejan de poder marcar pagada, porque `rendVerTodas` no es una autorización explícita para pagar (ver D1 en la matriz).
 
-### 4.3 Matriz de accesos para D1–D6 (para tu decisión)
+### 4.3 Matriz de decisiones (seis preguntas)
 
-Fuente: valores **por defecto del código** de `main` (3a9d33e). **No leí la fila `usuarios` de producción**, que manda sobre estos valores y puede tener otros. "Rama" = lo que cambia la rama. "Propuesta" es mi recomendación: **no está implementada** salvo donde dice "Rama".
+**Basada en los valores por defecto del código de `main` (3a9d33e).** No hay copia autorizada de la fila `usuarios`, que en producción manda sobre estos valores. Cuando la haya, se reemplaza esta columna "Actual".
 
-Personas: A = Angelo (admin, esCFO) · C = Carol (editor; Finanzas, Contabilidad, Osiris; `rendVerTodas`, `rendPorOtros`) · Mi = Michelle (editor; Contabilidad; `rendVerTodas`; autorizadora de nóminas) · P = Pablo (editor; Contabilidad; `rendVerTodas`) · Ma = Milagros (editor; Tareas; `rendVerTodas`; lista heredada "rinde por otros") · N = Nicolás (gerente técnico; Osiris) · Co = rol consulta (sin usuario por defecto) · T = resto del personal (solo Rendiciones).
+"Admin" **no** se trata como autorización general para acciones financieras. Donde hoy el rol admin habilita una acción, la matriz lo muestra como decisión. Por construcción del código, quien se crea con rol admin recibe además `esCFO` (App.jsx), así que hoy "admin" y "CFO" son la misma persona: Angelo.
 
-| D | Recurso · acción | A | C | Mi | P | Ma | N | Co | T | Propuesta recomendada |
-|---|---|---|---|---|---|---|---|---|---|---|
-| D1 | Rendiciones · **marcar pagada** | Sí | Sí → **No (rama)** | Sí → **No (rama)** | Sí → **No (rama)** | Sí → **No (rama)** | No | Sí si `rendVerTodas` → **No (rama)** | No | Un permiso explícito "puede pagar rendiciones" por persona, asignado por el admin. Candidatos a confirmar: A, C y Ma (hoy reciben los avisos de pago) |
-| D1 | Rendiciones · ver todas (Pagos y Reportes) | Sí | Sí | Sí | Sí | Sí | No | Sí si `rendVerTodas` | No | Sin cambio; revisar si Mi y P deben ver las de todo el personal |
-| D2 | Rendiciones · aprobar | Siempre (override) | Si es la aprobadora asignada | Ídem | Ídem | Ídem | Ídem | Ídem → **No (rama)** | Ídem | Una sola fuente: el aprobador del maestro de Rendiciones (`config.aprobadores`, el único que funciona). La "cadena" de Gestión de Usuarios no tiene efecto: retirarla o rotularla |
-| D2 | Rendiciones · sin aprobador asignado | Sí | No | No | No | No | No | No | No | Sin cambio (solo admin/CFO) |
-| D2 | Rendiciones · devolver una aprobada | Sí | Si la aprobó | Ídem | Ídem | Ídem | Ídem | Ídem → **No (rama)** | Ídem | Sin cambio |
-| D3 | Contabilidad · ver | Sí | Sí | Sí | Sí | No | No | No | No | Sin cambio |
-| D3 | Contabilidad · crear y editar | Sí (esCFO) | No | No | No | No | No | No | No | Mi y P (contadores) editan; C a tu criterio. La matriz borrador proponía admin + Mi, P y C |
-| D4 | Pestaña sin valor configurado (cualquier módulo) | Editar | Editar | Editar | Editar | Editar | Editar | Editar → **Ver (rama, solo Finanzas)** | — | Guardar explícito el nivel efectivo de hoy para cada persona y pestaña existente (nadie pierde acceso) y que las pestañas **nuevas** nazcan "sin acceso" |
-| D5 | Nóminas · ver | Sí | Sí | No (sin pestaña) | No | No | No | Sí si tiene Finanzas → **Ver (rama)** | No | La matriz borrador proponía solo A + esCFO. Recomiendo A y C, y Mi solo si dará V°B° |
-| D5 | Nóminas · preparar y editar | Sí | Sí | No | No | No | No | **No (rama)** | No | Sin cambio |
-| D5 | Nóminas · V°B° (revisión → aprobada1) | No | Sí | Sí por nombre, pero **sin acceso a la pestaña** | No | No | No | No | No | **Separación de funciones**: quien preparó la nómina no da su V°B°. Hoy C puede preparar y dar V°B° a la misma nómina |
-| D5 | Nóminas · aprobación final | Sí | No | No | No | No | No | No | No | Igual, con la misma separación: A no aprueba al final una nómina que preparó |
-| D6 | Rendiciones · crear y editar las propias | Sí | Sí | Sí | Sí | Sí | Sí | Sí | Sí | Mantener para consulta (es su gasto, no datos financieros); confirmar |
-| D6 | Rendiciones · crear por otra persona | Sí | Sí | No | No | Sí | No | No | No | Pasar la lista heredada de Ma a su permiso en Gestión de Usuarios |
+| # | Pregunta | Actual (defaults de `main`) | Recomendación (no implementada) | Lo que tienes que definir |
+|---|---|---|---|---|
+| 1 | ¿Quién puede marcar rendiciones como pagadas? | Angelo, Carol, Michelle, Pablo y Milagros (todo `rendVerTodas`), y un usuario consulta si tiene `rendVerTodas`. La acción no revisaba rol ni estado. **La rama** (preparada, no integrada) lo limita a admin o CFO, con la rendición aprobada y sin rol consulta | Un permiso explícito por persona, "paga rendiciones", asignado en Gestión de Usuarios. Nadie paga solo por ser admin, CFO o por ver todas. Además, rendición aprobada y nunca rol consulta | Lista de personas que pagan (candidatos: Angelo, Carol, Milagros, que hoy reciben los avisos de pago). **Que la rama incluya admin/CFO es una decisión provisional mía**, pendiente de tu confirmación |
+| 2a | ¿Quién puede ver todas las rendiciones? | Admin, CFO y `rendVerTodas`: Angelo, Carol, Michelle, Pablo, Milagros | Separar ver de aprobar y de pagar. Ver todas: solo quien revisa o contabiliza | Si Michelle y Pablo necesitan verlas todas (por ejemplo, para contabilizar) |
+| 2b | ¿Quién puede aprobarlas? | El aprobador asignado a cada trabajador en Rendiciones → Maestros (los valores reales son desconocidos). Sin aprobador asignado: admin o CFO. El admin puede aprobar cualquiera (override, que queda registrado). La "cadena" de Gestión de Usuarios no tiene efecto | Una sola fuente: el maestro de Rendiciones, con aprobador **y reemplazo** por trabajador. La cadena sin efecto se retira o se rotula | Aprobador y reemplazo de cada persona. **Si el admin mantiene el override**, y con qué registro |
+| 3 | ¿Quién puede crear y editar en Contabilidad? | Ven: Angelo, Carol, Michelle, Pablo. Editan: solo quien tiene `esCFO` (Angelo), por un error de código (`canEdit` siempre falso) | Michelle y Pablo (contadores) crean y editan. Carol ve | Si Carol edita. **Si el CFO/admin edita en Contabilidad** |
+| 4 | ¿Quién puede ver, preparar, dar V°B° y aprobar al final las nóminas? | Ver y preparar: quien tenga la pestaña Nóminas en "editar" (Angelo, Carol). V°B°: Carol o Michelle, fijo por nombre en el código. Michelle no tiene la pestaña por defecto, así que en la práctica solo Carol. Aprobación final: rol admin (Angelo). **Sin separación de funciones** | Preparar: un responsable. V°B°: otra persona. Aprobación final: una tercera. Quien preparó no da el V°B° ni la aprobación final de esa nómina. **No se implementa** hasta que definas responsables, reemplazos y excepciones | Responsable y reemplazo de cada paso. Tratamiento de excepciones (ausencia o urgencia): quién autoriza y cómo queda registrado. **Si la aprobación final sigue ligada al rol admin** o a una persona nombrada |
+| 5 | ¿El perfil consulta puede cargar sus propias rendiciones como excepción explícita? | Sí, de hecho: todo usuario recibe Rendiciones en "ver", que en ese módulo significa cargar y ver las propias. La rama no lo cambia; solo le quita aprobar, pagar y devolver | Sí, **como excepción escrita** en la definición del rol: "Consulta – solo visualiza, salvo cargar sus propias rendiciones" | Confirmar la excepción |
+| 6 | ¿Qué acceso tendrán las pestañas nuevas o sin configurar? | "Editar" para todo no-admin con el módulo (salvo "config", que es "sin acceso"). El admin tiene "editar" en todo. El gerente técnico tiene "editar" en todo Osiris. La rama pone el rol consulta en "ver" solo en Finanzas | 1) Guardar como explícito el nivel efectivo de hoy en cada persona y pestaña existente: nadie gana ni pierde acceso. 2) Las pestañas nuevas nacen "sin acceso" para no-admin | **Si el admin recibe acceso automático a las pestañas nuevas** o también se le asigna explícitamente |
 
-**La separación de funciones en Nóminas (D5) es un hallazgo nuevo:** el código no lo impide. Ver `FinanzasModule.jsx` `puedeAvanzar`: borrador y preparada → cualquier editor; revisión → Carol o Michelle; aprobada1 → admin.
+Si quieres trabajar con los usuarios reales sin compartir el respaldo completo, la misma extracción local podría producir un archivo solo con los campos de permisos: nombre, rol, módulos, pestañas y marcas, sin PIN ni correos. Eso es código nuevo y no lo hice; queda a tu decisión.
 
 ## 5. Protección del servidor
 
@@ -328,10 +328,10 @@ Como los grupos son independientes, los permisos podrían integrarse **antes** y
 
 ## 8. Copia mínima para verificar fechas y leasing
 
-**Formato de la versión publicada:** el botón "💾 Respaldo" de `main` genera "Mediterra Hub Backup v1" (`tablas[id].data`). Es el mismo formato en `8df9862` y en `3a9d33e`, sin cambios desde el 24-09-2026, así que vale para cualquiera de los dos que esté desplegado. **Incluye `pins` (PIN cifrados)** y los datos de todos los módulos.
+**Formato de la versión publicada:** el botón "💾 Respaldo" de `main` genera "Mediterra Hub Backup v1" (`tablas[id].data`). Es el mismo formato en `8df9862` y en `3a9d33e`, sin cambios desde el 24-09-2026, así que vale para cualquiera de los dos que esté desplegado. **Incluye `pins`: los PIN en forma de hash PBKDF2** (no es cifrado: no se pueden descifrar, pero un hash de PIN de 6 dígitos se puede probar por fuerza bruta) y los datos de todos los módulos.
 
 Procedimiento (todo en tu computador):
-1. En la app publicada, "💾 Respaldo" (requiere rol admin). El archivo original **no se comparte, no se sube a la rama y se elimina** después del paso 2. `.gitignore` bloquea `backup_mediterra_*.json` y `creditos-minimo-*.json`.
+1. En la app publicada, "💾 Respaldo" (requiere rol admin). El archivo original **no se comparte ni se sube a la rama**. Se conserva **local y protegido** (no en carpetas sincronizadas ni compartidas) hasta que decidas su conservación; no se borra automáticamente. `.gitignore` incluye `backup_mediterra_*.json` y `creditos-minimo-*.json`: **previene una subida accidental, no la impide** (un `git add -f` o un nombre distinto la saltan).
 2. Abrir `scripts/datos/extraer-creditos-minimo.html` (doble clic) y elegir el archivo.
    - La página no tiene acceso a la red.
    - Solo lee la fila `finanzas` → `creditos_data`. `pins`, usuarios y el resto nunca entran al archivo de salida.
