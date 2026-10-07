@@ -1,6 +1,33 @@
 # Tipo de cambio de los saldos bancarios — diagnóstico y política propuesta
 
-Estado: **propuesta para aprobar. No se cambió la fuente ni la lógica de conversión, ni se recalcularon históricos.** Todas las líneas citadas son de `src/FinanzasModule.jsx` en la rama `claude/fervent-bell-uu6ae8`.
+Estado: **implementada en la rama `claude/fervent-bell-uu6ae8` (oct-2026), sin publicar.** No se recalcularon históricos ni se reescribió `rec.usd` en bloque. Ver sección 0. Todas las líneas citadas son de `src/FinanzasModule.jsx` en la rama `claude/fervent-bell-uu6ae8`.
+
+## 0. Implementación (política maestro_tc_v1)
+
+Código: `src/tc/conversionSaldos.js` (puro). Pruebas aisladas: `src/__tests__/conversionSaldos.test.js` y `scripts/e2e/tc-politica.mjs` (14/14, navegador con hora de Chile, Supabase falso).
+
+| Tema | Regla |
+|---|---|
+| Fuente | `maestro_tc` y nada más. open.er-api queda en Saldos Bancos como "referencia mercado hoy, no se usa en cálculos". |
+| Fecha | TC de la **fecha del saldo**; si falta, la última cotización anterior con hasta **5 días hábiles** (lun–vie; los feriados no se descuentan, el límite es más estricto). Más antigua → **sin paridad**. |
+| Pares | CLP: `USD-CLP` (mindicador). EUR: `EUR-USD` (BCE) y, si no hay, `USD-EUR`. PEN: `USD-PEN` **solo con fuente manual**. Sin triangulación. |
+| Saldo nuevo | Se guarda con `usd, tc, tcPar, tcOp, tcFecha, tcFuente, tcDiasHabiles, tcPolitica:"maestro_tc_v1"`. Sin cotización: `usd:null, tcEstado:"sin_tc", tcMotivo`. |
+| Saldo histórico | Registro **sin `tcPolitica`**: se respeta su `usd` y se rotula "TC histórico (fuente y fecha no registradas)". `usd` null, o 0 con monto → sin paridad. Pasa a la política solo cuando alguien vuelve a guardar **ese** saldo. |
+| Lectura | `leerUsdSaldo` + `saldosVigentes` son la única lectura: Saldos Bancos, Flujo Empresas, Dashboard, Consolidado (incl. semanas), Reporte Semanal (pantalla y PDF) y Excel individual y consolidado. |
+| Visible | TC, par, fecha y fuente: tiles y cada cuenta en Saldos Bancos (con vista previa "al guardar"), detalle desplegable del saldo en Flujo/Consolidado/Dashboard, PDF del Reporte y nota al pie del Excel. |
+
+Efecto en cifras: Flujo, Dashboard, Consolidado y Excel **no cambian** con datos históricos (ya leían `rec.usd`). Cambian Saldos Bancos (antes convertía en vivo con open.er-api) y el Reporte Semanal (antes 950 / 3,75 fijos y EUR omitido). Ver la comparación antes/después del informe.
+
+### Diferencia 117.433 vs 17.433 (reproducida)
+
+Mismo saldo: Allegria Foods BICE USD 17.433 + BICE CLP 95.000.000 guardado con `usd: null`.
+
+| Pantalla | Cálculo antes | US$ |
+|---|---|---|
+| Reporte Semanal | 17.433 + 95.000.000 / **950 (fijo)** = 17.433 + 100.000 | **117.433** |
+| Dashboard / Flujo / Consolidado / Excel | 17.433 + (CLP sin `usd` guardado → **0**) | **17.433** |
+
+Era de **cálculo**, no de redacción: dos criterios para el mismo saldo. Ninguno era correcto (uno usaba un TC inventado, el otro contaba 0 sin avisarlo). Ahora las dos pantallas dan 17.433 · **INCOMPLETO** con la cuenta CLP nombrada; al volver a guardarla con TC (p. ej. 925,40 del 15-09) ambas dan 17.433 + 102.658,31 = 120.091,31.
 
 ## 1. Hoy hay tres criterios distintos para el mismo saldo
 

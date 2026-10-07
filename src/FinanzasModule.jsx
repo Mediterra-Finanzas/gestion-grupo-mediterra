@@ -8,7 +8,8 @@ import { exportarFlujoConsolidado, exportarFlujoEmpresa } from './flujoExportExc
 import { buildAllpaPeruLineas, ALLPA_PERU_KG_2026, ALLPA_PERU_PRECIO_2026, ALLPA_PERU_RATES_2026 } from './allpaPeruPpto.js';
 import { calcularAmortizacionSocio, generarInteresPeriodico } from './creditoSocio.js';
 import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
-import { uploadDocNomina, urlFirmadaNomina } from './friskuHelpers';
+import { uploadDocNomina, urlFirmadaNomina, dbLoadGeneric } from './friskuHelpers';
+import { leerUsdSaldo, saldosVigentes, totalSaldosUSD, convertirSaldoNuevo, textoConversionSaldos, cotizacionSaldo, MAX_DIAS_HABILES } from './tc/conversionSaldos.js';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
 import { USE_GUARD, pollRow } from './guardClient';
 import { persist, construirAvisoDesde } from './persistencia/instancia.js';
@@ -4592,25 +4593,9 @@ function getSaldoBancoParaSemana(saldosBancos, empNombre, mesIdx, semIdx=0) {
   if(!saldosBancos||mesIdx<0) return null;
   const mesInfo=MESES_INFO[mesIdx]; if(!mesInfo) return null;
   const fechaLimite=new Date(mesInfo.y, mesInfo.m, 1+semIdx*7);
-  const porCuenta={};
-  Object.entries(saldosBancos).forEach(([key,rec])=>{
-    const parts=key.split("||");
-    if(parts[0]!==empNombre) return;
-    if(!rec?.monto||!rec?.fecha) return;
-    const f=new Date(rec.fecha);
-    if(f<fechaLimite){
-      const cuentaKey=`${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
-      if(!porCuenta[cuentaKey]||new Date(porCuenta[cuentaKey].fecha)<f) porCuenta[cuentaKey]=rec;
-    }
-  });
-  let total=0,found=false;
-  Object.values(porCuenta).forEach(rec=>{
-    const moneda=rec.moneda||"usd";
-    if(moneda==="usd") total+=Number(rec.monto)||0;
-    else if(rec.usd!=null) total+=Number(rec.usd)||0;
-    found=true;
-  });
-  return found?total:null;
+  // Conversión: fuente única (src/tc/conversionSaldos.js)
+  const t = totalSaldosUSD(saldosBancos, empNombre, { antesDe: fechaLimite });
+  return t.encontrado ? t.total : null;
 }
 
 // Fechas de los saldos VIGENTES de una empresa: una por cuenta (banco+moneda),
@@ -4635,25 +4620,8 @@ function fechasSaldosEmpresa(saldosBancos, empNombre) {
 
 export function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
   if(!saldosBancos) return fallback;
-  const porCuenta={};
-  Object.entries(saldosBancos).forEach(([key,rec])=>{
-    const parts=key.split("||");
-    if(parts[0]!==empNombre) return;
-    if(!rec?.monto||!rec?.fecha) return;
-    const cuentaKey=`${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
-    if(!porCuenta[cuentaKey]||new Date(porCuenta[cuentaKey].fecha)<new Date(rec.fecha)) porCuenta[cuentaKey]=rec;
-  });
-  let total=0,found=false;
-  Object.values(porCuenta).forEach(rec=>{
-    const moneda = rec.moneda || "usd";
-    if(moneda === "usd") {
-      total += Number(rec.monto)||0;
-    } else if(rec.usd != null) {
-      total += Number(rec.usd)||0;
-    }
-    found=true;
-  });
-  return found?total:fallback;
+  const t = totalSaldosUSD(saldosBancos, empNombre);
+  return t.encontrado ? t.total : fallback;
 }
 
 // Cuentas cuyo saldo vigente NO tiene conversión a US$ guardada. Hoy esas cuentas
@@ -4666,24 +4634,9 @@ export function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
 // Flujo Empresas, Dashboard (bancos) y Reporte; false para getSaldoBancoInicial
 // (Consolidado, saldo inicial del Dashboard y Excel).
 export function cuentasSinParidad(saldosBancos, empNombre, { excluirFuturas = false, hoy = new Date() } = {}) {
-  if(!saldosBancos) return [];
-  const porCuenta = {};
-  Object.entries(saldosBancos).forEach(([key, rec]) => {
-    const parts = key.split("||");
-    if(parts[0] !== empNombre) return;
-    if(!rec?.monto || !rec?.fecha) return;
-    const f = new Date(rec.fecha);
-    if(excluirFuturas && f > hoy) return;
-    const cuentaKey = `${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
-    if(!porCuenta[cuentaKey] || new Date(porCuenta[cuentaKey].rec.fecha) < f) porCuenta[cuentaKey] = { banco: parts[1], rec };
-  });
-  return Object.values(porCuenta).filter(({ rec }) => {
-    if((rec.moneda || "usd") === "usd") return false;
-    const u = rec.usd == null ? NaN : Number(rec.usd);
-    return !Number.isFinite(u) || (u === 0 && Number(rec.monto) !== 0);
-  }).map(({ banco, rec }) => ({
-    empresa: empNombre, banco, moneda: rec.moneda, monto: Number(rec.monto), fecha: rec.fecha,
-    motivo: rec.usd == null ? "sin_tc" : "usd_cero",
+  return totalSaldosUSD(saldosBancos, empNombre, { excluirFuturas, hoy }).sinParidad.map(c => ({
+    empresa: empNombre, banco: c.banco, moneda: c.moneda, monto: c.monto, fecha: c.fecha,
+    motivo: c.rec?.usd == null ? "sin_tc" : "usd_cero", detalle: c.motivo,
   }));
 }
 
@@ -4707,6 +4660,33 @@ function AvisoSinParidad({ lista, contexto }) {
       </ul>
       <div style={{color:C.muted,marginTop:4}}>Para completarlo: volver a guardar el saldo en Saldos Bancos con tipo de cambio disponible. La política de TC sigue pendiente (docs/propuesta-tc-saldos-bancos.md).</div>
     </div>
+  );
+}
+
+// Detalle del saldo bancario en US$: cada cuenta con su conversión (TC, par, fecha y
+// fuente, o "TC histórico") y la suma. Es la misma lectura que usan los totales.
+function DetalleSaldoBancos({ cuentas, titulo = "Saldo bancario en US$" }) {
+  if(!cuentas || !cuentas.length) return null;
+  const f0 = (x) => Number(x).toLocaleString("es-CL", { maximumFractionDigits: 0 });
+  const total = cuentas.reduce((a,c)=>a+(c.usd||0),0);
+  const noUsd = cuentas.filter(c=>c.estado!=="usd").length;
+  return (
+    <details data-detalle="saldo-bancos" style={{fontSize:11,color:C.muted,padding:"6px 12px",background:C.card,border:`1px solid ${C.border}`,borderRadius:8}}>
+      <summary style={{cursor:"pointer"}}>{titulo}: US$ {f0(total)} · {cuentas.length} cuenta{cuentas.length>1?"s":""}{noUsd?` (${noUsd} convertida${noUsd>1?"s":""}: ver TC, fecha y fuente)`:""}</summary>
+      <table style={{width:"100%",borderCollapse:"collapse",marginTop:6,fontSize:10}}>
+        <tbody>
+          {cuentas.map((c,i)=>(
+            <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
+              <td style={{padding:"3px 6px"}}>{c.empresa} · {c.banco}</td>
+              <td style={{padding:"3px 6px",whiteSpace:"nowrap"}}>{String(c.moneda).toUpperCase()} {Number(c.monto).toLocaleString("es-CL",{maximumFractionDigits:2})} al {c.fecha}</td>
+              <td style={{padding:"3px 6px",textAlign:"right",whiteSpace:"nowrap",color:c.usd==null?C.red:C.text}}>{c.usd==null?"sin paridad":`US$ ${f0(c.usd)}`}</td>
+              <td style={{padding:"3px 6px",color:c.estado==="historico"?C.yellow:C.muted}}>{c.estado==="usd"?"":c.estado==="sin_paridad"?c.motivo:c.etiqueta}</td>
+            </tr>
+          ))}
+          <tr><td colSpan={2} style={{padding:"3px 6px",fontWeight:700}}>Total</td><td style={{padding:"3px 6px",textAlign:"right",fontWeight:700}}>US$ {f0(total)}</td><td/></tr>
+        </tbody>
+      </table>
+    </details>
   );
 }
 
@@ -5213,6 +5193,7 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
         <KPI label="Empresas" value={empNamesConsolidado.length} color={C.yellow}/>
       </div>
       <AvisoSinParidad lista={sinParidadCons} contexto="Saldo inicial consolidado"/>
+      <DetalleSaldoBancos cuentas={empNamesConsolidado.flatMap(n=>totalSaldosUSD(saldosBancos, n).cuentas)} titulo="Saldo inicial consolidado (Saldos Bancos, sociedades al 100%)"/>
       <div style={{fontSize:11,color:C.muted}}>
         Perímetro: {empNamesConsolidado.join(", ")} · USD · saldo inicial = Saldos Bancos (o saldo estático si no hay) · arrastre desde {MESES_65[mesIdxHoy]}
         {(onChile||onPeru) ? ` · Allpa incluida al % de participación (${[onChile?`Chile ${Math.round(pctChile*100)}%`:null, onPeru?`Perú ${Math.round(pctPeru*100)}%`:null].filter(Boolean).join(", ")})` : " · Allpa Chile y Perú por método patrimonio (fuera)"}
@@ -5315,12 +5296,15 @@ export function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal=
                   if(sp) av.push(sp);
                   if(av.length) avisosPorEmp[n]=av;
                 });
+                const notasPorEmp={};
+                empNamesConsolidado.forEach(n=>{ const t=textoConversionSaldos(totalSaldosUSD(saldosBancos, n).cuentas); if(t) notasPorEmp[n]=[t]; });
                 const f=exportarFlujoConsolidado({
                   empresasConOverrides,
                   empNames:empNamesConsolidado,
                   saldoIniPorEmp,
                   escenarioNombre,
                   avisosPorEmp,
+                  notasPorEmp,
                 });
                 setExportMsg("✓ "+f);
               }catch(e){ console.error(e); setExportMsg("✗ Error al exportar"); }
@@ -5600,25 +5584,7 @@ function sumCatWF(emp, cat, indices) {
 // Saldo banco en USD por empresa (suma todas las monedas convertidas)
 export function getSaldoBancoUSD(saldosBancos, empNombre) {
   if(!saldosBancos) return 0;
-  const HOY = new Date();
-  const porCuenta = {};
-  Object.entries(saldosBancos).forEach(([key, rec])=>{
-    const parts = key.split("||");
-    if(parts[0]!==empNombre) return;
-    if(!rec?.monto || !rec?.fecha) return;
-    const f = new Date(rec.fecha);
-    if(f > HOY) return;
-    const cuentaKey = `${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
-    const existente = porCuenta[cuentaKey];
-    if(!existente || new Date(existente.fecha) < f) porCuenta[cuentaKey] = rec;
-  });
-  let total = 0;
-  Object.values(porCuenta).forEach(rec=>{
-    const moneda = rec.moneda || "usd";
-    if(moneda === "usd") total += Number(rec.monto)||0;
-    else if(rec.usd != null) total += Number(rec.usd)||0;
-  });
-  return total;
+  return totalSaldosUSD(saldosBancos, empNombre, { excluirFuturas: true }).total;
 }
 
 // Vista compacta: filas = empresas, columnas = meses
@@ -6311,31 +6277,9 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   // Para otras monedas (PEN, CLP, EUR): usa el campo "usd" guardado en Supabase
   const saldoBancoUSD = useMemo(()=>{
     if(!saldosBancos) return null;
-    const HOY = new Date();
-    // Agrupar por banco+moneda (no solo banco) para no perder cuentas en distintas monedas
-    const porCuenta = {};
-    Object.entries(saldosBancos).forEach(([key, rec])=>{
-      const parts = key.split("||");
-      if(parts[0]!==empNombre) return;
-      if(!rec?.monto || !rec?.fecha) return;
-      const f = new Date(rec.fecha);
-      if(f > HOY) return;
-      // key único por banco+moneda
-      const cuentaKey = `${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
-      const existente = porCuenta[cuentaKey];
-      if(!existente || new Date(existente.fecha) < f) porCuenta[cuentaKey] = rec;
-    });
-    let total = 0, found = false;
-    Object.values(porCuenta).forEach(rec=>{
-      const moneda = rec.moneda || "usd";
-      if(moneda === "usd") {
-        total += Number(rec.monto)||0;
-      } else if(rec.usd != null) {
-        total += Number(rec.usd)||0;
-      }
-      found = true;
-    });
-    return found ? total : null;
+    // Fuente única de conversión (src/tc/conversionSaldos.js); sin saldos con fecha futura
+    const t = totalSaldosUSD(saldosBancos, empNombre, { excluirFuturas: true });
+    return t.encontrado ? t.total : null;
   },[saldosBancos, empNombre]);
 
   // Mes en MESES_65 desde el cual arranca el saldo banco = mes ACTUAL (hoy)
@@ -7574,6 +7518,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
 
       {/* ── Cuentas sin paridad: el saldo inicial no las suma ────────── */}
       <AvisoSinParidad lista={sinParidadFlujo} contexto={`Saldo inicial de ${empNombre}`}/>
+      <DetalleSaldoBancos cuentas={totalSaldosUSD(saldosBancos, empNombre, { excluirFuturas: true }).cuentas} titulo={`Saldo inicial de ${empNombre} (Saldos Bancos)`}/>
 
       {/* ── Valores manuales antiguos sin categoría asignada ────────── */}
       {ambiguos.length>0&&(
@@ -7739,25 +7684,10 @@ export function Dashboard({empresas, empresasConOverrides, saldosBancos, escenar
   const HOY_DASH = new Date();
   function saldoDeEmpresas(empList) {
     if(!saldosBancos) return 0;
-    let total = 0;
-    empList.forEach(empNombre=>{
-      const porCuenta = {};
-      Object.entries(saldosBancos).forEach(([key,rec])=>{
-        const parts = key.split("||");
-        if(parts[0]!==empNombre||!rec?.monto||!rec?.fecha) return;
-        const f = new Date(rec.fecha);
-        if(f>HOY_DASH) return;
-        const cuentaKey=`${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
-        if(!porCuenta[cuentaKey]||new Date(porCuenta[cuentaKey].fecha)<f) porCuenta[cuentaKey]=rec;
-      });
-      Object.values(porCuenta).forEach(rec=>{
-        const moneda = rec.moneda||"usd";
-        if(moneda==="usd") total+=Number(rec.monto)||0;
-        else if(rec.usd!=null) total+=Number(rec.usd)||0;
-      });
-    });
-    return total;
+    // Fuente única de conversión (src/tc/conversionSaldos.js); sin saldos con fecha futura
+    return empList.reduce((t, n) => t + totalSaldosUSD(saldosBancos, n, { excluirFuturas: true, hoy: HOY_DASH }).total, 0);
   }
+
   const saldoCajaChile = saldoDeEmpresas(EMPRESAS_CHILE);
   const saldoCajaPerU  = saldoDeEmpresas(EMPRESAS_PERU);
   // Cuentas sin paridad: bancos (sin fechas futuras, como saldoDeEmpresas) y saldo inicial consolidado (getSaldoBancoInicial)
@@ -7782,6 +7712,7 @@ export function Dashboard({empresas, empresasConOverrides, saldosBancos, escenar
         <KPI label={`Saldo final consolidado ${ultimoMes}`} value={$$(caja.final)} color={cf(caja.final)}/>
       </div>
       <AvisoSinParidad lista={[...new Map([...spChile, ...spPeru, ...spCons].map(c=>[`${c.empresa}|${c.banco}|${c.moneda}|${c.fecha}`, c])).values()]} contexto="Saldo bancario del grupo"/>
+      <DetalleSaldoBancos cuentas={[...EMPRESAS_CHILE, ...EMPRESAS_PERU].flatMap(n=>totalSaldosUSD(saldosBancos, n, { excluirFuturas: true, hoy: HOY_DASH }).cuentas)} titulo="Saldo bancos Chile + Perú"/>
       <Card>
         <SectionTitle>Saldo acumulado consolidado — {MESES_65[mesIdxHoy]} → {ultimoMes}</SectionTitle>
         <LineChart months={MESES_65.slice(mesIdxHoy)} values={caja.acum.slice(mesIdxHoy)} color={C.accentL}/>
@@ -8962,7 +8893,14 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
   const [fx,setFx]         = useState(null);
   const [fxLoading,setFxLoading] = useState(false);
   const [fxError,setFxError]     = useState(false);
-  const [fecha,setFecha]   = useState(()=>new Date().toISOString().slice(0,10));
+  // Fecha LOCAL (toISOString es UTC: en Chile, después de las 20-21 h daba mañana
+  // y el saldo quedaba con fecha futura, fuera del flujo).
+  const [fecha,setFecha]   = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; });
+  // Tipos de cambio: maestro_tc es la ÚNICA fuente de conversión (política maestro_tc_v1).
+  // open.er-api queda solo como referencia "mercado hoy", fuera de los cálculos.
+  const [tcData,setTcData] = useState(null);
+  const [tcError,setTcError] = useState(null);
+  useEffect(()=>{ dbLoadGeneric("maestro_tc").then(v=>setTcData(v||{})).catch(e=>setTcError(String(e?.message||e))); },[]);
   const [saving,setSaving] = useState(false);
   const [edits,setEdits]   = useState({});
   const [dirty,setDirty]   = useState({});
@@ -9013,11 +8951,13 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
       if(!c) return; // descartar dirty fuera del subset (defensa)
       const val=parseFloat(edits[key]);
       if(isNaN(val)) { delete next[key]; return; }
+      // Saldo NUEVO: conversión con maestro_tc a la fecha del saldo (fecha, TC, par y
+      // fuente quedan guardados). Sin cotización ≤ 5 días hábiles → usd null + motivo.
       next[key]={
         empresa:c.emp, banco:c.banco, moneda:c.moneda,
         monto:val, fecha,
         semana:semanaDeDate(fecha), mes:mesDeDate(fecha),
-        usd: fx ? toUSD(val,c.moneda,fx) : null,
+        ...convertirSaldoNuevo(val, c.moneda, fecha, tcData),
       };
     });
     await onSave(next);
@@ -9033,39 +8973,27 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
       t[emp]=CUENTAS_VISIBLES.filter(c=>c.emp===emp).filter(c=>{
         const s=saldos?.[c.key];
         if(!s||s.monto==null||Number(s.monto)===0||c.moneda==="usd") return false;
-        // sin FX en vivo: usd guardado null, o 0 con monto (la fuente no traía la moneda)
-        return fx ? toUSD(s.monto,c.moneda,fx)==null : (s.usd==null || !Number.isFinite(Number(s.usd)) || Number(s.usd)===0);
+        return leerUsdSaldo(s, c.moneda).estado==="sin_paridad";
       }).length;
     });
     return t;
-  },[saldos,fx,EMPRESAS_VISIBLES,CUENTAS_VISIBLES]);
+  },[saldos,EMPRESAS_VISIBLES,CUENTAS_VISIBLES]);
   const sinParidadConsolidado = EMPRESAS_VISIBLES.filter(e=>e!=="Allpa Farms Perú").reduce((a,e)=>a+(sinParidadEmpresa[e]||0),0);
   const sinParidadGrupo = EMPRESAS_VISIBLES.reduce((a,e)=>a+(sinParidadEmpresa[e]||0),0);
 
+  // Totales con la MISMA lectura que el flujo, el Dashboard, el Consolidado, el
+  // Reporte y el Excel (leerUsdSaldo): ya no se convierte "en vivo" con open.er-api.
   const totalesEmpresa = useMemo(()=>{
     const t={};
     EMPRESAS_VISIBLES.forEach(emp=>{
-      let sum=0;
-      CUENTAS_VISIBLES.filter(c=>c.emp===emp).forEach(c=>{
+      t[emp]=CUENTAS_VISIBLES.filter(c=>c.emp===emp).reduce((sum,c)=>{
         const s=saldos?.[c.key];
-        if(!s||s.monto==null) return;
-        // Si FX cargado: convertir en vivo
-        if(fx) {
-          const usdVal=toUSD(s.monto,c.moneda,fx);
-          if(usdVal!=null) sum+=usdVal;   // sin tasa para esa moneda: no suma (queda en sinParidadEmpresa)
-        } else if(s.usd!=null) {
-          // Usar valor USD guardado en Supabase como fallback
-          sum+=Number(s.usd)||0;
-        } else if(c.moneda==="usd") {
-          // USD directo sin conversión
-          sum+=Number(s.monto)||0;
-        }
-        // CLP/EUR/PEN sin FX y sin usd guardado: no suma (evita mostrar valor incorrecto)
-      });
-      t[emp]=sum; // siempre número, 0 si no hay saldo
+        if(!s||s.monto==null) return sum;
+        return sum+(leerUsdSaldo(s,c.moneda).usd||0);
+      },0);
     });
     return t;
-  },[saldos,fx,EMPRESAS_VISIBLES,CUENTAS_VISIBLES]);
+  },[saldos,EMPRESAS_VISIBLES,CUENTAS_VISIBLES]);
 
   const totalUSD = useMemo(()=>{
     return Object.values(totalesEmpresa).reduce((a,b)=>a+b,0);
@@ -9111,8 +9039,6 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
               <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",marginBottom:4}}>
                 💵 Saldo Consolidado
                 <span style={{marginLeft:5,fontSize:8,color:C.muted2,fontWeight:400,textTransform:"none"}}>sin Allpa Perú · = saldo inicial del flujo</span>
-                {fxLoading&&<span style={{marginLeft:6,fontSize:9,color:C.yellow}}>actualizando…</span>}
-                {fxError&&<span style={{marginLeft:6,fontSize:9,color:C.red}}>⚠️ sin paridad en vivo (usa US$ guardado)</span>}
                 {sinParidadConsolidado>0&&<span data-aviso="sin-paridad" style={{marginLeft:6,fontSize:9,color:C.red,fontWeight:700,textTransform:"none"}}>⚠ INCOMPLETO: {sinParidadConsolidado} cuenta{sinParidadConsolidado>1?"s":""} sin paridad no suma{sinParidadConsolidado>1?"n":""}</span>}
               </div>
               <div style={{fontSize:22,fontWeight:900,color:totalConsolidadoUSD!=null?cf(totalConsolidadoUSD):C.muted}}>
@@ -9143,35 +9069,37 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
           </div>
         </div>
         )}
-        {[
-          {id:"clp",label:"1 USD =",val:fx?.clpRaw,fmt:v=>`$${Math.round(v).toLocaleString("es-CL")} CLP`},
-          {id:"eur",label:"1 EUR =",val:fx?.eurRaw,fmt:v=>`$${v.toFixed(4)} USD`},
-          {id:"pen",label:"1 USD =",val:fx?.penRaw,fmt:v=>`S/${v.toFixed(3)} PEN`},
-        ].map(p=>(
-          <div key={p.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
-            <div style={{fontSize:9,color:C.muted,marginBottom:3}}>{p.label}</div>
-            <div style={{fontSize:14,fontWeight:700,color:C.yellow}}>
-              {p.val!=null?p.fmt(p.val):fxLoading?"…":"—"}
+        {/* TC que se APLICARÁ al guardar con la fecha elegida (maestro_tc, ≤ 5 días hábiles) */}
+        {[["clp","1 USD = … CLP"],["eur","1 EUR = … USD"],["pen","1 USD = … PEN (manual)"]].map(([mon,lab])=>{
+          const q=cotizacionSaldo(mon,fecha,tcData);
+          return (
+            <div key={mon} data-tc-politica={mon} style={{background:C.card,border:`1px solid ${q.ok?C.border:C.red+"66"}`,borderRadius:10,padding:"10px 14px"}}>
+              <div style={{fontSize:9,color:C.muted,marginBottom:3}}>{lab} · al {fecha}</div>
+              <div style={{fontSize:14,fontWeight:700,color:q.ok?C.yellow:C.red}}>
+                {q.ok?Number(q.tc).toLocaleString("es-CL",{maximumFractionDigits:4}):"sin cotización"}
+              </div>
+              <div style={{fontSize:9,color:C.muted,marginTop:2}}>{q.ok?`${q.par} del ${q.fechaTC} · ${q.fuente}${q.diasHabiles?` · ${q.diasHabiles} d.h. antes`:""}`:(tcData?q.motivo:(tcError?"maestro_tc no se pudo leer":"cargando maestro_tc…"))}</div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",
-          display:"flex",flexDirection:"column",justifyContent:"center"}}>
-          <button onClick={refreshFX} disabled={fxLoading} className={fxLoading?"":"mdt-btn-solid"}
-            style={{padding:"6px 10px",borderRadius:7,border:"none",fontSize:11,fontWeight:600,
-              background:fxLoading?C.card2:C.accent,color:"#fff",cursor:fxLoading?"default":"pointer"}}>
-            {fxLoading?"⟳ …":"🔄 Actualizar FX"}
+          display:"flex",flexDirection:"column",justifyContent:"center",gap:4}}>
+          <div style={{fontSize:9,color:C.muted}}>Referencia mercado hoy (open.er-api) — <strong>no se usa en cálculos</strong></div>
+          <div style={{fontSize:10,color:C.muted2}}>{fx?`1 USD = ${Math.round(fx.clpRaw||0).toLocaleString("es-CL")} CLP · ${fx.penRaw?Number(fx.penRaw).toFixed(3):"—"} PEN · 1 EUR = ${fx.eurRaw?Number(fx.eurRaw).toFixed(4):"—"} USD`:fxLoading?"…":"sin referencia"}</div>
+          <button onClick={refreshFX} disabled={fxLoading}
+            style={{padding:"4px 8px",borderRadius:7,border:`1px solid ${C.border}`,fontSize:10,background:"transparent",color:C.muted,cursor:fxLoading?"default":"pointer"}}>
+            {fxLoading?"⟳ …":"Actualizar referencia"}
           </button>
-          {fx?.ts&&<div style={{fontSize:9,color:C.muted,marginTop:4,textAlign:"center"}}>Última: {fx.ts}</div>}
         </div>
       </div>
+      {tcError&&<div role="alert" style={{padding:"8px 12px",background:`${C.red}14`,border:`1px solid ${C.red}55`,borderRadius:8,fontSize:11,color:C.text}}>
+        No se pudo leer maestro_tc ({tcError}). Los saldos que se guarden ahora en CLP, EUR o PEN quedarán <strong>sin paridad</strong> hasta volver a guardarlos.</div>}
 
       {/* ── Dashboard resumen por empresa ─────────────────────── */}
       <Card>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
           <SectionTitle>Resumen por empresa · USD</SectionTitle>
-          {fxLoading&&<span style={{fontSize:10,color:C.yellow}}>⟳ Actualizando FX…</span>}
-          {fxError&&<span style={{fontSize:10,color:C.orange}}>⚠️ Sin FX en vivo — usando valores guardados</span>}
+          <span style={{fontSize:10,color:C.muted}}>US$ = conversión guardada de cada saldo (política maestro_tc_v1 o TC histórico)</span>
         </div>
         {(()=>{
           const maxVal=Math.max(...EMPRESAS_VISIBLES.map(n=>totalesEmpresa[n]||0),1);
@@ -9298,12 +9226,11 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
                         const saved=saldos?.[c.key];
                         const val=getVal(c.key);
                         const isDirty=!!dirty[c.key];
-                        // Si FX cargado: convertir en vivo. Si no: usar usd guardado o monto directo si es USD
-                        const usdVal = saved?.monto!=null
-                          ? fx
-                            ? toUSD(saved.monto,c.moneda,fx)
-                            : (saved.usd!=null ? saved.usd : c.moneda==="usd" ? Number(saved.monto) : null)
-                          : null;
+                        // Misma lectura que todas las pantallas (leerUsdSaldo). Si la fila está en
+                        // edición, se muestra la conversión que se GUARDARÍA con maestro_tc.
+                        const lect = saved?.monto!=null ? leerUsdSaldo(saved,c.moneda) : null;
+                        const prev = isDirty && !isNaN(parseFloat(val)) && c.moneda!=="usd" ? convertirSaldoNuevo(parseFloat(val),c.moneda,fecha,tcData) : null;
+                        const usdVal = prev ? prev.usd : (lect ? lect.usd : null);
                         const mon=MONEDAS.find(m=>m.id===c.moneda);
                         return (
                           <tr key={c.key} style={{borderBottom:`1px solid ${C.border}22`,
@@ -9338,9 +9265,16 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
                               color:usdVal!=null?cf(usdVal):C.muted2}}>
                               {usdVal!=null
                                 ?`$${usdVal.toLocaleString("es-CL",{maximumFractionDigits:0})} USD`
-                                :(saved?.monto!=null&&Number(saved.monto)!==0&&c.moneda!=="usd")
+                                :(prev||(saved?.monto!=null&&Number(saved.monto)!==0&&c.moneda!=="usd"))
                                   ?<span style={{color:C.red,fontWeight:700}} title="Sin tipo de cambio: esta cuenta no suma en los totales">⚠ sin paridad</span>
                                   :"—"}
+                              {c.moneda!=="usd"&&(prev||lect)&&(
+                                <div data-conversion={prev?"nueva":lect.estado} style={{fontSize:9,color:prev?C.yellow:(lect.estado==="historico"?C.muted2:C.muted),fontWeight:400,whiteSpace:"normal",maxWidth:240,marginLeft:"auto"}}>
+                                  {prev
+                                    ? (prev.usd!=null ? `al guardar: TC ${Number(prev.tc).toLocaleString("es-CL",{maximumFractionDigits:4})} ${prev.tcPar} al ${prev.tcFecha} · ${prev.tcFuente}` : `al guardar: sin paridad (${prev.tcMotivo})`)
+                                    : (lect.estado==="sin_paridad" ? lect.motivo : lect.etiqueta)}
+                                </div>
+                              )}
                             </td>
                             <td style={{padding:"8px 14px",color:C.muted,fontSize:10,whiteSpace:"nowrap"}}>
                               {saved?.fecha||"—"}
@@ -9358,7 +9292,7 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
       </div>
 
       <div style={{fontSize:10,color:C.muted2,textAlign:"center"}}>
-        Paridades obtenidas de open.er-api.com · Se cargan al abrir la pestaña
+        Conversión a US$: maestro_tc a la fecha de cada saldo (máx. {MAX_DIAS_HABILES} días hábiles hacia atrás; PEN solo carga manual). Los saldos guardados antes de esta política conservan su US$ y se rotulan "TC histórico".
       </div>
     </div>
   );
@@ -9739,39 +9673,29 @@ function _formatCLP(v) {
 }
 
 // Saldo bancos por moneda para una empresa específica
-export function reporte_calcSaldosPorMoneda(empNombre, saldosBancos, tcUSDtoCLP = REPORTE_TC_DEFAULT_CLP) {
-  // omitidas: cuentas en monedas sin regla de conversión en el reporte (hoy EUR).
-  // No suman al total; el total queda marcado incompleto (política de TC pendiente).
+export function reporte_calcSaldosPorMoneda(empNombre, saldosBancos /* tcUSDtoCLP: ya no se usa */) {
+  // Fuente única de conversión (src/tc/conversionSaldos.js), igual que Dashboard,
+  // Flujo, Consolidado y Excel. Antes: CLP a 950 (o el TC de parámetros) y PEN a
+  // 3,75 fijos, y EUR omitido. Mismo criterio de saldo vigente que la proyección del
+  // reporte (getSaldoBancoUSD): sin saldos con fecha futura.
   const resultado = { usd: 0, clp: 0, equivCLPenUSD: 0, totalUSD: 0, lineas: [], omitidas: [], incompleto: false };
   if(!saldosBancos) return resultado;
-  Object.keys(saldosBancos).forEach(key => {
-    // key formato: "Empresa||Banco||moneda"
-    const partes = key.split("||");
-    if(partes.length < 3) return;
-    const [emp, banco, moneda] = partes;
-    if(emp !== empNombre) return;
-    const monto = Number(saldosBancos[key]?.monto) || 0;
-    if(monto === 0) return;
-    const monedaLower = (moneda || "").toLowerCase();
-    if(monedaLower === "usd") {
-      resultado.usd += monto;
-      resultado.lineas.push({moneda:"USD", banco, monto, descripcion:`${banco} USD`});
-    } else if(monedaLower === "clp") {
-      resultado.clp += monto;
-      resultado.lineas.push({moneda:"CLP", banco, monto, descripcion:`${banco} CLP`});
-    } else if(monedaLower === "pen") {
-      // PEN convertido a USD directamente (no se separa)
-      const enUSD = monto / REPORTE_TC_DEFAULT_PEN;
-      resultado.usd += enUSD;
-      resultado.lineas.push({moneda:"PEN", banco, monto, descripcion:`${banco} PEN (equiv. USD)`, enUSD});
-    } else {
-      resultado.omitidas.push({ empresa: empNombre, banco, moneda: (moneda || "?").toUpperCase(), monto, fecha: saldosBancos[key]?.fecha || "" });
+  const t = totalSaldosUSD(saldosBancos, empNombre, { excluirFuturas: true });
+  t.cuentas.forEach(c => {
+    const MON = String(c.moneda).toUpperCase();
+    if(c.estado === "sin_paridad") {
+      resultado.omitidas.push({ empresa: empNombre, banco: c.banco, moneda: MON, monto: c.monto, fecha: c.fecha, motivo: c.motivo });
+      return;
     }
+    if(c.moneda === "usd") resultado.usd += c.usd;
+    else if(c.moneda === "clp") { resultado.clp += c.monto; resultado.equivCLPenUSD += c.usd; }
+    else resultado.usd += c.usd;
+    resultado.lineas.push({ moneda: MON, banco: c.banco, monto: c.monto, enUSD: c.usd, fecha: c.fecha,
+      conversion: c.estado === "usd" ? "" : c.etiqueta,
+      descripcion: c.estado === "usd" ? `${c.banco} USD` : `${c.banco} ${MON} (${c.etiqueta})` });
   });
+  resultado.totalUSD = t.total;
   resultado.incompleto = resultado.omitidas.length > 0;
-  // Equivalente CLP en USD
-  resultado.equivCLPenUSD = resultado.clp / (tcUSDtoCLP || REPORTE_TC_DEFAULT_CLP);
-  resultado.totalUSD = resultado.usd + resultado.equivCLPenUSD;
   return resultado;
 }
 
@@ -11250,10 +11174,10 @@ function _renderEmpresaEnPDF(doc, emp, idx, startY, semana, fechaStr, logo) {
     for(const ln of (emp.saldos?.lineas || [])) {
       if(ln.moneda === "USD") monRows.push(["USD", ln.descripcion, _formatUSD(ln.monto)]);
       else if(ln.moneda === "CLP") monRows.push(["CLP", ln.descripcion, _formatCLP(ln.monto)]);
-      else if(ln.moneda === "PEN") monRows.push(["PEN", ln.descripcion, _formatUSD(ln.enUSD)]);
+      else monRows.push([ln.moneda, ln.descripcion, _formatUSD(ln.enUSD)]);
     }
     for(const o of (emp.saldos?.omitidas || [])) {
-      monRows.push([o.moneda, `${o.banco} ${o.moneda} ${Number(o.monto).toLocaleString("es-CL")} — SIN CONVERSIÓN, no suma (total incompleto)`, "—"]);
+      monRows.push([o.moneda, `${o.banco} ${o.moneda} ${Number(o.monto).toLocaleString("es-CL")} al ${o.fecha} — SIN PARIDAD (${o.motivo}), no suma: total incompleto`, "—"]);
     }
     if(emp.saldos?.equivCLPenUSD > 0) {
       monRows.push(["—", "Equivalente CLP en USD", _formatUSD(emp.saldos.equivCLPenUSD)]);
@@ -11678,9 +11602,9 @@ function ReporteSemanalModule({
           })()}
           {kpisGrupo.saldoOmitidas.length>0&&(
             <div role="status" data-aviso="sin-paridad" style={{padding:"8px 12px",background:`${C.yellow}18`,border:`1px solid ${C.yellow}66`,borderRadius:8,fontSize:11,color:C.text,marginBottom:14}}>
-              <strong style={{color:C.yellow}}>⚠ Saldo bancos del grupo incompleto:</strong> {kpisGrupo.saldoOmitidas.length} cuenta(s) sin conversión a USD en este reporte no suman —{" "}
+              <strong style={{color:C.yellow}}>⚠ Saldo bancos del grupo incompleto:</strong> {kpisGrupo.saldoOmitidas.length} cuenta(s) sin paridad a US$ no suman —{" "}
               {kpisGrupo.saldoOmitidas.map(o=>`${o.empresa} · ${o.banco} ${o.moneda} ${Number(o.monto).toLocaleString("es-CL")}`).join(" · ")}.
-              <span style={{color:C.muted}}> El reporte convierte CLP a {REPORTE_TC_DEFAULT_CLP} (o el TC de parámetros) y PEN a {REPORTE_TC_DEFAULT_PEN}; las demás monedas quedan fuera hasta definir la política de TC.</span>
+              <span style={{color:C.muted}}> Misma conversión que el resto de la app (maestro_tc a la fecha del saldo o TC histórico guardado); sin cotización, la cuenta no suma.</span>
             </div>
           )}
 
@@ -13260,7 +13184,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                   try{
                     const emp=empresasConOverridesMain[empTab];
                     const saldoIni=getSaldoBancoInicial(saldosBancos,empTab,empresas[empTab]?.saldo_ini);
-                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}, avisos:[...avisosDeEmpresa(realData, empresasConOverridesMain, empTab), ...[textoSinParidad(cuentasSinParidad(saldosBancos, empTab))].filter(Boolean)]});
+                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}, avisos:[...avisosDeEmpresa(realData, empresasConOverridesMain, empTab), ...[textoSinParidad(cuentasSinParidad(saldosBancos, empTab))].filter(Boolean)], notas:[textoConversionSaldos(totalSaldosUSD(saldosBancos, empTab).cuentas)].filter(Boolean)});
                     setEmpExportMsg("✓ "+f);
                   }catch(e){ console.error(e); setEmpExportMsg("✗ Error al exportar"); }
                   setTimeout(()=>setEmpExportMsg(null),5000);

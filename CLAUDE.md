@@ -528,10 +528,21 @@ Tests: `src/__tests__/motorSemanal.test.js` (motor = Consolidado mensual, Σ sem
 `scripts/e2e/consolidado-semanal.mjs` (Consolidado/Por Empresa/Resumen Semanal vs
 Flujo Empresas + Reporte Semanal abre sin error).
 
+#### Conversión de saldos bancarios: fuente única maestro_tc (oct-2026)
+
+`src/tc/conversionSaldos.js`: `leerUsdSaldo` / `saldosVigentes` / `totalSaldosUSD`
+son la ÚNICA lectura del US$ de un saldo (Saldos Bancos, Flujo, Dashboard,
+Consolidado, Reporte, Excel). Saldo nuevo: `convertirSaldoNuevo` con maestro_tc a
+la fecha del saldo (≤ 5 días hábiles; PEN solo manual) y guarda TC, par, fecha,
+fuente y `tcPolitica`. Histórico (sin `tcPolitica`): se respeta su `usd` y se
+rotula "TC histórico"; nunca se reescribe en bloque. Ya no hay TC fijos (950 /
+3,75) ni conversión "en vivo" con open.er-api (solo referencia). Doc:
+`docs/propuesta-tc-saldos-bancos.md` §0. Tests: `conversionSaldos.test.js`,
+`scripts/e2e/tc-politica.mjs`.
+
 #### Cuentas sin paridad: visibles, total INCOMPLETO (oct-2026)
 
-Política de TC **pendiente** (`docs/propuesta-tc-saldos-bancos.md`): no se cambió
-fuente ni cifra. `cuentasSinParidad(saldosBancos, emp, {excluirFuturas})` lista las
+(La política de TC ya está implementada: ver la sección anterior.) `cuentasSinParidad(saldosBancos, emp, {excluirFuturas})` lista las
 cuentas no-USD cuyo saldo vigente tiene `usd` null, o 0 con monto. Siguen sumando 0,
 pero Saldos Bancos, Flujo Empresas, Dashboard, Consolidado, Reporte Semanal (EUR
 omitida) y los Excel las nombran y rotulan el total "INCOMPLETO". `toUSD` devuelve
