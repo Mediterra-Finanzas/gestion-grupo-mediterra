@@ -24,6 +24,18 @@ En el navegador quedan dos copias:
 | **Original** | Texto exacto del archivo y su SHA-256. Nunca se modifica. Antes de exportar se verifica que el SHA-256 siga igual. |
 | **Trabajo** | Sobre ella opera la app. |
 
+## Aislamiento: comprobar antes de usar
+
+**Incidente 2026-10-07.** En un equipo Windows la vista previa local abrió contra la base de **producción**:
+el simulador no se activó, se ingresó con el PIN real y "Actualizar hoy" guardó tipos de cambio en `maestro_tc`.
+Desde entonces la versión local lleva una política de contenido del navegador que bloquea toda conexión a la
+base de producción (HTTP y WebSocket) aunque el simulador falle, y si el simulador no está activo la página
+se cubre con "VISTA PREVIA NO AISLADA". Prueba: `scripts/e2e/vista-previa-aislamiento.mjs`.
+
+Antes de usarla:
+- el recuadro amarillo "VISTA PREVIA LOCAL" está **abajo a la izquierda** (rojo en modo respaldo);
+- se entra con el usuario de prueba (`482913`). **Si tu PIN real funciona, estás en producción: cierra la pestaña.**
+
 ## Paso a paso
 
 1. **Descargar el respaldo** desde la app en producción: botón **💾 Respaldo**, arriba a la derecha del inicio. Es solo lectura. Guarda el archivo `backup_mediterra_AAAA-MM-DD.json` en una carpeta segura.

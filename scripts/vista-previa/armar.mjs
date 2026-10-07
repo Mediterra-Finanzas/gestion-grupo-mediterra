@@ -159,8 +159,28 @@ ${fuentes}
 <script src="shim.js"></script>
 <script src="${js}"></script>
 `;
-fs.writeFileSync(path.join(OUT, 'index.html'), `<!doctype html><html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head><body>
-${cuerpo(false)}</body></html>
+// Versión LOCAL: aislada aunque el simulador (shim.js) no se cargue. La política de
+// contenido del navegador solo permite conexiones al propio localhost, a las fuentes
+// del tipo de cambio/UF y a las librerías de exportación: cualquier llamada a la base
+// de producción (HTTP o WebSocket), al correo o a otro sitio la bloquea el navegador.
+// El simulador intercepta sus llamadas ANTES de la red, así que no le afecta.
+// Incidente 2026-10-07: en un equipo Windows el simulador no se activó y la app
+// abrió contra producción (ver docs/creditos-respaldo-local.md).
+const CSP_LOCAL = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://unpkg.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "img-src 'self' data: blob:",
+  "connect-src 'self' https://mindicador.cl https://api.frankfurter.app https://open.er-api.com",
+  "worker-src 'self' blob:",
+  "frame-src 'none'", "form-action 'none'", "base-uri 'none'",
+].join('; ');
+// Si el simulador no quedó activo, la página lo dice y no se puede confundir con la app.
+const GUARDIA_LOCAL = `<script>if(!window.__VP_LISTO){window.__VP_NO_AISLADA=true;document.write('<div style="position:fixed;inset:0;z-index:2147483647;background:#7f1d1d;color:#fff;font:16px/1.5 system-ui,sans-serif;padding:40px">'+'<b>VISTA PREVIA NO AISLADA: el simulador no se cargó.</b><br>Cierra esta pestaña y avisa. La conexión a la base de producción está bloqueada en esta página, pero no la uses.</div>');}</script>`;
+fs.writeFileSync(path.join(OUT, 'index.html'), `<!doctype html><html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta http-equiv="Content-Security-Policy" content="${CSP_LOCAL}"/></head><body>
+${cuerpo(false).replace('<script src="' + js + '"></script>', GUARDIA_LOCAL + '\n<script src="' + js + '"></script>')}</body></html>
 `);
 fs.writeFileSync(path.join(OUT, 'artifact.html'), cuerpo(true));
 console.log(`Vista previa armada en ${OUT}\n  Local:    node scripts/vista-previa/servir.mjs   → http://localhost:4180\n  Artifact: publicar artifact.html con los archivos de la carpeta`);
