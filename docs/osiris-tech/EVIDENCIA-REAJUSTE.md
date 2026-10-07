@@ -179,6 +179,29 @@ hay botón de activar y el aviso explica por qué. La concurrencia se comporta i
 La interfaz de la recuperación no expone ningún camino que la alcance, así que eso lo sostienen
 las pruebas de versión, no el navegador.
 
+### Recorrido final, sobre los bundles de los candidatos definitivos
+
+Candidato `main.0ae5d87c.js` (138c7f4) y recuperación `main.942751e7.js` (b4ec5d6), ambos con
+**cero** referencias a producción.
+
+| Comprobación | Candidato | Recuperación |
+|---|---|---|
+| Importes con activación vigente | $647.533,99 | $647.533,99, idéntico |
+| Tres columnas separadas | base $125.910 · actual $128.428,2 · propuesto $128.428,2 | igual |
+| Diferencia con los mismos términos | **$0** | **$0** |
+| Fila protegida 2029/2030 | base $125.910 · actual $125.910 · propuesto — | igual |
+| Aviso | "3 temporada(s) … llevan el reajuste, y 1 quedan en su valor base" | igual |
+| Desactivar | pide motivo y confirmación, baja **US$ 17.983,99**, vuelve a $629.550 | igual, y **sí está disponible** (H7) |
+| Tras desactivar, sello y respaldo | conservados | conservados: el candidato puede reactivar |
+| Activar | diálogo con 3 cambian · 1 protegida · **US$ 17983.99**; previa sin activar muestra actual $125.910 y propuesto $128.428,2 | **no se ofrece**, y el aviso explica que esta versión no permite crear nuevas |
+| Solo lectura | botón deshabilitado **y** la acción rechaza al invocar el manejador salteando el `disabled` | igual |
+| Conflicto entre sesiones | "⚠️ NO se guardó · conflicto"; **el reintento también se rechaza** y la escritura ajena queda intacta | igual |
+
+La prueba de permisos se hace a propósito salteando el `disabled`: deshabilitar un control no
+desconecta su manejador. Ese fue el agujero de T3.
+
+El entorno aislado quedó restaurado: 24 contratos, sin marcas de prueba.
+
 ### Lo que esta revisión encontró y las pruebas no
 
 **R4.** Con el reajuste activado y $647.533,99 en pantalla, el encabezado seguía afirmando que
