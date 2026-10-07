@@ -281,6 +281,13 @@ export const REAJUSTE_APLICANDO = "aplicando";
 export const REAJUSTE_REGISTRADO_SIN_APLICAR = "registradoSinAplicar";
 export const REAJUSTE_MARCADO_SIN_DEFINICION = "marcadoSinDefinicion";
 export const REAJUSTE_SIN_MARCA = "sinMarca";
+// El reajuste nuevo esta ACTIVADO y el motor lo esta aplicando. Este estado
+// no lo puede resolver este modulo por si solo: depende de `estadoActivacion`,
+// que vive en reajusteAplicado.js y que importa DESDE aca. Para no armar un
+// ciclo, el estado se declara aca y lo resuelve `reajusteOperativoConActivacion`
+// alla. La constante vive aca para que las pantallas importen todos los
+// estados del mismo lugar.
+export const REAJUSTE_ACTIVADO_APLICANDO = "activadoAplicando";
 
 // El porcentaje que el motor usa hoy, leído de donde el motor lo lee.
 export function pctReajusteDelMotor(ct) {

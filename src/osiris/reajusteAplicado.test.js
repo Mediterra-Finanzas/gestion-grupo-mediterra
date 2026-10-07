@@ -330,11 +330,20 @@ describe("8 · sin activar, nada se mueve", () => {
     expect(r.ajustado).toBe(125910);
   });
 
-  test("la vista previa suma cero de diferencia", () => {
-    const p = previsualizarActivacion(CT(REAJ(), undefined),
+  // Ojo con el titulo de este describe: desde que la previa contesta "que
+  // pasaria SI se activa", NO basta con que la activacion este apagada para
+  // que de cero. Este caso sigue dando cero, pero por otra razon: le faltan
+  // la fecha de referencia y el respaldo, asi que ni siquiera hipoteticamente
+  // se podria activar. La prueba que custodia "apagado vs encendido" es la de
+  // R2 en integracionReajuste.test.js.
+  test("sin fecha ni respaldo, la previa no promete nada aunque se suponga activa", () => {
+    const ct = CT(REAJ(), undefined);
+    const p = previsualizarActivacion(ct,
       [FILA("2027/2028", 100), FILA("2028/2029", 100)], { antecedentesDe: () => EMI("2029-04-01") });
     expect(p.diferenciaAplicada).toBe(0);
     expect(p.totalAplicado).toBe(p.totalBase);
+    // Y lo dice: el motivo nombra lo que falta, no "esta sin activar".
+    expect(p.activacion.faltan.length).toBeGreaterThan(0);
   });
 });
 
