@@ -339,6 +339,117 @@ console.log('\n=== 7 · anular con motivo, y bloqueo si tiene aplicaciones ===')
 }
 await page.screenshot({ path: `${OUT}/reasignar/06-anulado.png`, fullPage: true });
 
+console.log('\n=== 8 · estado visible del guardado y salir del módulo ===');
+// Lo que se prueba acá: (a) la operación muestra "Guardando..." mientras está en
+// vuelo y "Guardado" SOLO cuando el servidor confirmó; (b) salir del módulo
+// dentro de la ventana del debounce (800 ms) ya NO pierde la operación.
+// Antes, el cleanup del efecto hacía clearTimeout y el cambio se descartaba sin
+// aviso: registrar un pago y volver al Hub lo borraba.
+{
+  // Cuenta los PATCH que llegan a la fila `finanzas` del store falso.
+  let patches = 0;
+  const contar = (r) => { if (r.method() === 'PATCH' && /calendario_data/.test(r.url())) patches++; };
+  page.on('request', contar);
+
+  // Para poder OBSERVAR el estado "Guardando..." se retrasa a propósito la
+  // respuesta del PATCH: contra el servidor falso la escritura es instantánea y
+  // el muestreo no alcanza a verla. El retraso se quita después.
+  // El indicador de un bloque anterior tarda 2 s en borrarse: se espera a que la
+  // pantalla quede limpia antes de medir.
+  for (let i = 0; i < 80; i++) {
+    if (!/Guardando\.\.\.|(^|\n)\s*Guardado\s*(\n|$)/.test(await texto())) break;
+    await esperar(50);
+  }
+  let frenar = true;
+  await ctx.route('**bywovqayuzodbzwsriet.supabase.co/**', async (route) => {
+    if (frenar && route.request().method() === 'PATCH') await new Promise(r => setTimeout(r, 1200));
+    await route.fallback();
+  });
+
+  // (a) Estado visible: se registra un movimiento nuevo en la bandeja y se mira
+  // el indicador ANTES de que termine el guardado.
+  const antesEstado = JSON.stringify(filaFinanzas().movimientos_sin_asignar || []);
+  {
+    const b = bandeja().getByRole('button', { name: /sin operación identificada/i });
+    if (await b.count()) {
+      await b.first().click(); await esperar(300);
+      const form = bandeja();
+      await form.locator('input[type=date]').first().fill('2026-09-20');
+      const monto = form.locator('input[placeholder="US$"]').first();
+      await monto.fill(''); await monto.type('11000'); await monto.blur();
+      await form.locator('input[placeholder="referencia / cartola"]').first().fill('cartola 9020');
+      await form.getByRole('button', { name: /^Guardar$/ }).first().click();
+      // Se mira la SECUENCIA, no un instante: primero "Guardando..." (el PATCH
+      // está frenado 1,2 s a propósito) y después "Guardado", que aparece solo
+      // cuando el servidor confirmó y se borra solo a los 2 s.
+      const esperarTexto = async (re, intentos) => {
+        for (let i = 0; i < intentos; i++) {
+          if (re.test(await texto())) return true;
+          await esperar(50);
+        }
+        return false;
+      };
+      const vioGuardando = await esperarTexto(/Guardando\.\.\./, 60);
+      check('ESPERADO: la operación muestra "Guardando..." mientras está en vuelo',
+            vioGuardando, vioGuardando ? 'Guardando...' : '(no apareció el indicador)');
+      const vioGuardado = await esperarTexto(/(^|\n)\s*Guardado\s*(\n|$)/, 80);
+      const vioError = /No se guardó/.test(await texto());
+      check('ESPERADO: y pasa a "Guardado" cuando el servidor confirmó, sin pasar por error',
+            vioGuardado && !vioError,
+            `guardando=${vioGuardando} guardado=${vioGuardado} error=${vioError}`);
+      // Recién ahora se mira el servidor: el PATCH venía frenado, así que antes
+      // de que "Guardado" apareciera el dato legítimamente no estaba escrito.
+      for (let i = 0; i < 60; i++) {
+        if ((filaFinanzas().movimientos_sin_asignar || []).some(m => Number(m.usd) === 11000)) break;
+        await esperar(100);
+      }
+      check('ESPERADO: el movimiento quedó en el servidor, no solo en pantalla',
+            (filaFinanzas().movimientos_sin_asignar || []).some(m => Number(m.usd) === 11000),
+            JSON.stringify((filaFinanzas().movimientos_sin_asignar || []).map(m => m.usd)));
+    } else {
+      check('ESPERADO: la bandeja ofrece registrar un movimiento sin operación identificada', false, '(no se encontró el botón)');
+    }
+  }
+  check('ESPERADO: el estado del servidor cambió respecto del inicio del bloque',
+        JSON.stringify(filaFinanzas().movimientos_sin_asignar || []) !== antesEstado);
+
+
+  frenar = false;   // el resto del bloque corre a velocidad normal
+
+  // (b) Salir del módulo dentro de la ventana del debounce. Se anula el
+  // movimiento recién creado y se vuelve al Hub de inmediato (sin esperar los
+  // 800 ms): la anulación TIENE que llegar igual al servidor.
+  const patchesAntes = patches;
+  {
+    // Se ubica el botón por la FILA del movimiento, no por índice: un movimiento
+    // anulado no dibuja botones, así que el índice del arreglo no corresponde al
+    // del botón.
+    const fila11 = bandeja().locator('div').filter({ hasText: /\$11,000/ }).last();
+    const botones = fila11.getByRole('button', { name: /^anular$/ });
+    const idx = (filaFinanzas().movimientos_sin_asignar || []).findIndex(m => Number(m.usd) === 11000);
+    if (idx >= 0 && await botones.count() > 0) {
+      await botones.first().click(); await esperar(400);
+      await bandeja().locator('input[placeholder="motivo de la anulación"]').first()
+        .fill('prueba de salida con guardado pendiente');
+      await bandeja().getByRole('button', { name: /^Anular$/ }).first().click();
+      // SIN esperar el debounce: se sale del módulo de inmediato.
+      await page.getByRole('button', { name: /^Mediterra$/ }).first().click();
+      await esperar(2500);
+      const mov = (filaFinanzas().movimientos_sin_asignar || []).find(m => Number(m.usd) === 11000);
+      check('ESPERADO: salir antes del debounce NO pierde la anulación',
+            !!mov && mov.anulada === true && /salida con guardado pendiente/.test(mov.motivoAnulacion || ''),
+            JSON.stringify(mov && { usd: mov.usd, anulada: !!mov.anulada, motivo: mov.motivoAnulacion }));
+      check('ESPERADO: y se escribió de verdad (hubo un PATCH tras salir)',
+            patches > patchesAntes, `${patchesAntes} → ${patches}`);
+    } else {
+      check('ESPERADO: el movimiento de 11.000 está en la bandeja con su botón anular',
+            false, `idx=${idx} · botones=${await botones.count()}`);
+    }
+  }
+  page.off('request', contar);
+}
+await page.screenshot({ path: `${OUT}/reasignar/07-salida-con-pendiente.png`, fullPage: true });
+
 // SOLO LECTURA: no se comprueba acá. El store de la prueba trae una sola
 // credencial, la de un usuario administrador, así que `puedoEdit("flujo")`
 // siempre es true y la pantalla nunca entra en solo lectura. El caso está

@@ -18,7 +18,7 @@ import React, { useState } from "react";
 import InputNumero from "./InputNumero.jsx";
 import {
   resumenLado,
-  normalizarPrograma, normalizarCuota, nuevoIdPrograma, nuevoIdCuota,
+  normalizarPrograma, normalizarCuota, nuevoIdPrograma, nuevoIdCuota, nuevoIdSaldo,
   cuotaAcordado, cuotaRealizado, cuotaPendiente, cuotaSustituye,
   estAcordado, estPendiente, estDisponible, estSobreSustituida,
   efectoImputacion, imputarMovimiento, moverRealizacion,
@@ -138,6 +138,32 @@ export function ResumenLado({ r, esCli, C, $$, mesLiq }) {
       {r.sobreSustitucion > 0 && (
         <div style={{ color: C.danger, marginTop: 3 }}>
           Sobre-sustitución de {$$(r.sobreSustitucion)}: hay cuotas vigentes que reemplazan más estimación de la disponible.
+        </div>
+      )}
+      {/* Referencias inválidas: una sustitución (o un origen) que apunta a un
+          identificador que no existe. Antes no sustituía nada y nadie se enteraba,
+          así que el mismo monto quedaba proyectado dos veces: en la cuota y en la
+          estimación que creía reemplazada. No se resuelve solo: hay que volver a
+          declarar la sustitución contra la estimación correcta. */}
+      {(r.referenciasInvalidas || []).length > 0 && (
+        <div style={{ color: C.danger, marginTop: 6, padding: 8, borderRadius: 6,
+          background: C.danger + "14", border: "1px solid " + C.danger + "55" }}>
+          <div style={{ fontWeight: 700 }}>
+            {r.referenciasInvalidas.length === 1
+              ? "1 referencia inválida pendiente de resolver"
+              : `${r.referenciasInvalidas.length} referencias inválidas pendientes de resolver`}
+          </div>
+          {r.referenciasInvalidas.map((x, i) => (
+            <div key={x.idHuerfano + ":" + i} style={{ marginTop: 3, fontWeight: 400 }}>
+              {x.contraparte ? x.contraparte + " · " : ""}{$$(x.usd)} apunta a un registro
+              que no existe ({x.idHuerfano || "sin identificador"}).
+              {x.vigente ? " El monto NO está sustituido: queda proyectado dos veces." : ""}
+            </div>
+          ))}
+          <div style={{ marginTop: 4, fontWeight: 400, color: C.muted2 }}>
+            Hay que volver a declarar la sustitución contra la estimación correcta. No se
+            corrige solo y no se ignora.
+          </div>
         </div>
       )}
       {r.sinAsignarUsd > 0 && (
@@ -1359,11 +1385,22 @@ function Cuota({
             // Lo disponible ya descuenta esta misma cuota cuando está vigente,
             // así que para el tope hay que volver a sumarla.
             const maximo = disp + (vigente ? usd : 0);
+            // Una estimación sin identidad NO se puede sustituir: la referencia se
+            // guardaría vacía, `normalizarCuota` la descartaría y el monto quedaría
+            // proyectado dos veces (en la cuota y en la estimación que se creía
+            // reemplazada), sin aviso. Se bloquea el control y se dice qué hacer.
+            const sinIdentidad = !e.id;
             return (
-              <div key={e.id} style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, flexWrap: "wrap" }}>
+              <div key={e.id || `sin-id-${e.mes}-${e.usd_kg}`} style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, flexWrap: "wrap" }}>
                 <span style={{ color: C.muted2 }}>
                   {e.mes || "sin mes"} · acordado {$$(estAcordado(e, kgFruta))} · disponible {$$(disp)}
                 </span>
+                {sinIdentidad ? (
+                  <span style={{ color: C.danger, fontWeight: 600 }}>
+                    no se puede sustituir: este registro todavía no tiene identificador ·
+                    normalízalos primero (el aviso está arriba, en el flujo)
+                  </span>
+                ) : (
                 <InputNumero formato="monto" value={usd || ""} placeholder="0" disabled={readOnly}
                   onChange={n => {
                     if (n > maximo + 0.005 && !window.confirm(
@@ -1373,6 +1410,7 @@ function Cuota({
                     setSust(e.id, n);
                   }}
                   style={{ ...inSt, width: 90, textAlign: "right", fontSize: 9, padding: "2px 5px" }} />
+                )}
                 {estSobreSustituida(e, kgFruta, todos) > 0 &&
                   chip(`sobre-sustituida en ${$$(estSobreSustituida(e, kgFruta, todos))}`, C.danger)}
               </div>
@@ -1505,6 +1543,7 @@ function SaldosFavorBloque({ saldos, onSaldos, esCli, C, $$, meses, readOnly, us
         }
         const conRespaldo = !!(form.referencia.trim() && form.fecha);
         onSaldos([...lista, normalizarSaldo({
+          id: nuevoIdSaldo(),
           lado: esCli ? "cliente" : "productor", contraparte: form.contraparte.trim(),
           usd: Number(form.usd), estado: conRespaldo ? "reconocido" : "provisional",
           origen: conRespaldo
