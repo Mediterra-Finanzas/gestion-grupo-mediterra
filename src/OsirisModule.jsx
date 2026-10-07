@@ -33,7 +33,7 @@ import {
   estadoBeneficio, faltantesBeneficio, consumoCupo, configBeneficio,
   estadoReajuste, faltantesReajuste, configReajuste, previsualizarReajuste,
   ACCION, netoNoDefinitivo, territorioDe,
-  reajusteOperativo, contratosConReajusteSinDefinir,
+  contratosConReajusteSinDefinir,
   REAJUSTE_APLICANDO, REAJUSTE_MARCADO_SIN_DEFINICION, REAJUSTE_REGISTRADO_SIN_APLICAR,
   REAJUSTE_ACTIVADO_APLICANDO,
 } from "./osiris/condicionesConfigurables";
@@ -7553,7 +7553,7 @@ async function exportarContratos(filtrado) {
     r.valorRoyaltyPlanta||"",
     r.valorRoyaltyComercial||"",
     (()=>{ const ro=reajusteOperativoConActivacion(r);
-      return ro.estado===REAJUSTE_ACTIVADO_APLICANDO ? ("Activado — aplicando "+ro.pct+" %/año")
+      return ro.estado===REAJUSTE_ACTIVADO_APLICANDO ? ("Activado — "+ro.pct+" %/año")
         : ro.estado===REAJUSTE_APLICANDO ? ("Aplicando "+ro.pct+" %/año")
         : ro.estado===REAJUSTE_MARCADO_SIN_DEFINICION ? "Marcado sin definición — NO se aplica"
         : ro.estado===REAJUSTE_REGISTRADO_SIN_APLICAR ? "Registrado — todavía NO se aplica"
@@ -9054,12 +9054,19 @@ Motivo del retiro:`, "");
                     la pantalla decia "Sujeto a Inflacion" y no se reajustaba nada.
                     Esto lo dice. No cambia ningun importe. */}
                 {(()=>{
+                  // D1: antes este aviso pintaba SIEMPRE en ambar. Con el reajuste
+                  // activado mostraba un texto de normalidad con el color de
+                  // advertencia, y el mismo texto salia en verde dos bloques mas
+                  // abajo. Aca no hay detalle de filas, asi que no afirma nada
+                  // sobre los importes: va en el color neutro de informacion.
                   const ro = reajusteOperativoConActivacion(r);
                   if(!ro.aviso) return null;
+                  const activo = ro.estado===REAJUSTE_ACTIVADO_APLICANDO;
                   return (
                     <div style={{gridColumn:"1 / -1",marginTop:8,fontSize:10,lineHeight:1.6,
-                      background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,
-                      borderRadius:8,padding:"8px 12px",color:C.am||"#854d0e"}}>
+                      background:activo?C.successBg:(C.amBg||"#fef9c3"),
+                      border:`1px solid ${activo?C.success:(C.am||"#ca8a04")}`,
+                      borderRadius:8,padding:"8px 12px",color:activo?C.success:(C.am||"#854d0e")}}>
                       <strong>{ro.titulo}.</strong> {ro.aviso}
                       {ro.detalle?<div style={{marginTop:4,color:C.muted}}>{ro.detalle}</div>:null}
                     </div>
@@ -9635,6 +9642,16 @@ Motivo del retiro:`, "");
               const ocsByCt={[r.id]:ocsViv};
               const rcRows=derivarRoyaltyComercialDesdeContratos([r],ocsByCt);
               const rcFact=rcRows.reduce((s,x)=>s+(x.montoFact||0),0), rcCobro=rcRows.reduce((s,x)=>s+(x.montoCobro||0),0);
+              // Base con la activacion apagada y vista previa: una sola vez.
+              // Las usan el rotulo, el aviso y el panel de activacion; antes
+              // cada uno la recalculaba por su cuenta.
+              const antecedentesDeFila=(f)=>((r.rcPagos||{})[f.temporada]||null);
+              const rcRowsBase=derivarRoyaltyComercialDesdeContratos(
+                [{...r, reajusteActivacion:{...(r.reajusteActivacion||{}), activado:false}}], ocsByCt);
+              const previaRC=previsualizarActivacion(r, rcRowsBase,
+                {mesCobro:r.rcMesCobro, antecedentesDe:antecedentesDeFila});
+              const filasRC={cambian:previaRC.filasQueCambian, protegidas:previaRC.filasIntocables};
+              const avisoRC=reajusteOperativoConActivacion(r, {filas:filasRC});
               // Royalty Planta por tandas de plantas (entrada directa en el contrato).
               const totPlantasC=(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0);
               const valorPP=parseFloat(r.valorRoyaltyPlanta)||1;
@@ -9913,23 +9930,28 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
                     <div style={{fontSize:13,fontWeight:800,color:C.text}}>📈 Royalty Comercial <span style={{fontSize:10,fontWeight:500,color:C.muted}}>(paga el cliente)</span> {inflPct>0
                       ? <span style={{fontSize:10,color:C.am}}>· inflación {N(inflPct)}%/año</span>
-                      : reajusteOperativoConActivacion(r).estado===REAJUSTE_ACTIVADO_APLICANDO
-                          ? <span style={{fontSize:10,color:C.success}}>· reajuste aplicado {N(reajusteOperativoConActivacion(r).pct)}%/año</span>
-                      : (reajusteOperativoConActivacion(r).estado!==REAJUSTE_APLICANDO && reajusteOperativoConActivacion(r).aviso
+                      : avisoRC.estado===REAJUSTE_ACTIVADO_APLICANDO
+                          ? (avisoRC.llevanElAjuste
+                              ? <span style={{fontSize:10,color:C.success}}>· reajuste aplicado {N(avisoRC.pct)}%/año</span>
+                              : <span style={{fontSize:10,color:C.am}}>· reajuste activado, sin efecto en estas temporadas</span>)
+                      : (avisoRC.estado!==REAJUSTE_APLICANDO && avisoRC.aviso
                           ? <span style={{fontSize:10,color:C.am}}>· sin reajuste aplicado</span>
                           : null)}</div>
                     <div style={{fontSize:11,color:C.muted}}>Fact total: <strong style={{color:C.text}}>${N(rcFact.toFixed(2))}</strong> · Neto: <strong style={{color:C.success}}>${N(rcCobro.toFixed(2))}</strong></div>
                   </div>
                   {(()=>{
-                    const ro = reajusteOperativoConActivacion(r);
+                    const ro = avisoRC;
                     if(!ro.aviso) return null;
-                    const aplicando = ro.estado===REAJUSTE_ACTIVADO_APLICANDO;
+                    // "Activado" no alcanza: hay que mirar si alguna fila lo lleva.
+                    const aplicando = ro.estado===REAJUSTE_ACTIVADO_APLICANDO && !!ro.llevanElAjuste;
                     return (
                       <div style={{fontSize:10,lineHeight:1.6,marginBottom:10,
-                        background:aplicando?(C.okBg||"#dcfce7"):(C.amBg||"#fef9c3"),
+                        background:aplicando?C.successBg:(C.amBg||"#fef9c3"),
                         border:`1px solid ${aplicando?C.success:(C.am||"#ca8a04")}`,
-                        borderRadius:8,padding:"7px 11px",color:aplicando?(C.okTxt||"#166534"):(C.am||"#854d0e")}}>
-                        <strong>{aplicando?"Estos montos YA llevan el reajuste.":"Estos montos no llevan reajuste."}</strong> {ro.aviso}
+                        borderRadius:8,padding:"7px 11px",color:aplicando?C.success:(C.am||"#854d0e")}}>
+                        <strong>{aplicando?"Estos montos YA llevan el reajuste."
+                          :ro.estado===REAJUSTE_ACTIVADO_APLICANDO?"Estos montos NO llevan el reajuste, aunque esté activado."
+                          :"Estos montos no llevan reajuste."}</strong> {ro.aviso}
                       </div>
                     );
                   })()}
@@ -9939,15 +9961,13 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                     const act = estadoActivacion(r);
                     const permiso = puedeCrearActivacion();
                     const edit = puedeEditarTerminos(r);
-                    const antes = (f)=>((r.rcPagos||{})[f.temporada]||null);
                     // H3: `rcRows` YA trae el reajuste aplicado cuando la activacion
                     // esta vigente. Partir de ahi componia el factor dos veces y
                     // mostraba un "antes" y una "diferencia" que no eran los reales.
-                    // La base se recalcula con la activacion apagada: es exactamente
-                    // lo que el sistema guardaria y calcularia.
-                    const rcRowsBase = derivarRoyaltyComercialDesdeContratos(
-                      [{...r, reajusteActivacion: {...(r.reajusteActivacion||{}), activado:false}}], ocsByCt);
-                    const prev = previsualizarActivacion(r, rcRowsBase, {mesCobro: r.rcMesCobro, antecedentesDe: antes});
+                    // `rcRowsBase` se calcula arriba con la activacion apagada, una
+                    // sola vez, y es exactamente lo que el sistema guardaria.
+                    const antes = antecedentesDeFila;
+                    const prev = previaRC;
                     const ra = r.reajusteActivacion||{};
                     const upA = (campo,val)=>{ if(!can) return; upd(r.id,"reajusteActivacion",{...(r.reajusteActivacion||{}),[campo]:val}); };
                     const col = act.estado===REAJ_ACTIVADO ? C.success
@@ -10063,7 +10083,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                   "Desactivar devuelve importes a la base.\n\n"+lineas+
                                   "\n\nFilas que bajan: "+pd.filasQueBajan+
                                   "\nSe deja de aplicar: US$ "+Math.abs(pd.diferencia).toFixed(2)+
-                                  "\n\nPor que se desactiva? (obligatorio)");
+                                  "\n\n¿Por que se desactiva? (obligatorio)");
                                 if(!motivo||!motivo.trim()) return;
                                 const ok = window.confirm("¿Confirmas desactivar y dejar de aplicar US$ "+Math.abs(pd.diferencia).toFixed(2)+"?");
                                 if(!ok) return;
@@ -10959,7 +10979,7 @@ La orden conserva sus despachos, facturas y cuotas. Queda registrado quién la a
                   {(()=>{
                     const ro = reajusteOperativoConActivacion(r);
                     if(ro.estado===REAJUSTE_ACTIVADO_APLICANDO)
-                      return <span title="Reajuste activado: el motor lo esta aplicando."
+                      return <span title="Reajuste activado. Las temporadas con factura o pago registrado no se recalculan."
                         style={{fontSize:9,color:C.success,marginLeft:4,fontWeight:700}}>+{N(ro.pct)}%/año</span>;
                     if(ro.estado===REAJUSTE_APLICANDO)
                       return <span style={{fontSize:9,color:C.am,marginLeft:4}}>+{N(ro.pct)}%/año</span>;

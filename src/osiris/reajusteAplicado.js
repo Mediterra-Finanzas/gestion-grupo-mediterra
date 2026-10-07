@@ -304,6 +304,15 @@ export function activar(ct, datos) {
   const cfg = configReajuste(ct);
   if (estadoReajuste(ct) !== "confirmado")
     return { ok: false, motivo: "El antecedente no esta confirmado.", contrato: ct };
+  if (cfg.tipo === "porcentaje" && !(Number(cfg.pct) > 0))
+    return {
+      ok: false,
+      motivo: "El porcentaje declarado es " + (cfg.pct === null || cfg.pct === "" ? "—" : cfg.pct) +
+        " %. Un reajuste de 0 % no mueve ningun importe: activarlo solo dejaria un sello y " +
+        "una entrada de historial de algo que no se aplica. Si el porcentaje todavia no esta " +
+        "definido, queda pendiente, no en cero.",
+      contrato: ct,
+    };
   if (d.confirmado !== true)
     return {
       ok: false,
@@ -639,17 +648,55 @@ export function previsualizarActivacion(ct, filas, opciones) {
 // Vive aca y no en condicionesConfigurables.js porque necesita
 // `estadoActivacion`, y ese modulo no puede importar de este sin armar un
 // ciclo. Las pantallas llaman a esta.
-export function reajusteOperativoConActivacion(ct) {
+export function reajusteOperativoConActivacion(ct, opciones) {
   const act = estadoActivacion(ct);
   if (!act.activo) return reajusteOperativo(ct);
   const pct = Number(act.pct) || 0;
+  const f = (opciones || {}).filas;
+  // Una activacion al 0 % no puede anunciarse como aplicandose. Hoy no se
+  // puede crear (activar la rechaza), pero podria venir de datos viejos.
+  if (!(pct > 0)) {
+    return {
+      estado: REAJUSTE_ACTIVADO_APLICANDO, aplica: false, pct: 0, llevanElAjuste: 0,
+      titulo: "Reajuste activado al 0 %: no mueve importes",
+      aviso: "Hay una activacion registrada con 0 %. No cambia ningun importe. Si el " +
+        "porcentaje todavia no esta definido, corresponde dejarlo pendiente y desactivar, " +
+        "no sostener una activacion que no aplica.",
+      detalle: "Activado el " + (act.fecha || "—") + (act.usuario ? " por " + act.usuario : "") + ".",
+    };
+  }
+  const sellado = "Se aplica con los términos sellados al activar (" + pct + " % desde " +
+    act.fechaReferencia + ", por " + act.regla.regla + ").";
+
+  // Que la activación esté encendida NO significa que los importes de esta
+  // pantalla lleven el ajuste: si todas las temporadas tienen factura o pago
+  // registrado, ninguna se recalcula y el total es el de la base. Sin el
+  // detalle de filas este aviso no puede afirmar nada sobre los importes, y
+  // no lo afirma. `llevanElAjuste` queda en null para decir "no lo sé".
+  let aviso = "";
+  let llevan = null;
+  if (!f) {
+    aviso = "El reajuste está activado. El motor lo aplica a las temporadas que no tengan " +
+      "factura o pago registrado; las que lo tengan quedan en su valor base. " + sellado;
+  } else if (!f.cambian) {
+    llevan = 0;
+    aviso = "El reajuste está activado, pero NINGUNA temporada de esta pantalla lo lleva" +
+      (f.protegidas ? ": las " + f.protegidas + " que hay tienen factura o pago registrado y no se recalculan"
+                    : " todavía") +
+      ". Los importes son los de la base. " + sellado;
+  } else {
+    llevan = f.cambian;
+    aviso = f.cambian + " temporada(s) de esta pantalla llevan el reajuste" +
+      (f.protegidas ? ", y " + f.protegidas + " quedan en su valor base por tener factura o pago registrado" : "") +
+      ". " + sellado;
+  }
+
   return {
     estado: REAJUSTE_ACTIVADO_APLICANDO, aplica: true, pct,
-    titulo: "Reajuste activado: " + pct + " %/año",
-    aviso: "El reajuste está activado y el motor lo está aplicando. Los importes de " +
-      "esta pantalla YA lo incluyen. Se aplica con los términos sellados al activar " +
-      "(" + pct + " % desde " + act.fechaReferencia + ", por " + act.regla.regla + "), " +
-      "y las temporadas con factura o pago registrado no se recalculan.",
+    llevanElAjuste: llevan,
+    titulo: llevan === 0 ? "Reajuste activado, sin efecto en estas temporadas"
+      : "Reajuste activado: " + pct + " %/año",
+    aviso,
     detalle: "Activado el " + (act.fecha || "—") + (act.usuario ? " por " + act.usuario : "") + ".",
   };
 }
