@@ -547,8 +547,11 @@ export function resumenLado({
   }
   const realizadoFuera = realizadoDe(fuera) + realizadoDe(archivados.filter(p => p.fueraPresupuesto));
   const realizadoArchivado = realizadoDe(archivados.filter(p => !p.fueraPresupuesto));
+  // Lo que la bandeja tiene SIN ASIGNAR: el monto del movimiento menos lo que
+  // ya se aplicó a una estimación o cuota (que desde ahí sí descuenta).
   const sinAsignarUsd = (Array.isArray(sinAsignar) ? sinAsignar : [])
-    .filter(m => m && !m.anulada).reduce((s, m) => s + n(m.usd), 0);
+    .filter(m => m && !m.anulada)
+    .reduce((s, m) => s + sinAplicarDeMovimiento(m, { estimaciones, programas }), 0);
 
   return {
     // ── compatibilidad con lo que ya consume la app ───────────────
@@ -733,6 +736,101 @@ export function nuevoMovimientoSinAsignar({ fecha, usd, referencia = "", contrap
 export function puedeAplicar(mov, usd) {
   const aplicado = (mov?.aplicaciones || []).reduce((s, a) => s + n(a.usd), 0);
   return n(usd) <= n(mov?.usd) - aplicado + 0.005;
+}
+
+// ── Aplicar un movimiento de la bandeja ────────────────────────────
+//
+// Un movimiento sin asignar NO es una realización: todavía no descuenta de
+// ninguna liquidación. Aplicarlo lo convierte en realización de una estimación
+// o de una cuota, y recién ahí descuenta. Por eso NO es una reasignación: el
+// realizado aplicado y el saldo económico sí cambian. Lo que no cambia es el
+// TOTAL del dinero registrado: el movimiento no se duplica, se consume.
+//
+// Lo aplicado NO se lleva en un contador aparte: se mide contando las
+// realizaciones VIGENTES que nacieron del movimiento, estén donde estén. Así
+// anular la realización libera el monto solo y no quedan datos huérfanos.
+
+/** Σ de las realizaciones vigentes originadas en este movimiento. */
+export function aplicadoDeMovimiento(movId, { estimaciones = [], programas = [] } = {}) {
+  if (!movId) return 0;
+  let total = 0;
+  (Array.isArray(estimaciones) ? estimaciones : []).map(normalizarAnticipo).forEach(e => {
+    realizacionesVigentes(e).forEach(r => {
+      if (r?.origen?.tipo === "bandeja" && r.origen.id === movId) total += n(r.usd);
+    });
+  });
+  programasTodos(programas).forEach(p => p.cuotas.forEach(c => {
+    realizacionesVigentes(c).forEach(r => {
+      if (r?.origen?.tipo === "bandeja" && r.origen.id === movId) total += n(r.usd);
+    });
+  }));
+  return total;
+}
+
+/** Lo que del movimiento sigue sin asignar. */
+export function sinAplicarDeMovimiento(mov, ctx) {
+  return Math.max(0, n(mov?.usd) - aplicadoDeMovimiento(mov?.id, ctx));
+}
+
+/**
+ * Aplica (parte de) un movimiento de la bandeja a una estimación o a una cuota.
+ * El importe no puede superar lo que queda sin asignar: el mismo dinero no se
+ * aplica dos veces. La realización conserva la fecha y la referencia del
+ * movimiento, y queda con `origen:{tipo:"bandeja", id}` para la trazabilidad.
+ */
+export function aplicarMovimiento({ movimiento, estimaciones = [], programas = [], usd, hacia, usuario = "" }) {
+  const mov = movimiento || {};
+  if (!mov.id) throw new Error("No identifico el movimiento de la bandeja.");
+  if (mov.anulada) throw new Error("Ese movimiento está anulado: no se puede aplicar.");
+  if (!hacia || (hacia.tipo !== "estimacion" && hacia.tipo !== "cuota") || !hacia.id) {
+    throw new Error("Elige a qué estimación o cuota se aplica el movimiento.");
+  }
+  const monto = n(usd);
+  if (!(monto > 0)) throw new Error("Un importe a aplicar tiene que ser mayor que cero.");
+  const disponible = sinAplicarDeMovimiento(mov, { estimaciones, programas });
+  if (monto > disponible + 0.005) {
+    throw new Error(`No se puede aplicar ${monto} cuando del movimiento quedan ${disponible} ` +
+      `sin asignar. El mismo dinero no se aplica dos veces.`);
+  }
+  const rea = {
+    id: uid("rea"), fecha: mov.fecha, usd: monto,
+    nota: mov.referencia ? `bandeja · ${mov.referencia}` : "bandeja",
+    usuario, ts: new Date().toISOString(),
+    origen: { tipo: "bandeja", id: mov.id },
+  };
+  const ests = (Array.isArray(estimaciones) ? estimaciones : []).map(normalizarAnticipo);
+  const estsOut = ests.map(e => e.id === hacia.id && hacia.tipo === "estimacion"
+    ? { ...e, realizaciones: [...(e.realizaciones || []), rea] } : e);
+  const progsOut = programasTodos(programas).map(p => ({ ...p, cuotas: p.cuotas.map(c =>
+    (hacia.tipo === "cuota" && c.id === hacia.id)
+      ? normalizarCuota({ ...c, realizaciones: [...(c.realizaciones || []), rea] })
+      : c) }));
+  const aplicadoDespues = aplicadoDeMovimiento(mov.id, { estimaciones: estsOut, programas: progsOut });
+  return {
+    estimaciones: estsOut, programas: progsOut, realizacion: rea,
+    aplicado: aplicadoDespues, sinAplicar: Math.max(0, n(mov.usd) - aplicadoDespues),
+  };
+}
+
+/**
+ * Anula un movimiento de la bandeja con motivo. NO se borra: queda con su
+ * historial. Si tiene importes aplicados, se impide: primero hay que anular
+ * esas realizaciones, si no quedarían descuentos activos sin su movimiento.
+ */
+export function anularMovimientoSinAsignar(mov0, { motivo, usuario = "", estimaciones = [], programas = [] } = {}) {
+  const mov = mov0 || {};
+  if (!motivo || !String(motivo).trim()) {
+    throw new Error("Anular un movimiento necesita un motivo: queda en el historial.");
+  }
+  const aplicado = aplicadoDeMovimiento(mov.id, { estimaciones, programas });
+  if (aplicado > 0.005) {
+    throw new Error(`Este movimiento tiene ${aplicado} ya aplicados a una estimación o cuota. ` +
+      `Anula primero esas realizaciones; si no, quedarían descuentos activos sin su movimiento.`);
+  }
+  return {
+    ...mov, anulada: true, motivoAnulacion: String(motivo).trim(),
+    anuladaPor: usuario, anuladaTs: new Date().toISOString(),
+  };
 }
 
 

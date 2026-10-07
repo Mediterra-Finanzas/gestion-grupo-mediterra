@@ -398,13 +398,27 @@ Reglas que no hay que romper:
   Fijado con `src/__tests__/reasignarMovimiento.test.js` (14) y el escenario
   **H** de `excelRecalcFlujo` (Excel recalculado de verdad en la dirección
   cuota → estimación).
-- **Limitación conocida — la bandeja no se reasigna**: un movimiento de
-  `movimientos_sin_asignar` NO es una realización (tiene otra forma y vive en
-  otro arreglo), así que `moverRealizacion` no lo acepta y el formulario no lo
-  ofrece. Hoy la bandeja solo permite «quitar», que **borra** el movimiento
-  con un confirm, sin motivo ni historial. Asignar un movimiento de la bandeja
-  a una cuota o estimación necesitaría una función de modelo nueva; no se
-  implementó.
+- **Aplicar un movimiento de la bandeja NO es reasignar** (oct-2026): un
+  movimiento sin asignar todavía **no descontaba** ninguna liquidación, así que
+  al aplicarlo el **realizado y el saldo económico SÍ cambian**. Lo que no
+  aumenta es el total del dinero registrado: el movimiento se consume, no se
+  duplica. `aplicarMovimiento({movimiento, estimaciones, programas, usd, hacia,
+  usuario})` crea una realización en la estimación o cuota destino con la
+  **fecha y la referencia del movimiento** y `origen:{tipo:"bandeja", id}`.
+  Admite aplicación **parcial**, y la pantalla muestra siempre *aplicado* y
+  *sin asignar*.
+  **Lo aplicado NO se lleva en un contador aparte**: `aplicadoDeMovimiento`
+  cuenta las realizaciones VIGENTES originadas en el movimiento, estén donde
+  estén. Así el mismo dinero no se aplica dos veces (se valida contra lo que
+  queda), anular la realización **libera el monto solo** y no pueden quedar
+  datos huérfanos. `sinAsignarUsd` de `resumenLado` descuenta lo ya aplicado.
+- **La bandeja se anula con motivo, no se borra**: `anularMovimientoSinAsignar`
+  exige motivo, conserva el dato con `anulada/motivoAnulacion/anuladaPor/
+  anuladaTs`, y **se bloquea si el movimiento tiene importes aplicados**
+  (habría descuentos activos sin su movimiento): primero se anulan esas
+  realizaciones. Reemplaza al botón «quitar», que borraba con un confirm.
+  Fijado con `src/__tests__/bandejaAplicar.test.js` (12), el escenario **I** de
+  `excelRecalcFlujo` y `scripts/e2e/reasignar-bandeja.mjs` (navegador).
 
 Guía de carga: `docs/programas-allegria-carga.md`. Guía de revisión en
 pantalla antes de cargar: `docs/revision-estimaciones-pantalla.md`. Propuesta de carga y
@@ -418,7 +432,12 @@ escenarios que la comparación en caché no podía ver),
 `src/__tests__/saldosExcelRecalc.test.js` (`RECALC=1`),
 `src/__tests__/cuotaVencidaPantalla.test.js` (RTL: lo que la cuota muestra), y
 `scripts/e2e/programas-allegria.mjs` + `regresion-empresas.mjs` (navegador +
-Excel recalculado, datos sintéticos).
+Excel recalculado, datos sintéticos) y **`scripts/e2e/reasignar-bandeja.mjs`**
+(navegador, dedicado al formulario de reasignación y a la bandeja: cuota →
+estimación, cuota → cuota, bandeja parcial a cuota y a estimación, guardado y
+recarga, cancelación, anulación con motivo y su bloqueo. El caso de SOLO
+LECTURA no se ejercita ahí porque el store de la prueba trae una única
+credencial de administrador; está cubierto en las pruebas de componente).
 
 #### Limitación conocida — pendiente con mes fuera del horizonte
 

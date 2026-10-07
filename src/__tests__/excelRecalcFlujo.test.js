@@ -113,6 +113,23 @@ correr('Excel recalculado vs flujo', () => {
       }),
     },
     {
+      nombre: 'I · movimiento de la BANDEJA aplicado en parte a una cuota',
+      // Lo aplicado descuenta desde la cuota; lo que sigue sin asignar NO
+      // descuenta de ninguna liquidación y no puede aparecer en el archivo
+      // como si lo hiciera.
+      params: fruta({
+        anticipos_cliente: [{ id: 'e1', mes: MES_A, usd_kg: 0.1, v: MODELO_VERSION, realizaciones: [] }],
+        movimientos_sin_asignar: [{ id: 'mov1', fecha: '2026-08-14', usd: 100000,
+          referencia: 'cartola 7731', lado: 'cliente', aplicaciones: [] }],
+        programas: [{ id: 'p1', lado: 'cliente', contraparte: 'WLH', kilos: 1000000,
+          cuotas: [{ id: 'c1', estado: 'vigente', modalidad: 'monto', monto: 100000, mes: MES_A,
+            v: MODELO_VERSION, sustituye: [],
+            realizaciones: [{ id: 'r1', fecha: '2026-08-14', usd: 60000,
+                              nota: 'bandeja · cartola 7731',
+                              origen: { tipo: 'bandeja', id: 'mov1' } }] }] }],
+      }),
+    },
+    {
       nombre: 'B · estimación NUEVA sin fecha (reservada)',
       params: fruta({
         anticipos_cliente: [{ id: 'e2', mes: '', usd_kg: 0.05, v: MODELO_VERSION, realizaciones: [] }],
