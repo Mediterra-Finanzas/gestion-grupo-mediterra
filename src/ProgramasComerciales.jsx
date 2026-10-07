@@ -17,11 +17,13 @@
 import React, { useState } from "react";
 import InputNumero from "./InputNumero.jsx";
 import {
+  resumenLado,
   normalizarPrograma, normalizarCuota, nuevoIdPrograma, nuevoIdCuota,
   cuotaAcordado, cuotaRealizado, cuotaPendiente, cuotaSustituye,
   estAcordado, estPendiente, estDisponible, estSobreSustituida,
   efectoImputacion, imputarMovimiento, moverRealizacion,
   archivarPrograma, tieneHistorial, nuevoMovimientoSinAsignar, esDato,
+  aplicarMovimiento, aplicadoDeMovimiento, sinAplicarDeMovimiento, anularMovimientoSinAsignar,
   registrarDecisionSinFecha, normalizarSaldo, resumenSaldo, puedeReconocer,
   agregarAplicacion, ejecutarAplicacion, aplicarCompensacion,
   aplazarAplicacion, anularAplicacion, inconsistenciasSaldos,
@@ -227,9 +229,66 @@ function Columna({
   const col = esCli ? C.green : C.red;
   const [verArchivados, setVerArchivados] = useState(false);
   const [draftMov, setDraftMov] = useState(null);
+  const [aplic, setAplic] = useState(null);           // aplicar un movimiento de la bandeja
+  const [anulMov, setAnulMov] = useState(null);       // anular un movimiento, con motivo
   const [archDraft, setArchDraft] = useState(null);   // archivar con motivo, sin prompt
   const vivos = programas.filter(p => !p.archivado);
   const archivados = programas.filter(p => p.archivado);
+  const inSt = { padding: "4px 7px", background: C.card2, border: `1px solid ${C.border}`, borderRadius: 6, color: C.text, fontSize: 11, outline: "none" };
+  const selSt = { ...inSt, padding: "4px 6px" };
+
+  // ── Destinos posibles de un movimiento de la bandeja ─────────────
+  // Las mismas estimaciones y cuotas de este lado que ya se usan para
+  // reasignar. Una sola lista: no hay dos nociones de destino.
+  const destinos = [
+    ...(estimaciones || []).map(normalizarAnticipo).map(e => ({ tipo: "estimacion", id: e.id,
+      etiqueta: `estimación ${e.mes || "sin mes"} · acordado ${$$(estAcordado(e, kgFruta))}` })),
+    ...vivos.flatMap(x => x.cuotas.map(c => ({ tipo: "cuota", id: c.id,
+      etiqueta: `${c.historico ? "registro histórico" : "cuota " + (c.fecha_prevista || c.mes || "sin fecha")}`
+        + ` · ${x.contraparte || "sin nombre"} · acordado ${$$(cuotaAcordado(c, x.kilos).valor || 0)}` }))),
+  ];
+  const resumenCon = (estsX, progsX) => resumenLado({
+    estimaciones: estsX, programas: progsX, lado, kgFruta,
+    basePresupuesto: resumen?.basePresupuesto || 0, mIdx: mIdxHor,
+    mesIdxActual: mesIdxActualHor(), modeloVersion, decisionesSinFecha: decisiones,
+    sinAsignar,
+  });
+
+  const confirmarAplicar = (mov) => {
+    const destino = destinos.find(d => `${d.tipo}:${d.id}` === `${aplic.destinoTipo}:${aplic.destinoId}`);
+    if (!destino) { window.alert("Elige a qué estimación o cuota se aplica el movimiento."); return; }
+    let res;
+    try {
+      res = aplicarMovimiento({ movimiento: mov, estimaciones, programas: todos,
+        usd: aplic.usd, hacia: { tipo: destino.tipo, id: destino.id }, usuario });
+    } catch (e) { window.alert(e.message); return; }
+    const rA = resumenCon(estimaciones, todos), rD = resumenCon(res.estimaciones, res.programas);
+    const ok = window.confirm(
+      `Aplicar ${$$(res.realizacion.usd)} del movimiento del ${mov.fecha}` +
+      (mov.referencia ? ` (${mov.referencia})` : "") + `.\n\n` +
+      `A: ${destino.etiqueta}\n\n` +
+      `Un movimiento de la bandeja NO descontaba nada todavía. Al aplicarlo pasa a ser ` +
+      `${esCli ? "cobro" : "pago"} de esa operación y recién ahí descuenta.\n\n` +
+      `Del movimiento: aplicado ${$$(res.aplicado)} · sin asignar ${$$(res.sinAplicar)}\n` +
+      `Realizado del lado:     ${$$(rA.realizado)} → ${$$(rD.realizado)}  (sube: antes no descontaba)\n` +
+      `Pendientes con fecha:   ${$$(rA.pendientes)} → ${$$(rD.pendientes)}\n` +
+      `Liquidación:            ${$$(rA.liquidacion)} → ${$$(rD.liquidacion)}\n` +
+      `Saldo económico:        ${$$(rA.saldoEconomico)} → ${$$(rD.saldoEconomico)}\n\n` +
+      `El dinero registrado no aumenta: el movimiento se consume, no se duplica.\n\n¿Confirmas?`);
+    if (!ok) return;
+    onEstimaciones(res.estimaciones);
+    setLista(res.programas);
+    setAplic(null);
+  };
+
+  const confirmarAnularMov = (mov) => {
+    try {
+      const anulado = anularMovimientoSinAsignar(mov, { motivo: anulMov.motivo, usuario,
+        estimaciones, programas: todos });
+      onSinAsignar(sinAsignar.map(x => (x.id === mov.id ? anulado : x)));
+      setAnulMov(null);
+    } catch (e) { setAnulMov({ ...anulMov, error: e.message }); }
+  };
 
   const agregar = () => setLista([...todos, normalizarPrograma({
     id: nuevoIdPrograma(), lado, contraparte: "", kilos: null, cuotas: [], antecedentes: [],
@@ -318,6 +377,7 @@ function Columna({
           <Tarjeta key={p.id} p={p} esCli={esCli} col={col} C={C} $$={$$} meses={meses}
             readOnly={readOnly} usuario={usuario} kgFruta={kgFruta}
             presupuestoGlobal={resumen?.basePresupuesto || 0}
+            modeloVersion={modeloVersion} decisiones={decisiones}
             estimaciones={estimaciones} onEstimaciones={onEstimaciones}
             todos={todos} setLista={setLista}
             onReemplazar={nuevo => reemplazar(p.id, nuevo)}
@@ -352,18 +412,92 @@ function Columna({
         {sinAsignar.length === 0 && (
           <div style={{ fontSize: 9, color: C.muted2, fontStyle: "italic" }}>Ninguno.</div>
         )}
-        {sinAsignar.map(m => (
-          <div key={m.id} style={{ display: "flex", gap: 7, fontSize: 9, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
-            <span style={{ color: C.muted }}>{m.fecha}</span>
-            <strong style={{ color: C.warning }}>{$$(m.usd)}</strong>
-            {m.referencia && <span style={{ color: C.muted2, fontStyle: "italic" }}>{m.referencia}</span>}
-            <span style={{ color: C.muted2 }}>sin operación: no descuenta</span>
-            {!readOnly && (
-              <button onClick={() => { if (window.confirm("Quitar este movimiento de la bandeja?")) onSinAsignar(sinAsignar.filter(x => x.id !== m.id)); }}
-                style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", fontSize: 9, textDecoration: "underline" }}>quitar</button>
+        {sinAsignar.map(m => {
+          const ctxMov = { estimaciones, programas: todos };
+          const aplicado = aplicadoDeMovimiento(m.id, ctxMov);
+          const resta = sinAplicarDeMovimiento(m, ctxMov);
+          return (
+          <div key={m.id} style={{ marginTop: 3, paddingTop: 3, borderTop: `1px dotted ${C.border}` }}>
+            <div style={{ display: "flex", gap: 7, fontSize: 9, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ color: C.muted }}>{m.fecha}</span>
+              <strong style={{ color: m.anulada ? C.muted2 : C.warning,
+                textDecoration: m.anulada ? "line-through" : "none" }}>{$$(m.usd)}</strong>
+              {m.referencia && <span style={{ color: C.muted2, fontStyle: "italic" }}>{m.referencia}</span>}
+              {m.anulada ? (
+                <span style={{ color: C.muted2 }}>anulado · {m.motivoAnulacion}</span>
+              ) : (
+                <>
+                  {/* Cada importe con su efecto, para que no quede dudoso cuál
+                      descuenta: el aplicado YA descuenta en su operación; el
+                      que sigue sin asignar es el único que no descuenta. */}
+                  <span style={{ color: aplicado > 0 ? C.success : C.muted2 }}>
+                    aplicado {$$(aplicado)}{aplicado > 0 ? " · ya descuenta en su operación" : ""}
+                  </span>
+                  <span style={{ color: resta > 0 ? C.warning : C.muted2 }}>
+                    sin asignar {$$(resta)}{resta > 0 ? " · solo este importe no descuenta" : ""}
+                  </span>
+                  {!readOnly && resta > 0 && (
+                    <button onClick={() => setAplic({ movId: m.id, usd: resta, destinoTipo: "", destinoId: "" })}
+                      style={{ background: "transparent", border: "none", color: C.success, cursor: "pointer", fontSize: 9, textDecoration: "underline" }}>
+                      aplicar
+                    </button>
+                  )}
+                  {!readOnly && (
+                    <button onClick={() => setAnulMov({ id: m.id, motivo: "", error: null })}
+                      style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", fontSize: 9, textDecoration: "underline" }}>anular</button>
+                  )}
+                </>
+              )}
+            </div>
+            {aplic && aplic.movId === m.id && !readOnly && (
+              <div style={{ marginTop: 3, display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ fontSize: 9, color: C.muted }}>Aplicar</span>
+                <InputNumero formato="monto" value={aplic.usd} placeholder="US$"
+                  onChange={v => setAplic({ ...aplic, usd: v })}
+                  style={{ padding: "3px 6px", width: 100, textAlign: "right", background: C.card2,
+                    border: `1px solid ${C.border}`, borderRadius: 6, color: C.text, fontSize: 10 }} />
+                <span style={{ fontSize: 9, color: C.muted }}>de {$$(resta)} a</span>
+                <select value={`${aplic.destinoTipo}:${aplic.destinoId}`}
+                  onChange={e => { const [t, ...r] = e.target.value.split(":");
+                    setAplic({ ...aplic, destinoTipo: t, destinoId: r.join(":") }); }}
+                  style={{ ...selSt, fontSize: 10, maxWidth: 300 }}>
+                  <option value=":">— destino —</option>
+                  {destinos.map(d => (
+                    <option key={`${d.tipo}:${d.id}`} value={`${d.tipo}:${d.id}`}>{d.etiqueta}</option>
+                  ))}
+                </select>
+                <button onClick={() => confirmarAplicar(m)}
+                  style={{ padding: "3px 9px", background: C.success, border: "none", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 9, fontWeight: 700 }}>
+                  Ver efecto y aplicar
+                </button>
+                <button onClick={() => setAplic(null)}
+                  style={{ padding: "3px 7px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 9 }}>Cancelar</button>
+                <div style={{ flexBasis: "100%", fontSize: 9, color: C.muted2, marginTop: 2 }}>
+                  Mientras está sin asignar, el movimiento no descuenta de ninguna liquidación.
+                  Al aplicarlo, ESE importe pasa a ser cobro/pago de la operación destino y
+                  descuenta de SU liquidación; el realizado sube y el dinero registrado no. Se
+                  puede aplicar por partes: lo que quede sin asignar sigue sin descontar.
+                </div>
+              </div>
+            )}
+            {anulMov && anulMov.id === m.id && !readOnly && (
+              <div style={{ marginTop: 3, display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+                <input type="text" value={anulMov.motivo} placeholder="motivo de la anulación"
+                  onChange={e => setAnulMov({ ...anulMov, motivo: e.target.value, error: null })}
+                  style={{ ...inSt, minWidth: 180, fontSize: 10 }} />
+                <button onClick={() => confirmarAnularMov(m)}
+                  style={{ padding: "3px 9px", background: C.danger, border: "none", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 9, fontWeight: 700 }}>Anular</button>
+                <button onClick={() => setAnulMov(null)}
+                  style={{ padding: "3px 7px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 9 }}>Cancelar</button>
+                <div style={{ flexBasis: "100%", fontSize: 9, color: C.muted2, marginTop: 2 }}>
+                  No se borra: queda anulado con su motivo y su historial. Si tiene importes
+                  aplicados hay que anular primero esas realizaciones.
+                  {anulMov.error && <strong style={{ color: C.danger }}> {anulMov.error}</strong>}
+                </div>
+              </div>
             )}
           </div>
-        ))}
+        );})}
         {!readOnly && (draftMov ? (
           <div style={{ marginTop: 4, display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
             <input type="date" value={draftMov.fecha} onChange={e => setDraftMov({ ...draftMov, fecha: e.target.value })}
@@ -452,7 +586,7 @@ function LiquidacionDefinitiva({ definitiva, onDefinitiva, resumen, esCli, C, $$
 function Tarjeta({
   p, esCli, col, C, $$, meses, readOnly, usuario, kgFruta, presupuestoGlobal = 0,
   estimaciones, onEstimaciones, todos, setLista, onReemplazar, onBorrar, onArchivar,
-  sinAsignar = [], onSinAsignar,
+  sinAsignar = [], onSinAsignar, modeloVersion = 1, decisiones = {},
 }) {
   const [abierto, setAbierto] = useState(true);
   const [form, setForm] = useState(null);       // registrar movimiento
@@ -585,22 +719,102 @@ function Tarjeta({
     } catch (e) { window.alert(e.message); }
   };
 
-  // Asociar un movimiento que ya está registrado en una estimación.
-  const movimientosDeEstimaciones = (estimaciones || []).flatMap(e =>
-    realizacionesVigentes(normalizarAnticipo(e)).map(r => ({ ...r, estimacionId: e.id })));
+  // ── Reasignar un movimiento ya registrado ───────────────────────
+  // Origen y destino pueden ser una estimación o una cuota de este lado. Lo
+  // único que el modelo prohíbe es estimación → estimación (reabriría el
+  // pendiente de la de origen). La bandeja NO entra: un movimiento sin asignar
+  // no es una realización, así que moverlo no es lo mismo y no está soportado.
+  const ests = (estimaciones || []).map(normalizarAnticipo);
+  const progsLado = (todos || []).filter(x => x.lado === p.lado && !x.archivado);
+  const movimientosMovibles = [
+    ...ests.flatMap(e => realizacionesVigentes(e).map(r => ({
+      reaId: r.id, usd: r.usd, fecha: r.fecha, nota: r.nota,
+      desde: { tipo: "estimacion", id: e.id },
+      etiqueta: `estimación ${e.mes || "sin mes"} · ${r.fecha} · ${$$(r.usd)}${r.nota ? " · " + r.nota : ""}`,
+    }))),
+    ...progsLado.flatMap(x => x.cuotas.flatMap(c =>
+      (c.realizaciones || []).filter(r => r && !r.anulada).map(r => ({
+        reaId: r.id, usd: r.usd, fecha: r.fecha, nota: r.nota,
+        desde: { tipo: "cuota", id: c.id },
+        etiqueta: `${c.historico ? "registro histórico" : "cuota " + (c.fecha_prevista || c.mes || "sin fecha")}`
+          + ` · ${x.contraparte || "sin nombre"} · ${r.fecha} · ${$$(r.usd)}${r.nota ? " · " + r.nota : ""}`,
+      })))),
+  ];
+  const destinos = [
+    ...ests.map(e => ({ tipo: "estimacion", id: e.id,
+      etiqueta: `estimación ${e.mes || "sin mes"} · acordado ${$$(estAcordado(e, kgFruta))}` })),
+    ...progsLado.flatMap(x => x.cuotas.map(c => ({ tipo: "cuota", id: c.id,
+      etiqueta: `${c.historico ? "registro histórico" : "cuota " + (c.fecha_prevista || c.mes || "sin fecha")}`
+        + ` · ${x.contraparte || "sin nombre"} · acordado ${$$(cuotaAcordado(c, x.kilos).valor || 0)}` }))),
+  ];
+  const buscarMov = (reaId) => movimientosMovibles.find(m => m.reaId === reaId) || null;
+  const buscarDestino = (tipo, id) => destinos.find(d => d.tipo === tipo && d.id === id) || null;
+
+  const pendienteDe = (tipo, id, estsX, progsX) => {
+    if (tipo === "estimacion") {
+      const e = estsX.map(normalizarAnticipo).find(z => z.id === id);
+      // Con `progsX`: el pendiente descuenta lo que la estimación ORIGINÓ, esté
+      // donde esté. Sin ese argumento, una estimación cuyo movimiento se movió
+      // a una cuota aparecería reabriendo su pendiente, que es justo lo que el
+      // modelo prohíbe.
+      return e ? (estPendiente(e, kgFruta, progsX) || 0) : 0;
+    }
+    for (const x of (progsX || [])) {
+      const c = x.cuotas.find(z => z.id === id);
+      if (c) return cuotaPendiente(c, x.kilos) || 0;
+    }
+    return 0;
+  };
+  // El efecto se toma del MISMO resumen que alimenta la pantalla, el flujo y el
+  // Excel. No se replica la regla acá: una copia podría divergir y mostrar un
+  // número que no es el que después aparece.
+  const resumenCon = (estsX, progsX) => resumenLado({
+    estimaciones: estsX, programas: progsX, lado: p.lado, kgFruta,
+    basePresupuesto: presupuestoGlobal, mIdx: mIdxHor, mesIdxActual: mesIdxActualHor(),
+    modeloVersion, decisionesSinFecha: decisiones,
+  });
+
   const confirmarAsociar = () => {
-    const { reaId, estimacionId, cuotaId } = asociar;
-    const res = moverRealizacion({ estimaciones, programas: todos, reaId,
-      desde: { tipo: "estimacion", id: estimacionId }, hacia: { tipo: "cuota", id: cuotaId }, usuario });
+    const { reaId, destinoTipo, destinoId } = asociar;
+    const mov = buscarMov(reaId);
+    if (!mov) { window.alert("Elige el movimiento a reasignar."); return; }
+    const destino = buscarDestino(destinoTipo, destinoId);
+    if (!destino) { window.alert("Elige el destino."); return; }
+    if (mov.desde.tipo === destino.tipo && mov.desde.id === destino.id) {
+      window.alert("El movimiento ya está ahí."); return;
+    }
+    if (mov.desde.tipo === "estimacion" && destino.tipo === "estimacion") {
+      window.alert("Un movimiento no se pasa de una estimación a otra: reabriría el " +
+        "pendiente de la de origen.\n\nSi la asignación actual es incorrecta, anúlalo " +
+        "con motivo y regístralo donde corresponde."); return;
+    }
+    let res;
+    try {
+      res = moverRealizacion({ estimaciones: ests, programas: todos, reaId,
+        desde: mov.desde, hacia: { tipo: destino.tipo, id: destino.id }, usuario });
+    } catch (e) { window.alert(e.message); return; }
     if (!res.movida) { window.alert("No encontré ese movimiento."); return; }
-    const cuota = p.cuotas.find(c => c.id === cuotaId);
-    const ef = efectoImputacion({ cuota, kilosPrograma: p.kilos, usd: res.movida.usd, incluido: true });
-    if (!window.confirm(
-      `Mover ${$$(res.movida.usd)} del ${res.movida.fecha} a la cuota.\n\n` +
-      `El movimiento conserva su identidad y su historial: no se vuelve a registrar.\n` +
-      `La estimación de origen NO reabre ese monto.\n\n` +
-      `Pendiente de la cuota: ${$$(ef.pendienteAntes)} → ${$$(ef.pendienteDespues)}\n\n` +
-      `Si este movimiento era adicional al acuerdo, después sube el total acordado de la cuota.\n\n¿Confirmas?`)) return;
+
+    // Efecto ANTES de confirmar, con la misma regla del modelo.
+    const rA = resumenCon(ests, todos), rD = resumenCon(res.estimaciones, res.programas);
+    const realAntes = rA.realizado, realDesp = rD.realizado;
+    const dLiq = rD.liquidacion - rA.liquidacion;
+    const pOrigAntes = pendienteDe(mov.desde.tipo, mov.desde.id, ests, todos);
+    const pOrigDesp  = pendienteDe(mov.desde.tipo, mov.desde.id, res.estimaciones, res.programas);
+    const pDestAntes = pendienteDe(destino.tipo, destino.id, ests, todos);
+    const pDestDesp  = pendienteDe(destino.tipo, destino.id, res.estimaciones, res.programas);
+    const ok = window.confirm(
+      `Reasignar ${$$(mov.usd)} del ${mov.fecha}.\n\n` +
+      `DE:    ${mov.etiqueta}\n` +
+      `A:     ${destino.etiqueta}\n\n` +
+      `El movimiento conserva su identidad, monto, fecha e historial: NO se vuelve a registrar.\n\n` +
+      `Pendiente del origen:  ${$$(pOrigAntes)} → ${$$(pOrigDesp)}\n` +
+      `Pendiente del destino: ${$$(pDestAntes)} → ${$$(pDestDesp)}\n` +
+      `Liquidación del lado:  ${dLiq === 0 ? "sin cambio" : (dLiq > 0 ? "+" : "−") + $$(Math.abs(dLiq))}\n` +
+      `Realizado total:       ${$$(realAntes)} → ${$$(realDesp)}` +
+      (Math.abs(realAntes - realDesp) > 0.005 ? "  ⚠ NO DEBERÍA CAMBIAR" : "  (sin cambio, como corresponde)") +
+      `\n\n¿Confirmas?`);
+    if (!ok) return;
     onEstimaciones(res.estimaciones);
     setLista(res.programas);
     setAsociar(null);
@@ -696,7 +910,7 @@ function Tarjeta({
                 estimaciones={estimaciones} todos={todos}
                 onUpd={patch => updCuota(c.id, patch)} onDel={() => delCuota(c)}
                 onRegistrar={() => setForm({ cuotaId: c.id, fecha: hoyISO(), usd: "", nota: "" })}
-                onAsociar={() => setAsociar({ cuotaId: c.id, reaId: "", estimacionId: "" })}
+                onAsociar={() => setAsociar({ reaId: "", destinoTipo: "cuota", destinoId: c.id })}
                 onAnular={reaId => anular(c.id, reaId)} />
             ))}
             {!readOnly && (
@@ -867,24 +1081,35 @@ function Tarjeta({
           {asociar && !readOnly && (
             <div style={{ marginTop: 8, padding: "7px 8px", background: C.cardAlt, border: `1px solid ${C.border}`,
               borderRadius: 7, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 10, color: C.muted, fontWeight: 700 }}>Asociar movimiento ya registrado:</span>
-              <select value={asociar.reaId} onChange={e => {
-                const m = movimientosDeEstimaciones.find(x => x.id === e.target.value);
-                setAsociar({ ...asociar, reaId: e.target.value, estimacionId: m ? m.estimacionId : "" });
-              }} style={selSt}>
-                <option value="">— elegir —</option>
-                {movimientosDeEstimaciones.map(m => (
-                  <option key={m.id} value={m.id}>{m.fecha} · {$$(m.usd)}{m.nota ? ` · ${m.nota}` : ""}</option>
+              <span style={{ fontSize: 10, color: C.muted, fontWeight: 700 }}>Reasignar un movimiento ya registrado:</span>
+              <select value={asociar.reaId}
+                onChange={e => setAsociar({ ...asociar, reaId: e.target.value })} style={{ ...selSt, maxWidth: 330 }}>
+                <option value="">— movimiento de origen —</option>
+                {movimientosMovibles.map(m => (
+                  <option key={m.reaId} value={m.reaId}>{m.etiqueta}</option>
                 ))}
               </select>
-              <button onClick={() => { if (!asociar.reaId) { window.alert("Elige el movimiento."); return; } confirmarAsociar(); }}
+              <span style={{ fontSize: 10, color: C.muted }}>→</span>
+              <select value={`${asociar.destinoTipo}:${asociar.destinoId}`}
+                onChange={e => { const [t, ...r] = e.target.value.split(":");
+                  setAsociar({ ...asociar, destinoTipo: t, destinoId: r.join(":") }); }}
+                style={{ ...selSt, maxWidth: 330 }}>
+                <option value=":">— destino —</option>
+                {destinos.map(d => (
+                  <option key={`${d.tipo}:${d.id}`} value={`${d.tipo}:${d.id}`}>{d.etiqueta}</option>
+                ))}
+              </select>
+              <button onClick={confirmarAsociar}
                 style={{ padding: "4px 11px", background: C.success, border: "none", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 10, fontWeight: 700 }}>
                 Ver efecto y mover
               </button>
               <button onClick={() => setAsociar(null)}
                 style={{ padding: "4px 9px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.muted, cursor: "pointer", fontSize: 10 }}>Cancelar</button>
               <div style={{ flexBasis: "100%", fontSize: 9, color: C.muted2, marginTop: 3 }}>
-                Mueve el movimiento, no lo vuelve a registrar. La estimación de origen no reabre ese monto.
+                Mueve el movimiento, no lo vuelve a registrar: conserva su identidad, monto, fecha e
+                historial. Antes de confirmar se muestran origen, destino y el efecto sobre los
+                pendientes y la liquidación. De una estimación a otra no se permite: reabriría el
+                pendiente de la de origen.
               </div>
             </div>
           )}
