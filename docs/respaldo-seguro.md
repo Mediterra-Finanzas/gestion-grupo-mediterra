@@ -1,6 +1,6 @@
 # Respaldo diario seguro (auto-v4): arquitectura y prueba
 
-Estado: **implementado y probado en aislamiento, NO activado.** Activarlo requiere la aprobación de Angelo y los pasos de la sección 5.
+Estado: **implementado y probado en aislamiento, NO activado.** Activarlo requiere la aprobación de Angelo y los pasos de la sección 5. Plan integral (todas las tablas, Storage, copia fuera del proyecto): `docs/plan-recuperacion.md`.
 
 ## 1. Situación actual (comprobada en el código, oct-2026)
 
