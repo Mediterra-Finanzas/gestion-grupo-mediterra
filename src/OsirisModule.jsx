@@ -10122,10 +10122,20 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                 // configuracion antigua. Retirarlo no quita ese reajuste y no
                                 // mueve ningun importe, y la previa tiene que decirlo.
                                 const enConflicto = act.estado===REAJ_CONFLICTO;
+                                // Si no hay NADA aplicado, el encabezado no puede decir que los
+                                // importes vuelven a la base: no se movieron nunca. Pasaba en los
+                                // cuatro estados registrados pero no vigentes, y confirmaba con
+                                // "dejar de aplicar US$ 0.00", que es la redaccion que ya se
+                                // habia rechazado.
+                                const nadaAplicado = pd.filasQueBajan===0;
                                 const encabezado = enConflicto
                                   ? "Retirar este registro NO cambia los importes.\n\n"+
                                     "La configuracion antigua ("+N(inflPct)+" %/año) sigue OPERANDO y es la que "+
                                     "produce los importes actuales. Desactivar el registro nuevo no la quita.\n"+
+                                    "El registro, sus terminos y su historial se conservan, con constancia de la baja.\n\n"
+                                  : nadaAplicado
+                                  ? "Retirar este registro NO cambia los importes: hoy no hay ningun reajuste "+
+                                    "aplicado ("+act.motivo.replace(/\*\*/g,"")+")\n\n"+
                                     "El registro, sus terminos y su historial se conservan, con constancia de la baja.\n\n"
                                   : "Desactivar devuelve importes a la base.\n\n";
                                 const motivo = window.prompt(
@@ -10136,6 +10146,8 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                 if(!motivo||!motivo.trim()) return;
                                 const ok = window.confirm(enConflicto
                                   ? "¿Confirmas retirar el registro? Los importes no cambian: la configuracion antigua sigue operando."
+                                  : nadaAplicado
+                                  ? "¿Confirmas retirar el registro? Los importes no cambian: no hay nada aplicado."
                                   : "¿Confirmas desactivar y dejar de aplicar US$ "+Math.abs(pd.diferencia).toFixed(2)+"?");
                                 if(!ok) return;
                                 const res = desactivarReajuste(r,{motivo, usuarioActual, confirmado:true, impacto:pd.diferencia, puedeEditar:can});
