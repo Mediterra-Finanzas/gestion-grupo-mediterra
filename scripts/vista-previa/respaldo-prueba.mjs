@@ -36,7 +36,12 @@ const t = (min) => new Date(Date.parse(fecha) - min * 60000).toISOString();
 const respaldo = {
   fecha, usuario: 'Angelo Huerta', version: 'Mediterra Hub Backup v1',
   tablas: {
-    main: { data: { usuarios: [], estados: {} }, updated_at: t(300) },
+    // Tareas con marcas de septiembre y comentarios (como en producción): al abrir no deben perderse.
+    main: { data: { usuarios: [], mes: 8, anio: 2026,
+      estados: { __migrSemKey: true, __migrSemKeyV2: true,
+        s2_s2_2026_8: { aprobado: false, estadoSup: 'gris', estadoResp: 'verde' },
+        s2_s3_2026_7: { aprobado: false, estadoSup: 'gris', estadoResp: 'gris' } },
+      comentarios: { s9_s4_2026_8: 'comentario de prueba' } }, updated_at: t(300) },
     pins: { data: { 'Otro Usuario_h': '{"v":1,"hash":"NO-DEBE-LLEGAR-AL-NAVEGADOR"}' }, updated_at: t(290) },
     finanzas: { data: {
       finanzas_real: { Osiris: { _proyOverrides: { 'Pago Préstamos - Total': { '6': 55000 } } } },

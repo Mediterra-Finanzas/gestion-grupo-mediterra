@@ -54,7 +54,7 @@ const comparar = () => page.evaluate(async () => {
   const get = (k) => new Promise(ok => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => ok(q.result); });
   const o = await get('original'); const t = await get('trabajo');
   const c = window.VPDiff.comparar(JSON.parse(o.texto), t);
-  return { resumen: c.resumen, ops: c.operaciones, alertas: c.alertas, pins: t.pins && t.pins.value, sha: o.sha256 };
+  return { resumen: c.resumen, ops: c.operaciones, alertas: c.alertas, pins: t.pins && t.pins.value, sha: o.sha256, main: t.main && t.main.value };
 });
 async function login() {
   const email = page.locator('input[type=email]'), dentro = page.getByRole('button', { name: /📊 Dashboard/ });
@@ -89,6 +89,12 @@ let c = await comparar();
 check('Respaldo original guardado con el SHA-256 del archivo', c.sha === shaAntes);
 check('Los PIN reales del respaldo NO están en el navegador (solo la credencial de prueba)', !JSON.stringify(c.pins).includes('NO-DEBE-LLEGAR') && JSON.stringify(c.pins).includes('Angelo Huerta_h'));
 check('Abrir y recorrer la app no genera operaciones de Créditos', c.ops.length === 0, JSON.stringify(c.resumen));
+// Incidente 2026-10-07: con un respaldo real, abrir la vista previa borraba las marcas y comentarios
+// de Tareas en la copia de trabajo (main quedaba en texto y la app no lo leía).
+const mainT = typeof c.main === 'string' ? JSON.parse(c.main) : (c.main || {});
+check('Abrir la app conserva Tareas de la copia de trabajo (marca de septiembre, comentario y mes)',
+  mainT.estados?.s2_s2_2026_8?.estadoResp === 'verde' && mainT.comentarios?.s9_s4_2026_8 === 'comentario de prueba' && String(mainT.mes) === '8',
+  JSON.stringify({ tipo: typeof c.main, mes: mainT.mes, estados: Object.keys(mainT.estados || {}).length, comentarios: Object.keys(mainT.comentarios || {}).length }));
 
 // ── 2. Acciones de conciliación sobre datos del respaldo ────────────────
 // 2a. Pago parcial en un crédito ANTIGUO sin uid (Zelun, n 1, cuota 120.000 sin desglose)

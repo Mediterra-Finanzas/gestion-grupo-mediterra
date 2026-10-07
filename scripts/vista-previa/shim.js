@@ -261,16 +261,25 @@
     var a = document.createElement('a'); a.href = url; a.download = nombre; document.body.appendChild(a); a.click();
     setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 2000);
   }
-  // Store de trabajo a partir del respaldo: igual que "📤 Restaurar" de la app
-  // (cada fila como texto JSON), salvo los PIN: se reemplazan por la credencial
-  // de prueba (los PIN reales no se cargan en el navegador).
+  // Store de trabajo a partir del respaldo, salvo los PIN: se reemplazan por la
+  // credencial de prueba (los PIN reales no se cargan en el navegador).
+  // Formato de cada fila: el respaldo de la app parsea todas las filas (pierde si
+  // eran texto JSON u objeto), así que se usa el formato de PRODUCCIÓN: las filas
+  // de nóminas por empresa como texto JSON y el resto como objeto. Antes todo iba
+  // como texto y la app no lee `main` (Tareas) en texto: partía vacía y su
+  // guardado automático borraba estados y comentarios en la copia de trabajo
+  // (detectado el 2026-10-07 con un respaldo real; producción no se vio afectada).
   function storeDesdeRespaldo(r) {
     var semilla = window.__VP_SEMILLA();
     var st = {};
     Object.keys(r.tablas).forEach(function (id) {
       if (/^backup_/.test(id)) return;
       var t = r.tablas[id] || {};
-      st[id] = { value: typeof t.data === 'string' ? t.data : JSON.stringify(t.data), updated_at: t.updated_at || r.fecha };
+      var comoTexto = /^nominas_/.test(id) && id !== 'nominas_correlativos';
+      var v = t.data;
+      if (comoTexto && typeof v !== 'string') v = JSON.stringify(v);
+      if (!comoTexto && typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { /* texto plano: se deja */ } }
+      st[id] = { value: v, updated_at: t.updated_at || r.fecha };
     });
     st.pins = semilla.pins;
     return st;
