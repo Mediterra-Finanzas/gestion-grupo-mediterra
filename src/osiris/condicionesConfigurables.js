@@ -221,12 +221,51 @@ export function gruposDeBeneficio(contratos) {
 //     referencia: "", confirmado: false }
 export const TIPOS_REAJUSTE = ["sin_reajuste", "porcentaje", "indice"];
 
+// Tres estados que antes se confundian en uno solo. El campo de la pantalla
+// hacia `parseFloat(valor) || 0`, asi que una entrada vacia y una invalida
+// llegaban al modelo como 0, y un cero calculado es indistinguible de un
+// cero decidido. Aca quedan separados:
+//
+//   sinDefinir · no hay nada escrito. Falta el dato.
+//   invalido   · hay algo escrito que no es un numero. Falta el dato, y se
+//                nombra lo que esta cargado para que se pueda corregir.
+//   cero       · hay un 0 registrado. NO se le atribuye intencion: hasta que
+//                el campo se corrigio, un vacio o un valor invalido se
+//                guardaba como 0, asi que un cero historico puede ser
+//                cualquiera de las tres cosas. Se describe como "0 %
+//                registrado: sin efecto de reajuste", nunca como "este
+//                contrato no reajusta".
+//   definido   · un porcentaje distinto de cero.
+//
+// Los ceros ya guardados NO se reinterpretan ni se migran: se conservan tal
+// cual. Lo unico que cambia es que no se les atribuye un respaldo que no
+// consta.
+//
+// `origen` distingue un cero que se escribio DESPUES de corregir el campo
+// (ct.reajuste.pctOrigen === "ingresado") de uno cuyo origen no se puede
+// saber. Es lo unico que permite afirmar algo sobre la intencion, y solo
+// para los valores nuevos.
+export function estadoPct(ct) {
+  const r = (ct && ct.reajuste) || {};
+  const crudo = r.pct;
+  const origen = txt(r.pctOrigen) === "ingresado" ? "ingresado" : "noConsta";
+  if (crudo === undefined || crudo === null || txt(crudo) === "") return { estado: "sinDefinir", valor: null, crudo: "", origen };
+  const n = parseFloat(crudo);
+  if (isNaN(n)) return { estado: "invalido", valor: null, crudo: txt(crudo), origen };
+  return { estado: n === 0 ? "cero" : "definido", valor: n, crudo: txt(crudo), origen };
+}
+
 export function configReajuste(ct) {
   const r = (ct && ct.reajuste) || {};
   const tipo = TIPOS_REAJUSTE.includes(txt(r.tipo)) ? txt(r.tipo) : "";
   return {
     tipo,
     pct: numOrNull(r.pct),
+    // El valor tal como esta cargado, para poder distinguir "sin definir" de
+    // "invalido" sin que el modelo tenga que adivinar.
+    pctCrudo: (r.pct === undefined || r.pct === null) ? "" : txt(r.pct),
+    pctEstado: estadoPct(ct).estado,
+    pctOrigen: estadoPct(ct).origen,
     indice: txt(r.indice),
     fuente: txt(r.fuente),
     fechaBase: txt(r.fechaBase),
@@ -241,7 +280,15 @@ export function faltantesReajuste(ct) {
   if (!r.tipo) return ["tipo de reajuste"];
   if (r.tipo === "sin_reajuste") return r.confirmado ? [] : ["confirmación"];
   const falta = [];
-  if (r.tipo === "porcentaje" && (r.pct === null || r.pct < 0)) falta.push("porcentaje");
+  if (r.tipo === "porcentaje") {
+    // Un 0 registrado sigue siendo una configuracion completa y este paquete no
+    // la reinterpreta. Lo que si se separa es el valor invalido, que antes
+    // llegaba como cero y se daba por completo.
+    const p = estadoPct(ct);
+    if (p.estado === "sinDefinir") falta.push("porcentaje");
+    else if (p.estado === "invalido") falta.push('porcentaje (lo cargado no es un numero: "' + p.crudo + '")');
+    else if (p.valor < 0) falta.push("porcentaje");
+  }
   if (r.tipo === "indice") {
     if (!r.indice) falta.push("índice");
     if (!r.fuente) falta.push("fuente del índice");

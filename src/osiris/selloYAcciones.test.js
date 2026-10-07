@@ -118,7 +118,9 @@ describe("3 · esas modificaciones quedan bloqueadas", () => {
     expect(p.puede).toBe(false);
     expect(p.campos).toEqual(["porcentaje", "fecha de referencia", "regla de fecha"]);
     expect(p.motivo).toMatch(/modificacion economica/);
-    expect(p.motivo).toMatch(/no esta en este paquete/);
+    expect(p.motivo).toMatch(/no esta habilitada en este paquete/);
+    // Y no propone desactivar como via para eludir el sello.
+    expect(p.motivo).toMatch(/operacion economica independiente/);
   });
 
   test("sin activación, se editan con normalidad", () => {

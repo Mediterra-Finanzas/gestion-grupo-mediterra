@@ -322,7 +322,7 @@ describe("7 · antecedentes de factura y pago: todos, no solo una fecha", () => 
 });
 
 // ══════════════════════════════════════════════════════════════════
-describe("8 · sin activar, nada se mueve", () => {
+describe("8 · lo que no se puede activar no mueve nada", () => {
   test("el monto ajustado es el mismo que la base", () => {
     const r = reajusteDeFila(CT(REAJ(), undefined), FILA("2028/2029", 125910), { antecedentes: EMI("2029-04-01") });
     expect(r.aplica).toBe(false);
@@ -330,11 +330,12 @@ describe("8 · sin activar, nada se mueve", () => {
     expect(r.ajustado).toBe(125910);
   });
 
-  // Ojo con el titulo de este describe: desde que la previa contesta "que
-  // pasaria SI se activa", NO basta con que la activacion este apagada para
-  // que de cero. Este caso sigue dando cero, pero por otra razon: le faltan
-  // la fecha de referencia y el respaldo, asi que ni siquiera hipoteticamente
-  // se podria activar. La prueba que custodia "apagado vs encendido" es la de
+  // El describe se llamaba "sin activar, nada se mueve". Desde que la previa
+  // contesta "que pasaria SI se activa", eso dejo de ser cierto: apagar la
+  // activacion ya NO alcanza para que de cero. Lo que sostienen estas dos
+  // pruebas es otra cosa, y por eso el titulo cambio: a este contrato le
+  // faltan la fecha de referencia y el respaldo, asi que no se podria activar
+  // ni suponiendolo. La prueba que custodia "apagado vs encendido" es la de
   // R2 en integracionReajuste.test.js.
   test("sin fecha ni respaldo, la previa no promete nada aunque se suponga activa", () => {
     const ct = CT(REAJ(), undefined);

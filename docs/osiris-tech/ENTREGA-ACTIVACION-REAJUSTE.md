@@ -108,6 +108,36 @@ R4 merece subrayarse: **ninguna prueba lo iba a encontrar**, porque las pruebas 
 motor y el defecto era que la pantalla llamaba a la función equivocada. Lo encontró mirar la
 pantalla después de activar.
 
+### La cuarta revisión, y un defecto que cometí al corregir R4
+
+| | Lo que estaba mal | Cómo quedó |
+|---|---|---|
+| **R7 / D3** | Con **todas** las temporadas protegidas por factura o pago, ningún importe lleva el ajuste y el total es el de la base, pero el aviso seguía diciendo "Estos montos YA llevan el reajuste". Es el mismo error que R4, cometido al corregirlo: un aviso que afirma algo sobre los importes sin mirar los importes | El aviso recibe el detalle de filas y dice cuántas lo llevan y cuántas quedaron en su base. Donde no tiene ese detalle, no afirma nada sobre los importes |
+| **D1** | Con el reajuste activado, el mismo texto aparecía dos veces en pantalla: en verde en el bloque de Royalty Comercial y en **ámbar de advertencia** en el de Facturación. Solo uno de los cinco sitios había recibido el estilo condicional | Los dos usan el mismo criterio |
+| **D2** | Un reajuste del **0 %** pasaba la validación como confirmado, se podía activar, y la pantalla mostraba "+0%/año" en verde con el aviso diciendo que se aplicaba. Se llega por accidente: el campo hacía `parseFloat(valor) \|\| 0`, así que una entrada vacía o inválida se guardaba como 0 | Corregido **en el origen**: el campo guarda lo escrito y el modelo separa tres estados — sin definir, inválido y cero expreso. Un 0 escrito a propósito **sigue siendo un dato** y no se reinterpreta; lo que se impide es activarlo, porque no mueve ningún importe |
+| **D4** | `C.okBg` y `C.okTxt` **no existen** en la paleta. Funcionaban por el valor de respaldo, pero estaban fuera del tema | `C.successBg` y `C.success`, que son los tokens reales |
+| **N3** | El acta decía que un `describe` se había renombrado. No se había renombrado: cambié el nombre del `test` de adentro y dejé el título engañoso del bloque | Renombrado de verdad |
+| **D7** | Import muerto de `reajusteOperativo`, y el `prompt` hermano del confirm de R6 seguía sin el signo de apertura | Corregidos |
+| **D6** | La regla de escapes incluía `\n`, `\t` y `\r`, que dan falsos positivos sobre literales legítimos: una ruta de Windows en un `title`, una expresión regular mostrada como texto | Acotada a `\uXXXX` y `\xNN`, que es la clase real del defecto |
+
+**Lo que hay que decir con todas las letras sobre las pruebas de R4.** La revisión revirtió las siete
+llamadas de la pantalla a la función vieja y **las cinco pruebas de R4 siguieron pasando**: prueban
+la función, no la pantalla. Es el mismo patrón que apareció con R3.
+
+Eso se cerró: `src/osiris/pantallaReajuste.test.js` **renderiza la pantalla real**, hace clic y lee
+el DOM. Sus contraprobas reponen cada llamada anterior y las cuatro hacen fallar la prueba, **sin
+que la regla de linter intervenga**. El linter quedó como complemento, no como sustituto.
+
+**Puntos ciegos conocidos de las dos reglas**, que la revisión midió y quedan declarados:
+
+- `sin-spread-al-activar` mira el segundo argumento **sólo si es un objeto literal**. Pasar el
+  spread por una variable intermedia, o por `Object.assign`, no se detecta.
+- `aviso-con-activacion` compara el nombre de la función llamada. Una llamada por alias local o
+  a través del objeto del módulo no se detecta.
+
+Ninguna de las dos formas se usa hoy en el archivo. Quedan escritas para que nadie confunda el
+control con una garantía.
+
 **Dos cosas que quedan sin tocar, por estar fuera del alcance:**
 
 - **`activar()` acepta estados que no aplican nada** (conflicto con la configuración antigua,
@@ -116,6 +146,9 @@ pantalla después de activar.
   introdujo este paquete, y no mueve importes. Pero deja un sello y una entrada de bitácora de
   una activación que no aplica. Conviene resolverlo antes de habilitar activaciones
   productivas.
+- **El campo del porcentaje convierte lo no numérico en cero** (`parseFloat(valor) || 0`). Es de
+  la entrega A y no se tocó, pero es un sitio donde una definición ausente se vuelve un cero. Lo
+  que este paquete hace es impedir la consecuencia dañina: que ese cero se active.
 - **El ida y vuelta de la recuperación se afirma de un solo lado.** `TABLA_EDITADO` solo se
   comprueba en la rama de recuperación. Hoy vale por construcción —`OsirisModule.jsx` es
   idéntico y la bandera no entra al cálculo—, pero si las ramas divergen deja de ser un ida y

@@ -242,7 +242,12 @@ describe("H1 · referencias no definidas en el código modificado", () => {
     // Vale igual para los ATRIBUTOS: en JSX, la cadena de un atributo tampoco
     // decodifica escapes. La primera version de esta regla solo miraba el
     // texto y dejaba ese punto ciego.
-    const ESCAPES = /\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2}|\\[ntr]/g;
+    // Solo las secuencias unicode y hexadecimal. Se probo incluir \\n, \\t y
+    // \\r, y daban falsos positivos sobre literales legitimos: una ruta de
+    // Windows en un title, o una expresion regular mostrada como texto. La
+    // clase real del defecto (R1) es \\uXXXX, que nadie escribe a proposito
+    // dentro de JSX.
+    const ESCAPES = /\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2}/g;
     linter.defineRule("escape-en-texto-jsx", {
       create: (ctx) => ({
         JSXText(node) {
@@ -536,7 +541,10 @@ describe("R4 · el aviso no puede contradecir al importe", () => {
     expect(ro.estado).toBe(REAJUSTE_ACTIVADO_APLICANDO);
     expect(ro.aplica).toBe(true);
     expect(ro.pct).toBe(2);
-    expect(ro.aviso).toMatch(/YA lo incluyen/);
+    // El texto exacto lo fija R7: sin el detalle de filas no puede afirmar
+    // que los importes de la pantalla lleven el ajuste. Lo que R4 custodia
+    // es que NO siga diciendo lo contrario.
+    expect(ro.aviso).toMatch(/El reajuste está activado/);
     expect(ro.aviso).toMatch(/2026-07-01/);
     // Y no puede quedar ni rastro de la afirmación contraria.
     expect(ro.aviso).not.toMatch(/no se está aplicando/);
@@ -562,5 +570,229 @@ describe("R4 · el aviso no puede contradecir al importe", () => {
     }));
     expect(ro.estado).toBe(REAJUSTE_REGISTRADO_SIN_APLICAR);
     expect(ro.aplica).toBe(false);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// R7 · el mismo error que R4, cometido al corregir R4: un aviso que afirma
+// algo sobre los importes sin mirar los importes. Con TODAS las temporadas
+// protegidas por factura o pago, ninguna lleva el ajuste y el total es el de
+// la base, pero el aviso decía "estos montos YA lo llevan".
+describe("R7 · el aviso solo afirma lo que puede saber", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const { reajusteOperativoConActivacion } = require("./reajusteAplicado");
+
+  const activo = () => CONTRATO({ reajusteActivacion: ACTIVACION });
+
+  test("sin el detalle de filas no afirma nada sobre los importes", () => {
+    const ro = reajusteOperativoConActivacion(activo());
+    expect(ro.llevanElAjuste).toBe(null);
+    expect(ro.aviso).not.toMatch(/YA lo incluyen/);
+    expect(ro.aviso).toMatch(/las que lo tengan quedan en su valor base/);
+  });
+
+  test("con filas que cambian, dice cuántas", () => {
+    const ro = reajusteOperativoConActivacion(activo(), { filas: { cambian: 3, protegidas: 1 } });
+    expect(ro.llevanElAjuste).toBe(3);
+    expect(ro.aviso).toMatch(/^3 temporada\(s\) de esta pantalla llevan el reajuste/);
+    expect(ro.aviso).toMatch(/1 quedan en su valor base/);
+  });
+
+  test("con todas protegidas, dice que NINGUNA lo lleva", () => {
+    const ro = reajusteOperativoConActivacion(activo(), { filas: { cambian: 0, protegidas: 5 } });
+    expect(ro.llevanElAjuste).toBe(0);
+    expect(ro.aviso).toMatch(/NINGUNA temporada de esta pantalla lo lleva/);
+    expect(ro.aviso).toMatch(/las 5 que hay tienen factura o pago/);
+    expect(ro.titulo).toMatch(/sin efecto/);
+  });
+
+  test("y en ese caso el importe efectivo es el de la base", () => {
+    // La comprobación que ata el aviso al número: si ninguna fila cambia, el
+    // total con la activación encendida tiene que ser igual al de la base.
+    const ct = CONTRATO({
+      reajusteActivacion: ACTIVACION,
+      rcPagos: ["2026/2027", "2027/2028", "2028/2029", "2029/2030", "2030/2031"]
+        .reduce((m, t) => (m[t] = { nFact: "9", pagado: true }, m), {}),
+    });
+    const total = filas(ct).reduce((s, f) => s + f.montoFact, 0);
+    expect(r2(total)).toBe(629550);
+    const apagado = { ...ct, reajusteActivacion: { ...ACTIVACION, activado: false } };
+    expect(r2(filas(apagado).reduce((s, f) => s + f.montoFact, 0))).toBe(629550);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// D2 · un reajuste del 0 % no es un reajuste. `faltantesReajuste` lo acepta
+// como configuración completa, y el campo de la pantalla hace
+// parseFloat(...)||0, así que cualquier tecla no numérica deja 0.
+dCrear("D2 · no se activa un reajuste de 0 %", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const CERO = () => CONTRATO({
+    reajuste: { tipo: "porcentaje", pct: 0, desde: "2026-07-01", referencia: "x", confirmado: true },
+  });
+
+  test("la acción lo rechaza y no escribe nada", () => {
+    const ct = CERO();
+    const res = activar(ct, Object.assign({}, DATOS_ACTIVACION, {
+      usuarioActual: USUARIO, puedeEditar: true, confirmado: true,
+    }));
+    expect(res.ok).toBe(false);
+    expect(res.motivo).toMatch(/no tiene efecto sobre ningun importe/);
+    // Y no se le atribuye una intencion que no consta.
+    expect(res.motivo).toMatch(/No consta si ese 0 se ingreso asi/);
+    expect(res.motivo).not.toMatch(/este contrato no reajusta/);
+    expect(res.contrato).toBe(ct);                 // ni una copia modificada
+  });
+
+  test("un porcentaje normal sigue activándose", () => {
+    expect(activar(CONTRATO(), Object.assign({}, DATOS_ACTIVACION, {
+      usuarioActual: USUARIO, puedeEditar: true, confirmado: true,
+    })).ok).toBe(true);
+  });
+});
+
+describe("D2 · una activación al 0 % que viniera de los datos se nombra", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const { reajusteOperativoConActivacion } = require("./reajusteAplicado");
+
+  test("el aviso dice que no mueve importes", () => {
+    const ct = CONTRATO({
+      reajuste: { tipo: "porcentaje", pct: 0, desde: "2026-07-01", referencia: "x", confirmado: true },
+      reajusteActivacion: Object.assign({}, ACTIVACION, { sello: { pct: 0, fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio" } }),
+    });
+    const ro = reajusteOperativoConActivacion(ct);
+    expect(ro.aplica).toBe(false);
+    expect(ro.llevanElAjuste).toBe(0);
+    expect(ro.aviso).toMatch(/No cambia ningun importe/);
+    expect(ro.titulo).toMatch(/0 % registrado: sin efecto de reajuste/);
+    // No se le atribuye respaldo ni intencion.
+    expect(ro.aviso).toMatch(/no se le atribuye un respaldo que no consta/);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// El origen del cero. Antes de corregir el campo, un vacío o un valor
+// inválido se guardaba como 0, así que un cero histórico puede ser
+// cualquiera de las tres cosas y no se le atribuye intención.
+describe("El origen de un cero solo consta si se ingresó con el campo corregido", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const { estadoPct, configReajuste } = require("./condicionesConfigurables");
+  const CERO = (extra) => CONTRATO({
+    reajuste: Object.assign({ tipo: "porcentaje", pct: 0, desde: "2026-07-01",
+      referencia: "x", confirmado: true }, extra || {}),
+  });
+
+  test("un cero histórico queda con origen desconocido", () => {
+    const e = estadoPct(CERO());
+    expect(e.estado).toBe("cero");
+    expect(e.origen).toBe("noConsta");
+  });
+
+  test("un cero escrito con el campo corregido lleva su marca", () => {
+    const e = estadoPct(CERO({ pctOrigen: "ingresado" }));
+    expect(e.estado).toBe("cero");
+    expect(e.origen).toBe("ingresado");
+  });
+
+  test("la marca no aparece por leer ni por guardar otro campo", () => {
+    // configReajuste es lo que la pantalla lee en cada render: no escribe.
+    const ct = CERO();
+    configReajuste(ct);
+    configReajuste(ct);
+    expect(ct.reajuste.pctOrigen).toBe(undefined);
+    // Y editar otro campo del reajuste no la introduce: el patrón de la
+    // pantalla es extender lo que ya hay y tocar una sola clave.
+    const trasEditarOtro = Object.assign({}, ct, {
+      reajuste: Object.assign({}, ct.reajuste, { desde: "2027-01-01" }),
+    });
+    expect(trasEditarOtro.reajuste.pctOrigen).toBe(undefined);
+    expect(estadoPct(trasEditarOtro).origen).toBe("noConsta");
+  });
+
+  test("el valor no se migra ni se reinterpreta: sigue siendo 0", () => {
+    const ct = CERO();
+    expect(configReajuste(ct).pct).toBe(0);
+    expect(configReajuste(ct).pctCrudo).toBe("0");
+    // Y sigue contando como configuración completa, no como dato faltante.
+    const { faltantesReajuste } = require("./condicionesConfigurables");
+    expect(faltantesReajuste(ct)).toEqual([]);
+  });
+
+  test("un valor inválido NO se convierte en cero: queda sin definir", () => {
+    const ct = CERO({ pct: "dos por ciento" });
+    const e = estadoPct(ct);
+    expect(e.estado).toBe("invalido");
+    expect(e.valor).toBe(null);
+    const { faltantesReajuste } = require("./condicionesConfigurables");
+    expect(faltantesReajuste(ct).join(" ")).toMatch(/no es un numero/);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// Lo que tiene que correr EN LA RECUPERACIÓN. Allá no se puede crear una
+// activación, así que la creación exitosa se omite; lo que NO puede omitirse
+// es la prueba negativa: que el intento se rechace dentro de la acción, sin
+// tocar datos ni historial. Y que lo ya activo se conserve y se pueda
+// desactivar con autorización.
+const dNoCrear = sePuedeCrear ? describe.skip : describe;
+
+dNoCrear("Recuperación · el rechazo ocurre dentro de la acción", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const ARGS_OK = Object.assign({}, DATOS_ACTIVACION, {
+    usuarioActual: USUARIO, puedeEditar: true, confirmado: true,
+  });
+
+  test("activar se rechaza y no devuelve un contrato modificado", () => {
+    const ct = CONTRATO();
+    const res = activar(ct, ARGS_OK);
+    expect(res.ok).toBe(false);
+    expect(res.motivo).toMatch(/no permite crear nuevas/);
+    expect(res.contrato).toBe(ct);                      // la misma referencia
+    expect(ct.reajusteActivacion).toBe(undefined);      // ni se creó el campo
+  });
+
+  test("reactivar tampoco: un contrato dado de baja no se puede volver a encender", () => {
+    // Un contrato que estuvo activo y se desactivó: conserva sello e historial.
+    const dado = Object.assign({}, CONTRATO(), {
+      reajusteActivacion: Object.assign({}, ACTIVACION, {
+        activado: false, desactivadoMotivo: "Se anulo el respaldo",
+        historial: [{ evento: "activacion", autor: "X", fecha: "2026-10-05" },
+                    { evento: "desactivacion", autor: "X", fecha: "2026-10-06" }],
+      }),
+    });
+    const antes = JSON.parse(JSON.stringify(dado));
+    const res = activar(dado, ARGS_OK);
+    expect(res.ok).toBe(false);
+    expect(res.contrato).toBe(dado);
+    // Ni un evento más, ni un campo movido.
+    expect(dado).toEqual(antes);
+    expect(historialActivacion(dado).length).toBe(2);
+  });
+
+  test("los importes de una activación vigente se conservan", () => {
+    const activo = CONTRATO({ reajusteActivacion: ACTIVACION });
+    const f = porTemp(filas(activo));
+    Object.keys(TABLA_CANDIDATO).forEach((t) =>
+      expect(r2(f[t].montoFact)).toBe(r2(TABLA_CANDIDATO[t])));
+  });
+
+  test("desactivar sí está permitido, con sus tres exigencias", () => {
+    const activo = CONTRATO({ reajusteActivacion: ACTIVACION });
+    // Sin motivo, no.
+    expect(desactivar(activo, { confirmado: true, usuarioActual: USUARIO }).ok).toBe(false);
+    // Sin confirmación, no.
+    expect(desactivar(activo, { motivo: "x", usuarioActual: USUARIO }).ok).toBe(false);
+    // Sin permiso, no.
+    expect(desactivar(activo, { motivo: "x", confirmado: true, usuarioActual: USUARIO, puedeEditar: false }).ok).toBe(false);
+    // Con las tres, sí, y los importes vuelven a la base.
+    const res = desactivar(activo, {
+      motivo: "Se anulo el respaldo del primer pago", confirmado: true,
+      usuarioActual: USUARIO, impacto: -25690.69,
+    });
+    expect(res.ok).toBe(true);
+    const f = porTemp(filas(res.contrato));
+    Object.keys(TABLA_CANDIDATO).forEach((t) => expect(r2(f[t].montoFact)).toBe(125910));
+    // Y el rastro queda.
+    expect(historialActivacion(res.contrato).slice(-1)[0].evento).toBe("desactivacion");
   });
 });
