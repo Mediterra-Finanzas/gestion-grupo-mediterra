@@ -532,7 +532,9 @@ dCrear("Una activación incompleta no deja el contrato sin salida", () => {
       reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula 1.2.5",
     }));
     expect(res.ok).toBe(false);
-    expect(res.motivo).toMatch(/Ya hay una activacion registrada en este contrato/);
+    expect(res.motivo).toMatch(sePuedeCrear
+      ? /Ya hay una activacion registrada en este contrato/
+      : /no permite crear nuevas/);
     expect(res.contrato).toBe(atascado);
     expect(atascado.reajusteActivacion).toEqual(antes);     // intacto, con su historial
   });
@@ -640,9 +642,16 @@ describe("Conflicto con la configuración antigua: el sello no se toca", () => {
       puedeEditar: true, usuarioActual: USUARIO, confirmado: true,
     });
     expect(res.ok).toBe(false);
-    expect(res.motivo).toMatch(/Ya hay una activacion registrada en este contrato/);
-    expect(res.motivo).toMatch(/no esta habilitada en este paquete/);
-    expect(res.motivo).toMatch(/se conservan tal como estan/);
+    // El motivo depende de la version: en el candidato corta la guarda del
+    // registro existente; en la recuperacion corta antes la bandera. Lo
+    // economico -que no se toque nada- es lo mismo en las dos.
+    if (sePuedeCrear) {
+      expect(res.motivo).toMatch(/Ya hay una activacion registrada en este contrato/);
+      expect(res.motivo).toMatch(/no esta habilitada en este paquete/);
+      expect(res.motivo).toMatch(/se conservan tal como estan/);
+    } else {
+      expect(res.motivo).toMatch(/no permite crear nuevas/);
+    }
     expect(res.contrato).toBe(ct);
   });
 
