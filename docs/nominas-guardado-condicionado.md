@@ -202,6 +202,6 @@ Defecto encontrado por la prueba en navegador y corregido: un refresco de fondo 
 
 ### Pendiente
 
-1. **Sesiones con código anterior** (punto 10): decidir cómo impedir que sobrescriban antes de desplegar. Desplegar fuera de horario reduce el riesgo, no lo elimina. Propuesta SQL (no aplicada): `docs/nominas-version-obligatoria.md` — la base exige la versión leída vía la función `nominas_guardar`. El cliente de la rama YA guarda por esa función (2026-10-05); activación: `docs/nominas-activacion.md`.
+1. **Sesiones con código anterior** (punto 10): decidir cómo impedir que sobrescriban antes de desplegar. Desplegar fuera de horario reduce el riesgo, no lo elimina. Propuesta SQL (no aplicada): `docs/nominas-version-obligatoria.md` — la base exige la versión leída vía la función `nominas_guardar`. El cliente de la rama la usó desde el 2026-10-05 y la dejó el 2026-10-07 (camino B): Créditos se publica con el PATCH condicionado y este riesgo **queda abierto**, igual que hoy en producción; la prueba 5 de `scripts/e2e/nomina-base-real.mjs` lo deja constatado. Activación posterior: `docs/nominas-activacion.md`.
 2. Borrar sola la copia local al reabrir cuando coincide con el servidor (hoy se ofrece y se elimina a mano).
 3. Horario de despliegue: no fijado.

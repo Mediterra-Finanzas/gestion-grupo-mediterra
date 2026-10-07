@@ -270,11 +270,13 @@ Reglas que no hay que romper:
   `scripts/e2e/nomina-condicionado.mjs`.
 - **Versión obligatoria (SQL NO aplicado en producción)** (`docs/nominas-version-obligatoria.md`): función
   `nominas_guardar(id, valor, versión|null)` + trigger `trg_nominas_exigir_version` que rechaza a la llave pública (rol de
-  conexión o JWT) cualquier otra escritura de `nominas_<empresa>`. **La app de la rama ya guarda nóminas SOLO por la
-  función** (`src/nominasTransporteRpc.js`): desplegarla exige la PARTE 1 aplicada antes. Activación con pausa
-  coordinada y trigger ANTES del despliegue: `docs/nominas-activacion.md`. `scripts/e2e/fake.mjs` emula la función y la
-  regla del trigger (activa por defecto). Pruebas: `scripts/nominas-cas/prueba.mjs` (SQL) y
-  `scripts/e2e/nomina-base-real.mjs` (navegador contra Postgres+PostgREST locales con el SQL tal cual).
+  conexión o JWT) cualquier otra escritura de `nominas_<empresa>`. **Camino B (2026-10-07, decisión de Angelo): la app
+  NO usa la función**; guarda con PATCH condicionado a `updated_at` y POST sin `merge-duplicates`, sin nada en la base.
+  La función, el trigger y su cliente (`src/nominasTransporteRpc.js`, hoy sin uso en la app) quedan para una entrega
+  posterior con su activación coordinada (`docs/nominas-activacion.md`). `scripts/e2e/fake.mjs` se comporta como
+  producción (RPC 404, sin trigger); `store.__propuestaNominas = true` emula la propuesta. Pruebas:
+  `scripts/nominas-cas/prueba.mjs` (SQL de la propuesta) y `scripts/e2e/nomina-base-real.mjs` (navegador contra
+  Postgres+PostgREST locales SIN la propuesta, como producción).
   Consultas de lectura pendientes en producción (listado único V/D/R/P): `docs/consultas-pendientes-produccion.md`.
 - **"📤 Restaurar" comprueba cada fila** (`src/restaurarRespaldo.js`): informa restauradas y fallidas con su motivo;
   ante un resultado parcial dice "RESTAURACIÓN PARCIAL" (nunca éxito). Tests: `node src/restaurarRespaldo.test.mjs`,
@@ -705,7 +707,7 @@ OUT_DIR=/tmp/ng node scripts/e2e/nomina-guardado.mjs   # Nóminas: guardado rech
 node src/nominasPersistencia.test.mjs       # fusión y guardado condicionado de Nóminas (puro)
 OUT_DIR=/tmp/nc node scripts/e2e/nomina-condicionado.mjs   # Nóminas: dos pestañas, cargas fallidas, 409, respuesta perdida
 POSTGREST_BIN=/ruta/postgrest node scripts/nominas-cas/prueba.mjs   # propuesta: la base exige la versión leída (Postgres+PostgREST locales)
-POSTGREST_BIN=/ruta/postgrest OUT_DIR=/tmp/nbr node scripts/e2e/nomina-base-real.mjs   # Nóminas en navegador contra base local real con nominas_guardar
+POSTGREST_BIN=/ruta/postgrest OUT_DIR=/tmp/nbr node scripts/e2e/nomina-base-real.mjs   # Nóminas en navegador contra base local real (sin la propuesta, como producción)
 node src/restaurarRespaldo.test.mjs         # restauración con respuestas comprobadas (puro)
 POSTGREST_BIN=/ruta/postgrest OUT_DIR=/tmp/rp node scripts/e2e/restaurar-parcial.mjs   # "Restaurar" con resultado parcial (navegador + base local)
 OUT_DIR=/tmp/vp node scripts/e2e/vista-previa-creditos.mjs   # vista previa de Créditos con datos simulados (Excel recalculado)
@@ -754,7 +756,7 @@ git push origin main
 - RLS Supabase mediterra-calendario (vulnerabilidad de seguridad pendiente de fix sequential). Verificado 2026-10-02:
   RLS ACTIVO en `calendario_data` pero con políticas abiertas a `anon` (leer/crear/modificar/BORRAR todo salvo
   `backup*`/`main_pre_restore*`). Propuesta NO aplicada para quitar DELETE/TRUNCATE: fase D del plan de seguridad (rama `claude/seguridad-main-pins`; puntero en `docs/seguridad-quitar-delete-anon.md`).
-- Nóminas: guardado condicionado a la versión leída — implementado en la rama (vía `nominas_guardar`), sin desplegar: `docs/nominas-guardado-condicionado.md`, activación `docs/nominas-activacion.md`.
+- Nóminas: guardado condicionado por `updated_at` (PATCH/POST) en la rama, sin desplegar: `docs/nominas-guardado-condicionado.md`. La exigencia en la base (`nominas_guardar` + trigger) queda para otra entrega: `docs/nominas-activacion.md`.
 - Módulo EEFF (Etapa 1: carga balance + P&L con análisis comparativo Real vs Ppto vs Año Anterior) — esperar Excel de plantilla de Angelo
 
 ## Estructura típica de un archivo de módulo

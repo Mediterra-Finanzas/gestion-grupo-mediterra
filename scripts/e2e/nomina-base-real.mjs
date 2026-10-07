@@ -1,12 +1,13 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   E2E EN NAVEGADOR CONTRA UNA BASE REAL LOCAL — Nóminas con nominas_guardar.
+   E2E EN NAVEGADOR CONTRA UNA BASE REAL LOCAL — Nóminas con guardado condicionado.
    SOLO DATOS DE PRUEBA. Producción no se lee ni se escribe.
 
    La app real (build de la rama) corre en Chromium. Todas sus llamadas a
    bywovqayuzodbzwsriet.supabase.co se redirigen a un Postgres 16 + PostgREST 12
-   LOCALES (scripts/nominas-cas/pglocal.mjs) con las políticas de producción y
-   la propuesta supabase/propuesta_nominas_version_obligatoria.sql aplicada TAL
-   CUAL (PARTE 1 función + PARTE 2 trigger). La llave de la app se reemplaza por
+   LOCALES (scripts/nominas-cas/pglocal.mjs) con las políticas y los triggers de
+   producción, SIN la propuesta supabase/propuesta_nominas_version_obligatoria.sql
+   (no existe nominas_guardar ni el trigger, igual que hoy en producción). La app
+   guarda con PATCH condicionado a updated_at y POST sin merge-duplicates. La llave de la app se reemplaza por
    una llave local. Tiempo real, correo y la URL de producción quedan bloqueados;
    los correos se CUENTAN.
 
@@ -21,8 +22,9 @@
         → reconoce lo hecho, no escribe de nuevo, 2 correos en total, historial
         sin duplicar; aprobación contra un cambio de otra persona → conflicto,
         0 correos
-     5  una pestaña con el código ANTIGUO (upsert sin condición) es rechazada
-     6  la app nunca escribe una fila de nóminas sin pasar por la función
+     5  una pestaña con el código ANTIGUO (upsert sin condición) NO es rechazada:
+        riesgo abierto conocido mientras no exista el trigger (se deja constancia)
+     6  la app nunca escribe una fila de nóminas sin condición y nunca llama a la función
 
      POSTGREST_BIN=/ruta/postgrest OUT_DIR=/tmp/nbr node scripts/e2e/nomina-base-real.mjs
    (requiere el build servido en http://127.0.0.1:4173, ver scripts/e2e/README.md)
@@ -32,7 +34,7 @@ import path from 'path';
 import { chromium } from '/home/user/gestion-grupo-mediterra/node_modules/playwright/index.mjs';
 import { nuevoStore, filaNominaProtegida } from './fake.mjs';
 import { login, entrarFinanzas, subTab } from './lib.mjs';
-import { levantarBaseLocal, partesPropuesta } from '../nominas-cas/pglocal.mjs';
+import { levantarBaseLocal } from '../nominas-cas/pglocal.mjs';
 
 const OUT = process.env.OUT_DIR || '.';
 fs.mkdirSync(OUT, { recursive: true });
@@ -40,13 +42,10 @@ let fallos = 0;
 const check = (n, c, x = '') => { console.log(`${c ? '✓' : '✗ FALLA'}  ${n}${x ? '  — ' + x : ''}`); if (!c) fallos++; };
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// ── base local con la propuesta aplicada tal cual ───────────────────────
+// ── base local como producción hoy: SIN la propuesta ────────────────────
 const db = await levantarBaseLocal({ pgPort: 54334, pgrstPort: 3915 });
-const { parte1, parte2 } = partesPropuesta();
-let p = db.psqlTexto(parte1); await db.recargarEsquema();
-check('0a. PARTE 1 (función) aplicada en la base local', p.ok, p.ok ? '' : p.salida.slice(0, 200));
-p = db.psqlTexto(parte2);
-check('0b. PARTE 2 (trigger) aplicada en la base local', p.ok, p.ok ? '' : p.salida.slice(0, 200));
+check('0a. La base local NO tiene la función nominas_guardar (igual que producción)', db.psql(`select count(*) from pg_proc where proname = 'nominas_guardar'`) === '0');
+check('0b. La base local NO tiene el trigger que exige versión', db.psql(`select count(*) from pg_trigger where tgname = 'trg_nominas_exigir_version'`) === '0');
 
 // ── datos de prueba ─────────────────────────────────────────────────────
 const hoy = new Date();
@@ -94,10 +93,11 @@ async function abrirPestana(nombre, { sinLectura = null } = {}) {
     let body = null; try { body = JSON.parse(req.postData() || 'null'); } catch (e) {}
     const idm = /id=eq\.([^&]+)/.exec(u.search);
     const id = esRpc ? body && body.p_id : idm ? decodeURIComponent(idm[1]) : (body && (Array.isArray(body) ? body[0] && body[0].id : body.id)) || null;
-    const reg = { tab: nombre, metodo: m, rpc: esRpc, id, version: esRpc ? body && body.p_version_leida : null, etiqueta: ctl.etiqueta || null };
+    const reg = { tab: nombre, metodo: m, rpc: esRpc, id, version: esRpc ? body && body.p_version_leida : null, etiqueta: ctl.etiqueta || null,
+      cond: esTabla && m === 'PATCH' && /updated_at=eq\./.test(u.search), prefer: req.headers()['prefer'] || '' };
     registro.push(reg);
     if (m === 'GET' && estado.sinLectura && estado.sinLectura(id)) { reg.resultado = 'lectura bloqueada'; return route.abort('failed'); }
-    const h = m !== 'GET' && ctl.escritura ? ctl.escritura({ tab: nombre, rpc: esRpc, id }) : null;
+    const h = m !== 'GET' && ctl.escritura ? ctl.escritura({ tab: nombre, nom: (esTabla || esRpc) && m !== 'GET', id }) : null;
     if (h === 'red') { reg.resultado = 'sin red (no llegó)'; return route.abort('failed'); }
     if (h && h.status) { reg.resultado = `HTTP ${h.status} simulado`; return route.fulfill({ status: h.status, contentType: 'application/json', headers: cors, body: JSON.stringify(h.body || {}) }); }
     const headers = { ...req.headers(), apikey: db.ANON, authorization: `Bearer ${db.ANON}` };
@@ -142,7 +142,8 @@ async function abrirNomina(p, empresa, semanaAnterior = false) {
 async function irASemanaActual(p) { await p.page.locator('button', { hasText: '›' }).first().click(); await p.page.waitForTimeout(1200); }
 const escribirNotas = async (p, txt) => { await notas(p).fill(txt); await p.page.waitForTimeout(2500); };
 // Escrituras que la base APLICÓ (incluida la que perdió su respuesta: el cuerpo se lee antes de perderla).
-const escriturasRpc = (id) => registro.filter((r) => r.rpc && r.id === id && r.status === 200 && /"resultado"\s*:\s*"ok"/.test(r.cuerpo || '')).length;
+const escriturasRpc = (id) => registro.filter((r) => !r.rpc && r.id === id
+  && ((r.metodo === 'PATCH' && r.status === 200 && /^\s*\[\s*\{/.test(r.cuerpo || '')) || (r.metodo === 'POST' && r.status === 201))).length;
 const aprobaciones = (fila, nomId) => (delDb(fila, nomId)?.historial || []).filter((h) => h.estadoHacia === 'aprobada').length;
 const aprobar = async (p) => { await p.page.getByRole('button', { name: /Aprobar \(CFO\)/ }).click(); await p.page.waitForTimeout(2500); };
 const botonAprobar = (p) => p.page.getByRole('button', { name: /Aprobar \(CFO\)/ }).count();
@@ -166,26 +167,26 @@ check('1c. "Reintentar carga": Osiris se carga desde la base y se puede abrir', 
 // ═══ 2. Creación ════════════════════════════════════════════════════════
 await filaEmpresa(P1, 'Integrity Farms').getByRole('button', { name: /\+ Crear/ }).click(); await P1.page.waitForTimeout(2500);
 let f = filaDb('nominas_integrity_farms');
-check('2a. Primera nómina de Integrity Farms: la función CREA la fila (versión vacía = "leí que no existía"), en formato texto JSON',
-  f && f.tipo === 'string' && JSON.parse(f.texto).nominas.length === 1 && registro.some((r) => r.rpc && r.id === 'nominas_integrity_farms' && r.version === null && r.status === 200) && (await aviso(P1).count()) === 0);
+check('2a. Primera nómina de Integrity Farms: la app CREA la fila con POST sin merge-duplicates ("leí que no existía"), en formato texto JSON',
+  f && f.tipo === 'string' && JSON.parse(f.texto).nominas.length === 1 && registro.some((r) => r.metodo === 'POST' && r.id === 'nominas_integrity_farms' && r.status === 201 && !/merge-duplicates/.test(r.prefer)) && (await aviso(P1).count()) === 0);
 await volverALista(P1);
 await filaEmpresa(P2, 'Integrity Farms').getByRole('button', { name: /\+ Crear/ }).click(); await P2.page.waitForTimeout(3000);
-check('2b. Creación simultánea (P2 aún cree que no existe): la base responde "existe", P2 relee y combina → 2 nóminas, sin aviso',
-  nominasDb('nominas_integrity_farms').length === 2 && registro.some((r) => r.rpc && r.tab === 'pestaña 2' && r.id === 'nominas_integrity_farms' && /"existe"/.test(r.cuerpo || '')) && (await aviso(P2).count()) === 0);
+check('2b. Creación simultánea (P2 aún cree que no existe): la base responde 409 (ya existe), P2 relee y combina → 2 nóminas, sin aviso',
+  nominasDb('nominas_integrity_farms').length === 2 && registro.some((r) => r.metodo === 'POST' && r.tab === 'pestaña 2' && r.id === 'nominas_integrity_farms' && r.status === 409) && (await aviso(P2).count()) === 0);
 await volverALista(P2);
 
 // ═══ 3. Edición ═════════════════════════════════════════════════════════
 await abrirNomina(P1, 'Osiris');
 let v0 = versionDb('nominas_osiris');
 await escribirNotas(P1, 'uno');
-check('3a. Edición: se guarda vía la función con la versión leída; la versión de la fila avanza; formato texto intacto',
+check('3a. Edición: PATCH condicionado a la versión leída; la versión de la fila avanza; formato texto intacto',
   delDb('nominas_osiris', 'nomA').notas === 'uno' && versionDb('nominas_osiris') !== v0 && filaDb('nominas_osiris').tipo === 'string'
-  && registro.some((r) => r.rpc && r.id === 'nominas_osiris' && r.version && r.status === 200));
+  && registro.some((r) => r.metodo === 'PATCH' && r.cond && r.id === 'nominas_osiris' && r.status === 200));
 await abrirNomina(P2, 'Osiris', true);
 await escribirNotas(P2, 'dos');
 check('3b. Ediciones independientes (P2 en la nómina B con versión vieja): conflicto en la base → relee y combina → ambas guardadas',
   delDb('nominas_osiris', 'nomA').notas === 'uno' && delDb('nominas_osiris', 'nomB').notas === 'dos' && (await aviso(P2).count()) === 0
-  && registro.some((r) => r.rpc && r.tab === 'pestaña 2' && r.id === 'nominas_osiris' && /"conflicto"/.test(r.cuerpo || '')));
+  && registro.some((r) => r.metodo === 'PATCH' && r.cond && r.tab === 'pestaña 2' && r.id === 'nominas_osiris' && r.status === 200 && /^\s*\[\s*\]\s*$/.test(r.cuerpo || '')));
 await volverALista(P2); await irASemanaActual(P2);
 await abrirNomina(P2, 'Osiris');
 P2.estado.sinLectura = (id) => id === 'nominas_osiris';   // P2 queda desactualizada
@@ -202,7 +203,7 @@ await escribirNotas(P1, 'X2');
 P2.estado.sinLectura = null;
 await escribirNotas(P2, 'Y2');
 await P2.page.getByRole('button', { name: /Mantener la mía/ }).click(); await P2.page.waitForTimeout(1500);
-check('3e. "Mantener la mía" (con confirmación): queda Y2 en la base, por la función', delDb('nominas_osiris', 'nomA').notas === 'Y2' && (await aviso(P2).count()) === 0);
+check('3e. "Mantener la mía" (con confirmación): queda Y2 en la base, con PATCH condicionado', delDb('nominas_osiris', 'nomA').notas === 'Y2' && (await aviso(P2).count()) === 0);
 await volverALista(P1); await volverALista(P2);
 
 // ═══ 4. Aprobación CFO ══════════════════════════════════════════════════
@@ -210,7 +211,7 @@ await volverALista(P1); await volverALista(P2);
 await abrirNomina(P1, 'Mediterra');
 let c0 = correos;
 for (const [nombre, resp] of [['sin red', 'red'], ['HTTP 500', { status: 500, body: { message: 'error simulado' } }]]) {
-  ctl.escritura = ({ rpc, id }) => (rpc && id === 'nominas_mediterra' ? resp : null);
+  ctl.escritura = ({ nom, id }) => (nom && id === 'nominas_mediterra' ? resp : null);
   await aprobar(P1);
   ta = await textoAviso(P1);
   check(`4a. Aprobar ${nombre}: sigue "V°B°" en pantalla y en la base, 0 correos, aviso "El cambio de estado NO se hizo"`,
@@ -225,7 +226,7 @@ await volverALista(P1);
 await abrirNomina(P1, 'Frisku Foods');
 c0 = correos;
 let unaVez = true;
-ctl.escritura = ({ rpc, id }) => (rpc && id === 'nominas_frisku_foods' && unaVez ? (unaVez = false, 'perdida') : null);
+ctl.escritura = ({ nom, id }) => (nom && id === 'nominas_frisku_foods' && unaVez ? (unaVez = false, 'perdida') : null);
 await aprobar(P1);
 ctl.escritura = null;
 check('4c. Respuesta perdida tras guardar (la base SÍ aprobó): relee, verifica, la da por hecha → 1 escritura, 2 correos, historial 1',
@@ -236,7 +237,7 @@ await volverALista(P1);
 await abrirNomina(P1, 'Allegria Foods');
 c0 = correos;
 unaVez = true;
-ctl.escritura = ({ rpc, id }) => (rpc && id === 'nominas_allegria_foods' && unaVez ? (unaVez = false, 'perdida') : null);
+ctl.escritura = ({ nom, id }) => (nom && id === 'nominas_allegria_foods' && unaVez ? (unaVez = false, 'perdida') : null);
 P1.estado.sinLectura = (id) => id === 'nominas_allegria_foods';
 await aprobar(P1);
 ctl.escritura = null;
@@ -282,18 +283,21 @@ const viejo = await P2.page.evaluate(async (valor) => {
 }, filaNom('Osiris', [nom('nomA', 'Osiris', semana)]));
 ctl.etiqueta = null;
 const despues = filaDb('nominas_osiris');
-check('5. Upsert del código antiguo desde el navegador: 400 MEDITERRA_NOMINAS_SIN_VERSION y la fila no cambia',
-  viejo.status === 400 && /MEDITERRA_NOMINAS_SIN_VERSION/.test(viejo.texto) && despues.texto === antes.texto && despues.version === antes.version, `HTTP ${viejo.status}`);
+// Sin el trigger (camino B), la base no puede distinguir una pestaña con código antiguo:
+// es el riesgo abierto conocido (docs/nominas-guardado-condicionado.md). Se deja constancia.
+check('5. [Riesgo abierto conocido] Upsert sin condición del código antiguo: la base lo ACEPTA (no hay trigger), igual que hoy en producción',
+  (viejo.status === 200 || viejo.status === 201) && despues.version !== antes.version, `HTTP ${viejo.status}`);
 
-// ═══ 6. La app nunca escribe nóminas sin la función ═════════════════════
-const directas = registro.filter((r) => !r.rpc && r.metodo !== 'GET' && (filaNominaProtegida(r.id) || r.id === 'nominas') && !r.etiqueta);
-const rechazos = registro.filter((r) => /MEDITERRA_NOMINAS_/.test(r.cuerpo || ''));
-check('6a. La app NO hizo ninguna escritura directa a filas de nóminas (todas por nominas_guardar)', directas.length === 0, JSON.stringify(directas.slice(0, 3)));
-check('6b. La base no rechazó ninguna escritura de la app (el único rechazo es el de la prueba 5)', rechazos.length === 1, rechazos.map((r) => `${r.tab} ${r.metodo} ${r.id}`).join(' | '));
+// ═══ 6. La app nunca escribe nóminas sin condición ══════════════════════
+const sinCondicion = registro.filter((r) => !r.rpc && r.metodo !== 'GET' && (filaNominaProtegida(r.id) || r.id === 'nominas') && !r.etiqueta
+  && !((r.metodo === 'PATCH' && r.cond) || (r.metodo === 'POST' && !/merge-duplicates/.test(r.prefer))));
+const llamadasRpc = registro.filter((r) => r.rpc);
+check('6a. Toda escritura de la app a filas de nóminas va condicionada (PATCH con updated_at=eq o POST sin merge-duplicates)', sinCondicion.length === 0, JSON.stringify(sinCondicion.slice(0, 3)));
+check('6b. La app NO llama a nominas_guardar (no existe en producción)', llamadasRpc.length === 0, `${llamadasRpc.length} llamadas`);
 check('6c. Todas las filas de nóminas siguen en formato texto JSON', db.psql(`select count(*) from calendario_data where id like 'nominas\\_%' and jsonb_typeof(value) <> 'string' and id not in ('nominas_correlativos')`) === '0');
 for (const q of [P1, P2]) check(`Sin errores de JavaScript (${q.nombre})`, q.errores.length === 0, q.errores.slice(0, 2).join(' | '));
 fs.writeFileSync(path.join(OUT, 'registro-peticiones.json'), JSON.stringify(registro, null, 1));
 await P1.browser.close(); await P2.browser.close();
 db.cerrar();
-console.log(fallos ? `\n${fallos} FALLA(S)` : '\nNóminas con nominas_guardar contra base real local: todos los casos OK');
+console.log(fallos ? `\n${fallos} FALLA(S)` : '\nNóminas con guardado condicionado contra base real local (sin la propuesta): todos los casos OK');
 process.exit(fallos ? 1 : 0);

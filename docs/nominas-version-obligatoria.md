@@ -1,13 +1,15 @@
 # Nóminas: la base exige la versión leída — propuesta
 
-> **Estado (2026-10-05): SQL PROPUESTO, NO APLICADO EN PRODUCCIÓN. Cliente aplicado en la rama** (sin despliegue
-> ni merge). Probado solo en local con Postgres 16 + PostgREST 12 y datos de prueba. El PR sigue en borrador.
+> **Estado (2026-10-07): SQL PROPUESTO, NO APLICADO EN PRODUCCIÓN. El cliente de la rama YA NO usa la función**
+> (camino B, decisión de Angelo): Créditos se publica con el guardado condicionado por `updated_at`, que no necesita
+> nada en la base. Esta propuesta queda para una entrega posterior. Probado solo en local con Postgres 16 + PostgREST 12 y datos de prueba. El PR sigue en borrador.
 >
 > - SQL: `supabase/propuesta_nominas_version_obligatoria.sql` · reversión: `…_reversion.sql`
-> - Cliente: `src/nominasTransporteRpc.js` (la app guarda nóminas solo por `nominas_guardar`)
+> - Cliente de la propuesta: `src/nominasTransporteRpc.js` (sin uso en la app; lo prueba `scripts/nominas-cas/prueba.mjs`)
 > - Procedimiento de activación: `docs/nominas-activacion.md` · foto de verificación: `supabase/verificar_activacion_nominas.sql`
-> - Pruebas: `scripts/nominas-cas/prueba.mjs` (SQL por la API REST, 51 casos) y `scripts/e2e/nomina-base-real.mjs`
->   (la app en el navegador contra la base local con el SQL aplicado tal cual, 26 casos, 3 corridas seguidas).
+> - Pruebas: `scripts/nominas-cas/prueba.mjs` (SQL por la API REST, 51 casos). `scripts/e2e/nomina-base-real.mjs`
+>   probó la app con el SQL aplicado (26 casos, 3 corridas) hasta el 2026-10-05; desde el camino B prueba la app
+>   contra la base SIN la propuesta. Para volver a la función hay que reponer el transporte RPC y esa versión de la prueba (`88c5329`).
 >   Controles negativos: sin el trigger fallan 8 casos; con la regla anterior (solo rol de conexión, `public` antes que
 >   `pg_catalog`) fallan K1 y K3.
 

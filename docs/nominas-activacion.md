@@ -26,7 +26,7 @@
 
 El costo es que, entre la etapa 4 y el fin de la etapa 5, nadie puede guardar nóminas. Por eso se hace con el trabajo detenido.
 
-**Dependencia dura.** El código nuevo guarda nóminas **solo** a través de la función. Si se publicara sin la etapa 1, ningún guardado de nóminas funcionaría: la app avisa y conserva la edición, pero no avanza.
+**Camino B (2026-10-07).** La app de la rama ya NO guarda por la función: este procedimiento aplica a una entrega posterior que vuelva a usarla. En esa entrega rige la dependencia dura: si se publicara sin la etapa 1, ningún guardado de nóminas funcionaría: la app avisa y conserva la edición, pero no avanza.
 
 ## Etapa 1 — Crear la función (días antes)
 

@@ -11,13 +11,13 @@
      PATCH ?id=eq.X&updated_at=eq.V  (return=representation)
               → [] si la versión no coincide (conflicto), si no la fila escrita
      POST  (merge-duplicates, return=representation) → fila creada/actualizada
-     POST  /rpc/nominas_guardar → misma lógica que la función SQL
-           (supabase/propuesta_nominas_version_obligatoria.sql, PARTE 1)
-   Y la regla del trigger de esa propuesta (PARTE 2), ACTIVA por defecto: una
-   escritura directa (PATCH/POST) a una fila nominas_<empresa> o a la fila
-   antigua `nominas` responde 400, como responderá la base. Así cualquier
-   escritura de nóminas que no pase por la función hace fallar las pruebas.
-   `store.__sinTriggerNominas = true` la desactiva.
+   Por defecto se comporta como PRODUCCIÓN HOY: no existe la función
+   nominas_guardar (404, como PostgREST) ni el trigger que exige versión. La app
+   guarda nóminas con PATCH condicionado a updated_at y POST sin merge-duplicates.
+   Con `store.__propuestaNominas = true` emula además la propuesta NO aplicada
+   (supabase/propuesta_nominas_version_obligatoria.sql): la función (PARTE 1) y la
+   regla del trigger (PARTE 2), que rechaza con 400 la escritura directa de una
+   fila nominas_<empresa> o de la fila antigua `nominas`.
    ───────────────────────────────────────────────────────────────────────── */
 import fs from 'fs';
 
@@ -93,6 +93,12 @@ export async function instalarFake(context, store, log = () => {}) {
       return {};
     };
 
+    if (url.pathname === '/rest/v1/rpc/nominas_guardar' && metodo === 'POST' && !store.__propuestaNominas) {
+      (store.__llamadasRpcInexistente = store.__llamadasRpcInexistente || []).push(body && body.p_id);
+      log('POST  rpc/nominas_guardar → 404 (la función no existe, como en producción)');
+      return route.fulfill({ status: 404, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
+        body: '{"code":"PGRST202","message":"Could not find the function public.nominas_guardar"}' });
+    }
     if (url.pathname === '/rest/v1/rpc/nominas_guardar' && metodo === 'POST') {
       const rid = body && body.p_id, ver = (body && body.p_version_leida) || null;
       const mEq = ver ? 'PATCH' : 'POST';
@@ -141,7 +147,7 @@ export async function instalarFake(context, store, log = () => {}) {
 
     // Regla del trigger (PARTE 2): sin pasar por nominas_guardar no se escribe una fila de nóminas.
     const ridDirecto = id || (body && !Array.isArray(body) && body.id) || (Array.isArray(body) && body[0] && body[0].id) || null;
-    if (!store.__sinTriggerNominas && (filaNominaProtegida(ridDirecto) || ridDirecto === 'nominas')) {
+    if (store.__propuestaNominas && (filaNominaProtegida(ridDirecto) || ridDirecto === 'nominas')) {
       (store.__rechazosTrigger = store.__rechazosTrigger || []).push({ metodo, id: ridDirecto });
       log(`${metodo} ${ridDirecto} → 400 SIN VERSIÓN (regla del trigger)`);
       return error400(ridDirecto === 'nominas'
