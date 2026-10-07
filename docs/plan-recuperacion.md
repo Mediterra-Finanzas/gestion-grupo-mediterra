@@ -19,7 +19,23 @@ Inventario tomado del **repositorio** (oct-2026). La base de producción puede t
 | Auditoría / seguridad | `auditoria_log`, `proc_audit_log`, limitador `frisku_sp_rl_*` | Trazabilidad | No |
 | Auth de Supabase | `auth.users` (si se usa en `api/_auth.js` / `osiris-auth`) | Login de APIs | No |
 
-Los archivos `supabase/schema_*.sql` definen **91 tablas** distintas, a las que se suma `calendario_data`. **auto-v4 cubre 1 de ~92.**
+**Cifra corregida (oct-2026).** Los informes anteriores hablaban de "~130" y después de "~92" tablas. Ninguna de las dos estaba contada bien:
+- "~92" contaba solo `supabase/schema_*.sql` (91) + `calendario_data`.
+- "~130" era una estimación sin conteo.
+
+Conteo reproducible con `node scripts/respaldo/inventario-repo.mjs` (lee todos los `.sql` del repo y busca en `src/` y `api/` los usos por `rest/v1`, `.from()` y `rpc`):
+
+| Medición | Resultado | Estado |
+|---|---|---|
+| Tablas definidas en archivos `.sql` de esquema (`supabase/`, `src/accounting/migrations/`, `src/currency/migration/`, `api/sql/`) | **138** | Comprobado en el repo |
+| Tablas que solo aparecen en borradores, pruebas o UAT | 2 | Comprobado en el repo |
+| Tablas que el código de la app y de `api/` usa | 37 | Comprobado por búsqueda de patrones; puede no ser exhaustivo |
+| Usada por el código y **sin definición versionada** | 1: `calendario_data`, la tabla principal | Comprobado: no hay DDL en el repo |
+| RPC | `frisku_sp_rl_consumir` | Comprobado en el repo |
+| Buckets | `nominas-docs`, `frisku-docs`, `osiris-fotos`, `proc-docs`, `accounting-source`, `respaldos` | Comprobado en el código |
+| Qué de eso existe **en producción**, tamaños, vistas, funciones, políticas RLS, `auth.users`, objetos por bucket | — | **Falta consultar** (sección 1.4; no tengo acceso a producción) |
+
+**auto-v4 cubre 1 tabla (`calendario_data`) de al menos 138, y ningún documento.**
 
 ### 1.2 Documentos (Supabase Storage)
 
@@ -54,6 +70,20 @@ order by pg_total_relation_size(format('%I.%I', table_schema, table_name)) desc;
 select bucket_id, count(*) as archivos, pg_size_pretty(sum((metadata->>'size')::bigint)) as tamano
 from storage.objects group by bucket_id order by 1;
 ```
+
+### 1.5 Configuración y servicios necesarios para operar
+
+Una base restaurada sola no deja la app funcionando. Hace falta además:
+
+| Pieza | Dónde se configura | Variables / elementos (según el código) | Estado |
+|---|---|---|---|
+| Funciones `api/` (Vercel) | Variables de entorno de Vercel | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SESSION_SECRET`, `CRON_SECRET`, `SMTP_{MEDITERRA,ALLEGRIA,FRISKU,OSIRIS}_{USER,PASS}`, `FRISKU_SP_*` (5), `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` | Nombres comprobados en el código; valores **sin copia documentada** |
+| Build del frontend | Variables `REACT_APP_*` de Vercel | `REACT_APP_EMAILJS_*` (4), `REACT_APP_OSIRIS_AUTH_URL`, `REACT_APP_AUTH_DUAL`, `REACT_APP_SUPA_URL/KEY` (solo algunos módulos), banderas de vista previa | Ídem |
+| Cron | `vercel.json` | `/api/proc-reporting-daily-cron` a las 23:00 UTC | Comprobado en el repo |
+| Edge functions | Proyecto Supabase | `currency-fx-capture` (`SCHEDULER_SECRET`), `osiris-auth` (`PROD_URL`, `PROD_ANON_KEY`, `SANDBOX_SERVICE_KEY`, `ALLOWED_ORIGINS`) | Código en el repo; despliegue y secretos **por consultar** |
+| Programación de `currency-fx-capture` | Supabase (cron/pg_cron o scheduler externo) | — | **Por consultar**: no está en el repo |
+| Políticas de Storage y RLS | Proyecto Supabase | — | **Por consultar** (R4) |
+| Integraciones externas | Microsoft Graph / SharePoint (Frisku), EmailJS, SMTP | Credenciales de cada proveedor | Por documentar en el gestor de contraseñas |
 
 ## 2. Objetivos propuestos
 
@@ -104,6 +134,34 @@ En un **proyecto Supabase vacío de prueba**, nunca en producción:
 4. Restaurar una fila de `calendario_data` con B (botón "Restaurar") y verificar que conserva las credenciales actuales.
 5. Registrar: fecha, duración real (RTO medido), diferencias encontradas.
 
+### 5.1 Prueba aislada ya ejecutada (local, oct-2026)
+
+`node scripts/respaldo/prueba-recuperacion-local.mjs` corre en un Postgres 16 efímero (carpeta temporal, puerto 55432). No se conecta a Supabase ni a producción y usa solo datos ficticios.
+
+| Paso | Resultado |
+|---|---|
+| Reconstruir la estructura **solo desde los `.sql` del repo** (con stubs de roles de Supabase y un DDL inferido de `calendario_data`) | 58 archivos aplicados, **14 con error**, 117 tablas creadas (de 138 definidas) |
+| Copia (`pg_dump -Fc` + documentos con manifiesto SHA-256) → borrado total → restauración en base nueva | 8/8 verificaciones |
+| Tablas, filas y md5 por tabla | Iguales (117 tablas) |
+| `calendario_data` (incluye un saldo con metadatos de TC) | md5 idéntico |
+| Documentos | 3/3 coinciden con su SHA-256; el de nómina coincide además con el hash guardado en la nómina |
+
+Conclusiones:
+
+1. **La estructura NO es reproducible desde el repositorio.** Los 14 errores se deben a orden de aplicación, columnas renombradas entre versiones, semillas duplicadas y dependencias de `auth.users`. Por eso la capa C debe ser un `pg_dump` **completo** del proyecto (estructura + datos + funciones + políticas), no "esquema del repo + datos".
+2. `pg_dump` / `pg_restore` preserva filas y contenido exacto, y la verificación por hash detecta cualquier documento alterado.
+3. **Lo que esta prueba NO cubre:** Supabase real (Auth, Storage, RLS, edge functions), volumen real y RTO real, ni levantar la app apuntando a la base restaurada. Eso queda para la prueba en un proyecto Supabase de prueba (pasos de la sección 5), que requiere tu aprobación y credenciales de ese proyecto.
+
+### 5.2 Compatibilidad con la versión anterior (rollback)
+
+`scripts/e2e/rollback.mjs` usa el mismo Supabase falso para el build de esta rama y el de `main` (8df9862). Resultado: 13/13.
+
+- La versión anterior lee los saldos nuevos: usa `usd` y no considera los metadatos `tc*`. El PEN sin paridad (`usd: null`) suma 0, como antes.
+- Al navegar, la versión anterior no borra los metadatos de TC.
+- El respaldo nuevo (formato v3) es **rechazado** por "📤 Restaurar" de la versión anterior y no escribe ninguna fila.
+
+Esto se cambió en esta ronda. Antes la versión anterior aceptaba el respaldo saneado y habría restaurado filas sin PIN ni campos sensibles, borrando las credenciales vigentes. El archivo nuevo guarda sus filas en `tablasSaneadas`.
+
 ## 6. Riesgos y decisiones pendientes
 
 | # | Riesgo | Propuesta |
@@ -113,6 +171,7 @@ En un **proyecto Supabase vacío de prueba**, nunca en producción:
 | R3 | Las filas `backup_*` antiguas guardan PIN y hashes en la propia base | No tocar hasta tener la capa C; después decidir borrarlas o sanearlas |
 | R4 | `frisku-docs` y `osiris-fotos` parecen públicos | Revisar en el panel; `api/storage.js` ya está preparado para firmar URLs |
 | R5 | Secretos sin copia documentada | Inventario en el gestor de contraseñas, con fecha de rotación |
+| R7 | La estructura no se reconstruye desde el repo (14 de 58 archivos fallan) y `calendario_data` no tiene DDL versionado | Capa C = `pg_dump` completo; versionar el DDL de `calendario_data` cuando se apruebe |
 | R6 | Costo | [Suponiendo] PITR ~US$100/mes; almacenamiento externo unos pocos US$/mes con este volumen; confirmar con la consulta 1.4 |
 
 ## 7. Pasos para activar (cada uno con tu aprobación)
