@@ -217,6 +217,40 @@ desconecta su manejador. Ese fue el agujero de T3.
 
 El entorno aislado quedó restaurado: 24 contratos, sin marcas de prueba.
 
+### Recorrido de cierre, sobre los bundles definitivos
+
+Candidato `main.82b848d8.js` (e900a40) y recuperación `main.dcd24572.js` (1c3f16d), ambos con
+**cero** referencias a producción.
+
+| Comprobación | Candidato | Recuperación |
+|---|---|---|
+| Activación vigente | $647.533,99 | $647.533,99, idéntico |
+| Tres columnas | base $125.910 · actual $128.428,2 · propuesto $128.428,2 · dif — | igual |
+| Fila protegida 2029/2030 | base $125.910 · actual $125.910 · propuesto — | igual |
+| Aviso | "3 temporada(s) … llevan el reajuste, y 1 quedan en su valor base" | igual |
+| Retirar | motivo + confirmación, baja US$ 17.983,99, vuelve a $629.550 | igual, y **sí disponible** |
+| Activar de nuevo | previa anuncia +2.518,20 / +5.086,76 / +10.379,03 y el diálogo **US$ 17983.99**; aplica exactamente eso | **no se ofrece** |
+| Solo lectura | botón deshabilitado **y** la acción rechaza al invocar el manejador salteando el `disabled` | igual |
+| Conflicto entre sesiones | "⚠️ NO se guardó · conflicto"; **el reintento también se rechaza**; la escritura ajena intacta | igual |
+
+### El caso de conflicto, en las dos versiones
+
+Con la configuración antigua al 5 %/año sembrada sobre el mismo contrato:
+
+| | |
+|---|---|
+| Estado | "EN CONFLICTO con la configuracion antigua" |
+| Importe | **$695.732,23** — el que produce la configuración antigua |
+| Botones | **solo Desactivar**. "Activar" no se ofrece sobre un registro existente |
+| Panel | explica que la antigua está OPERANDO y que la activación nueva "queda registrada pero **no activa**" |
+| Diálogo al retirar | *"Retirar este registro NO cambia los importes. La configuracion antigua (5 %/año) sigue OPERANDO y es la que produce los importes actuales. Desactivar el registro nuevo no la quita. El registro, sus terminos y su historial se conservan, con constancia de la baja."* |
+| Importe después | **$695.732,23**, sin mover un peso |
+
+> La retirada de la configuración antigua es **exclusivamente una prueba sintética**. No es una
+> operación productiva autorizada.
+
+El entorno aislado quedó restaurado: 24 contratos, sin claves de prueba.
+
 ### Lo que esta revisión encontró y las pruebas no
 
 **R4.** Con el reajuste activado y $647.533,99 en pantalla, el encabezado seguía afirmando que
