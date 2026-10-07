@@ -44,7 +44,7 @@
 
 import {
   antRealizado, realizacionesVigentes, normalizarAnticipo,
-  agregarRealizacion,
+  agregarRealizacion, nuevoIdAnticipo, nuevoIdRealizacion,
 } from "./anticipos.js";
 
 const n = (x) => Number(x) || 0;
@@ -55,11 +55,23 @@ export function esDato(x) {
   return Number.isFinite(Number(x));
 }
 
+// ── Identidad: se asigna AL CREAR, nunca al normalizar ────────────
+// Los normalizadores corren en cada render y en cada cálculo (pantalla, flujo
+// y Excel). Si acuñaran id, un registro guardado sin id recibiría uno nuevo
+// por pasada: una sustitución declarada contra él quedaría apuntando a un id
+// inexistente y el mismo dinero se proyectaría dos veces, sin aviso. Por eso
+// la identidad nace acá (al crear) o en `normalizarIdentidades` (una sola vez,
+// para los registros antiguos).
 function uid(pref) {
   return `${pref}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 }
-export function nuevoIdPrograma() { return uid("prg"); }
-export function nuevoIdCuota()    { return uid("cuo"); }
+export function nuevoIdPrograma()     { return uid("prg"); }
+export function nuevoIdCuota()        { return uid("cuo"); }
+export function nuevoIdAntecedente()  { return uid("ante"); }
+export function nuevoIdMovimiento()   { return uid("mov"); }
+export function nuevoIdSaldo()        { return uid("sf"); }
+export function nuevoIdAplicacion()   { return uid("ap"); }
+export { nuevoIdAnticipo, nuevoIdRealizacion };
 
 export const LADOS = ["cliente", "productor"];
 export const MODALIDADES = ["usd_kg", "monto", "por_confirmar"];
@@ -75,7 +87,7 @@ export function normalizarCuota(c) {
   const estadoPedido = ESTADOS_CUOTA.includes(base.estado) ? base.estado : "borrador";
   return {
     ...base,
-    id: base.id || nuevoIdCuota(),
+    id: base.id || "",
     modalidad: MODALIDADES.includes(base.modalidad) ? base.modalidad : "por_confirmar",
     historico,
     // `mes_estimado` = el mes de flujo es una estimación nuestra porque NO hay
@@ -108,7 +120,7 @@ export function normalizarPrograma(p) {
   const base = p || {};
   return {
     ...base,
-    id: base.id || nuevoIdPrograma(),
+    id: base.id || "",
     lado: LADOS.includes(base.lado) ? base.lado : "cliente",
     contraparte: base.contraparte || "",
     kilos: esDato(base.kilos) ? Number(base.kilos) : null,
@@ -119,7 +131,7 @@ export function normalizarPrograma(p) {
     nota: base.nota || "",
     cuotas: (Array.isArray(base.cuotas) ? base.cuotas : []).map(normalizarCuota),
     antecedentes: (Array.isArray(base.antecedentes) ? base.antecedentes : []).map(x => ({
-      ...x, id: x?.id || uid("ante"), usd: esDato(x?.usd) ? Number(x.usd) : null,
+      ...x, id: x?.id || "", usd: esDato(x?.usd) ? Number(x.usd) : null,
     })),
   };
 }
@@ -227,17 +239,46 @@ export function estAcordado(e0, kgFruta) {
 }
 
 /**
+ * Procedencia de una realización: el contenedor del que salió (`origen`) más
+ * los anteriores (`origenesPrevios`). Mover una realización ESTAMPA el
+ * contenedor de procedencia y conserva el origen previo acá, así que un
+ * movimiento nacido en la bandeja o en un antecedente sigue siendo rastreable
+ * y, a la vez, la estimación de la que salió sigue dándolo por consumido.
+ */
+export function origenesRealizacion(r) {
+  const out = [];
+  const push = (o) => { if (o && o.tipo) out.push({ tipo: o.tipo, id: o.id || "" }); };
+  push(r?.origen);
+  (Array.isArray(r?.origenesPrevios) ? r.origenesPrevios : []).forEach(push);
+  return out;
+}
+
+/**
  * Realizado que "pertenece" a la estimación: lo que tiene + lo que se movió
  * desde ella a una cuota. Por eso mover un cobro no reabre su pendiente.
+ *
+ * Solo cuenta lo que fue a una cuota cuyo realizado SIGUE descontando en el
+ * mismo bloque presupuestario que la estimación:
+ *   · archivado        → sí cuenta (su realizado sigue descontando);
+ *   · fuera de presupuesto → NO cuenta: su dinero se informa aparte
+ *     (`realizadoFuera`) y no descuenta de las operaciones presupuestadas, así
+ *     que si la estimación lo diera por consumido el mismo monto se contaría
+ *     dos veces (la estimación deja de proyectarlo y el bloque ya no lo resta).
  */
 export function estRealizadoOriginado(e0, programas) {
   const e = normalizarAnticipo(e0 || {});
   let total = antRealizado(e);
-  programasTodos(programas).forEach(p => p.cuotas.forEach(c => {
-    realizacionesVigentes(c).forEach(r => {
-      if (r?.origen?.tipo === "estimacion" && r.origen.id === e.id) total += n(r.usd);
+  if (!e.id) return total;   // sin identidad no se le puede atribuir nada movido
+  programasTodos(programas).forEach(p => {
+    if (p.fueraPresupuesto) return;
+    p.cuotas.forEach(c => {
+      realizacionesVigentes(c).forEach(r => {
+        if (origenesRealizacion(r).some(o => o.tipo === "estimacion" && o.id === e.id)) {
+          total += n(r.usd);
+        }
+      });
     });
-  }));
+  });
   return total;
 }
 
@@ -250,7 +291,11 @@ export function estSustituido(e0, programas) {
   if (!id) return 0;
   let total = 0;
   programasTodos(programas).forEach(p => {
-    if (p.archivado) return;
+    // Archivado: dejó de proyectar, así que tampoco sustituye.
+    // Fuera de presupuesto: no descuenta de las operaciones presupuestadas, y
+    // una estimación es presupuestada. Si sustituyera, el pendiente dejaría de
+    // proyectarse sin que nada ocupe su lugar en el bloque.
+    if (p.archivado || p.fueraPresupuesto) return;
     p.cuotas.forEach(c => cuotaSustituye(c).forEach(s => {
       if (s.estimacionId === id) total += n(s.usd);
     }));
@@ -678,6 +723,8 @@ export function moverRealizacion({ estimaciones, programas, reaId, desde, hacia,
   // `estRealizadoOriginado` sigue las realizaciones movidas a una CUOTA. Mover
   // de estimación a estimación reabriría el pendiente de la de origen, así que
   // no se permite: la pantalla tampoco lo ofrece.
+  if (!desde?.tipo || !desde?.id) throw new Error("No identifico de dónde sale el movimiento.");
+  if (!hacia?.tipo || !hacia?.id) throw new Error("No identifico a dónde va el movimiento.");
   if (desde?.tipo === "estimacion" && hacia?.tipo === "estimacion") {
     throw new Error("Un movimiento no se pasa de una estimación a otra: " +
       "reabriría el pendiente de la de origen. Anúlalo con motivo y regístralo donde corresponde.");
@@ -699,7 +746,21 @@ export function moverRealizacion({ estimaciones, programas, reaId, desde, hacia,
     (desde.tipo === "cuota" && c.id === desde.id) ? sacar(c) : c) }));
   if (!movida) return { estimaciones: ests, programas: progs, movida: null };
 
-  const conOrigen = { ...movida, origen: movida.origen || { tipo: desde.tipo, id: desde.id },
+  // El origen pasa a ser SIEMPRE el contenedor del que sale: así la estimación
+  // de procedencia sigue dando por consumido su pendiente (regla: mover no lo
+  // reabre). El origen anterior no se pierde, se guarda en `origenesPrevios`,
+  // que es lo que mira `aplicadoDeMovimiento` para no aplicar dos veces el
+  // mismo movimiento de la bandeja. Antes se conservaba `movida.origen` y una
+  // realización nacida en la bandeja o en un antecedente dejaba de atribuirse
+  // a la estimación al moverla: su pendiente volvía a proyectarse entero.
+  const procedencia = { tipo: desde.tipo, id: desde.id };
+  const anterior = (movida.origen && movida.origen.tipo) ? movida.origen : null;
+  const previos = (Array.isArray(movida.origenesPrevios) ? movida.origenesPrevios : [])
+    .filter(o => o && o.tipo);
+  const repetido = anterior && anterior.tipo === procedencia.tipo
+                && String(anterior.id || "") === String(procedencia.id || "");
+  const conOrigen = { ...movida, origen: procedencia,
+                      origenesPrevios: (anterior && !repetido) ? [...previos, anterior] : previos,
                       movidaPor: usuario, movidaTs: new Date().toISOString() };
   const meter = (cont) => ({ ...cont, realizaciones: [...(cont.realizaciones || []), conOrigen] });
   const estsFin = estsOut.map(e => (hacia.tipo === "estimacion" && e.id === hacia.id) ? meter(e) : e);
@@ -729,7 +790,7 @@ export function archivarPrograma(p0, { motivo, usuario }) {
 export function nuevoMovimientoSinAsignar({ fecha, usd, referencia = "", contraparte = "", lado = "cliente", usuario = "" }) {
   if (!fecha) throw new Error("Un movimiento necesita su fecha real.");
   if (!(n(usd) > 0)) throw new Error("Un movimiento necesita su monto.");
-  return { id: uid("mov"), fecha, usd: n(usd), referencia, contraparte, lado,
+  return { id: nuevoIdMovimiento(), fecha, usd: n(usd), referencia, contraparte, lado,
            usuario, ts: new Date().toISOString(), aplicaciones: [] };
 }
 /** Σ aplicado nunca puede superar el monto del movimiento. */
@@ -754,15 +815,15 @@ export function puedeAplicar(mov, usd) {
 export function aplicadoDeMovimiento(movId, { estimaciones = [], programas = [] } = {}) {
   if (!movId) return 0;
   let total = 0;
+  // Se mira la CADENA de procedencia: si la realización se movió a otra cuota,
+  // el movimiento de la bandeja sigue consumido y no se puede aplicar de nuevo.
+  const deLaBandeja = (r) => origenesRealizacion(r)
+    .some(o => o.tipo === "bandeja" && o.id === movId);
   (Array.isArray(estimaciones) ? estimaciones : []).map(normalizarAnticipo).forEach(e => {
-    realizacionesVigentes(e).forEach(r => {
-      if (r?.origen?.tipo === "bandeja" && r.origen.id === movId) total += n(r.usd);
-    });
+    realizacionesVigentes(e).forEach(r => { if (deLaBandeja(r)) total += n(r.usd); });
   });
   programasTodos(programas).forEach(p => p.cuotas.forEach(c => {
-    realizacionesVigentes(c).forEach(r => {
-      if (r?.origen?.tipo === "bandeja" && r.origen.id === movId) total += n(r.usd);
-    });
+    realizacionesVigentes(c).forEach(r => { if (deLaBandeja(r)) total += n(r.usd); });
   }));
   return total;
 }
@@ -793,7 +854,7 @@ export function aplicarMovimiento({ movimiento, estimaciones = [], programas = [
       `sin asignar. El mismo dinero no se aplica dos veces.`);
   }
   const rea = {
-    id: uid("rea"), fecha: mov.fecha, usd: monto,
+    id: nuevoIdRealizacion(), fecha: mov.fecha, usd: monto,
     nota: mov.referencia ? `bandeja · ${mov.referencia}` : "bandeja",
     usuario, ts: new Date().toISOString(),
     origen: { tipo: "bandeja", id: mov.id },
@@ -854,7 +915,7 @@ export function normalizarAntecedente(x) {
   const a = x || {};
   return {
     ...a,
-    id: a.id || uid("ante"),
+    id: a.id || "",
     usd: esDato(a.usd) ? Number(a.usd) : null,
     fecha: a.fecha || "",            // fecha real, si alguna vez se recupera
     fechaAprox: a.fechaAprox || "",  // referencia informada, NO es la fecha
@@ -886,6 +947,7 @@ export function agregarAntecedente(p0, { usd, fecha = "", fechaAprox = "", refer
   const p = normalizarPrograma(p0);
   if (!(n(usd) > 0)) throw new Error("Un antecedente necesita el monto informado.");
   const a = normalizarAntecedente({
+    id: nuevoIdAntecedente(),
     usd: n(usd), fecha, fechaAprox, referencia, respaldo, nota,
     usuario, ts: new Date().toISOString(),
   });
@@ -1013,7 +1075,7 @@ export function normalizarSaldo(x) {
   const base = x || {};
   return {
     ...base,
-    id: base.id || uid("sf"),
+    id: base.id || "",
     lado: LADOS.includes(base.lado) ? base.lado : "cliente",
     contraparte: base.contraparte || "",
     programaId: base.programaId || null,
@@ -1021,7 +1083,7 @@ export function normalizarSaldo(x) {
     estado: ESTADOS_SALDO.includes(base.estado) ? base.estado : "provisional",
     respaldo: base.respaldo || null,
     aplicaciones: (Array.isArray(base.aplicaciones) ? base.aplicaciones : []).map(a => ({
-      ...a, id: a?.id || uid("ap"), usd: esDato(a?.usd) ? Number(a.usd) : 0,
+      ...a, id: a?.id || "", usd: esDato(a?.usd) ? Number(a.usd) : 0,
       tipo: TIPOS_APLICACION.includes(a?.tipo) ? a.tipo : "recuperacion",
       estado: a?.estado || "programada",
       historial: Array.isArray(a?.historial) ? a.historial : [],
@@ -1078,7 +1140,7 @@ export function agregarAplicacion(s0, { tipo, usd, mes, destino = null, motivo =
   if (tipo === "compensacion" && !destino) throw new Error("Una compensación necesita identificar la operación destino.");
   const estado = tipo === "compensacion" ? "reservada" : "programada";
   return { ...s, aplicaciones: [...s.aplicaciones, {
-    id: uid("ap"), tipo, usd: n(usd), mes: mes || "", destino, motivo, usuario,
+    id: nuevoIdAplicacion(), tipo, usd: n(usd), mes: mes || "", destino, motivo, usuario,
     estado, ts: new Date().toISOString(), historial: [],
   }] };
 }
@@ -1280,6 +1342,7 @@ export function reconocerDesdePosicion(posicion, saldos, { usd, usuario = "", no
       "Sin eso, una devolución al cliente se proyectaría como recuperación del productor.");
   }
   return normalizarSaldo({
+    id: nuevoIdSaldo(),
     lado: posicion.lado, contraparte: posicion.contraparte || "",
     programaId: posicion.programaId, usd: monto, estado: "reconocido",
     origen: { tipo: "liquidacion_individual", programaId: posicion.programaId,
@@ -1328,4 +1391,363 @@ export function previaCompensacion({ saldo, destino, usd }) {
       : monto > r.disponible + 0.005 ? `Solo hay ${Math.round(r.disponible)} disponibles.`
       : absorbe <= 0 ? "La operación destino no tiene saldo que absorber." : "",
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IDENTIDAD DE LOS REGISTROS
+//
+// Un registro se referencia por su `id`: una cuota declara qué estimación
+// sustituye (`sustituye[].estimacionId`) y una realización declara de dónde
+// viene (`origen.id`). Si el id no es estable, esas referencias apuntan a
+// nada y el efecto NO es visible: la sustitución no sustituye, la estimación
+// reabre su pendiente y el mismo dinero se proyecta dos veces.
+//
+// Por eso:
+//   · los normalizadores NO acuñan id (corren en cada render y cálculo);
+//   · lo nuevo nace con id (`nuevoId*`);
+//   · lo antiguo se arregla UNA vez con `normalizarIdentidades`, que es
+//     determinista (no usa Math.random ni el reloj) e idempotente;
+//   · una referencia a un id inexistente se muestra, nunca se ignora
+//     (`referenciasInvalidas`).
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Referencias que apuntan a identificadores que no existen. No se arreglan
+ * solas: se listan con su contraparte, su cuota y su monto para resolverlas a
+ * mano. Hoy una sustitución contra un id inexistente no sustituye nada y nadie
+ * se entera.
+ *
+ * Solo se evalúa el `origen` ACTUAL de cada realización: un `origenesPrevios`
+ * puede apuntar a una cuota que después se borró (sin movimientos) y eso no es
+ * una referencia inválida, es historia.
+ *
+ * `verificarBandeja` solo debe ir en true cuando `sinAsignar` trae la bandeja
+ * COMPLETA de la fruta; con la lista filtrada por lado daría falsos positivos.
+ */
+export function referenciasInvalidas({
+  estimaciones = [], programas = [], sinAsignar = [], lado = null,
+  verificarBandeja = false,
+} = {}) {
+  const ests = (Array.isArray(estimaciones) ? estimaciones : []).map(normalizarAnticipo);
+  const progs = programasTodos(programas).filter(p => (lado ? p.lado === lado : true));
+  const idsEst   = new Set(ests.map(e => e.id).filter(Boolean));
+  const idsCuota = new Set();
+  const idsAnte  = new Set();
+  progs.forEach(p => {
+    p.cuotas.forEach(c => { if (c.id) idsCuota.add(c.id); });
+    (p.antecedentes || []).forEach(a => { if (a && a.id) idsAnte.add(a.id); });
+  });
+  const idsMov = new Set((Array.isArray(sinAsignar) ? sinAsignar : [])
+    .map(m => m && m.id).filter(Boolean));
+
+  const out = [];
+  const huerfano = (o) => {
+    if (!o || !o.id) return false;
+    if (o.tipo === "estimacion")  return !idsEst.has(o.id);
+    if (o.tipo === "cuota")       return !idsCuota.has(o.id);
+    if (o.tipo === "antecedente") return !idsAnte.has(o.id);
+    if (o.tipo === "bandeja")     return verificarBandeja && !idsMov.has(o.id);
+    return false;
+  };
+  const revisarOrigen = (r, cont) => {
+    const o = r && r.origen;
+    if (!huerfano(o)) return;
+    out.push({
+      tipo: "origen", clase: o.tipo, lado: cont.lado || lado || null,
+      contraparte: cont.contraparte || "", programaId: cont.programaId || null,
+      cuotaId: cont.cuotaId || null, estimacionId: cont.estimacionId || null,
+      realizacionId: r.id || "", idHuerfano: o.id, usd: n(r.usd), vigente: true,
+      mensaje: `Un movimiento de ${Math.round(n(r.usd))} dice venir de una ${o.tipo} ` +
+               `que ya no existe (${o.id}): su procedencia no se puede comprobar.`,
+    });
+  };
+
+  progs.forEach(p => p.cuotas.forEach(c => {
+    (c.sustituye || []).forEach(sx => {
+      const idRef = (sx && sx.estimacionId) || "";
+      if (!idRef || idsEst.has(idRef)) return;
+      out.push({
+        tipo: "sustitucion", clase: "estimacion", lado: p.lado,
+        contraparte: p.contraparte || "", programaId: p.id, cuotaId: c.id,
+        idHuerfano: idRef, usd: n(sx.usd), vigente: c.estado === "vigente",
+        mensaje: `La cuota de ${p.contraparte || "sin nombre"} declara sustituir ` +
+                 `${Math.round(n(sx.usd))} de una estimación que ya no existe (${idRef}): ` +
+                 `no sustituye nada y ese monto se está proyectando dos veces.`,
+      });
+    });
+    realizacionesVigentes(c).forEach(r =>
+      revisarOrigen(r, { lado: p.lado, contraparte: p.contraparte, programaId: p.id, cuotaId: c.id }));
+  }));
+  ests.forEach(e => realizacionesVigentes(e).forEach(r =>
+    revisarOrigen(r, { estimacionId: e.id })));
+  return out;
+}
+
+// ── normalizarIdentidades: una sola pasada, determinista e idempotente ──
+
+const COLECCIONES_FRUTA = ["anticipos_cliente", "anticipos_productor", "programas",
+                           "movimientos_sin_asignar", "saldos_favor"];
+
+const esObj = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+const esFruta = (o) => esObj(o) && COLECCIONES_FRUTA.some(k => Array.isArray(o[k]));
+
+/** Hash corto y estable (FNV-1a de 32 bits). No depende del reloj ni del azar. */
+function hash32(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36);
+}
+
+/** Id de migración: `mig_<tipo>_<hash(contenido+posición)>`, único en el conjunto. */
+function idMigracion(tipo, partes, usados) {
+  const semilla = `${tipo}|${partes.map(x => (x === null || x === undefined ? "" : String(x))).join("|")}`;
+  const base = `mig_${tipo}_${hash32(semilla)}`;
+  let id = base, k = 2;
+  while (usados.has(id)) { id = `${base}_${k}`; k += 1; }
+  usados.add(id);
+  return id;
+}
+
+/** Recorre cada registro con identidad del valor, para juntar los ids que ya existen. */
+function recorrerRegistros(nodo, fn, prof = 0) {
+  if (!esObj(nodo)) return;
+  if (esFruta(nodo)) {
+    const visitar = (x) => { if (esObj(x)) fn(x); };
+    (nodo.anticipos_cliente || []).concat(nodo.anticipos_productor || []).forEach(e => {
+      visitar(e); ((e || {}).realizaciones || []).forEach(visitar);
+    });
+    (nodo.programas || []).forEach(p => {
+      visitar(p);
+      ((p || {}).cuotas || []).forEach(c => { visitar(c); ((c || {}).realizaciones || []).forEach(visitar); });
+      ((p || {}).antecedentes || []).forEach(visitar);
+    });
+    (nodo.movimientos_sin_asignar || []).concat(nodo.saldos_favor || []).forEach(m => {
+      visitar(m); ((m || {}).aplicaciones || []).forEach(visitar);
+    });
+    return;
+  }
+  if (prof >= 4) return;
+  Object.keys(nodo).forEach(k => recorrerRegistros(nodo[k], fn, prof + 1));
+}
+
+/**
+ * Asigna id a los registros que no lo tienen y reescribe las referencias que
+ * apuntaban a ellos cuando no hay ambigüedad. Devuelve
+ * `{ valor, cambios, huboCambios }`.
+ *
+ *   · DETERMINISTA: el id sale del contenido y la posición, no del azar.
+ *   · IDEMPOTENTE: aplicarla dos veces da el mismo valor y `huboCambios:false`.
+ *   · CONSERVA TODO: no hay lista blanca de campos; solo se agregan ids y, si
+ *     corresponde, se reescribe una referencia (queda anotada en `cambios`).
+ *   · NO cambia un id que ya existe, salvo que esté DUPLICADO dentro del
+ *     conjunto: ahí el segundo registro recibe uno propio, y se avisa.
+ */
+export function normalizarIdentidades(params) {
+  if (!esObj(params)) return { valor: params, cambios: [], huboCambios: false };
+  const usados = new Set();
+  recorrerRegistros(params, (reg) => { if (reg.id) usados.add(String(reg.id)); });
+  const ctx = { usados, vistos: new Set(), cambios: [] };
+  const r = caminarIdentidades(params, "", ctx, 0);
+  return { valor: r.changed ? r.valor : params, cambios: ctx.cambios, huboCambios: r.changed };
+}
+
+function caminarIdentidades(nodo, ruta, ctx, prof) {
+  if (!esObj(nodo)) return { valor: nodo, changed: false };
+  if (esFruta(nodo)) return frutaIdentidades(nodo, ruta, ctx);
+  if (prof >= 4) return { valor: nodo, changed: false };
+  let changed = false;
+  const out = {};
+  Object.keys(nodo).forEach(k => {
+    const r = caminarIdentidades(nodo[k], ruta ? `${ruta}.${k}` : k, ctx, prof + 1);
+    out[k] = r.valor;
+    if (r.changed) changed = true;
+  });
+  return { valor: changed ? out : nodo, changed };
+}
+
+/** Devuelve el registro con id (nuevo si faltaba o si estaba duplicado). */
+function conId(reg, tipo, partes, ctx, ruta) {
+  if (!esObj(reg)) return { valor: reg, changed: false, id: "", previo: "" };
+  const actual = reg.id ? String(reg.id) : "";
+  if (actual && !ctx.vistos.has(actual)) {
+    ctx.vistos.add(actual);
+    return { valor: reg, changed: false, id: actual, previo: actual };
+  }
+  const nuevo = idMigracion(tipo, actual ? [...partes, "dup"] : partes, ctx.usados);
+  ctx.vistos.add(nuevo);
+  ctx.cambios.push({ ruta, tipo, de: actual, a: nuevo,
+    motivo: actual ? "id duplicado dentro del conjunto" : "registro guardado sin id" });
+  return { valor: { ...reg, id: nuevo }, changed: true, id: nuevo, previo: actual };
+}
+
+function frutaIdentidades(fruta, ruta, ctx) {
+  let changed = false;
+  const out = { ...fruta };
+  // Mapa de referencias reescribibles: solo si EXACTAMENTE un registro de ese
+  // tipo estaba sin id, la referencia vacía es inequívoca.
+  const sinId = { estimacion: [], cuota: [], antecedente: [], bandeja: [] };
+
+  const lista = (k) => (Array.isArray(fruta[k]) ? fruta[k] : null);
+
+  const mapRea = (cont, tipoCont, partesCont) => {
+    const reas = Array.isArray(cont.realizaciones) ? cont.realizaciones : null;
+    if (!reas) return { valor: cont, changed: false };
+    let ch = false;
+    const nuevas = reas.map((r, j) => {
+      const res = conId(r, "rea", [...partesCont, "rea", j, (r || {}).fecha, (r || {}).usd],
+        ctx, `${ruta}.${tipoCont}.realizaciones[${j}]`);
+      if (res.changed) ch = true;
+      return res.valor;
+    });
+    return ch ? { valor: { ...cont, realizaciones: nuevas }, changed: true } : { valor: cont, changed: false };
+  };
+
+  ["anticipos_cliente", "anticipos_productor"].forEach(k => {
+    const arr = lista(k);
+    if (!arr) return;
+    let ch = false;
+    const nuevos = arr.map((e, i) => {
+      const partes = [ruta, k, i, (e || {}).mes, (e || {}).usd_kg, (e || {}).monto];
+      const res = conId(e, "est", partes, ctx, `${ruta}.${k}[${i}]`);
+      if (res.changed) { ch = true; if (!res.previo) sinId.estimacion.push(res.id); }
+      const conReas = mapRea(res.valor, `${k}[${i}]`, partes);
+      if (conReas.changed) ch = true;
+      return conReas.valor;
+    });
+    if (ch) { out[k] = nuevos; changed = true; }
+  });
+
+  const progs = lista("programas");
+  if (progs) {
+    let ch = false;
+    const nuevos = progs.map((p0, i) => {
+      const p = esObj(p0) ? p0 : p0;
+      const partesP = [ruta, "programas", i, (p || {}).lado, (p || {}).contraparte, (p || {}).kilos];
+      const resP = conId(p, "prg", partesP, ctx, `${ruta}.programas[${i}]`);
+      let prog = resP.valor;
+      let chP = resP.changed;
+      const cuotas = Array.isArray(prog.cuotas) ? prog.cuotas : null;
+      if (cuotas) {
+        let chC = false;
+        const nc = cuotas.map((c, j) => {
+          const partesC = [...partesP, "cuota", j, (c || {}).mes, (c || {}).fecha_prevista,
+                           (c || {}).usd_kg, (c || {}).monto];
+          const resC = conId(c, "cuo", partesC, ctx, `${ruta}.programas[${i}].cuotas[${j}]`);
+          if (resC.changed) { chC = true; if (!resC.previo) sinId.cuota.push(resC.id); }
+          const conReas = mapRea(resC.valor, `programas[${i}].cuotas[${j}]`, partesC);
+          if (conReas.changed) chC = true;
+          return conReas.valor;
+        });
+        if (chC) { prog = { ...prog, cuotas: nc }; chP = true; }
+      }
+      const antes = Array.isArray(prog.antecedentes) ? prog.antecedentes : null;
+      if (antes) {
+        let chA = false;
+        const na = antes.map((a, j) => {
+          const res = conId(a, "ante", [...partesP, "ante", j, (a || {}).usd, (a || {}).referencia],
+            ctx, `${ruta}.programas[${i}].antecedentes[${j}]`);
+          if (res.changed) { chA = true; if (!res.previo) sinId.antecedente.push(res.id); }
+          return res.valor;
+        });
+        if (chA) { prog = { ...prog, antecedentes: na }; chP = true; }
+      }
+      if (chP) ch = true;
+      return prog;
+    });
+    if (ch) { out.programas = nuevos; changed = true; }
+  }
+
+  [["movimientos_sin_asignar", "mov", "bandeja"], ["saldos_favor", "sf", null]].forEach(([k, tipo, dominio]) => {
+    const arr = lista(k);
+    if (!arr) return;
+    let ch = false;
+    const nuevos = arr.map((m, i) => {
+      const partes = [ruta, k, i, (m || {}).fecha, (m || {}).usd, (m || {}).referencia, (m || {}).contraparte];
+      const res = conId(m, tipo, partes, ctx, `${ruta}.${k}[${i}]`);
+      let item = res.valor;
+      let chM = res.changed;
+      if (res.changed && !res.previo && dominio) sinId[dominio].push(res.id);
+      const aps = Array.isArray(item.aplicaciones) ? item.aplicaciones : null;
+      if (aps) {
+        let chA = false;
+        const na = aps.map((a, j) => {
+          const r2 = conId(a, "ap", [...partes, "ap", j, (a || {}).tipo, (a || {}).usd, (a || {}).mes],
+            ctx, `${ruta}.${k}[${i}].aplicaciones[${j}]`);
+          if (r2.changed) chA = true;
+          return r2.valor;
+        });
+        if (chA) { item = { ...item, aplicaciones: na }; chM = true; }
+      }
+      if (chM) ch = true;
+      return item;
+    });
+    if (ch) { out[k] = nuevos; changed = true; }
+  });
+
+  // Referencias que apuntaban a un registro sin id: se reescriben al id nuevo
+  // en la MISMA pasada, y solo cuando no hay ambigüedad posible.
+  const unico = (dom) => (sinId[dom].length === 1 ? sinId[dom][0] : null);
+  const refs = { estimacion: unico("estimacion"), cuota: unico("cuota"),
+                 antecedente: unico("antecedente"), bandeja: unico("bandeja") };
+  if (Object.values(refs).some(Boolean)) {
+    const r = reescribirReferencias(out, refs, ctx, ruta);
+    if (r.changed) { return { valor: r.valor, changed: true }; }
+  }
+  return { valor: changed ? out : fruta, changed };
+}
+
+function reescribirReferencias(fruta, refs, ctx, ruta) {
+  let changed = false;
+  const out = { ...fruta };
+
+  const arregloOrigen = (r, donde) => {
+    const o = r && r.origen;
+    if (!esObj(o) || o.id || !refs[o.tipo]) return r;
+    changed = true;
+    ctx.cambios.push({ ruta: donde, tipo: "referencia", campo: "origen", clase: o.tipo,
+      de: "", a: refs[o.tipo], motivo: "origen que apuntaba a un registro sin id" });
+    return { ...r, origen: { ...o, id: refs[o.tipo] } };
+  };
+
+  ["anticipos_cliente", "anticipos_productor"].forEach(k => {
+    if (!Array.isArray(fruta[k])) return;
+    out[k] = fruta[k].map((e, i) => {
+      if (!esObj(e) || !Array.isArray(e.realizaciones)) return e;
+      const nuevas = e.realizaciones.map((r, j) => arregloOrigen(r, `${ruta}.${k}[${i}].realizaciones[${j}]`));
+      return nuevas.some((x, j) => x !== e.realizaciones[j]) ? { ...e, realizaciones: nuevas } : e;
+    });
+  });
+
+  if (Array.isArray(fruta.programas)) {
+    out.programas = fruta.programas.map((p, i) => {
+      if (!esObj(p) || !Array.isArray(p.cuotas)) return p;
+      const nc = p.cuotas.map((c, j) => {
+        if (!esObj(c)) return c;
+        let cu = c;
+        if (refs.estimacion && Array.isArray(c.sustituye)) {
+          const ns = c.sustituye.map(sx => {
+            if (!esObj(sx) || sx.estimacionId) return sx;
+            changed = true;
+            ctx.cambios.push({ ruta: `${ruta}.programas[${i}].cuotas[${j}].sustituye`,
+              tipo: "referencia", campo: "estimacionId", clase: "estimacion",
+              de: "", a: refs.estimacion, usd: n(sx.usd),
+              motivo: "sustitución que apuntaba a una estimación sin id" });
+            return { ...sx, estimacionId: refs.estimacion };
+          });
+          if (ns.some((x, k2) => x !== c.sustituye[k2])) cu = { ...cu, sustituye: ns };
+        }
+        if (Array.isArray(cu.realizaciones)) {
+          const nr = cu.realizaciones.map((r, k2) =>
+            arregloOrigen(r, `${ruta}.programas[${i}].cuotas[${j}].realizaciones[${k2}]`));
+          if (nr.some((x, k2) => x !== cu.realizaciones[k2])) cu = { ...cu, realizaciones: nr };
+        }
+        return cu;
+      });
+      return nc.some((x, j) => x !== p.cuotas[j]) ? { ...p, cuotas: nc } : p;
+    });
+  }
+  return { valor: changed ? out : fruta, changed };
 }
