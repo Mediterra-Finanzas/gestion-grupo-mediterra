@@ -549,16 +549,21 @@ omitida) y los Excel las nombran y rotulan el total "INCOMPLETO". `toUSD` devuel
 `null` (no 0) si la fuente no trae la moneda. Tests: `src/__tests__/sinParidad.test.js`,
 `scripts/e2e/sin-paridad.mjs`.
 
-#### Capital pendiente de créditos (oct-2026)
+#### Capital por vencer de créditos (oct-2026)
 
-`capitalPendienteCreditos(creditos, corteISO)` es la fuente única del KPI del
-Dashboard (6 sociedades consolidadas; JV Allpa aparte) y de Créditos ("Capital
-pendiente" y "Deuda por Empresa"). Estimación de caja, NO deuda contable: capital
-de pagos no marcados pagados (`monto`; en Leasing la `cuota` trae intereses),
-saldo insoluto de créditos de socio y renovaciones solo si el original está pagado
-(menos amortizaciones al corte): no se duplican. Vencidos sin marcar pagados se
-suman y se informan aparte. Corte = hoy (fecha local). `CREDITOS_TRIM` sigue en la
-tabla trimestral como "histórico estático". Test: `capitalPendiente.test.js`.
+`capitalPendienteCreditos(creditos, corteISO)` alimenta el KPI del Dashboard (6
+sociedades consolidadas; JV aparte) y Créditos ("Capital por vencer", "Por
+conciliar", "Deuda por Empresa"). Estimación de caja, NO deuda contable, sin
+intereses, corte = hoy (local):
+- pago no marcado pagado con vencimiento > corte: su `monto` (capital);
+- socio: saldo insoluto; renovación: solo si el original está pagado (− amortizado);
+- **por conciliar** (no suma, no se marca pagado): pagos vencidos sin pago
+  registrado y renovaciones recibidas con el original impago; pagos marcados
+  pagados antes de vencer se informan.
+- Leasing: `verificarLeasing` comprueba que `cuota − monto` sea el interés del
+  saldo a la tasa declarada (datos del repo: 8,54% en todos los pagos ⇒ `monto` =
+  capital). Si no calza en datos reales, la pantalla dice "NO CONSISTENTE".
+Test: `capitalPendiente.test.js`. `CREDITOS_TRIM` sigue como histórico estático.
 
 #### Dashboard = Consolidado (oct-2026)
 

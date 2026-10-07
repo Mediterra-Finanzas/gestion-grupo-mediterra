@@ -7736,7 +7736,7 @@ export function Dashboard({empresas, empresasConOverrides, saldosBancos, escenar
         <KPI label={`🇨🇱 Saldo bancos Chile (7 soc. al 100%)${spChile.length?" · INCOMPLETO":""}`}  value={$$(saldoCajaChile)}  color={C.green}/>
         <KPI label={`🇵🇪 Saldo bancos Allpa Perú (100%)${spPeru.length?" · INCOMPLETO":""}`}   value={$$(saldoCajaPerU)}   color={"#7c3aed"}/>
         {(()=>{ const cp=capitalPendienteCreditos(creditosData, hoyISOlocal()); return (
-          <KPI label={`Capital pendiente créditos al ${cp.corte} · ${EMPRESAS_KEYS_CONSOLIDADO.length} soc. consolidadas · estimación (no deuda contable)${cp.fueraConsolidado?` · JV fuera: ${$$(cp.fueraConsolidado)}`:""}${(()=>{ const v=EMPRESAS_KEYS_CONSOLIDADO.reduce((t,k)=>t+(cp.porEmpresa[k]?.vencidoImpago||0),0); return v?` · incl. ${$$(v)} vencido sin marcar pagado`:""; })()}`} value={$$(cp.consolidado)} color={C.red}/>
+          <KPI label={`Capital por vencer de créditos al ${cp.corte} · ${EMPRESAS_KEYS_CONSOLIDADO.length} soc. consolidadas · estimación (no deuda contable)${cp.porConciliarConsolidado?` · + ${$$(cp.porConciliarConsolidado)} POR CONCILIAR (vencido sin pago registrado)`:""}${cp.fueraConsolidado?` · JV aparte: ${$$(cp.fueraConsolidado)}`:""}`} value={$$(cp.consolidado)} color={C.red}/>
         ); })()}
         <KPI label={`Saldo inicial consolidado · ${MESES_65[mesIdxHoy]}${spCons.length?" · INCOMPLETO":""}`} value={$$(caja.saldoIni)} color={C.blue}/>
         <KPI label={`Mínimo acumulado consolidado (${MESES_65[caja.minIdx]||""})`} value={$$(caja.min)} color={C.red}/>
@@ -7967,20 +7967,26 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
 
       {vistaCred==="creditos" && (<>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
-        <KPI label={`Capital pendiente al ${capPend.corte} · estimación desde Créditos (no es deuda contable)`} value={$$(capPend.total)} color={C.red}/>
+        <KPI label={`Capital por vencer al ${capPend.corte} · estimación desde Créditos (no es deuda contable)`} value={$$(capPend.total)} color={C.red}/>
+        <KPI label={`Por conciliar al ${capPend.corte} · vencido sin pago registrado / renovación con original impago`} value={$$(capPend.porConciliarConsolidado+capPend.porConciliarFuera)} color={C.yellow}/>
         <KPI label="Deuda Total Q1-2026 · histórico estático" value={$$(CREDITOS_TRIM.saldos[0])} color={C.muted}/>
         <KPI label="Pagos Q1-2026 · histórico estático"       value={$$(CREDITOS_TRIM.pagos[0])}  color={C.muted}/>
         <KPI label="N° Créditos"         value={creditosVisibles.length}             color={C.blue}/>
         <KPI label="Renovables"          value={creditosVisibles.filter(c=>c.renovable).length} color={C.orange}/>
       </div>
-      {(()=>{ const nv=Object.values(capPend.porEmpresa).reduce((a,x)=>a+x.nVencidas,0); const sup=Object.values(capPend.porEmpresa).flatMap(x=>x.supuestos); const ren=Object.values(capPend.porEmpresa).reduce((a,x)=>a+x.renovacionNoIniciada,0);
-        return (nv||sup.length||ren) ? (
-        <div data-detalle="capital-pendiente" style={{fontSize:11,color:C.muted,padding:"8px 12px",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,lineHeight:1.5}}>
-          Capital pendiente = Σ capital de pagos no marcados pagados + saldo insoluto de créditos de socio + renovaciones ya iniciadas (menos amortizaciones). Sin intereses.
-          {nv>0&&<div style={{color:C.yellow}}>⚠ Incluye {$$(capPend.vencidoImpago)} de {nv} pago{nv>1?"s":""} con vencimiento ≤ {capPend.corte} no marcado{nv>1?"s":""} como pagado{nv>1?"s":""}: marcarlos o revisarlos.</div>}
-          {ren>0&&<div>Renovaciones aún no iniciadas (no suman: el original sigue vigente): {$$(ren)}.</div>}
+      {(()=>{ const V=Object.values(capPend.porEmpresa); const nv=V.reduce((a,x)=>a+x.nVencidas,0); const sup=V.flatMap(x=>x.supuestos);
+        const renNo=V.reduce((a,x)=>a+x.renovacionNoIniciada,0), renImp=V.reduce((a,x)=>a+x.renovacionConOriginalImpago,0);
+        const pagAnt=V.reduce((a,x)=>a+x.pagadoAntesDeVencer,0), nPagAnt=V.reduce((a,x)=>a+x.nPagadoAntes,0);
+        return (
+        <div data-detalle="capital-pendiente" style={{fontSize:11,color:C.muted,padding:"8px 12px",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,lineHeight:1.6}}>
+          <div><strong style={{color:C.text}}>Definición:</strong> capital por vencer al {capPend.corte} = Σ capital (<code>monto</code>) de pagos no marcados pagados con vencimiento posterior al corte + saldo insoluto de créditos de socio + renovaciones iniciadas cuyo original está pagado (menos amortizaciones). <strong>Sin intereses. US$. Estimación desde Créditos, no es la deuda contable.</strong></div>
+          <div>Perímetro: {EMPRESAS_KEYS_CONSOLIDADO.length} sociedades consolidadas {$$(capPend.consolidado)} · JV (método patrimonio) aparte {$$(capPend.fueraConsolidado)}{capPend.empresasFuera.length?` (${capPend.empresasFuera.join(", ")})`:""}.</div>
+          {(nv>0||renImp>0)&&<div style={{color:C.yellow}}>⚠ Por conciliar (no suma; puede ser un estado desactualizado): {nv>0?`${$$(capPend.vencidoImpago)} en ${nv} pago(s) vencido(s) sin pago registrado`:""}{nv>0&&renImp>0?" · ":""}{renImp>0?`${$$(renImp)} de renovación recibida con el original sin marcar pagado`:""}. No se marcan pagos automáticamente: revisar contra la cartola y registrar en Créditos.</div>}
+          {nPagAnt>0&&<div>Informativo: {nPagAnt} pago(s) marcado(s) como pagado(s) con vencimiento posterior al corte ({$$(pagAnt)}): verificar que el pago anticipado haya ocurrido.</div>}
+          {renNo>0&&<div>Renovaciones aún no iniciadas (no suman: el original sigue vigente): {$$(renNo)}.</div>}
           {sup.length>0&&<div>Supuesto lineal en series de cuotas mensuales: {sup.join(" · ")}.</div>}
-        </div>) : null; })()}
+          {capPend.leasing.length>0&&<div>Leasing — <code>monto</code> = capital y <code>cuota</code> = capital + interés, verificado por tasa implícita: {capPend.leasing.map(l=>`${l.empresa} · ${l.acreedor}: ${l.consistente?"consistente":"NO CONSISTENTE"} (declarada ${l.tasaDeclarada}%, implícitas ${l.tasasImplicitas.join("% / ")}%)`).join(" · ")}.</div>}
+        </div>); })()}
 
       <Card>
         <SectionTitle>Deuda por Empresa</SectionTitle>
@@ -8729,7 +8735,9 @@ export function saldoCreditoAt(c, fechaISO){
 // ─────────────────────────────────────────────────────────────────
 export function capitalPendienteCreditos(creditos = [], corteISO) {
   const porEmpresa = {};
-  const E = (n) => (porEmpresa[n] ||= { capital: 0, vencidoImpago: 0, nVencidas: 0, socio: 0, renovacion: 0, renovacionNoIniciada: 0, supuestos: [] });
+  const E = (n) => (porEmpresa[n] ||= { capital: 0, porVencer: 0, socio: 0, renovacion: 0,
+    vencidoImpago: 0, nVencidas: 0, renovacionConOriginalImpago: 0, renovacionNoIniciada: 0,
+    pagadoAntesDeVencer: 0, nPagadoAntes: 0, supuestos: [] });
   (creditos || []).forEach(c => {
     const e = E(c.empresa || "(sin empresa)");
     if (c.tipo_credito === "socio") {
@@ -8740,30 +8748,68 @@ export function capitalPendienteCreditos(creditos = [], corteISO) {
       e.capital += saldo; e.socio += saldo;
       return;
     }
+    const m0 = Number(c.monto) || 0;
     if (!c.pagado) {
-      let m = Number(c.monto) || 0;
+      let m = m0;
       if (c.tipo_cr === "Cuotas Mensuales" && c.f_inicio && c.f_venc) {
         const ini = fechaLocal(c.f_inicio), fin = fechaLocal(c.f_venc), corte = fechaLocal(corteISO);
         let tot = 0, rest = 0; const f = new Date(ini); f.setMonth(f.getMonth() + 1);
         while (f <= fin) { tot++; if (f > corte) rest++; f.setMonth(f.getMonth() + 1); }
-        if (tot > 0) { m = m * rest / tot; e.supuestos.push(`${c.acreedor || "crédito"} n°${c.n ?? "?"}: capital lineal ${rest}/${tot} cuotas`); }
-      } else if (c.f_venc && c.f_venc <= corteISO) { e.vencidoImpago += m; e.nVencidas++; }
-      e.capital += m;
-    }
+        if (tot > 0) { e.supuestos.push(`${c.acreedor || "crédito"} n°${c.n ?? "?"}: capital lineal ${rest}/${tot} cuotas; ${tot - rest} cuota(s) vencida(s) sin marcar pagadas quedan por conciliar`);
+          e.vencidoImpago += m * (tot - rest) / tot; if (tot - rest) e.nVencidas++; m = m * rest / tot; }
+        e.capital += m; e.porVencer += m;
+      } else if (c.f_venc && c.f_venc <= corteISO) {
+        // VENCIDO sin pago registrado: el estado puede estar desactualizado. No se suma
+        // al capital ni se marca pagado: queda POR CONCILIAR.
+        e.vencidoImpago += m; e.nVencidas++;
+      } else { e.capital += m; e.porVencer += m; }
+    } else if (c.f_venc && c.f_venc > corteISO) { e.pagadoAntesDeVencer += m0; e.nPagadoAntes++; }   // informativo
     if (c.renovable) getRenovaciones(c).forEach(ren => {
       const cap = Number(ren.monto) || 0; if (!cap) return;
       const ingreso = ren.anio_ingreso && ren.mes_ingreso ? `${ren.anio_ingreso}-${MES2NUM_SD[ren.mes_ingreso] || "01"}-01` : null;
-      if (!c.pagado || !ingreso || ingreso > corteISO) { e.renovacionNoIniciada += cap; return; }
+      if (!ingreso || ingreso > corteISO) { e.renovacionNoIniciada += cap; return; }
       const amort = calcCuotasRenovacion(ren).filter(cq => { const f = fechaCuotaRenov(cq); return f && f <= corteISO; }).reduce((a, cq) => a + (Number(cq.amort) || 0), 0);
-      const v = Math.max(0, cap - amort); e.capital += v; e.renovacion += v;
+      const v = Math.max(0, cap - amort);
+      // Renovación recibida pero el original sigue sin marcar pagado: no se suma (duplicaría);
+      // queda por conciliar hasta que se registre el pago del original.
+      if (!c.pagado) { e.renovacionConOriginalImpago += v; return; }
+      e.capital += v; e.renovacion += v;
     });
   });
-  const suma = (ks) => ks.reduce((a, k) => a + (porEmpresa[k]?.capital || 0), 0);
+  const suma = (ks, campo = "capital") => ks.reduce((a, k) => a + (porEmpresa[k]?.[campo] || 0), 0);
   const consolidado = Object.keys(porEmpresa).filter(k => EMPRESAS_KEYS_CONSOLIDADO.includes(k));
   const fuera = Object.keys(porEmpresa).filter(k => !EMPRESAS_KEYS_CONSOLIDADO.includes(k));
+  const porConciliar = (ks) => suma(ks, "vencidoImpago") + suma(ks, "renovacionConOriginalImpago");
   return { corte: corteISO, porEmpresa, consolidado: suma(consolidado), fueraConsolidado: suma(fuera), empresasFuera: fuera,
-    total: suma(Object.keys(porEmpresa)), vencidoImpago: Object.values(porEmpresa).reduce((a, x) => a + x.vencidoImpago, 0) };
+    total: suma(Object.keys(porEmpresa)),
+    porConciliarConsolidado: porConciliar(consolidado), porConciliarFuera: porConciliar(fuera),
+    vencidoImpago: suma(Object.keys(porEmpresa), "vencidoImpago"),
+    leasing: verificarLeasing(creditos) };
 }
+
+// Leasing: ¿`monto` es la amortización de capital y `cuota` = capital + interés? Se
+// verifica con la tasa implícita (cuota − monto) / saldo pendiente, anualizada por los
+// meses entre pagos, contra la tasa declarada. Si no calza, el KPI lo dice.
+export function verificarLeasing(creditos = []) {
+  const series = {};
+  (creditos || []).filter(c => c.tipo_cr === "Leasing" && c.f_venc && c.tipo_credito !== "socio")
+    .forEach(c => { const k = `${c.empresa}|${c.acreedor}`; (series[k] ||= []).push(c); });
+  return Object.entries(series).map(([k, filas]) => {
+    filas = [...filas].sort((a, b) => a.f_venc.localeCompare(b.f_venc));
+    const tasaDecl = parseFloat(String(filas[0].tasa || "").replace(",", "."));
+    let saldo = filas.reduce((a, c) => a + (Number(c.monto) || 0), 0);
+    const meses = (a, b) => { const x = fechaLocal(a), y = fechaLocal(b); return (y.getFullYear() - x.getFullYear()) * 12 + y.getMonth() - x.getMonth(); };
+    const tasas = filas.map((c, i) => {
+      const per = i > 0 ? meses(filas[i - 1].f_venc, c.f_venc) : (filas[1] ? meses(c.f_venc, filas[1].f_venc) : 12);
+      const t = saldo > 0 && per > 0 ? ((Number(c.cuota) || 0) - (Number(c.monto) || 0)) / saldo * 12 / per * 100 : NaN;
+      saldo -= Number(c.monto) || 0; return Math.round(t * 100) / 100;
+    });
+    const consistente = Number.isFinite(tasaDecl) && tasas.every(t => Number.isFinite(t) && Math.abs(t - tasaDecl) <= 0.6);
+    const [empresa, acreedor] = k.split("|");
+    return { empresa, acreedor, pagos: filas.length, tasaDeclarada: tasaDecl, tasasImplicitas: tasas, consistente };
+  });
+}
+
 export function hoyISOlocal(d = new Date()) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 
 function SaldoDeudaPorMes({creditos=[], empresas={}}){
