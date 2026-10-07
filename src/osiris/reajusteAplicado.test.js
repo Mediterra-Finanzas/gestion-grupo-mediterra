@@ -20,8 +20,20 @@ const ACT_OK = {
   reglaFecha: "emision", reglaFechaRespaldo: "Clausula sintetica 1.2.6",
   usuario: "prueba", fecha: "2026-10-05",
 };
+// Estas activaciones se arman a mano. La accion autorizada SIEMPRE produce
+// un sello, y desde que el motor lo exige, armarlas sin sello probaria otra
+// cosa. El ayudante sella con los mismos terminos, que es exactamente lo que
+// haria `activar()`. Las que a proposito vienen incompletas se dejan igual:
+// ahi lo que se prueba es el hueco.
 const CT = (reaj, act, extra) => Object.assign(
-  { id: "c1", pais: "Peru", valorRoyaltyComercial: 3000, reajuste: reaj, reajusteActivacion: act },
+  {
+    id: "c1", pais: "Peru", valorRoyaltyComercial: 3000, reajuste: reaj,
+    reajusteActivacion: (act && act.activado === true && !act.sello)
+      ? Object.assign({}, act, {
+          sello: { pct: (reaj || {}).pct, fechaReferencia: act.fechaReferencia, reglaFecha: act.reglaFecha },
+        })
+      : act,
+  },
   extra || {}
 );
 const FILA = (temporada, montoFact) => ({ temporada, montoFact });

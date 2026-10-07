@@ -451,8 +451,18 @@ describe("R2 · la vista previa no puede mostrar cero justo cuando hay que decid
   test("lo que la previa anuncia es lo que el motor termina calculando", () => {
     const ct = porActivar();
     const prev = previsualizarActivacion(ct, base(ct), { mesCobro: ct.rcMesCobro });
-    const activo = { ...ct, reajusteActivacion: { ...ct.reajusteActivacion, activado: true } };
-    const real = filas(activo).reduce((s, f) => s + f.montoFact, 0);
+    // Se activa con la ACCION, no levantando la bandera a mano. Levantarla no
+    // produce un sello, y desde que el motor lo exige eso ya no aplica nada:
+    // la prueba habria comparado la previa contra un contrato que no calcula.
+    // Usar la accion es ademas lo que hace la pantalla.
+    const res = activar(ct, {
+      fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+      reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula 1.2.5",
+      puedeEditar: true, usuarioActual: USUARIO, confirmado: true,
+    });
+    if (!sePuedeCrear) { expect(res.ok).toBe(false); return; }
+    expect(res.ok).toBe(true);
+    const real = filas(res.contrato).reduce((s, f) => s + f.montoFact, 0);
     expect(r2(real)).toBeCloseTo(r2(prev.totalAplicado), 2);
   });
 

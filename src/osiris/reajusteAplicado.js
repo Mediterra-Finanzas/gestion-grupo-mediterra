@@ -270,7 +270,13 @@ export function diferenciasConElSello(ct) {
 // flujo, que no esta en este paquete.
 export function puedeEditarTerminos(ct) {
   const e = estadoActivacion(ct);
-  if (e.estado === ACTIVADO || e.estado === MODIFICACION_PENDIENTE) {
+  const hayRegistro = !!((ct && ct.reajusteActivacion) || {}).activado;
+  // Alcanza con que EXISTA un registro. Antes solo se bloqueaba el estado
+  // vigente, y un registro marcado pero incompleto quedaba con los cuatro
+  // campos abiertos: completarlos a mano lo encendia sin pasar por la accion,
+  // sin sello y sin historial. Que un registro este incompleto no autoriza a
+  // completarlo por la via de la edicion.
+  if (hayRegistro || e.estado === ACTIVADO || e.estado === MODIFICACION_PENDIENTE) {
     return {
       puede: false,
       campos: ["porcentaje", "fecha de referencia", "regla de fecha"],
@@ -334,22 +340,6 @@ export function activar(ct, datos) {
   // Exigir los terminos ANTES de escribir nada. Sin esto se podia marcar
   // `activado:true` con los cuatro campos vacios, sellar un sello vacio y
   // dejar un evento de historial de algo que no aplica.
-  const faltanTerminos = [];
-  if (!aFecha(d.fechaReferencia)) faltanTerminos.push("fecha de referencia");
-  if (!txt(d.respaldo)) faltanTerminos.push("respaldo de la fecha");
-  if (!REGLAS_FECHA.includes(txt(d.reglaFecha))) faltanTerminos.push("regla de fecha aplicable");
-  // `estadoActivacion` tambien exige el respaldo de la regla. Sin el, la
-  // activacion queda marcada pero inactiva: un sello y un evento de algo que
-  // no aplica, que es justo lo que esta comprobacion viene a impedir.
-  if (!txt(d.reglaFechaRespaldo)) faltanTerminos.push("respaldo de la regla");
-  if (faltanTerminos.length)
-    return {
-      ok: false,
-      motivo: "Faltan los terminos de la activacion: " + faltanTerminos.join(", ") +
-        ". No se marca nada hasta que esten.",
-      contrato: ct,
-    };
-
   // Si YA HAY UN REGISTRO, esta accion no lo toca. Ni para resellarlo ni para
   // completarlo.
   //
@@ -366,7 +356,7 @@ export function activar(ct, datos) {
   //
   // El registro se conserva con su historial. La accion se bloquea y dice por
   // que.
-  if (previa.activado === true) {
+  if (previa.activado) {
     const propuesto = sellarTerminos(cfg, d);
     const sello = previa.sello || {};
     const mismos = sello.pct === propuesto.pct &&
@@ -385,6 +375,22 @@ export function activar(ct, datos) {
       contrato: ct,
     };
   }
+
+  const faltanTerminos = [];
+  if (!aFecha(d.fechaReferencia)) faltanTerminos.push("fecha de referencia");
+  if (!txt(d.respaldo)) faltanTerminos.push("respaldo de la fecha");
+  if (!REGLAS_FECHA.includes(txt(d.reglaFecha))) faltanTerminos.push("regla de fecha aplicable");
+  // `estadoActivacion` tambien exige el respaldo de la regla. Sin el, la
+  // activacion queda marcada pero inactiva: un sello y un evento de algo que
+  // no aplica, que es justo lo que esta comprobacion viene a impedir.
+  if (!txt(d.reglaFechaRespaldo)) faltanTerminos.push("respaldo de la regla");
+  if (faltanTerminos.length)
+    return {
+      ok: false,
+      motivo: "Faltan los terminos de la activacion: " + faltanTerminos.join(", ") +
+        ". No se marca nada hasta que esten.",
+      contrato: ct,
+    };
 
   const fecha = txt(d.fecha) || new Date().toISOString().slice(0, 10);
   const act = {
@@ -492,6 +498,15 @@ export function historialActivacion(ct) {
   return Array.isArray(h) ? h : [];
 }
 
+// Un sello completo es lo unico que habilita calculo. Lo produce `activar()`
+// y nada mas: completar los campos a mano no genera uno.
+export function selloCompleto(sello) {
+  const s = sello || {};
+  const pct = Number(s.pct);
+  return !!aFecha(s.fechaReferencia) && REGLAS_FECHA.includes(txt(s.reglaFecha)) &&
+    s.pct !== null && s.pct !== undefined && s.pct !== "" && !isNaN(pct);
+}
+
 export function estadoActivacion(ct) {
   const cfg = configReajuste(ct);
   const act = (ct && ct.reajusteActivacion) || {};
@@ -524,6 +539,19 @@ export function estadoActivacion(ct) {
     };
   }
 
+  // La marca por si sola NO habilita nada, y los valores heredados que no son
+  // booleanos tampoco. Se conservan y se bloquean; no se normalizan ni se
+  // usan para calcular.
+  if (act.activado !== true) {
+    return {
+      estado: SIN_ACTIVAR, activo: false,
+      motivo: "El registro tiene una marca de activacion que no es booleana. Se conserva tal como " +
+        "esta y NO habilita ningun calculo: una activacion valida la crea la accion autorizada, " +
+        "con su sello.",
+      faltan: ["activacion valida"], registroBloqueado: true,
+    };
+  }
+
   const falta = [];
   if (!aFecha(act.fechaReferencia)) falta.push("fecha de referencia");
   if (!txt(act.respaldo)) falta.push("respaldo de la fecha");
@@ -550,6 +578,20 @@ export function estadoActivacion(ct) {
         "pero **no activa**: no se sustituye una por otra sin autorizar la transición.",
       pctAntiguo: antigua.pct, pctNuevo: cfg.pct, regla,
       fechaReferencia: txt(act.fechaReferencia),
+    };
+  }
+
+  // Y lo que habilita el calculo es el SELLO, no los campos. Sin un sello
+  // completo el registro se conserva y queda bloqueado: completarlo a mano no
+  // lo vuelve operativo. Bloquear los campos en la pantalla tapaba el camino,
+  // pero el motor seguia dispuesto a aplicar en cuanto estuvieran llenos.
+  if (!selloCompleto(act.sello)) {
+    return {
+      estado: SIN_ACTIVAR, activo: false,
+      motivo: "El registro esta marcado como activado pero no tiene un sello completo. El sello lo " +
+        "genera la accion autorizada, con vista previa y confirmacion; completar los campos no lo " +
+        "produce. El registro se conserva y queda bloqueado.",
+      faltan: ["sello completo"], registroBloqueado: true,
     };
   }
 
@@ -675,14 +717,22 @@ export function reajusteDeFila(ct, fila, opciones) {
 export function comoSiSeActivara(ct) {
   const ra = (ct && ct.reajusteActivacion) || {};
   if (ra.activado) return ct;
-  // Se retira el sello anterior a proposito. `activar()` vuelve a sellar con
-  // los terminos cargados hoy, asi que simular con el sello viejo haria que
-  // la previa calcule una cosa y la accion aplique otra. Pasaba de verdad:
-  // activar, desactivar, cambiar la fecha de referencia y volver a activar
-  // anunciaba "Filas que cambian: 0 · Diferencia US$ 0.00" y movia 17.983,99.
-  const sinSello = Object.assign({}, ra, { activado: true });
-  delete sinSello.sello;
-  return Object.assign({}, ct, { reajusteActivacion: sinSello });
+  // La simulacion construye el sello que `activar()` produciria con los
+  // terminos cargados hoy. Dos razones, y las dos costaron un defecto:
+  //
+  //   · conservar el sello ANTERIOR hacia que la previa calculara una cosa y
+  //     la accion aplicara otra (activar, desactivar, cambiar la fecha y
+  //     volver a activar anunciaba "0" y movia 17.983,99);
+  //   · borrarlo sin reemplazo deja la copia sin sello, y desde que el motor
+  //     exige un sello completo eso hace que la previa anuncie cero siempre.
+  //
+  // Sellar igual que la accion es lo unico que mantiene a las dos diciendo lo
+  // mismo.
+  const comoQuedaria = Object.assign({}, ra, {
+    activado: true,
+    sello: sellarTerminos(configReajuste(ct), ra),
+  });
+  return Object.assign({}, ct, { reajusteActivacion: comoQuedaria });
 }
 
 // Vista previa por fila. Los totales SOLO suman lo que se aplica de verdad.

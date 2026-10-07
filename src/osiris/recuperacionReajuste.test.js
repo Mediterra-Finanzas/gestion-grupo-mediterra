@@ -29,6 +29,11 @@ const ACTIVACION = {
   reglaFecha: "inicioPeriodoServicio",
   reglaFechaRespaldo: "Clausula sintetica 1.2.6",
   usuario: "prueba", fecha: "2026-10-05",
+  // El sello es lo que habilita el calculo, y lo produce `activar()`. Esta
+  // activacion se arma a mano, asi que lleva el sello que esa accion habria
+  // generado con estos mismos terminos. Sin el, el motor la conserva pero no
+  // la aplica, que es justamente la proteccion nueva.
+  sello: { pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio" },
 };
 
 const CONTRATO = (extra) => Object.assign({
@@ -176,7 +181,12 @@ describe("3 · lo que NO debe mover el motor", () => {
 
   test("el aniversario dentro del período bloquea y conserva la base", () => {
     const ambiguo = CONTRATO({
-      reajusteActivacion: Object.assign({}, ACTIVACION, { fechaReferencia: "2026-10-15" }),
+      // El sello acompaña: una activación sellada con esa fecha es lo que
+      // habría producido la acción. Dejar el sello viejo probaría otra cosa.
+      reajusteActivacion: Object.assign({}, ACTIVACION, {
+        fechaReferencia: "2026-10-15",
+        sello: { pct: 2, fechaReferencia: "2026-10-15", reglaFecha: "inicioPeriodoServicio" },
+      }),
     });
     const f = porTemp(filas(ambiguo));
     const base = porTemp(filas(CONTRATO()));

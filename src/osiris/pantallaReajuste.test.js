@@ -539,6 +539,15 @@ dCrear("Una activación incompleta no deja el contrato sin salida", () => {
     expect(atascado.reajusteActivacion).toEqual(antes);     // intacto, con su historial
   });
 
+
+
+});
+
+// Este va en un describe PLANO, no en dCrear: `OsirisModule.jsx` es identico
+// en las dos ramas, y la recuperacion es justamente la version que existe
+// para proteger las activaciones ya registradas. Omitirlo alla dejaba sin
+// custodia la guarda de `upA` en la rama que mas la necesita.
+describe("El sello protege los terminos en las dos versiones", () => {
   test("y la pantalla ofrece retirar ese registro, que es la operación autorizada", () => {
     const atascado = CONTRATO({
       reajusteActivacion: {
@@ -552,13 +561,6 @@ dCrear("Una activación incompleta no deja el contrato sin salida", () => {
     expect(screen.getByText("Desactivar")).toBeTruthy();
   });
 
-});
-
-// Este va en un describe PLANO, no en dCrear: `OsirisModule.jsx` es identico
-// en las dos ramas, y la recuperacion es justamente la version que existe
-// para proteger las activaciones ya registradas. Omitirlo alla dejaba sin
-// custodia la guarda de `upA` en la rama que mas la necesita.
-describe("El sello protege los terminos en las dos versiones", () => {
   test("los términos sellados no se pueden borrar salteando el disabled", () => {
     let guardado = null;
     const ct = CONTRATO({
@@ -657,41 +659,47 @@ describe("Conflicto con la configuración antigua: el sello no se toca", () => {
 
   test("el sello original y su historial quedan intactos", () => {
     const ct = enConflicto();
-    activar(ct, {
+    const res = activar(ct, {
       fechaReferencia: "2027-07-01", respaldo: "Otro", reglaFecha: "pago",
       reglaFechaRespaldo: "Otra", puedeEditar: true, usuarioActual: USUARIO, confirmado: true,
     });
-    expect(ct.reajusteActivacion.sello).toEqual(SELLO_ORIGINAL);
-    expect(ct.reajusteActivacion.historial.length).toBe(1);
-    expect(ct.reajusteActivacion.historial[0].sello).toEqual(SELLO_ORIGINAL);
+    // Se mide lo que DEVUELVE la acción. Mirar `ct` era una tautología:
+    // `activar()` es pura y nunca lo muta, así que pasaba con el defecto.
+    const a = res.contrato.reajusteActivacion;
+    expect(a.sello).toEqual(SELLO_ORIGINAL);
+    expect(a.historial.length).toBe(1);
+    expect(a.historial[0].sello).toEqual(SELLO_ORIGINAL);
   });
 
   test("insistir no acumula eventos", () => {
-    const ct = enConflicto();
+    let ct = enConflicto();
     for (let i = 0; i < 3; i++) {
-      activar(ct, {
+      // Se encadena el resultado: si alguna llamada escribiera, se vería.
+      ct = activar(ct, {
         fechaReferencia: "2027-07-01", respaldo: "Otro", reglaFecha: "pago",
         reglaFechaRespaldo: "Otra", puedeEditar: true, usuarioActual: USUARIO, confirmado: true,
-      });
+      }).contrato;
     }
     expect(ct.reajusteActivacion.historial.length).toBe(1);
+    expect(ct.reajusteActivacion.sello).toEqual(SELLO_ORIGINAL);
   });
 
   test("al retirar la configuración antigua NO aparece la diferencia diferida", () => {
     // Ésta es la comprobación que importa: el daño del defecto era DIFERIDO.
+    // Se mide sobre `res.contrato`; medir sobre `ct` la volvía una tautología.
     const ct = enConflicto();
-    activar(ct, {
+    const res = activar(ct, {
       fechaReferencia: "2027-07-01", respaldo: "Otro", reglaFecha: "pago",
       reglaFechaRespaldo: "Otra", puedeEditar: true, usuarioActual: USUARIO, confirmado: true,
     });
     // Retirada sintética de la configuración antigua: ahora manda el sello.
-    const despues = sinLaAntigua(ct);
+    const despues = sinLaAntigua(res.contrato);
     expect(estadoActivacion(despues).activo).toBe(true);
     expect(estadoActivacion(despues).fechaReferencia).toBe("2026-07-01");
-    // Con el sello original: 655.240,69. Con el resellado habría sido
-    // 644.861,66, es decir 10.379,03 menos, anunciados como "US$ 0,00".
+    // Con el sello original, 655.240,69. Resellado con 2027-07-01 por pago
+    // habría dado 629.550: 25.690,69 menos, anunciados como "US$ 0,00".
     expect(total(despues)).toBeCloseTo(655240.69, 2);
-    expect(total(despues)).not.toBeCloseTo(644861.66, 2);
+    expect(total(despues)).not.toBeCloseTo(629550, 2);
   });
 
   test("la pantalla ofrece retirar el registro, no activar sobre él", () => {
@@ -779,5 +787,140 @@ describe("Retirar un registro conserva términos e historial", () => {
     expect(t).toMatch(/sigue OPERANDO/);
     expect(t).toMatch(/no la quita/);
     expect(t).toMatch(/se conservan, con constancia de la baja/);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// A · CRÍTICO, encontrado por la revisión. Un registro marcado pero no
+// vigente dejaba los cuatro campos editables, y completarlos a mano LO
+// ENCENDÍA: +25.690,69 sin vista previa, sin confirmación, sin sello, sin
+// autor y sin una línea de historial. Peor: al dejar de ofrecer "Activar"
+// sobre esos registros se había retirado la vía autorizada y quedaba
+// abierta la silenciosa. Corre en las dos versiones: `activar()` ni
+// siquiera participa, así que la bandera es irrelevante.
+describe("Un registro existente no se enciende escribiendo en los campos", () => {
+  const { puedeEditarTerminos, estadoActivacion } = require("./reajusteAplicado");
+  const { derivarRoyaltyComercialDesdeContratos } = require("../OsirisModule");
+  const total = (ct) => Math.round(
+    derivarRoyaltyComercialDesdeContratos([ct], { ct_pantalla: [] })
+      .reduce((s, f) => s + f.montoFact, 0) * 100) / 100;
+
+  const ATASCADO = () => CONTRATO({
+    reajusteActivacion: {
+      activado: true, fechaReferencia: "", respaldo: "", reglaFecha: "", reglaFechaRespaldo: "",
+      historial: [{ evento: "activacion", autor: "X", fecha: "2026-10-05" }],
+    },
+  });
+
+  test("con un registro existente, los términos no se pueden editar", () => {
+    const ct = ATASCADO();
+    expect(estadoActivacion(ct).activo).toBe(false);     // no es vigente
+    expect(puedeEditarTerminos(ct).puede).toBe(false);   // y aun así, bloqueado
+  });
+
+  test("los cuatro campos están deshabilitados y escribirlos no guarda nada", () => {
+    let guardado = null;
+    const ct = ATASCADO();
+    const { container } = render(
+      <ControlContratos
+        data={[ct]} setData={(f) => { guardado = typeof f === "function" ? f([ct]) : f; }}
+        clientes={[]} setClientes={() => {}} viverosData={[]} setViveros={() => {}}
+        can={true} usuarioActual={USUARIO}
+        tiposAnexoPersist={[]} setTiposAnexoPersist={() => {}}
+        tiposContratoPersist={[]} setTiposContratoPersist={() => {}}
+      />
+    );
+    fireEvent.click(screen.getByText(/Ver/));
+    fireEvent.click(screen.getByText(/Cobros derivados/));
+    const doc = container.ownerDocument;
+    // El panel de activación, acotado: el documento tiene otras fechas y
+    // otros selects, y tomar el primero del documento no prueba nada.
+    // El div más interno que contiene el rótulo del panel Y los cuatro
+    // controles: tomar el último que contiene el texto da el nodo de texto.
+    const panel = [...doc.querySelectorAll("div")]
+      .filter((d) => (d.textContent || "").includes("Confirmar un antecedente no activa nada") &&
+                     d.querySelectorAll("input, select").length >= 4)
+      .pop();
+    expect(panel).toBeTruthy();
+    const campos = [...panel.querySelectorAll("input, select")];
+    expect(campos.length).toBe(4);                        // los cuatro términos
+    campos.forEach((c) => expect(c.disabled).toBe(true));
+    // `disabled` no desconecta el handler: ésa es la prueba.
+    fireEvent.change(campos[0], { target: { value: "2026-07-01" } });
+    fireEvent.change(campos[1], { target: { value: "Comprobante" } });
+    fireEvent.change(campos[2], { target: { value: "inicioPeriodoServicio" } });
+    fireEvent.change(campos[3], { target: { value: "Clausula" } });
+    expect(guardado).toBe(null);
+    // Y el contrato sigue sin aplicar nada.
+    expect(estadoActivacion(ct).activo).toBe(false);
+    expect(total(ct)).toBe(629550);
+  });
+
+  test("la vía autorizada es retirar el registro, y queda disponible", () => {
+    abrirCobros(ATASCADO());
+    expect(screen.queryByText("Activar el reajuste")).toBe(null);
+    expect(screen.getByText("Desactivar")).toBeTruthy();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// B · la guarda comparaba con `=== true` mientras el resto del módulo
+// trabaja por verdad. Un `activado` legacy no booleano la sorteaba y
+// permitía resellar: −25.690,69 anunciados como US$ 0,00.
+dCrear("Un `activado` que no sea booleano tampoco deja resellar", () => {
+  const { activar } = require("./reajusteAplicado");
+  const SELLO = { pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio" };
+
+  [1, "true", "si", {}].forEach((valor) => {
+    test(`activado = ${JSON.stringify(valor)} se bloquea igual`, () => {
+      const ct = CONTRATO({
+        reajusteActivacion: Object.assign({}, ACTIVACION, {
+          activado: valor, reglaFechaRespaldo: "Clausula 1.2.5", sello: Object.assign({}, SELLO),
+        }),
+      });
+      const res = activar(ct, {
+        fechaReferencia: "2027-07-01", respaldo: "Otro", reglaFecha: "pago",
+        reglaFechaRespaldo: "Otra", puedeEditar: true, usuarioActual: USUARIO, confirmado: true,
+      });
+      expect(res.ok).toBe(false);
+      expect(res.contrato.reajusteActivacion.sello).toEqual(SELLO);
+    });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// Los cuatro términos y la regla válida: sin esto `activar()` podía crear un
+// registro que nace no vigente, y la guarda del registro existente después
+// lo congela. No tenía ninguna prueba.
+dCrear("activar() exige los cuatro términos y una regla válida", () => {
+  const { activar } = require("./reajusteAplicado");
+  const BASE = { puedeEditar: true, usuarioActual: USUARIO, confirmado: true };
+  const COMPLETO = {
+    fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+    reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula 1.2.5",
+  };
+
+  test("con los cuatro, activa", () => {
+    expect(activar(CONTRATO(), Object.assign({}, BASE, COMPLETO)).ok).toBe(true);
+  });
+
+  ["fechaReferencia", "respaldo", "reglaFecha", "reglaFechaRespaldo"].forEach((campo) => {
+    test(`sin ${campo}, no escribe nada`, () => {
+      const ct = CONTRATO();
+      const datos = Object.assign({}, BASE, COMPLETO);
+      delete datos[campo];
+      const res = activar(ct, datos);
+      expect(res.ok).toBe(false);
+      expect(res.motivo).toMatch(/Faltan los terminos/);
+      expect(ct.reajusteActivacion).toBe(undefined);
+    });
+  });
+
+  test("una regla que no es de las cuatro permitidas se rechaza", () => {
+    const ct = CONTRATO();
+    const res = activar(ct, Object.assign({}, BASE, COMPLETO, { reglaFecha: "cuandoSea" }));
+    expect(res.ok).toBe(false);
+    expect(res.motivo).toMatch(/regla de fecha aplicable/);
+    expect(ct.reajusteActivacion).toBe(undefined);
   });
 });
