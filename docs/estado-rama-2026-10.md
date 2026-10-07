@@ -14,6 +14,13 @@ Correcciones a entregas anteriores:
 - El rollback se había verificado contra `8df9862`. `main` avanzó a **`3a9d33e`** el 07-10-2026 a las 12:07 UTC (otra sesión). La rama ya lo integró y el rollback se repitió contra ese commit (sección 6).
 - "Osiris marca cuotas pagadas sin control de rol" era **falso**: el cambio queda en borrador y "Guardar" exige el permiso del módulo.
 
+**Novedades (desarrollo detenido hasta revisar los permisos reales):**
+- Instrucciones para obtener el extractor desde la rama y abrirlo localmente, con SHA-256 para verificarlo (§4.5).
+- Procedimiento para actualizar la matriz cuando llegue el archivo: solo diferencias, separadas en configurado, regla fija y configurado sin efecto (§4.5).
+- Nóminas (§4.4): también es preparador quien modifica datos relevantes después de la preparación; tabla de cambios que invalidan el V°B° o la aprobación.
+- Hallazgo: hoy no se registra quién edita los campos de una línea; es un requisito previo de la propuesta.
+- Siguen pendientes de tu decisión: si una persona puede dar V°B° y aprobación final, titulares, reemplazos y excepciones. Nada implementado y sin pruebas nuevas.
+
 **Novedades (extractor de permisos y propuesta de Nóminas):**
 - Nuevo extractor local de permisos reales, sin PIN, hashes, tokens ni correos (§4.5). Prueba con datos ficticios: 11/11.
 - La propuesta de Nóminas se reformula (§4.4): nadie aprueba lo que preparó, sin exigir tres personas. V°B° y aprobación final con titular y reemplazo configurables, y excepciones registradas que tú autorizas. No implementada.
@@ -237,6 +244,27 @@ Los accesos con permiso explícito (admin pagando y editando; Carol editando ban
 | Excepciones | Solo con tu autorización explícita para esa nómina, con motivo. Queda registrado en el historial de la nómina y en el log de auditoría (quién autorizó, cuándo y por qué). Una excepción no cambia la configuración | No existen; tampoco hay bloqueo |
 | Configuración | Editable solo por quien designes. Los cambios quedan registrados | Fija en el código |
 
+**Quién cuenta como preparador.** Es preparador de una nómina quien la marcó "preparada" (`nom.preparadoPor`) **y también cualquier persona que modifique un dato relevante después** (tabla siguiente). Ninguno de ellos puede dar el V°B° ni la aprobación final de esa versión.
+
+**Requisito previo [Seguro, por el código]:** hoy el historial de una línea registra solo inactivaciones y documentos (`linea_inactivada`, `doc_interno_generado`, adjuntos). **No registra quién editó** monto, proveedor, RUT o fechas. Sin ese registro no se puede saber quién modificó después de preparar, así que la propuesta exige primero guardar, por cada cambio relevante: autor, fecha, campo, valor anterior y valor nuevo.
+
+**Qué cambios invalidan una revisión previa:**
+
+| Cambio | Efecto propuesto |
+|---|---|
+| Monto de una línea (CLP, USD, PEN), tipo de cambio de la nómina | Invalida el V°B° y la aprobación previa |
+| Proveedor o beneficiario, RUT, N° y tipo de documento | Invalida |
+| Fecha de pago o de vencimiento de una línea, fecha o semana de la nómina | Invalida |
+| Empresa pagadora, sección o clasificación de la línea (cambia el flujo) | Invalida |
+| Agregar, inactivar o reactivar una línea | Invalida |
+| Reemplazar o inactivar un documento de respaldo | Invalida (cambia la evidencia aprobada) |
+| Agregar un documento adicional, sin quitar ni reemplazar otros | No invalida; queda registrado y se muestra al revisor |
+| Comentarios, notas internas, marcar "pagado" posterior a la aprobación | No invalida; queda registrado |
+
+**Qué pasa al invalidar:** la nómina vuelve a "revisión" y se pierden el V°B° y la aprobación anteriores, que quedan en el historial como invalidados, con el cambio que los invalidó. Quien hizo el cambio pasa a ser preparador de la nueva versión.
+
+**Hoy:** con V°B° o aprobada, la nómina queda bloqueada para todos, incluido el admin. Para modificarla hay que devolverla, y eso ya la saca de esos estados. El hueco está antes: en "revisión" se puede editar, y quien edita puede luego dar el V°B°.
+
 Lo que tienes que definir antes de implementarla:
 - titulares y reemplazos de V°B° y de aprobación final;
 - si la aprobación final puede coincidir con el V°B°;
@@ -255,7 +283,22 @@ Antes de descargar muestra una vista previa de cada campo y la lista de campos d
 
 Prueba con datos ficticios en formato v1, con PIN, hashes, tokens, correos y teléfono (`node scripts/datos/prueba-extractor-permisos.mjs`): **11/11**. Ninguno de esos datos aparece en la vista previa ni en el archivo, y la página no hace pedidos de red.
 
-Con el archivo resultante se reemplaza la columna "Actual" de §4.3 por los valores configurados.
+**Cómo obtenerlo (no está en tu computador hasta que lo descargues):**
+1. Con tu cuenta de GitHub abre:
+   `https://github.com/mediterra-finanzas/gestion-grupo-mediterra/blob/claude/fervent-bell-uu6ae8/scripts/datos/extraer-permisos.html`
+2. Usa el botón **"Download raw file"** (ícono de descarga, arriba a la derecha del archivo). Guárdalo con extensión **`.html`**. Si el navegador lo guarda como `.txt`, renómbralo.
+3. Opcional, para comprobar que es el mismo archivo: SHA-256 `fc287e0ec1c2824d1304e79447bf1a7ccdd2552e8808731cd16a868e2af6704e` (commit `2e19143`).
+   - Windows: `certutil -hashfile extraer-permisos.html SHA256`
+   - Mac: `shasum -a 256 extraer-permisos.html`
+4. Doble clic para abrirlo en Chrome, Edge, Safari o Firefox. No necesita internet.
+5. Elige el archivo de "💾 Respaldo" y revisa la vista previa y los campos descartados antes de descargar.
+
+Otra forma, con git: `git fetch origin claude/fervent-bell-uu6ae8` y luego `git show origin/claude/fervent-bell-uu6ae8:scripts/datos/extraer-permisos.html > extraer-permisos.html`.
+
+**Cuando entregues `permisos-AAAA-MM-DD.json`:** se actualiza §4.3 mostrando **solo las diferencias** con los defaults, en tres grupos:
+- **Configurado:** lo que trae la fila `usuarios` o el maestro de Rendiciones y cambia algo respecto del default (por ejemplo, Michelle con Nóminas en "editar").
+- **Regla fija en el código:** no se configura y el archivo no lo trae. Por ejemplo: V°B° de nóminas por nombre, aprobación final por rol admin, admin = acceso total, consulta con tope "ver" (en la rama).
+- **Configurado sin efecto:** se guarda pero el código no lo usa. Por ejemplo: `cadenaAprobacion`, la pestaña `params` en `main` y las pestañas de Allegria en `main`.
 
 Si quieres trabajar con los usuarios reales sin compartir el respaldo completo, la misma extracción local podría producir un archivo solo con los campos de permisos: nombre, rol, módulos, pestañas y marcas, sin PIN ni correos. Ya está hecho: §4.5.
 
