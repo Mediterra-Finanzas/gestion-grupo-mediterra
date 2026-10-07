@@ -7666,7 +7666,7 @@ export function cajaGrupoBase(empresasConOverrides, empresas, saldosBancos, mesI
   return { nombres, saldoIni, flujo, acum, min, minIdx: acum.indexOf(min), final: acum[acum.length - 1], flujoDesdeHoy };
 }
 
-export function Dashboard({empresas, empresasConOverrides, saldosBancos, escenarioNombre=null}) {
+export function Dashboard({empresas, empresasConOverrides, saldosBancos, escenarioNombre=null, creditosData=CREDITOS_DEFAULT}) {
   // empTotals lee de empresasConOverrides para incluir addedLines y overrides.
   // empresas (raw) se mantiene solo para leer emoji/color (metadatos estáticos, sin overrides).
   const mesIdxHoy = useMemo(()=>{
@@ -7706,7 +7706,9 @@ export function Dashboard({empresas, empresasConOverrides, saldosBancos, escenar
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
         <KPI label={`🇨🇱 Saldo bancos Chile (7 soc. al 100%)${spChile.length?" · INCOMPLETO":""}`}  value={$$(saldoCajaChile)}  color={C.green}/>
         <KPI label={`🇵🇪 Saldo bancos Allpa Perú (100%)${spPeru.length?" · INCOMPLETO":""}`}   value={$$(saldoCajaPerU)}   color={"#7c3aed"}/>
-        <KPI label="Créditos Totales Q1-26 · HISTÓRICO ESTÁTICO (cargado a mano; no se actualiza con Créditos)" value={$$(CREDITOS_TRIM.saldos[0])} color={C.muted}/>
+        {(()=>{ const cp=capitalPendienteCreditos(creditosData, hoyISOlocal()); return (
+          <KPI label={`Capital pendiente créditos al ${cp.corte} · ${EMPRESAS_KEYS_CONSOLIDADO.length} soc. consolidadas · estimación (no deuda contable)${cp.fueraConsolidado?` · JV fuera: ${$$(cp.fueraConsolidado)}`:""}${(()=>{ const v=EMPRESAS_KEYS_CONSOLIDADO.reduce((t,k)=>t+(cp.porEmpresa[k]?.vencidoImpago||0),0); return v?` · incl. ${$$(v)} vencido sin marcar pagado`:""; })()}`} value={$$(cp.consolidado)} color={C.red}/>
+        ); })()}
         <KPI label={`Saldo inicial consolidado · ${MESES_65[mesIdxHoy]}${spCons.length?" · INCOMPLETO":""}`} value={$$(caja.saldoIni)} color={C.blue}/>
         <KPI label={`Mínimo acumulado consolidado (${MESES_65[caja.minIdx]||""})`} value={$$(caja.min)} color={C.red}/>
         <KPI label={`Saldo final consolidado ${ultimoMes}`} value={$$(caja.final)} color={cf(caja.final)}/>
@@ -7912,15 +7914,11 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     if(empCmp!==0) return empCmp;
     return (a.f_venc||"").localeCompare(b.f_venc||"");
   });
-  const deudaEmp={};creditosVisibles.forEach(c=>{
-    if(!deudaEmp[c.empresa]) deudaEmp[c.empresa]=0;
-    // Deuda original (si no está pagado)
-    if(!c.pagado) deudaEmp[c.empresa]+=c.monto;
-    // Deuda renovación (cuotas pendientes de capital)
-    if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
-      if((cq.tipo||'Solo Interés')==='Capital+Interés') deudaEmp[c.empresa]+=(Number(cq.monto)||0);
-    });
-  });
+  // Capital pendiente HOY con la misma función que el KPI del Dashboard (antes: Σ monto
+  // impago + Σ cuotas de renovación aunque el original siguiera vigente → duplicaba,
+  // y el crédito de socio contaba su monto completo aunque estuviera amortizado).
+  const capPend = capitalPendienteCreditos(creditosVisibles, hoyISOlocal());
+  const deudaEmp = Object.fromEntries(Object.entries(capPend.porEmpresa).map(([k,v])=>[k,v.capital]));
   const deudaList=Object.entries(deudaEmp).sort((a,b)=>b[1]-a[1]);
   const maxD=deudaList[0]?.[1]||1;
   return (
@@ -7940,11 +7938,21 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
 
       {vistaCred==="creditos" && (<>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+        <KPI label={`Capital pendiente al ${capPend.corte} · estimación desde Créditos (no es deuda contable)`} value={$$(capPend.total)} color={C.red}/>
         <KPI label="Deuda Total Q1-2026 · histórico estático" value={$$(CREDITOS_TRIM.saldos[0])} color={C.muted}/>
         <KPI label="Pagos Q1-2026 · histórico estático"       value={$$(CREDITOS_TRIM.pagos[0])}  color={C.muted}/>
         <KPI label="N° Créditos"         value={creditosVisibles.length}             color={C.blue}/>
         <KPI label="Renovables"          value={creditosVisibles.filter(c=>c.renovable).length} color={C.orange}/>
       </div>
+      {(()=>{ const nv=Object.values(capPend.porEmpresa).reduce((a,x)=>a+x.nVencidas,0); const sup=Object.values(capPend.porEmpresa).flatMap(x=>x.supuestos); const ren=Object.values(capPend.porEmpresa).reduce((a,x)=>a+x.renovacionNoIniciada,0);
+        return (nv||sup.length||ren) ? (
+        <div data-detalle="capital-pendiente" style={{fontSize:11,color:C.muted,padding:"8px 12px",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,lineHeight:1.5}}>
+          Capital pendiente = Σ capital de pagos no marcados pagados + saldo insoluto de créditos de socio + renovaciones ya iniciadas (menos amortizaciones). Sin intereses.
+          {nv>0&&<div style={{color:C.yellow}}>⚠ Incluye {$$(capPend.vencidoImpago)} de {nv} pago{nv>1?"s":""} con vencimiento ≤ {capPend.corte} no marcado{nv>1?"s":""} como pagado{nv>1?"s":""}: marcarlos o revisarlos.</div>}
+          {ren>0&&<div>Renovaciones aún no iniciadas (no suman: el original sigue vigente): {$$(ren)}.</div>}
+          {sup.length>0&&<div>Supuesto lineal en series de cuotas mensuales: {sup.join(" · ")}.</div>}
+        </div>) : null; })()}
+
       <Card>
         <SectionTitle>Deuda por Empresa</SectionTitle>
         {deudaList.map(([n,monto])=>{const e=empresas[n]||{emoji:"🏢",color:C.blue};return (
@@ -8674,6 +8682,59 @@ export function saldoCreditoAt(c, fechaISO){
   });
   return d;
 }
+
+// ─────────────────────────────────────────────────────────────────
+// CAPITAL PENDIENTE DE CRÉDITOS a una fecha de corte (fuente única del KPI del
+// Dashboard y de "Deuda por Empresa" en Créditos). ESTIMACIÓN DE CAJA desde los
+// créditos cargados; NO es la deuda contable (sin intereses devengados, costo
+// amortizado ni reajustes). En US$ (los créditos no traen moneda propia).
+//   · Pago bancario/otro no pagado: su `monto` (= capital; en Leasing la `cuota`
+//     incluye intereses). Si venció y no está marcado pagado sigue contando y se
+//     informa aparte (vencidoImpago).
+//   · Serie "Cuotas Mensuales" con f_inicio: monto × cuotas restantes / total
+//     (lineal, supuesto declarado).
+//   · Crédito de socio: saldo insoluto según su tabla (desembolsado ≤ corte).
+//   · Renovación: monto − amortizaciones ≤ corte, SOLO si el original ya está
+//     pagado (si no, el capital vigente es el del original: no se duplica).
+// ─────────────────────────────────────────────────────────────────
+export function capitalPendienteCreditos(creditos = [], corteISO) {
+  const porEmpresa = {};
+  const E = (n) => (porEmpresa[n] ||= { capital: 0, vencidoImpago: 0, nVencidas: 0, socio: 0, renovacion: 0, renovacionNoIniciada: 0, supuestos: [] });
+  (creditos || []).forEach(c => {
+    const e = E(c.empresa || "(sin empresa)");
+    if (c.tipo_credito === "socio") {
+      if (c.pagado || !c.fecha_desembolso || c.fecha_desembolso > corteISO) return;
+      const { filas, capital } = calcularAmortizacionSocio(c.monto, c.tasa_efectiva_anual, c.fecha_desembolso, c.cuotas_socio);
+      const pasadas = filas.filter(f => f.fecha && f.fecha <= corteISO);
+      const saldo = Math.max(0, pasadas.length ? pasadas[pasadas.length - 1].saldo : capital);
+      e.capital += saldo; e.socio += saldo;
+      return;
+    }
+    if (!c.pagado) {
+      let m = Number(c.monto) || 0;
+      if (c.tipo_cr === "Cuotas Mensuales" && c.f_inicio && c.f_venc) {
+        const ini = fechaLocal(c.f_inicio), fin = fechaLocal(c.f_venc), corte = fechaLocal(corteISO);
+        let tot = 0, rest = 0; const f = new Date(ini); f.setMonth(f.getMonth() + 1);
+        while (f <= fin) { tot++; if (f > corte) rest++; f.setMonth(f.getMonth() + 1); }
+        if (tot > 0) { m = m * rest / tot; e.supuestos.push(`${c.acreedor || "crédito"} n°${c.n ?? "?"}: capital lineal ${rest}/${tot} cuotas`); }
+      } else if (c.f_venc && c.f_venc <= corteISO) { e.vencidoImpago += m; e.nVencidas++; }
+      e.capital += m;
+    }
+    if (c.renovable) getRenovaciones(c).forEach(ren => {
+      const cap = Number(ren.monto) || 0; if (!cap) return;
+      const ingreso = ren.anio_ingreso && ren.mes_ingreso ? `${ren.anio_ingreso}-${MES2NUM_SD[ren.mes_ingreso] || "01"}-01` : null;
+      if (!c.pagado || !ingreso || ingreso > corteISO) { e.renovacionNoIniciada += cap; return; }
+      const amort = calcCuotasRenovacion(ren).filter(cq => { const f = fechaCuotaRenov(cq); return f && f <= corteISO; }).reduce((a, cq) => a + (Number(cq.amort) || 0), 0);
+      const v = Math.max(0, cap - amort); e.capital += v; e.renovacion += v;
+    });
+  });
+  const suma = (ks) => ks.reduce((a, k) => a + (porEmpresa[k]?.capital || 0), 0);
+  const consolidado = Object.keys(porEmpresa).filter(k => EMPRESAS_KEYS_CONSOLIDADO.includes(k));
+  const fuera = Object.keys(porEmpresa).filter(k => !EMPRESAS_KEYS_CONSOLIDADO.includes(k));
+  return { corte: corteISO, porEmpresa, consolidado: suma(consolidado), fueraConsolidado: suma(fuera), empresasFuera: fuera,
+    total: suma(Object.keys(porEmpresa)), vencidoImpago: Object.values(porEmpresa).reduce((a, x) => a + x.vencidoImpago, 0) };
+}
+export function hoyISOlocal(d = new Date()) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 
 function SaldoDeudaPorMes({creditos=[], empresas={}}){
   const [moneda,setMoneda]=useState("USD"); // USD | CLP
@@ -13068,7 +13129,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       </div>
 
       {/* ── Contenido por pestaña ──────────────────────────── */}
-      {tab==="dashboard"&&puedoVer("dashboard")&&accesoCompletoEmpresas&&<Dashboard empresas={empresas} empresasConOverrides={empresasConOverridesMain} saldosBancos={saldosBancos} escenarioNombre={escActivo ? (escenarios.find(e=>e.id===escActivo)?.name || "Escenario") : null}/>}
+      {tab==="dashboard"&&puedoVer("dashboard")&&accesoCompletoEmpresas&&<Dashboard empresas={empresas} empresasConOverrides={empresasConOverridesMain} saldosBancos={saldosBancos} creditosData={creditosData} escenarioNombre={escActivo ? (escenarios.find(e=>e.id===escActivo)?.name || "Escenario") : null}/>}
 
       {tab==="flujo"&&puedoVer("flujo")&&(
         <div>

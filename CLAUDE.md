@@ -549,14 +549,16 @@ omitida) y los Excel las nombran y rotulan el total "INCOMPLETO". `toUSD` devuel
 `null` (no 0) si la fuente no trae la moneda. Tests: `src/__tests__/sinParidad.test.js`,
 `scripts/e2e/sin-paridad.mjs`.
 
-#### Créditos Totales Q1-26 = histórico estático (oct-2026)
+#### Capital pendiente de créditos (oct-2026)
 
-`CREDITOS_TRIM` (KPI del Dashboard, KPIs y tabla trimestral de Créditos) son cifras
-cargadas a mano a inicios de 2026: NO se derivan de `creditosData`. Están rotuladas
-"histórico estático". Propuesta pendiente: reemplazar por la deuda vigente
-calculada con `saldoCreditoAt` (misma fuente que "Saldo por Mes"). Referencia con
-los datos por defecto del repo: 8.375.219 al 31-03-2026 (vs 8.355.763 fijo) y
-6.718.187 al 31-10-2026 (`src/__tests__/horizonteRotulo.test.js`).
+`capitalPendienteCreditos(creditos, corteISO)` es la fuente única del KPI del
+Dashboard (6 sociedades consolidadas; JV Allpa aparte) y de Créditos ("Capital
+pendiente" y "Deuda por Empresa"). Estimación de caja, NO deuda contable: capital
+de pagos no marcados pagados (`monto`; en Leasing la `cuota` trae intereses),
+saldo insoluto de créditos de socio y renovaciones solo si el original está pagado
+(menos amortizaciones al corte): no se duplican. Vencidos sin marcar pagados se
+suman y se informan aparte. Corte = hoy (fecha local). `CREDITOS_TRIM` sigue en la
+tabla trimestral como "histórico estático". Test: `capitalPendiente.test.js`.
 
 #### Dashboard = Consolidado (oct-2026)
 
