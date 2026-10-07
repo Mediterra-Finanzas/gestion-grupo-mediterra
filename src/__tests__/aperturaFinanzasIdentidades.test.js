@@ -248,3 +248,201 @@ test("fila ya migrada: abrir no escribe nada ni muestra el banner", async () => 
   expect(SRV.escrituras().length).toBe(0);
   expect(document.body.textContent).not.toMatch(/sin identificador propio/);
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LA SUSTITUCIÓN NO SE DESBLOQUEA CONTRA IDENTIDADES QUE EL SERVIDOR NO TIENE
+//
+// `applyData` metía el valor normalizado en `params`, así que el control de
+// sustitución (`sinIdentidad = !e.id` en ProgramasComerciales) se desbloqueaba de
+// inmediato. Si después el guardado fallaba, se podía declarar una sustitución
+// contra un id que el servidor nunca recibió. Ahora la identidad entra a `params`
+// recién cuando el servidor confirmó.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Fixture con un programa y una cuota, para que el control de sustitución exista.
+function paramsConPrograma({ conIds }) {
+  const ap = paramsAllegria({ conIds });
+  ap["2026-2027"].cerezas.programas = [{
+    id: "prg1", lado: "cliente", contraparte: "TUNGSHING", kilos: 100000, precio_usd_kg: 4.5,
+    cuotas: [{ id: "c1", fecha_prevista: "2026-11-15", mes: "Nov-26", modalidad: "monto",
+               monto: 100000, estado: "vigente", sustituye: [], realizaciones: [], v: 2 }],
+  }];
+  return ap;
+}
+const RE_BLOQUEADO = /no se puede sustituir: este registro todavía no tiene identificador/;
+
+async function irAParametrosDeAllegria() {
+  const clic = async (re) => {
+    const b = [...document.querySelectorAll("button")].find(x => re.test(x.textContent || ""));
+    if (!b) throw new Error("no encontré el botón " + re);
+    await act(async () => { fireEvent.click(b); await Promise.resolve(); });
+  };
+  await clic(/Flujo Empresas/);
+  await clic(/Allegria Foods/);
+  await clic(/Parámetros/);
+  await clic(/Temporada 2026-2027/);
+}
+function botonNormalizar() {
+  return [...document.querySelectorAll("button")]
+    .find(b => /Normalizar y guardar los identificadores/.test(b.textContent || ""));
+}
+
+test("guardado rechazado por HTTP: aviso conservado, fila intacta y sustitución BLOQUEADA", async () => {
+  SRV = servidorFalso({
+    finanzas: fila(blobFinanzas(paramsConPrograma({ conIds: false }))),
+    finanzas_bancos: fila({ saldos: {} }),
+    finanzas_esc_index: fila({ escenarios: [] }),
+  });
+  SRV.estado.rechazaEscrituras = true;
+  montar();
+  await dejarPasar();
+  await irAParametrosDeAllegria();
+
+  // el aviso sigue, con la cuenta de la carga
+  expect(document.body.textContent).toMatch(new RegExp(`${CUANTAS_SIN_ID} registros guardados sin identificador propio`));
+  expect(botonNormalizar()).toBeTruthy();
+  // la fila del servidor NO cambió
+  expect(SRV.filas.finanzas.updated_at).toBe("v0");
+  expect(todasLasEstimaciones(SRV.leer("finanzas").allegria_params).filter(a => !a.id))
+    .toHaveLength(CUANTAS_SIN_ID);
+  // y el control de sustitución sigue bloqueado
+  expect(document.body.textContent).toMatch(RE_BLOQUEADO);
+});
+
+test("conflicto con otra sesión: aviso conservado, fila intacta y sustitución BLOQUEADA", async () => {
+  SRV = servidorFalso({
+    finanzas: fila(blobFinanzas(paramsConPrograma({ conIds: false }))),
+    finanzas_bancos: fila({ saldos: {} }),
+    finanzas_esc_index: fila({ escenarios: [] }),
+  });
+  SRV.estado.rechazaEscrituras = true;   // el intento automático no pasa
+  montar();
+  await dejarPasar();
+
+  // otra sesión escribió en el medio: la versión de la fila ya no es la leída
+  SRV.estado.rechazaEscrituras = false;
+  const valorAjeno = JSON.parse(JSON.stringify(SRV.filas.finanzas.value));
+  valorAjeno.intercompany = [{ id: "otra_sesion", monto: 1 }];
+  SRV.filas.finanzas = { value: valorAjeno, updated_at: "vOtraSesion" };
+
+  await act(async () => { fireEvent.click(botonNormalizar()); await Promise.resolve(); });
+  await dejarPasar();
+  await irAParametrosDeAllegria();
+
+  // el PATCH condicionado no pasó → no se pisó el trabajo ajeno
+  expect(SRV.filas.finanzas.updated_at).toBe("vOtraSesion");
+  expect(SRV.leer("finanzas").intercompany).toEqual([{ id: "otra_sesion", monto: 1 }]);
+  expect(todasLasEstimaciones(SRV.leer("finanzas").allegria_params).filter(a => !a.id))
+    .toHaveLength(CUANTAS_SIN_ID);
+  // el aviso se conserva y la sustitución sigue bloqueada
+  expect(document.body.textContent).toMatch(new RegExp(`${CUANTAS_SIN_ID} registros guardados sin identificador propio`));
+  expect(document.body.textContent).toMatch(RE_BLOQUEADO);
+});
+
+test("guardado confirmado: la sustitución recién entonces se habilita", async () => {
+  SRV = servidorFalso({
+    finanzas: fila(blobFinanzas(paramsConPrograma({ conIds: false }))),
+    finanzas_bancos: fila({ saldos: {} }),
+    finanzas_esc_index: fila({ escenarios: [] }),
+  });
+  montar();
+  await dejarPasar();
+  await irAParametrosDeAllegria();
+
+  expect(SRV.escrituras("finanzas").length).toBe(1);
+  expect(todasLasEstimaciones(SRV.leer("finanzas").allegria_params).filter(a => !a.id)).toHaveLength(0);
+  expect(document.body.textContent).not.toMatch(RE_BLOQUEADO);
+  expect(document.body.textContent).not.toMatch(/registros guardados sin identificador propio/);
+});
+
+// ── Marcador de build (solo lectura) ────────────────────────────────────────
+describe("marcador de build", () => {
+  const { marcadorBuild } = require("../FinanzasModule.jsx");
+  const guardadas = {};
+  const VARS = ["REACT_APP_COMMIT_SHA", "REACT_APP_VERCEL_GIT_COMMIT_SHA", "REACT_APP_GIT_SHA"];
+  beforeEach(() => { VARS.forEach(v => { guardadas[v] = process.env[v]; delete process.env[v]; }); });
+  afterEach(() => { VARS.forEach(v => { if (guardadas[v] === undefined) delete process.env[v]; else process.env[v] = guardadas[v]; }); });
+
+  test("usa el SHA del commit cuando el build lo inyectó, en corto", () => {
+    process.env.REACT_APP_COMMIT_SHA = "63b1accd5bba07ad022c680e99f0f8b4067b1976";
+    expect(marcadorBuild()).toBe("build 63b1acc");
+  });
+  test("respeta el orden de preferencia de las variables", () => {
+    process.env.REACT_APP_VERCEL_GIT_COMMIT_SHA = "bbbbbbbbbb";
+    process.env.REACT_APP_GIT_SHA = "cccccccccc";
+    expect(marcadorBuild()).toBe("build bbbbbbb");
+    process.env.REACT_APP_COMMIT_SHA = "aaaaaaaaaa";
+    expect(marcadorBuild()).toBe("build aaaaaaa");
+  });
+  test("sin variables, cae en el nombre del bundle que sirvió la página", () => {
+    const s = document.createElement("script");
+    s.setAttribute("src", "/static/js/main.9f3c21ab.js");
+    document.head.appendChild(s);
+    try { expect(marcadorBuild()).toBe("bundle: main.9f3c21ab.js"); }
+    finally { s.remove(); }
+  });
+  test("sin variables y sin scripts, no rompe", () => {
+    expect(typeof marcadorBuild()).toBe("string");
+    expect(marcadorBuild().length).toBeGreaterThan(0);
+  });
+  test("se muestra en la cabecera de Finanzas, de solo lectura", async () => {
+    process.env.REACT_APP_COMMIT_SHA = "1234567890abcdef";
+    SRV = servidorFalso({
+      finanzas: fila(blobFinanzas(paramsAllegria({ conIds: true }))),
+      finanzas_bancos: fila({ saldos: {} }),
+      finanzas_esc_index: fila({ escenarios: [] }),
+    });
+    montar();
+    await dejarPasar();
+    const el = document.querySelector('[data-testid="marcador-build"]');
+    expect(el).toBeTruthy();
+    expect(el.textContent).toBe("build 1234567");
+    expect(el.querySelector("input")).toBeNull();
+    expect(el.querySelector("button")).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EL AVISO ES OBSERVABLE MIENTRAS LA ESCRITURA ESTÁ EN VUELO
+//
+// La migración se dispara sola tras la carga, así que con un servidor que
+// responde al instante el aviso aparece y desaparece en el mismo parpadeo: un
+// recorrido de navegador que lo busca DESPUÉS de navegar nunca lo encuentra, y
+// eso no distingue "no apareció" de "ya se confirmó". Acá la respuesta del PATCH
+// se retiene a propósito, que es el único momento en que el aviso tiene que
+// estar en pantalla: mientras la identidad todavía NO está en el servidor.
+// ═══════════════════════════════════════════════════════════════════════════════
+test("mientras el PATCH está en vuelo, el aviso está en pantalla nombrando los 29", async () => {
+  SRV = servidorFalso({
+    finanzas: fila(blobFinanzas(paramsConPrograma({ conIds: false }))),
+    finanzas_bancos: fila({ saldos: {} }),
+    finanzas_esc_index: fila({ escenarios: [] }),
+  });
+  // Retiene la respuesta de la primera escritura hasta que esta prueba la libere.
+  let liberar;
+  const retenida = new Promise(res => { liberar = res; });
+  const original = SRV.fetchImpl;
+  let retenidas = 0;
+  SRV.fetchImpl = async (url, opts = {}) => {
+    const m = (opts.method || "GET").toUpperCase();
+    if (m !== "GET" && retenidas === 0) { retenidas++; await retenida; }
+    return original(url, opts);
+  };
+
+  montar();
+  await dejarPasar();
+
+  // la escritura está en vuelo: el aviso tiene que estar visible y decir 29
+  expect(document.body.textContent).toMatch(new RegExp(`${CUANTAS_SIN_ID} registros guardados sin identificador propio`));
+  expect(document.body.textContent.replace(/\s+/g, " "))
+    .toMatch(/proyectar[ií]a el mismo monto dos veces/i);
+  // y en el servidor todavía NO hay identidades
+  expect(todasLasEstimaciones(SRV.leer("finanzas").allegria_params).filter(a => !a.id))
+    .toHaveLength(CUANTAS_SIN_ID);
+
+  // se libera la respuesta → recién ahí el aviso se retira
+  await act(async () => { liberar(); await Promise.resolve(); });
+  await dejarPasar();
+  expect(document.body.textContent).not.toMatch(/registros guardados sin identificador propio/);
+  expect(todasLasEstimaciones(SRV.leer("finanzas").allegria_params).filter(a => !a.id)).toHaveLength(0);
+});

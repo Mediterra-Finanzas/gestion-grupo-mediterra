@@ -18,9 +18,39 @@
 // ══════════════════════════════════════════════════════════════════════════════
 import React from "react";
 
+// Filas-blob que se escriben REEMPLAZANDO la fila completa: no hay fusión por
+// ítem posible, así que "conservar la mía" no conserva solo lo que yo edité,
+// sino todo el contenido de la fila tal como está en MI pantalla. En las filas
+// financieras y en los PIN eso hay que decirlo con esas palabras, porque lo que
+// se reemplaza son montos y credenciales de otras personas, no un texto.
+export function reemplazaFilaCompleta(rowId) {
+  const id = String(rowId || "");
+  if (id === "pins") return true;
+  if (id === "main") return true;
+  if (id === "allegria" || id === "eeff" || id === "nominas") return true;
+  if (id === "finanzas" || id === "finanzas_bancos") return true;
+  if (/^finanzas_esc_/.test(id)) return true;
+  return false;
+}
+
+// Qué contiene la fila, para nombrarlo en la advertencia en vez de decir
+// "la fila completa" y dejar al lector adivinando.
+function queContiene(rowId) {
+  const id = String(rowId || "");
+  if (id === "pins") return "los PIN de todas las personas";
+  if (id === "main") return "todas las tareas, semáforos y comentarios del mes";
+  if (id === "allegria") return "todos los datos de Allegria Foods";
+  if (id === "eeff") return "todos los estados financieros cargados";
+  if (id === "nominas") return "todas las nóminas";
+  if (id === "finanzas_bancos") return "los saldos de todas las cuentas";
+  if (id === "finanzas" || /^finanzas_esc_/.test(id)) return "todo el flujo de caja de las ocho empresas";
+  return "todo el contenido de la fila";
+}
+
 export default function PanelConflictoFila({ conflicto, onRecuperar, onConservar, ocupado }) {
   if (!conflicto) return null;
   const nombre = conflicto.etiqueta || conflicto.rowId;
+  const reemplazaTodo = reemplazaFilaCompleta(conflicto.rowId);
   return (
     <div role="alertdialog" aria-label="Conflicto de guardado sin resolver"
       style={{ position: "fixed", left: "50%", top: "12%", transform: "translateX(-50%)", zIndex: 99999,
@@ -41,6 +71,20 @@ export default function PanelConflictoFila({ conflicto, onRecuperar, onConservar
           se pierde lo que haya hecho la otra sesión.
         </div>
       </div>
+      {reemplazaTodo && (
+        <div style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 14, padding: 10,
+          borderRadius: 6, background: "#f59e0b14", border: "1px solid #f59e0b55" }}>
+          <strong style={{ color: "#fbbf24" }}>Conservar la mía NO combina los dos trabajos.</strong>{" "}
+          Esta fila se guarda completa, de una vez: se escribe {queContiene(conflicto.rowId)} tal
+          como está en esta pantalla, y lo que la otra sesión haya cambiado ahí se reemplaza,
+          aunque haya tocado algo distinto de lo que tocaste tú.
+          <div style={{ marginTop: 6, color: "#e5e7eb" }}>
+            Antes de escribir se vuelve a leer la versión vigente. Si la otra sesión guardó otra
+            vez en el medio, no se reemplaza nada: el conflicto queda puesto de nuevo y hay que
+            volver a decidir.
+          </div>
+        </div>
+      )}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <button onClick={onRecuperar} disabled={!!ocupado}
           style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #38bdf8",

@@ -2841,10 +2841,14 @@ export default function App(){
   useEffect(()=>{ mesRef.current          = mes;            },[mes]);
   useEffect(()=>{ anioRef.current         = anio;           },[anio]);
 
-  // Guardar siempre con los valores más recientes (sin stale closure)
-  const guardarAhora = useCallback(()=>{
-    setGuardado("guardando");
-    return dbSave({
+  // ÚNICO armador del payload de la fila `main`. La escritura REEMPLAZA la fila
+  // completa, así que un campo que falte en un camino se BORRA. Antes había dos
+  // payloads distintos: `guardarAhora` incluía `tareasOverrides` y el auto-save
+  // general no, así que cambiar la frecuencia de una tarea se guardaba a los
+  // 300 ms (guardado manual) y se borraba a los 2.000 ms (auto-save). Ahora los
+  // dos caminos arman el payload acá, desde los refs, que es la copia más
+  // fresca del estado.
+  const payloadMain = useCallback(()=>({
       estados:      estadosRef.current,
       comentarios:  comentariosRef.current,
       tareasConfig: tareasConfigRef.current,
@@ -2869,26 +2873,26 @@ export default function App(){
       usuarios:     usuariosRef.current,
       mes:          mesRef.current,
       anio:         anioRef.current,
+  }),[]); // eslint-disable-line
 
-    })
+  // Guardar siempre con los valores más recientes (sin stale closure)
+  const guardarAhora = useCallback(()=>{
+    setGuardado("guardando");
+    return dbSave(payloadMain())
     .then(trasGuardarMain)
     .catch((e)=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);return {ok:false,motivo:"red",detalle:String((e&&e.message)||e)};});
-  },[trasGuardarMain]); // eslint-disable-line
+  },[trasGuardarMain,payloadMain]); // eslint-disable-line
 
-  const guardar=useCallback((est,com,tc,sup,te,pins,rd,rc,usrs,m,a)=>{
+  // Auto-guardado general. Los parámetros se conservan por compatibilidad de la
+  // firma, pero el payload sale de `payloadMain()`: un solo contenido para el
+  // guardado manual y el automático. Antes este camino omitía `tareasOverrides`
+  // y lo borraba de la fila.
+  const guardar=useCallback(()=>{
     setGuardado("guardando");
-    // PINs (pins) NO se incluyen: su fuente de verdad es la fila `pins`.
-    // `usrs` (el param) se IGNORA a propósito. `usuarios` conserva su fila dedicada
-    // como única fuente de verdad (dbSaveUsuarios). El campo `usuarios` que va acá es
-    // un COMPATIBILITY MIRROR WRITE-ONLY tomado del roster reconciliado autoritativo
-    // (usuariosRef.current, NO el param `usrs` ni main.usuarios): existe solo para
-    // satisfacer el trigger de BD `guard_main_no_user_shrink` que si no rechaza el
-    // UPDATE de `main` con 23514/HTTP 400. Nunca se lee como autoridad.
-    return dbSave({estados:est,comentarios:com,tareasConfig:tc,supervisores:sup,tareasExtra:te,
-      recsDone:rd,recsComentarios:rc,usuarios:usuariosRef.current,mes:m,anio:a})
+    return dbSave(payloadMain())
       .then(trasGuardarMain)
       .catch((e)=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);return {ok:false,motivo:"red",detalle:String((e&&e.message)||e)};});
-  },[trasGuardarMain]);
+  },[trasGuardarMain,payloadMain]);
 
   // La salida (b) del conflicto ("conservar mi versión") vuelve a guardar con el
   // guardado REAL del módulo, no con una ruta de escritura paralela.
@@ -2899,9 +2903,9 @@ export default function App(){
   useEffect(()=>{
     if(cargando)return;
     if(!cargaOkRef.current)return; // no guardar si la carga inicial falló
-    const t=setTimeout(()=>guardar(estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados,recsDone,recsComentarios,usuarios,mes,anio),2000);
+    const t=setTimeout(()=>guardar(),2000);
     return()=>clearTimeout(t);
-  },[estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados,recsDone,recsComentarios,usuarios,mes,anio,cargando,guardar]);
+  },[estados,comentarios,tareasConfig,supervisores,tareasExtra,tareasOverrides,pinsPersonalizados,recsDone,recsComentarios,usuarios,mes,anio,cargando,guardar]);
 
   // Guardado inmediato al cambiar usuarios (permisos, roles, activar/desactivar).
   // PROD-INCIDENT-01 FIX: va a la FILA DEDICADA `usuarios` con merge de 3 vías + OCC
