@@ -14,6 +14,11 @@ Correcciones a entregas anteriores:
 - El rollback se había verificado contra `8df9862`. `main` avanzó a **`3a9d33e`** el 07-10-2026 a las 12:07 UTC (otra sesión). La rama ya lo integró y el rollback se repitió contra ese commit (sección 6).
 - "Osiris marca cuotas pagadas sin control de rol" era **falso**: el cambio queda en borrador y "Guardar" exige el permiso del módulo.
 
+**Novedades (extractor de permisos y propuesta de Nóminas):**
+- Nuevo extractor local de permisos reales, sin PIN, hashes, tokens ni correos (§4.5). Prueba con datos ficticios: 11/11.
+- La propuesta de Nóminas se reformula (§4.4): nadie aprueba lo que preparó, sin exigir tres personas. V°B° y aprobación final con titular y reemplazo configurables, y excepciones registradas que tú autorizas. No implementada.
+- Permisos: sin cambios hasta que confirmes los responsables. La integración sigue pendiente.
+
 **Novedades (07-10-2026, tarde):**
 - La matriz de decisiones se reduce a seis preguntas (§4.3), basada en los valores por defecto.
 - **Aclaración sobre "haré commit de la corrección":** se refería **solo a "Marcar pagada"** (commit `1059b1c`). La regla de Nóminas **no se modificó**: `git diff origin/main` no muestra cambios en `AUTORIZADORES`, `puedeAvanzar` ni `puedeRetroceder`. La separación de funciones sigue siendo una propuesta.
@@ -215,11 +220,44 @@ Los accesos con permiso explícito (admin pagando y editando; Carol editando ban
 | 2a | ¿Quién puede ver todas las rendiciones? | Admin, CFO y `rendVerTodas`: Angelo, Carol, Michelle, Pablo, Milagros | Separar ver de aprobar y de pagar. Ver todas: solo quien revisa o contabiliza | Si Michelle y Pablo necesitan verlas todas (por ejemplo, para contabilizar) |
 | 2b | ¿Quién puede aprobarlas? | El aprobador asignado a cada trabajador en Rendiciones → Maestros (los valores reales son desconocidos). Sin aprobador asignado: admin o CFO. El admin puede aprobar cualquiera (override, que queda registrado). La "cadena" de Gestión de Usuarios no tiene efecto | Una sola fuente: el maestro de Rendiciones, con aprobador **y reemplazo** por trabajador. La cadena sin efecto se retira o se rotula | Aprobador y reemplazo de cada persona. **Si el admin mantiene el override**, y con qué registro |
 | 3 | ¿Quién puede crear y editar en Contabilidad? | Ven: Angelo, Carol, Michelle, Pablo. Editan: solo quien tiene `esCFO` (Angelo), por un error de código (`canEdit` siempre falso) | Michelle y Pablo (contadores) crean y editan. Carol ve | Si Carol edita. **Si el CFO/admin edita en Contabilidad** |
-| 4 | ¿Quién puede ver, preparar, dar V°B° y aprobar al final las nóminas? | Ver y preparar: quien tenga la pestaña Nóminas en "editar" (Angelo, Carol). V°B°: Carol o Michelle, fijo por nombre en el código. Michelle no tiene la pestaña por defecto, así que en la práctica solo Carol. Aprobación final: rol admin (Angelo). **Sin separación de funciones** | Preparar: un responsable. V°B°: otra persona. Aprobación final: una tercera. Quien preparó no da el V°B° ni la aprobación final de esa nómina. **No se implementa** hasta que definas responsables, reemplazos y excepciones | Responsable y reemplazo de cada paso. Tratamiento de excepciones (ausencia o urgencia): quién autoriza y cómo queda registrado. **Si la aprobación final sigue ligada al rol admin** o a una persona nombrada |
+| 4 | ¿Quién puede ver, preparar, dar V°B° y aprobar al final las nóminas? | Ver y preparar: quien tenga la pestaña Nóminas en "editar" (Angelo, Carol). V°B°: Carol o Michelle, fijo por nombre en el código. Michelle no tiene la pestaña por defecto, así que en la práctica solo Carol. Aprobación final: rol admin (Angelo). **Sin separación de funciones** | Separar **preparación** de **aprobación**: quien preparó una nómina no da su V°B° ni su aprobación final. No se exigen tres personas distintas (ver §4.4). **No se implementa** hasta que definas responsables, reemplazos y excepciones | Responsable y reemplazo de cada paso. Tratamiento de excepciones (ausencia o urgencia): quién autoriza y cómo queda registrado. **Si la aprobación final sigue ligada al rol admin** o a una persona nombrada |
 | 5 | ¿El perfil consulta puede cargar sus propias rendiciones como excepción explícita? | Sí, de hecho: todo usuario recibe Rendiciones en "ver", que en ese módulo significa cargar y ver las propias. La rama no lo cambia; solo le quita aprobar, pagar y devolver | Sí, **como excepción escrita** en la definición del rol: "Consulta – solo visualiza, salvo cargar sus propias rendiciones" | Confirmar la excepción |
 | 6 | ¿Qué acceso tendrán las pestañas nuevas o sin configurar? | "Editar" para todo no-admin con el módulo (salvo "config", que es "sin acceso"). El admin tiene "editar" en todo. El gerente técnico tiene "editar" en todo Osiris. La rama pone el rol consulta en "ver" solo en Finanzas | 1) Guardar como explícito el nivel efectivo de hoy en cada persona y pestaña existente: nadie gana ni pierde acceso. 2) Las pestañas nuevas nacen "sin acceso" para no-admin | **Si el admin recibe acceso automático a las pestañas nuevas** o también se le asigna explícitamente |
 
-Si quieres trabajar con los usuarios reales sin compartir el respaldo completo, la misma extracción local podría producir un archivo solo con los campos de permisos: nombre, rol, módulos, pestañas y marcas, sin PIN ni correos. Eso es código nuevo y no lo hice; queda a tu decisión.
+### 4.4 Propuesta: separación de funciones en Nóminas (no implementada)
+
+**Regla única:** nadie aprueba lo que preparó. Quien marcó una nómina como "preparada" no puede darle V°B° ni aprobarla al final. No es obligatorio que haya tres personas distintas.
+
+| Elemento | Propuesta | Hoy en el código |
+|---|---|---|
+| Preparadores | Lista configurable de personas que pueden crear y preparar | Cualquiera con la pestaña Nóminas en "editar" |
+| V°B° | Lista configurable de titulares, más un reemplazo configurable por titular. Puede incluir a un preparador, pero nunca para una nómina que preparó él mismo | Carol o Michelle, fijo por nombre |
+| Aprobación final | Persona titular configurable, más un reemplazo configurable. Puede ser la misma persona que dio el V°B° si así lo configuras; nunca quien preparó | Rol admin |
+| Autoaprobación | Bloqueada: el sistema compara quién preparó (ya queda en el historial) con quien intenta aprobar | Permitida |
+| Excepciones | Solo con tu autorización explícita para esa nómina, con motivo. Queda registrado en el historial de la nómina y en el log de auditoría (quién autorizó, cuándo y por qué). Una excepción no cambia la configuración | No existen; tampoco hay bloqueo |
+| Configuración | Editable solo por quien designes. Los cambios quedan registrados | Fija en el código |
+
+Lo que tienes que definir antes de implementarla:
+- titulares y reemplazos de V°B° y de aprobación final;
+- si la aprobación final puede coincidir con el V°B°;
+- quién puede autorizar excepciones (¿solo tú?);
+- quién edita la configuración.
+
+### 4.5 Extractor de permisos reales
+
+`scripts/datos/extraer-permisos.html` funciona igual que el de créditos: local, sin red, sobre el "💾 Respaldo" de la versión publicada (v1).
+
+**Exporta por persona, identificada por su nombre:** cargo, rol, módulos, permisos por pestaña, CFO, ver todas las rendiciones, rendir por otros, desactivado, empresas permitidas y cadena de aprobación. Además, el aprobador de rendiciones asignado a cada persona.
+
+**No exporta:** PIN, hashes, tokens ni correos. Los correos se traducen a nombres, y un correo sin persona queda como "correo no registrado N".
+
+Antes de descargar muestra una vista previa de cada campo y la lista de campos descartados. El archivo declara además las reglas de nóminas que están fijas en el código.
+
+Prueba con datos ficticios en formato v1, con PIN, hashes, tokens, correos y teléfono (`node scripts/datos/prueba-extractor-permisos.mjs`): **11/11**. Ninguno de esos datos aparece en la vista previa ni en el archivo, y la página no hace pedidos de red.
+
+Con el archivo resultante se reemplaza la columna "Actual" de §4.3 por los valores configurados.
+
+Si quieres trabajar con los usuarios reales sin compartir el respaldo completo, la misma extracción local podría producir un archivo solo con los campos de permisos: nombre, rol, módulos, pestañas y marcas, sin PIN ni correos. Ya está hecho: §4.5.
 
 ## 5. Protección del servidor
 

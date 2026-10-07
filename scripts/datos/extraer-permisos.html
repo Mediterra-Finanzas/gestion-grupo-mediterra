@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Extraer permisos reales</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:">
+<style>
+  body{font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;max-width:980px;margin:24px auto;padding:0 16px;color:#14181f;background:#fff}
+  h1{font-size:20px} h2{font-size:16px;margin-top:22px} code{background:#f0f2f5;padding:1px 5px;border-radius:4px}
+  .caja{border:1px solid #9aa3b2;border-radius:10px;padding:14px;margin:14px 0}
+  button,input{font:inherit;min-height:40px} button{padding:0 16px;border-radius:8px;border:1px solid #1e2a5a;background:#1e2a5a;color:#fff;cursor:pointer}
+  button[disabled]{opacity:.5}
+  .tabla{overflow:auto} table{border-collapse:collapse;font-size:13px} td,th{border-bottom:1px solid #d6dae1;padding:4px 8px;text-align:left;vertical-align:top}
+  .ok{color:#146c43} .mal{color:#b42318}
+</style>
+</head>
+<body>
+<h1>Permisos reales para cerrar la matriz de decisiones</h1>
+<p>Esta página <strong>no tiene conexión a internet</strong> (su política de seguridad la bloquea). Lee en tu computador el archivo del botón "💾 Respaldo" de la versión publicada y genera un archivo con <strong>solo</strong> los permisos de cada persona.</p>
+<div class="caja">
+  <p><strong>Se exporta, por persona (identificada por su nombre):</strong> cargo, rol, módulos, permisos por pestaña, CFO, ver todas las rendiciones, rendir por otros, desactivado, empresas permitidas y la cadena de aprobación (como nombres). Además, el aprobador de rendiciones asignado a cada persona (como nombres).</p>
+  <p><strong>No se exporta:</strong> PIN, hashes de PIN, tokens, correos electrónicos ni ningún otro campo, ni datos de otros módulos. Un correo que no corresponda a ninguna persona se reemplaza por "correo no registrado N".</p>
+  <p>El respaldo original <strong>no se comparte ni se sube a ningún lado</strong>: queda en tu computador, protegido, hasta que decidas cuánto conservarlo.</p>
+</div>
+<p><label>Archivo de respaldo (.json): <input type="file" id="f" accept=".json,application/json"></label></p>
+<div id="res"></div>
+<p><button id="b" disabled>Descargar permisos</button></p>
+<script>
+"use strict";
+// Campos por persona que se exportan (lista cerrada). Todo lo demás se descarta.
+const CAMPOS = ["nombre","cargo","rol","modulos","tab_permisos","esCFO","rendVerTodas","rendPorOtros","desactivado","empresas_permitidas","cadenaAprobacion"];
+const esc = (x) => String(x).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let salida = null;
+
+function fila(o, id) {
+  const t = o && (o.tablasSaneadas || o.tablas);          // v1/v2 (tablas) o v3 (tablasSaneadas)
+  if (!t || !t[id]) return undefined;
+  let v = t[id].data !== undefined ? t[id].data : t[id].value;
+  if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) {} }
+  return v;
+}
+function leer(o) {
+  let usuarios = fila(o, "usuarios"), fuente = "fila usuarios";
+  if (!Array.isArray(usuarios)) { const m = fila(o, "main"); usuarios = m && Array.isArray(m.usuarios) ? m.usuarios : null; fuente = "fila main (usuarios antiguos)"; }
+  const cfg = fila(o, "rendiciones_config") || {};
+  return { usuarios, fuente, aprobadores: cfg.aprobadores || {}, externas: Array.isArray(cfg.personasExternas) ? cfg.personasExternas : [] };
+}
+function construir(o) {
+  const { usuarios, fuente, aprobadores, externas } = leer(o);
+  if (!usuarios) return null;
+  // Traductor correo → nombre (los correos NO salen del archivo)
+  const porCorreo = new Map(); usuarios.forEach(u => { if (u && u.email) porCorreo.set(String(u.email).toLowerCase(), u.nombre || "(sin nombre)"); });
+  const desconocidos = new Map();
+  const nombreDe = (correo) => { const k = String(correo || "").toLowerCase(); if (!k) return null;
+    if (porCorreo.has(k)) return porCorreo.get(k);
+    if (!desconocidos.has(k)) desconocidos.set(k, `correo no registrado ${desconocidos.size + 1}`); return desconocidos.get(k); };
+  const descartados = new Set();
+  const personas = usuarios.map((u, i) => {
+    const r = {};
+    for (const k of Object.keys(u || {})) {
+      if (!CAMPOS.includes(k)) { descartados.add(k); continue; }
+      if (k === "cadenaAprobacion") r[k] = (Array.isArray(u[k]) ? u[k] : []).map(x => nombreDe(typeof x === "string" ? x : (x && x.email)) || (x && x.nombre) || "?");
+      else r[k] = u[k];
+    }
+    if (!r.nombre) r.nombre = `usuario ${i + 1}`;
+    return r;
+  });
+  const extPorId = new Map(externas.map(e => [String(e.id), e.nombre || "(externo sin nombre)"]));
+  const aprob = Object.entries(aprobadores).map(([clave, correo]) => ({
+    persona: clave.startsWith("ext:") ? `${extPorId.get(clave.slice(4)) || "externo"} (externo)` : nombreDe(clave),
+    aprobador: nombreDe(correo),
+  }));
+  return { tipo: "mediterra-permisos", version: 1, generado: new Date().toISOString(), fuenteUsuarios: fuente,
+    advertencia: "Reglas fijas en el código que NO están en este archivo: autorizadores de V°B° de nóminas (Carol Machuca, Michelle Garcia) y aprobación final de nóminas por rol admin.",
+    campos: CAMPOS, personas, aprobadoresRendiciones: aprob, _descartados: [...descartados] };
+}
+document.getElementById("f").onchange = async (e) => {
+  const res = document.getElementById("res"); salida = null; document.getElementById("b").disabled = true;
+  try {
+    const o = JSON.parse(await e.target.files[0].text());
+    const r = construir(o);
+    if (!r) { res.innerHTML = '<p class="mal">No encontré la lista de usuarios (fila "usuarios" o "main") en este archivo.</p>'; return; }
+    const descartados = r._descartados; delete r._descartados; salida = r;
+    const celda = (v) => v === undefined ? "" : esc(typeof v === "object" ? JSON.stringify(v) : v);
+    res.innerHTML = `<p class="ok">${r.personas.length} personas (${esc(r.fuenteUsuarios)}).</p>
+      <h2>Vista previa de lo que se exportará</h2>
+      <div class="tabla"><table><tr>${CAMPOS.map(c => `<th>${c}</th>`).join("")}</tr>
+      ${r.personas.map(p => `<tr>${CAMPOS.map(c => `<td>${celda(p[c])}</td>`).join("")}</tr>`).join("")}</table></div>
+      <h2>Aprobador de rendiciones asignado</h2>
+      ${r.aprobadoresRendiciones.length ? `<table><tr><th>Persona</th><th>Aprobador</th></tr>${r.aprobadoresRendiciones.map(a => `<tr><td>${esc(a.persona)}</td><td>${esc(a.aprobador)}</td></tr>`).join("")}</table>` : "<p>Sin aprobadores asignados (rendiciones sin asignar las aprueba admin/CFO).</p>"}
+      <h2>Campos descartados (no se exportan)</h2>
+      <p>${descartados.map(x => `<code>${esc(x)}</code>`).join(" ") || "ninguno"}</p>`;
+    document.getElementById("b").disabled = false;
+  } catch (err) { res.innerHTML = `<p class="mal">No se pudo leer el archivo: ${esc(err.message)}</p>`; }
+};
+document.getElementById("b").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(salida, null, 1)], { type: "application/json" }));
+  a.download = `permisos-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+};
+</script>
+</body>
+</html>
