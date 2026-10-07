@@ -213,6 +213,34 @@ export function clavesDuplicadas(emp) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// MARCADOR DE BUILD (solo lectura)
+// Para saber QUÉ versión está cargada sin tener que editar nada ni abrir la
+// consola: cuando algo no cuadra entre lo que se ve y lo que está en la base, lo
+// primero que hay que descartar es un bundle viejo en caché.
+// Orden de preferencia: el SHA del commit si el entorno de build lo inyectó; si
+// no, el nombre del archivo JS que sirvió la página. Nunca rompe el build ni el
+// render si nada de eso existe.
+// ═══════════════════════════════════════════════════════════════════
+export function marcadorBuild() {
+  try {
+    // Acceso DIRECTO a `process.env.REACT_APP_*`: es la forma que CRA sustituye en
+    // el build (DefinePlugin). Pasar por una variable intermedia o por
+    // `typeof process` no se sustituye y el SHA se perdería en producción. Si la
+    // variable no está definida, queda `undefined` y no rompe nada.
+    const sha = process.env.REACT_APP_COMMIT_SHA
+      || process.env.REACT_APP_VERCEL_GIT_COMMIT_SHA
+      || process.env.REACT_APP_GIT_SHA;
+    if (sha) return `build ${String(sha).slice(0, 7)}`;
+    if (typeof document !== "undefined") {
+      const srcs = [...document.querySelectorAll("script[src]")].map(e => e.getAttribute("src") || "");
+      const main = srcs.find(u => /main[.\-][\w]+\.js$/.test(u)) || srcs.find(u => /\.js($|\?)/.test(u));
+      if (main) return `bundle: ${main.split("/").pop()}`;
+    }
+  } catch (_) {}
+  return "build sin identificar";
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // SUPABASE
 // ═══════════════════════════════════════════════════════════════════
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
@@ -12043,6 +12071,11 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // Se normalizan en memoria y la ESCRITURA es un paso explícito (ver banner).
   const [normPendiente,setNormPendiente]=useState(null);
   const [normBusy,setNormBusy]=useState(false);
+  // Fallo al LEER la fila de saldos (finanzas_bancos). Es distinto de un fallo de
+  // guardado y se dice distinto: con la lectura caída, la posición de caja que se
+  // ve puede estar incompleta. Antes el `.catch(()=>{})` lo tragaba y la pantalla
+  // mostraba la caja en cero como si fuera real.
+  const [avisoCargaBancos,setAvisoCargaBancos]=useState(null);
   const normPendienteRef   = React.useRef(null);
   const migrarIdentidadesRef = React.useRef(null);
   // ── Escenarios (workspaces paralelos del flujo) ──
@@ -12308,6 +12341,50 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // eslint-disable-next-line
   },[accesoCompletoEmpresas, empresasPermitidas]);
 
+  // ── ABRIR EL MÓDULO NO ES UNA EDICIÓN ─────────────────────────────────────────
+  // `aplicadoRef` guarda la IDENTIDAD (no el contenido) de las dos piezas de
+  // estado que vigila el auto-save del blob: `params` y `saldosBancos`, tal como
+  // quedaron al APLICAR datos del servidor (carga inicial, poll/realtime,
+  // recuperar del servidor, cambio de escenario).
+  //
+  // Por qué hace falta: `applyData` re-defaultea el blob al cargarlo
+  // (`{...defaultParams(), ...d.allegria_params}`, `defaultParamsAllegriaService`,
+  // `defaultParamsIntegrity`, merge profundo de `params_af`, reconstrucción de
+  // `params_ap` 2026-2031, `defaultParamsOsiris`, `defaultParticipacionAllpa`) y
+  // además saca `saldos_bancos` del blob. Lo que se escribiría NO es igual a lo
+  // que se leyó, así que el guardia canónico del contrato (que compara contra el
+  // último valor CONFIRMADO por el servidor) no puede suprimir esa escritura:
+  // abrir Finanzas dejaba un PATCH de ~4,4 MB sin que nadie tocara nada.
+  //
+  // Criterio: un default que se agrega para que la pantalla funcione NO cambia el
+  // significado de lo guardado y no justifica reescribir la fila. Si `params` y
+  // `saldosBancos` siguen siendo EXACTAMENTE los objetos que se aplicaron, no hubo
+  // edición del usuario y no se escribe. Cualquier edición pasa por un setState
+  // que crea un objeto nuevo → la identidad cambia → el auto-save corre igual que
+  // siempre. No se compara contenido: no hace falta y costaría una huella de 4,4 MB
+  // en cada render.
+  //
+  // Las escrituras LEGÍTIMAS al abrir no pasan por acá y siguen intactas, cada una
+  // declarada por su cuenta: la migración de `saldos_bancos` a la fila
+  // `finanzas_bancos`, la migración de identificadores (`normalizarIdentidadesAhora`)
+  // y la de la comisión de arándanos (`migrateAllegraComisionArandanos`).
+  //
+  // PENDIENTE (camino B, de fondo): sacar el re-defaulteo del estado que se
+  // serializa — que los defaults vivan en una capa de vista y el blob conserve la
+  // forma leída. Eso haría innecesaria esta marca y dejaría al guardia canónico
+  // resolviéndolo solo. Toca `applyData` y todos los consumidores de `params*`, así
+  // que queda aparte.
+  const aplicadoRef = React.useRef(null);
+  if(aplicadoRef.current === null) aplicadoRef.current = { params, saldos: saldosBancos };
+
+  // Qué versión del bundle está cargada (solo lectura, se calcula una vez).
+  const marcaBuild = useMemo(()=>marcadorBuild(),[]);
+
+  // Migración de formato de la comisión de arándanos detectada al cargar (valor a
+  // escribir) y marca de que ya se intentó en esta sesión.
+  const migArandanosRef = React.useRef(null);
+  const migArandanosIntentadaRef = React.useRef(false);
+
   // ── Carga inicial de datos ────────────────────────────────────────
   function applyData(d) {
     if(!d) return;
@@ -12322,26 +12399,50 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       // antiguos UNA vez, de forma determinista (hash del contenido y la posición,
       // prefijo `mig_`), idempotente, conservando todos los campos y sin tocar un id
       // existente.
-      // Se aplica EN MEMORIA al cargar, para que la pantalla trabaje con identidad
-      // firme desde el primer render. NO se escribe acá: escribir al abrir el módulo
-      // es justo lo que se corrigió. La escritura es un paso explícito del CFO
-      // (banner + botón), que pasa por el contrato de concurrencia.
-      let normalizado = d.allegria_params, pendiente = null;
+      //
+      // EL VALOR NORMALIZADO **NO** ENTRA EN `params` ACÁ. El estado se queda con lo
+      // que vino del servidor, tal cual, sin identidades. Antes se metía en memoria
+      // "para que la pantalla trabaje con identidad firme desde el primer render", y
+      // eso tenía dos consecuencias malas:
+      //   · el control de sustitución (`sinIdentidad = !e.id` en
+      //     ProgramasComerciales) se DESBLOQUEABA con identidades que el servidor
+      //     todavía no tenía: si después el guardado fallaba, quedaba una referencia
+      //     a un id inexistente;
+      //   · `normalizarIdentidadesAhora` recalculaba sobre ese estado ya normalizado,
+      //     obtenía `huboCambios:false`, limpiaba el aviso y volvía SIN ESCRIBIR. La
+      //     identidad quedaba guardada, cuando se guardaba, por el auto-save de
+      //     apertura: el resultado correcto por accidente, sin aviso y sin registro
+      //     en la auditoría (medido en navegador: aviso visible = false).
+      // Ahora acá solo se CALCULA y se deja en `normPendiente`. La identidad entra a
+      // `params` recién cuando el servidor confirmó la escritura, que es lo que
+      // desbloquea las sustituciones.
+      let pendiente = null;
       try {
         const idn = normalizarIdentidades(d.allegria_params);
-        normalizado = idn.valor;
         if(idn.huboCambios) pendiente = { cambios: idn.cambios, valor: idn.valor };
       } catch(e) {
         console.error("[identidades] no se pudo normalizar:", e);
       }
-      setParams(prev=>({...defaultParams(),...normalizado}));
+      // Se construye el valor y se guarda su identidad ANTES de setearlo: lo que
+      // acaba de entrar viene del servidor, no de una edición, y el auto-save del
+      // blob no tiene que escribirlo de vuelta. Al no llevar identidades, lo que
+      // escribiría ese auto-save es lo mismo que leyó: ya no puede "completar" la
+      // migración de rebote.
+      const paramsAplicados = {...defaultParams(),...d.allegria_params};
+      aplicadoRef.current = {...aplicadoRef.current, params: paramsAplicados};
+      setParams(paramsAplicados);
       setNormPendiente(pendiente);
     }
     if(d?.allegria_comision_arandanos) {
       setAllegraComisionArandanos(d.allegria_comision_arandanos);
     } else {
+      // MIGRACIÓN DE FORMATO (legacy `params[temporada].arandanos` → calendario de
+      // cobros). Cambia el SIGNIFICADO de lo guardado, así que sí hay que
+      // escribirla. Antes se guardaba de rebote, porque el auto-save del blob
+      // corría solo al abrir; ahora que abrir no escribe, la migración se declara
+      // acá y la persiste su propio efecto, una sola vez por sesión.
       const migrated = migrateAllegraComisionArandanos(d?.allegria_params);
-      if(migrated) setAllegraComisionArandanos(migrated);
+      if(migrated) { setAllegraComisionArandanos(migrated); migArandanosRef.current = migrated; }
     }
     if(d?.params_emp) setParamsEmp(d.params_emp);
     // saldos_bancos NO se toma del blob (vive en fila dedicada compartida
@@ -12414,13 +12515,35 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         baseBlobRef.current = d;   // cache inicial del base (se re-cachea al editar/salir de Base)
         // Saldos de bancos: fila dedicada compartida. Si aún no existe, se
         // siembra desde el blob (migración una sola vez).
+        // Saldos de bancos. El `.then` de DOS argumentos separa el fallo de
+        // CARGA del de GUARDADO: antes un solo `.catch(()=>{})` se comía los dos,
+        // así que una lectura caída dejaba la pantalla con la caja en cero sin
+        // avisar y sin que se pudiera distinguir de una migración fallida.
         dbLoadBancos().then(sb=>{
-          if(sb && Object.keys(sb).length){ setSaldosBancos(sb); saldosBancosRef.current = sb; }
-          else if(d?.saldos_bancos && Object.keys(d.saldos_bancos).length){
-            setSaldosBancos(d.saldos_bancos); saldosBancosRef.current = d.saldos_bancos;
-            dbSaveBancos(d.saldos_bancos);
+          const aplicar = (v)=>{
+            aplicadoRef.current = {...aplicadoRef.current, saldos: v};
+            setSaldosBancos(v); saldosBancosRef.current = v;
+          };
+          if(sb && Object.keys(sb).length){ aplicar(sb); return; }
+          // MIGRACIÓN del blob a la fila dedicada: solo si la fila está vacía y el
+          // blob trae saldos. Se autoextingue (la próxima carga ya lee la fila).
+          if(d?.saldos_bancos && Object.keys(d.saldos_bancos).length){
+            aplicar(d.saldos_bancos);
+            return dbSaveBancos(d.saldos_bancos).then(r=>{
+              if(!r || !r.ok) setAvisoPersist(construirAvisoDesde("finanzas_bancos", r, "los Saldos de Bancos (migración desde el flujo)"));
+            });
           }
-        }).catch(()=>{});
+        }, e=>{
+          // Fallo de CARGA: no se migra nada sobre una lectura fallida (escribir la
+          // fila dedicada con lo que trae el blob sin saber qué hay en ella podría
+          // pisar la posición real de caja), y el usuario se entera en vez de ver
+          // los saldos vacíos como si fueran reales.
+          console.error("[Finanzas] No se pudieron cargar los saldos de bancos:", e);
+          setAvisoCargaBancos(String((e&&e.message)||e));
+        }).catch(e=>{
+          // Cualquier otra cosa del camino de migración (no de la carga).
+          console.error("[Finanzas] Saldos de bancos — migración:", e);
+        });
         cargaOkRef.current = true; setLoading(false);
         // MIGRACIÓN DECLARADA de identificadores. Se corre UNA vez, recién
         // después de una carga exitosa (si la carga falla, `cargaOkRef` queda en
@@ -12693,31 +12816,85 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // usando `persistAll`, así hereda el gate anti-borrado (`cargaOkRef`), el de
   // permiso, el contrato de concurrencia optimista y el estado visible. No se
   // persiste tras una carga fallida porque `cargaOkRef` sigue en false.
-  // Es idempotente: si se corre dos veces, la segunda no encuentra cambios.
+  //
+  // LO QUE DECIDE SI SE ESCRIBE ES `normPendiente`, NO UN RECÁLCULO.
+  // `normPendiente` lo pone la CARGA cuando encontró registros sin identidad, y se
+  // escribe `normPendiente.valor`: el mismo valor normalizado que el aviso le está
+  // mostrando al CFO. Antes se recalculaba sobre `paramsRef.current`, que
+  // `applyData` ya había normalizado en memoria, así que `huboCambios` salía false,
+  // se limpiaba el aviso y se volvía SIN escribir; la identidad terminaba guardada,
+  // cuando se guardaba, por el auto-save de apertura. Correcto por accidente.
+  //
+  // El aviso se retira SOLO con la confirmación del servidor (`r && r.ok`), y recién
+  // ahí la identidad entra a `params`: eso es lo que desbloquea el control de
+  // sustitución, y no puede desbloquearse contra identidades que el servidor no
+  // tiene. Si falla por red, por HTTP o por conflicto, el aviso queda con su botón,
+  // el estado visible queda en error o en conflicto y las sustituciones siguen
+  // bloqueadas.
+  //
+  // Idempotencia: si la fila ya trae las identidades, la carga no encuentra nada,
+  // `normPendiente` no se pone y no hay aviso ni escritura. Si el servidor ya quedó
+  // con este mismo valor, el guardia canónico del contrato devuelve `{ok:true,
+  // sinCambios:true}` y eso también es éxito.
   const normalizarIdentidadesAhora = useCallback(async ()=>{
     if(!normPendiente) return;
     setNormBusy(true);
     try {
-      // Se recalcula sobre el estado VIVO, no sobre la foto de la carga: el CFO
-      // pudo editar algo entremedio y esa edición no se puede perder.
-      const idn = normalizarIdentidades(paramsRef.current || {});
-      if(!idn.huboCambios){ setNormPendiente(null); return; }
-      const r = await persistAll({ allegria_params: idn.valor });
+      // Normalmente se escribe EXACTAMENTE lo que calculó la carga: así las
+      // identidades que quedan en el servidor son las mismas que el CFO vio en el
+      // aviso, sin depender de que el hash determinista dé igual sobre un objeto
+      // que entremedio pasó por `defaultParams()`.
+      // Caso aparte: si el CFO editó algo entre la carga y el reintento del botón,
+      // `params` ya no es el objeto que aplicó la carga, y escribir la foto de la
+      // carga BORRARÍA esa edición. Ahí se normaliza sobre el estado vivo, que no
+      // tiene identidades (ver `applyData`), así que el recálculo sí encuentra
+      // trabajo y la edición se conserva.
+      const huboEdicion = paramsRef.current !== (aplicadoRef.current && aplicadoRef.current.params);
+      let valor = normPendiente.valor;
+      if(huboEdicion){
+        const idn = normalizarIdentidades(paramsRef.current || {});
+        valor = idn.valor;
+      }
+      const cuantos = (normPendiente.cambios || []).length;
+      const antes = paramsRef.current;
+      const r = await persistAll({ allegria_params: valor });
       if(r && r.ok){
-        setParams(prev=>({...prev, ...idn.valor}));
+        // RECIÉN ACÁ la identidad entra a `params`.
+        // Si el CFO editó MIENTRAS la escritura estaba en vuelo, aplicar la foto
+        // normalizada borraría esa edición, y el auto-save siguiente escribiría el
+        // estado editado SIN identidades: la migración quedaría deshecha en el
+        // servidor y sin aviso. En ese caso se normaliza el estado VIVO (los
+        // identificadores son deterministas: salen los mismos, con o sin el
+        // re-defaulteo) y NO se marca como aplicado, para que el auto-save guarde
+        // la edición junto con la identidad.
+        const editoDurante = paramsRef.current !== antes;
+        let nuevos;
+        if(editoDurante){
+          try {
+            const re = normalizarIdentidades(paramsRef.current || {});
+            nuevos = re.huboCambios ? re.valor : paramsRef.current;
+          } catch(_) { nuevos = paramsRef.current; }
+        } else {
+          nuevos = {...defaultParams(), ...valor};
+          // El auto-save del blob no tiene que escribir de nuevo lo mismo por este
+          // cambio de identidad de `params` (ver `aplicadoRef`).
+          aplicadoRef.current = {...aplicadoRef.current, params: nuevos};
+        }
+        setParams(nuevos);
         setNormPendiente(null);
-        setSaved(`✅ ${idn.cambios.length} registros quedaron con identificador propio.`);
+        setSaved(`✅ ${cuantos} registros quedaron con identificador propio.`);
         setTimeout(()=>setSaved(null),6000);
         try {
           if(window.auditLog) window.auditLog({
             modulo:"finanzas", accion:"normalizar_identidades",
-            detalle:`${idn.cambios.length} registros sin id recibieron identidad`,
-            cambios: idn.cambios, usuario: usuarioActual?.nombre || "",
+            detalle:`${cuantos} registros sin id recibieron identidad`,
+            cambios: normPendiente.cambios || [], usuario: usuarioActual?.nombre || "",
           });
         } catch(_){}
       }
       // Si no se confirmó, `persistAll` ya dejó el aviso y el estado en error o en
-      // conflicto. El banner sigue puesto: la normalización NO se declara hecha.
+      // conflicto. El banner sigue puesto: la normalización NO se declara hecha y
+      // las sustituciones siguen bloqueadas.
       return r;
     } finally { setNormBusy(false); }
   },[normPendiente, persistAll, usuarioActual]); // eslint-disable-line
@@ -12738,6 +12915,31 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     migracionIntentadaRef.current = true;
     normalizarIdentidadesAhora();
   },[loading, normPendiente, normalizarIdentidadesAhora]); // eslint-disable-line
+
+  // Escritura DECLARADA de la migración de la comisión de arándanos (formato viejo
+  // `params[temporada].arandanos` → calendario de cobros). Cambia el significado de
+  // lo guardado, así que no puede quedarse solo en memoria. Antes se guardaba de
+  // rebote con el auto-save del blob al abrir; ahora que abrir no escribe, va acá:
+  // una vez por sesión, recién tras una carga exitosa (`cargaOkRef`), por `persistAll`
+  // (hereda el gate anti-borrado, la autorización por pestaña, el contrato de
+  // concurrencia y el estado visible). Si no se confirma, no se reintenta sola.
+  useEffect(()=>{
+    if(loading || !cargaOkRef.current) return;
+    if(!migArandanosRef.current || migArandanosIntentadaRef.current) return;
+    migArandanosIntentadaRef.current = true;
+    const valor = migArandanosRef.current;
+    Promise.resolve(persistAll({ allegria_comision_arandanos: valor })).then(r=>{
+      if(r && r.ok){
+        try {
+          if(window.auditLog) window.auditLog({
+            modulo:"finanzas", accion:"migrar_comision_arandanos",
+            detalle:`${(valor.cobros||[]).length} cobro(s) migrados del formato viejo al calendario`,
+            usuario: usuarioActual?.nombre || "",
+          });
+        } catch(_){}
+      }
+    });
+  },[loading, persistAll, usuarioActual]); // eslint-disable-line
 
   // ── Las DOS salidas explícitas del conflicto pendiente ────────────────────────
   // (a) Recuperar el estado vigente del servidor: DESCARTA lo local y lo aplica a
@@ -12835,7 +13037,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         applyData(estado);
       }
       // Bancos: siempre los compartidos/vivos (no los del escenario)
-      try { const sb = await dbLoadBancos(); if(sb){ setSaldosBancos(sb); saldosBancosRef.current = sb; } } catch(_){}
+      try { const sb = await dbLoadBancos(); if(sb){ aplicadoRef.current = {...aplicadoRef.current, saldos: sb}; setSaldosBancos(sb); saldosBancosRef.current = sb; } } catch(_){}
       cargaOkRef.current = true;
     } catch(e){
       console.error("[escenario] carga falló, se mantiene el actual:", e);
@@ -12865,7 +13067,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       baseBlobRef.current = base;
       activeRowRef.current = rowIdDe(id); setEscActivo(id);
       applyData(base);
-      try { const sb = await dbLoadBancos(); if(sb){ setSaldosBancos(sb); saldosBancosRef.current = sb; } } catch(_){}
+      try { const sb = await dbLoadBancos(); if(sb){ aplicadoRef.current = {...aplicadoRef.current, saldos: sb}; setSaldosBancos(sb); saldosBancosRef.current = sb; } } catch(_){}
       cargaOkRef.current = true;
     } catch(e){ console.error("[escenario] crear falló:", e); alert("No se pudo crear el escenario."); }
     setEscBusy(false);
@@ -13207,6 +13409,15 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   useEffect(()=>{
     if(loading) return;
+    // ABRIR EL MÓDULO NO ES UNA EDICIÓN. Este efecto corría solo en la transición
+    // de carga (`loading` true→false y `params` cambiando de identidad porque
+    // `applyData` re-defaultea el blob) y escribía ~4,4 MB sin que nadie tocara
+    // nada. Si las dos piezas que vigila siguen siendo EXACTAMENTE los objetos
+    // que se aplicaron desde el servidor, no hay cambio efectivo del usuario.
+    // Ver el comentario largo de `aplicadoRef`. Las migraciones legítimas tienen
+    // su propia escritura declarada y no dependen de este efecto.
+    const ap = aplicadoRef.current;
+    if(ap && params === ap.params && saldosBancos === ap.saldos) return;
     cambioPendienteRef.current = true;
     const t=setTimeout(()=>{ cambioPendienteRef.current = false; persistAll(); },800);
     return ()=>clearTimeout(t);
@@ -13284,6 +13495,21 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       overflowX:"hidden",
     }}>
       <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
+      {/* Fallo al LEER los saldos de bancos. No es "no se guardó": es que la
+          posición de caja que se está viendo puede estar incompleta. Antes el
+          `.catch(()=>{})` de la carga lo tragaba y la caja aparecía en cero como
+          si fuera el dato real. */}
+      {avisoCargaBancos && (
+        <div role="status" data-testid="aviso-carga-bancos" style={{position:"fixed",left:16,bottom:16,zIndex:99999,maxWidth:440,
+          background:"#fffbeb",border:"2px solid #d97706",borderRadius:10,padding:"12px 14px",
+          boxShadow:"0 6px 24px rgba(0,0,0,0.25)",fontSize:12.5,color:"#92400e",lineHeight:1.45}}>
+          <div style={{fontWeight:800,marginBottom:5}}>No se pudieron cargar los Saldos de Bancos</div>
+          <div>La posición de caja que se muestra puede estar incompleta. No se migró ni se escribió nada. Recarga la página antes de usar estos números.</div>
+          <div style={{fontSize:11,opacity:.75,marginTop:6}}>{avisoCargaBancos}</div>
+          <button onClick={()=>setAvisoCargaBancos(null)} style={{marginTop:8,padding:"5px 12px",borderRadius:6,
+            border:"1px solid #d97706",background:"#fff",color:"#92400e",fontSize:12,fontWeight:700,cursor:"pointer"}}>Entendido</button>
+        </div>
+      )}
       {/* Estado VISIBLE del guardado. Una operación no se declara guardada hasta
           que el servidor lo confirmó; "guardando" permanece mientras está en vuelo,
           así la guía no depende de adivinar cuánto esperar. */}
@@ -13383,6 +13609,12 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
               onError={e=>{e.target.style.display="none";}}/>
           </div>
           <div style={{fontSize:10,color:"rgba(255,255,255,0.7)"}}>Apr-2026 → Jun-2031 · 64 meses · USD</div>
+          {/* Qué versión está cargada. Solo lectura: no hay que editar nada para
+              poder descartar un bundle viejo en caché. */}
+          <div data-testid="marcador-build" title="Versión de la aplicación cargada en este navegador"
+            style={{fontSize:9,color:"rgba(255,255,255,0.45)",fontFamily:"ui-monospace, monospace",whiteSpace:"nowrap"}}>
+            {marcaBuild}
+          </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           {saved&&<span style={{fontSize:11,color:"rgba(255,255,255,0.85)",background:"rgba(255,255,255,0.1)",

@@ -753,6 +753,16 @@ export function construirAvisoDesde(id, resultado, etiqueta) {
              `servidor (se descarta lo tuyo) o guardar lo tuyo encima de la versión del servidor.` };
   }
   if (r.motivo === MOTIVOS.CONFLICTO) {
+    // Si el conflicto dejó la fila BLOQUEADA, decir "recarga la página" es falso
+    // y además peligroso: recargar descarta lo local sin avisarlo. El primer
+    // conflicto de una fila-blob llega con motivo CONFLICTO y `conflictoPendiente`
+    // en true, así que se trata igual que el reintento.
+    if (r.conflictoPendiente) {
+      return { id, tipo: "conflicto", conflictoPendiente: true,
+        texto: `No se guardó ${nombre}: otra persona lo modificó mientras trabajabas y no se puede combinar ` +
+               `automáticamente. Tus cambios siguen en pantalla y NO se están guardando. Tenés que elegir: traer ` +
+               `la versión del servidor (se descarta lo tuyo) o guardar lo tuyo encima de la versión del servidor.` };
+    }
     return { id, tipo: "conflicto",
       texto: `No se guardó ${nombre}: otra persona lo modificó mientras trabajabas y no se puede combinar automáticamente. ` +
              `Anota tu cambio, recarga la página y vuelve a aplicarlo.` };

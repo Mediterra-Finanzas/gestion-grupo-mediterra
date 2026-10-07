@@ -1,5 +1,5 @@
 /* eslint-disable */
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import OsirisModule from "./OsirisModule.jsx";
 import FinanzasModule, { EMPRESAS_KEYS_ALL } from "./FinanzasModule.jsx";
 import AllegriaModule from "./AllegriaModule.jsx";
@@ -13,6 +13,8 @@ import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
 import { crearUsuariosStore } from "./permisos/permisosUsuariosStore.js";
 import { crearAplicadorUsuarios } from "./permisos/usuariosGlue.js";
 import AvisoPersistencia from "./AvisoPersistencia.jsx";
+import PanelConflictoFila from "./PanelConflictoFila.jsx";
+import { crearResolucionConflicto } from "./persistencia/conflictoFila.js";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
 import { credencialPreservada } from "./data/credencialPreservada";
@@ -152,19 +154,22 @@ async function dbSave(value) {
       const minUsers = 6; // WORKERS_BASE tiene 6 usuarios mínimo
       if(usrs.length < minUsers) {
         console.warn(`[dbSave] ⚠️ BLOQUEADO: usuarios pasó de ${minUsers}+ a ${usrs.length}. No se permite reducir por debajo de WORKERS_BASE.`);
-        return;
+        // Se devuelve un resultado de FALLO (antes era `return;` → undefined, y el
+        // .then del auto-save lo leía como éxito y mostraba "✅ Guardado" sin que
+        // se hubiera escrito nada).
+        return { ok:false, motivo:"anti_perdida", detalle:"usuarios bajo el piso de WORKERS_BASE" };
       }
       const prevCount = window._lastSavedUsersCount || minUsers;
       if(usrs.length < prevCount) {
         console.warn(`[dbSave] ⚠️ BLOQUEADO: usuarios pasó de ${prevCount} a ${usrs.length}. Posible pérdida.`);
-        return;
+        return { ok:false, motivo:"anti_perdida", detalle:"la lista de usuarios se redujo" };
       }
       window._lastSavedUsersCount = usrs.length;
       // Verificar que ningún usuario de WORKERS_BASE perdió sus permisos
       const admins = usrs.filter(u=>u.rol==="admin");
       if(admins.length === 0) {
         console.warn("[dbSave] ⚠️ BLOQUEADO: no hay ningún admin. Se requiere al menos 1 administrador.");
-        return;
+        return { ok:false, motivo:"anti_perdida", detalle:"ningún administrador" };
       }
     }
     // F0-B: la escritura pasa por el contrato compartido → PATCH condicionado
@@ -2111,6 +2116,102 @@ export default function App(){
   // osirisData ya NO vive en App.jsx — tiene su propia fila "osiris" en Supabase
   // OsirisModule maneja su propia carga/guardado independiente
 
+  // ── Conflicto de guardado SIN RESOLVER (la fila queda bloqueada) ────────────
+  // Cuando otra sesión modifica `main` (Tareas) o `pins` mientras hay edición local,
+  // el contrato NO pisa nada y deja la fila en CONFLICTO PENDIENTE: no se escribe
+  // más hasta que alguien elija. Antes el aviso llegaba pero no había cómo salir sin
+  // recargar la página — y recargar pierde lo local. Acá se ofrecen las DOS salidas
+  // del contrato (recuperar del servidor / conservar lo mío). Clave = id de la fila:
+  // si `main` y `pins` chocan a la vez, cada una tiene su panel.
+  const [conflictos,setConflictos]=useState({});
+  const [resolviendoConflicto,setResolviendoConflicto]=useState(false);
+  const setConflictoFila=useCallback((rowId,info)=>{
+    setConflictos(prev=>{
+      if(info) return {...prev,[rowId]:info};
+      if(!prev[rowId]) return prev;
+      const next={...prev}; delete next[rowId]; return next;
+    });
+  },[]);
+  // Refs para que la salida (b) "conservar lo mío" vuelva a guardar con el guardado
+  // REAL del módulo (definido más abajo), sin duplicar la ruta de escritura.
+  const guardarMainRef=useRef(null);
+  const guardarPinsRef=useRef(null);
+
+  // Aplica a la pantalla los campos de la fila `main`.
+  //   o.reemplazar=true  → se usa SOLO en la salida (a): el valor del servidor
+  //                        REEMPLAZA lo local (que es lo que esa salida declara).
+  //   por defecto        → se fusiona, que es el comportamiento histórico del sync
+  //                        entrante (realtime/poll) y no se toca.
+  const aplicarCamposMain=useCallback((d,o)=>{
+    if(!d) return;
+    const rep=!!(o&&o.reemplazar);
+    if(rep){
+      // Descartar lo local de verdad: lo que el servidor no trae queda vacío, no
+      // sobreviviendo por el merge. Solo en esta salida explícita.
+      setEstados(d.estados||{});
+      setComentarios(d.comentarios||{});
+      setTareasConfig(d.tareasConfig||{});
+      setSupervisores(d.supervisores||{});
+      setTareasExtra(d.tareasExtra||[]);
+      setTareasOverrides(d.tareasOverrides||{});
+      setRecsDone(d.recsDone||{});
+      setRecsComentarios(d.recsComentarios||{});
+      return;
+    }
+    if(d.estados)       setEstados(prev=>({...prev,...d.estados}));
+    if(d.comentarios)   setComentarios(d.comentarios);
+    if(d.tareasConfig)  setTareasConfig(prev=>({...prev,...d.tareasConfig}));
+    if(d.supervisores)  setSupervisores(prev=>({...prev,...d.supervisores}));
+    if(d.tareasExtra)   setTareasExtra(d.tareasExtra);
+    // PINs NO se aplican desde el sync de `main`: su fuente de verdad es la
+    // fila `pins`. Aplicarlos acá revertía cambios recientes (bug histórico).
+    if(d.recsDone)      setRecsDone(d.recsDone);
+    if(d.recsComentarios) setRecsComentarios(d.recsComentarios);
+  },[]);
+
+  // Cableado de las dos salidas por fila. `persist` es la instancia compartida.
+  const resolucionMain=useMemo(()=>crearResolucionConflicto({
+    persist, rowId:"main", etiqueta:"las Tareas",
+    aplicarValor:(v)=>aplicarCamposMain(v,{reemplazar:true}),
+    guardarLocal:()=>(guardarMainRef.current?guardarMainRef.current():Promise.resolve({ok:false,motivo:"sin_carga"})),
+    setConflicto:(info)=>setConflictoFila("main",info),
+    setEstado:(e)=>{ setGuardado(e); if(e==="ok") setTimeout(()=>setGuardado(g=>g==="ok"?"idle":g),2000); },
+    setAviso:setAvisoPersist,
+  }),[aplicarCamposMain,setConflictoFila]);
+  const resolucionPins=useMemo(()=>crearResolucionConflicto({
+    persist, rowId:"pins", etiqueta:"los PIN",
+    aplicarValor:(v)=>{ skipPinsSaveRef.current=true; setPinsPersonalizados(v&&typeof v==="object"?v:{}); },
+    guardarLocal:()=>(guardarPinsRef.current?guardarPinsRef.current():Promise.resolve({ok:false,motivo:"sin_carga"})),
+    setConflicto:(info)=>setConflictoFila("pins",info),
+    setEstado:(e)=>{ setGuardado(e); if(e==="ok") setTimeout(()=>setGuardado(g=>g==="ok"?"idle":g),2000); },
+    setAviso:setAvisoPersist,
+  }),[setConflictoFila]);
+  const resolucionMainRef=useRef(resolucionMain);
+  useEffect(()=>{ resolucionMainRef.current=resolucionMain; },[resolucionMain]);
+
+  // Un resultado de guardado de `main` (auto-save o guardado manual) se traduce acá.
+  // Si la fila quedó bloqueada por conflicto, el panel con las dos salidas se pinta y
+  // el estado visible queda en "conflicto" (no se auto-limpia: sigue sin guardarse).
+  const trasGuardarMain=useCallback((r)=>{
+    if(r && r.ok===false){
+      if(resolucionMainRef.current && resolucionMainRef.current.detectar(r)) return r;
+      setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000);
+      setAvisoPersist(construirAvisoDesde("main", r, "las Tareas"));
+      return r;
+    }
+    setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000);
+    return r;
+  },[]);
+
+  // Handlers de los botones del panel. Quedan deshabilitados mientras una salida
+  // está en vuelo para que no se disparen dos veces.
+  const resolverConflicto=useCallback(async(rowId,via)=>{
+    const res = rowId==="pins" ? resolucionPins : resolucionMain;
+    setResolviendoConflicto(true);
+    try { return via==="servidor" ? await res.recuperarDelServidor() : await res.conservarLocal(); }
+    finally { setResolviendoConflicto(false); }
+  },[resolucionMain,resolucionPins]);
+
   function recKey(id){return `${id}_${mes}_${anio}`;}
 
   useEffect(()=>{
@@ -2375,18 +2476,9 @@ export default function App(){
     const _cargaTimeout = setTimeout(()=>setCargaError(true), 15000);
     Promise.resolve(cargar()).catch(()=>{}).finally(()=>clearTimeout(_cargaTimeout));
 
-    // Aplica cambios entrantes de la fila "main" (Tareas) a la pantalla.
-    const aplicarCamposMain = (d) => {
-      if(d.estados)       setEstados(prev=>({...prev,...d.estados}));
-      if(d.comentarios)   setComentarios(d.comentarios);
-      if(d.tareasConfig)  setTareasConfig(prev=>({...prev,...d.tareasConfig}));
-      if(d.supervisores)  setSupervisores(prev=>({...prev,...d.supervisores}));
-      if(d.tareasExtra)   setTareasExtra(d.tareasExtra);
-      // PINs NO se aplican desde el sync de `main`: su fuente de verdad es la
-      // fila `pins`. Aplicarlos acá revertía cambios recientes (bug histórico).
-      if(d.recsDone)      setRecsDone(d.recsDone);
-      if(d.recsComentarios) setRecsComentarios(d.recsComentarios);
-    };
+    // El aplicador de la fila "main" vive a nivel de componente (aplicarCamposMain):
+    // lo comparten el sync entrante y la salida (a) del conflicto, que lo llama con
+    // {reemplazar:true}. Mismo aplicador, no una copia.
     // F0-B: el estado entrante pasa por reconcileIncoming → NO se aplica encima de
     // una edición local sin confirmar (dirty-guard); si limpio, se adopta y se
     // actualiza la versión conocida (para el próximo save con optimistic lock).
@@ -2394,6 +2486,10 @@ export default function App(){
       if(!d) return;
       const dec = persist.reconcileIncoming("main", d, version === undefined ? null : version);
       if(dec.apply) aplicarCamposMain(dec.value);
+      // Blob sucio: el contrato NO aplicó nada encima de la edición local y dejó la
+      // fila en conflicto pendiente. Sin esto, el usuario veía el aviso y la fila
+      // quedaba bloqueada hasta recargar; ahora se ofrecen las dos salidas.
+      else if(dec.conflictoPendiente) resolucionMainRef.current.detectar(dec);
     };
     // PROD-INCIDENT-01 FIX: rehidratación entrante de la FILA DEDICADA `usuarios`.
     // Cierra la brecha del baseline (main adelantaba la versión pero nunca re-aplicaba
@@ -2458,6 +2554,9 @@ export default function App(){
                 // osirisData se restaura desde su propia fila "osiris"
                 // usuarios NO viaja en main (fila dedicada); se sincroniza abajo.
               }
+              // Blob sucio: nada se pisó y la fila quedó en conflicto pendiente. Se
+              // ofrecen las dos salidas en vez de dejarla bloqueada hasta recargar.
+              else if(dec.conflictoPendiente) resolucionMainRef.current.detectar(dec);
             } catch(err) {}
           }
           // PROD-INCIDENT-01 FIX: sincronización entrante de la fila dedicada `usuarios`.
@@ -2735,6 +2834,11 @@ export default function App(){
   useEffect(()=>{ tareasConfigRef.current = tareasConfig;   },[tareasConfig]);
   useEffect(()=>{ supervisoresRef.current = supervisores;   },[supervisores]);
   useEffect(()=>{ tareasExtraRef.current  = tareasExtra;    },[tareasExtra]);
+  // Faltaba este espejo: `tareasOverridesRef` se creaba con el valor INICIAL
+  // (`{}`) y nunca se actualizaba, así que el payload de `main` incluía el
+  // campo pero siempre vacío. Cambiar la frecuencia de una tarea no se
+  // guardaba NUNCA, ni por el guardado manual ni por el auto-save.
+  useEffect(()=>{ tareasOverridesRef.current = tareasOverrides; },[tareasOverrides]);
   useEffect(()=>{ pinsRef.current         = pinsPersonalizados; },[pinsPersonalizados]);
   useEffect(()=>{ recsDoneRef.current     = recsDone;       },[recsDone]);
   useEffect(()=>{ recsComRef.current      = recsComentarios;},[recsComentarios]);
@@ -2742,10 +2846,14 @@ export default function App(){
   useEffect(()=>{ mesRef.current          = mes;            },[mes]);
   useEffect(()=>{ anioRef.current         = anio;           },[anio]);
 
-  // Guardar siempre con los valores más recientes (sin stale closure)
-  const guardarAhora = useCallback(()=>{
-    setGuardado("guardando");
-    dbSave({
+  // ÚNICO armador del payload de la fila `main`. La escritura REEMPLAZA la fila
+  // completa, así que un campo que falte en un camino se BORRA. Antes había dos
+  // payloads distintos: `guardarAhora` incluía `tareasOverrides` y el auto-save
+  // general no, así que cambiar la frecuencia de una tarea se guardaba a los
+  // 300 ms (guardado manual) y se borraba a los 2.000 ms (auto-save). Ahora los
+  // dos caminos arman el payload acá, desde los refs, que es la copia más
+  // fresca del estado.
+  const payloadMain = useCallback(()=>({
       estados:      estadosRef.current,
       comentarios:  comentariosRef.current,
       tareasConfig: tareasConfigRef.current,
@@ -2770,34 +2878,39 @@ export default function App(){
       usuarios:     usuariosRef.current,
       mes:          mesRef.current,
       anio:         anioRef.current,
+  }),[]); // eslint-disable-line
 
-    })
-    .then((r)=>{ if(r && r.ok===false){ setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); setAvisoPersist(construirAvisoDesde("main", r, "las Tareas")); } else { setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000); } })
-    .catch(()=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);});
-  },[]); // eslint-disable-line
-
-  const guardar=useCallback((est,com,tc,sup,te,pins,rd,rc,usrs,m,a)=>{
+  // Guardar siempre con los valores más recientes (sin stale closure)
+  const guardarAhora = useCallback(()=>{
     setGuardado("guardando");
-    // PINs (pins) NO se incluyen: su fuente de verdad es la fila `pins`.
-    // `usrs` (el param) se IGNORA a propósito. `usuarios` conserva su fila dedicada
-    // como única fuente de verdad (dbSaveUsuarios). El campo `usuarios` que va acá es
-    // un COMPATIBILITY MIRROR WRITE-ONLY tomado del roster reconciliado autoritativo
-    // (usuariosRef.current, NO el param `usrs` ni main.usuarios): existe solo para
-    // satisfacer el trigger de BD `guard_main_no_user_shrink` que si no rechaza el
-    // UPDATE de `main` con 23514/HTTP 400. Nunca se lee como autoridad.
-    dbSave({estados:est,comentarios:com,tareasConfig:tc,supervisores:sup,tareasExtra:te,
-      recsDone:rd,recsComentarios:rc,usuarios:usuariosRef.current,mes:m,anio:a})
-      .then((r)=>{ if(r && r.ok===false){ setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000); setAvisoPersist(construirAvisoDesde("main", r, "las Tareas")); } else { setGuardado("ok"); setTimeout(()=>setGuardado("idle"),2000); } })
-      .catch(()=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);});
-  },[]);
+    return dbSave(payloadMain())
+    .then(trasGuardarMain)
+    .catch((e)=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);return {ok:false,motivo:"red",detalle:String((e&&e.message)||e)};});
+  },[trasGuardarMain,payloadMain]); // eslint-disable-line
+
+  // Auto-guardado general. Los parámetros se conservan por compatibilidad de la
+  // firma, pero el payload sale de `payloadMain()`: un solo contenido para el
+  // guardado manual y el automático. Antes este camino omitía `tareasOverrides`
+  // y lo borraba de la fila.
+  const guardar=useCallback(()=>{
+    setGuardado("guardando");
+    return dbSave(payloadMain())
+      .then(trasGuardarMain)
+      .catch((e)=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);return {ok:false,motivo:"red",detalle:String((e&&e.message)||e)};});
+  },[trasGuardarMain,payloadMain]);
+
+  // La salida (b) del conflicto ("conservar mi versión") vuelve a guardar con el
+  // guardado REAL del módulo, no con una ruta de escritura paralela.
+  useEffect(()=>{ guardarMainRef.current = guardarAhora; },[guardarAhora]);
+  useEffect(()=>{ guardarPinsRef.current = ()=>Promise.resolve(dbSavePins(pinsRef.current)); },[]);
 
   // Auto-guardado general (debounce 2000ms) — ya NO incluye osirisData
   useEffect(()=>{
     if(cargando)return;
     if(!cargaOkRef.current)return; // no guardar si la carga inicial falló
-    const t=setTimeout(()=>guardar(estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados,recsDone,recsComentarios,usuarios,mes,anio),2000);
+    const t=setTimeout(()=>guardar(),2000);
     return()=>clearTimeout(t);
-  },[estados,comentarios,tareasConfig,supervisores,tareasExtra,pinsPersonalizados,recsDone,recsComentarios,usuarios,mes,anio,cargando,guardar]);
+  },[estados,comentarios,tareasConfig,supervisores,tareasExtra,tareasOverrides,pinsPersonalizados,recsDone,recsComentarios,usuarios,mes,anio,cargando,guardar]);
 
   // Guardado inmediato al cambiar usuarios (permisos, roles, activar/desactivar).
   // PROD-INCIDENT-01 FIX: va a la FILA DEDICADA `usuarios` con merge de 3 vías + OCC
@@ -2828,7 +2941,13 @@ export default function App(){
     // El login (re-read de PINs frescos) marca este flag para NO re-escribir la
     // fila: el login nunca cambia un PIN, solo lo lee.
     if(skipPinsSaveRef.current){ skipPinsSaveRef.current=false; return; }
-    const t=setTimeout(()=>{ Promise.resolve(dbSavePins(pinsPersonalizados)).then((r)=>{ if(r && r.ok===false) setAvisoPersist(construirAvisoDesde("pins", r, "los PIN")); }); }, 500);
+    const t=setTimeout(()=>{ Promise.resolve(dbSavePins(pinsPersonalizados)).then((r)=>{
+      if(r && r.ok===false){
+        // Igual que `main`: si la fila quedó bloqueada por conflicto, se ofrecen las
+        // dos salidas en vez de dejarla sin escribir hasta recargar la página.
+        if(!resolucionPins.detectar(r)) setAvisoPersist(construirAvisoDesde("pins", r, "los PIN"));
+      }
+    }); }, 500);
     return()=>clearTimeout(t);
   },[pinsPersonalizados]); // eslint-disable-line
 
@@ -3407,7 +3526,23 @@ Equipo Mediterra`);
     setNuevaTarea({nombre:"",responsable:"",supervisor:"",categoria:"Finanzas",frecuencia:"Semanal",dependeDe:"",fechaPuntual:""});setMostrarFormTarea(false);
   }
 
-  const estadoGuardadoUI={idle:null,guardando:{icon:"💾",text:"Guardando..."},ok:{icon:"✅",text:"Guardado"},error:{icon:"❌",text:"Error"}}[guardado];
+  const estadoGuardadoUI={idle:null,guardando:{icon:"💾",text:"Guardando..."},ok:{icon:"✅",text:"Guardado"},error:{icon:"❌",text:"Error"},conflicto:{icon:"⚠️",text:"No se guardó: otra sesión cambió los datos"}}[guardado];
+
+  // Avisos de persistencia + panel de conflicto. Se renderiza en la pantalla de
+  // Tareas (donde se edita la fila `main`) y en el hub. El panel ofrece las DOS
+  // salidas del conflicto pendiente; sin él la fila quedaba bloqueada hasta recargar.
+  const avisosPersistencia = (
+    <>
+      <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
+      {Object.keys(conflictos).map(rowId=>(
+        <PanelConflictoFila key={rowId} conflicto={conflictos[rowId]}
+          ocupado={resolviendoConflicto}
+          onRecuperar={()=>resolverConflicto(rowId,"servidor")}
+          onConservar={()=>resolverConflicto(rowId,"local")} />
+      ))}
+    </>
+  );
+
   const recsActivos=getRecordatoriosActivos(usuarioActual?.nombre||"",anio,mes,esAdmin(usuarioActual?.nombre||"")).filter(r=>!recsDone[recKey(r.id)]);
 
   function TablaFilas({tareas,getKey,getSemana}){
@@ -3837,6 +3972,7 @@ Equipo Mediterra`);
 
     return (
       <div style={{fontFamily:"sans-serif",background:C.cardAlt,minHeight:"100vh"}}>
+        {avisosPersistencia}
         {/* Modal editar comentario */}
         {editComentario&&(
           <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -4433,7 +4569,7 @@ Equipo Mediterra`);
 
   return (
     <AppErrorBoundary>
-      <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
+      {avisosPersistencia}
       {nuevaVersion&&(
         <div style={{position:"fixed",bottom:20,right:20,zIndex:99999,maxWidth:320,background:C.card,color:C.text,padding:"14px 18px",borderRadius:12,boxShadow:"0 8px 32px #0004",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:8,fontSize:13,fontFamily:"sans-serif"}}>
           <div style={{fontWeight:700,display:"flex",alignItems:"center",gap:8}}>🔄 Nueva versión disponible</div>

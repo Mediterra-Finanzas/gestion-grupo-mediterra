@@ -457,6 +457,18 @@ Reglas que no hay que romper:
   corre una vez por sesión después de una carga exitosa, pasa por el contrato de
   concurrencia, tiene estado visible y deja su registro en `window.auditLog`; el
   banner con su botón queda puesto hasta que el servidor confirma.
+  **`applyData` NO mete el valor normalizado en `params`**: el estado se queda
+  con lo que vino del servidor, sin identidades, y la identidad entra a `params`
+  recién con la confirmación (`r && r.ok`). Eso es lo que desbloquea el control
+  de sustitución, y no puede desbloquearse contra identidades que el servidor no
+  tiene. Lo que decide si se escribe es `normPendiente` —que pone la CARGA—, no
+  un recálculo: antes se recalculaba sobre el estado ya normalizado, `huboCambios`
+  salía false, se limpiaba el aviso y se volvía SIN escribir, y la identidad
+  terminaba guardada, cuando se guardaba, por el auto-save de apertura. Correcto
+  por accidente, sin aviso y sin registro.
+  Hay un **marcador de build de solo lectura** en la cabecera de Finanzas
+  (`marcadorBuild()`): el SHA corto si el entorno lo define, si no el nombre del
+  bundle. Sirve para saber qué versión corre una pestaña sin tocar ningún dato.
   Mientras un registro no tenga identidad, **la pantalla bloquea el control de
   sustitución** sobre él y dice que hay que normalizar primero: `normalizarCuota`
   descarta una `sustituye[].estimacionId` vacía, así que declararla dejaría el
@@ -542,24 +554,89 @@ sustituciones de US$374.000), e `inputNumero.test.js`. En navegador,
 `scripts/e2e/reasignar-bandeja.mjs` comprueba la secuencia `Guardando… → Guardado`
 y que salir antes del debounce no pierde la operación.
 
-#### Limitación conocida — escrituras al abrir que siguen vivas
+#### Abrir Finanzas no escribe (oct-2026)
 
-Abrir Finanzas todavía produce un PATCH de la fila `finanzas` la primera vez,
-porque `applyData` re-defaultea el blob (`{...defaultParams(), ...}`,
-`defaultParamsAllegriaService`, reconstrucción de `params_ap`, etc.): lo que se
-escribe NO es igual a lo que se leyó, así que el guardia canónico no puede
-suprimirlo. Para que abrir no escriba, esa normalización por defaults tendría que
-quedar en una capa de vista y no en el estado que se serializa. Pendiente aparte.
-Lo mismo con el PATCH de `main` al iniciar sesión. Las dos son escrituras del mismo
-contenido lógico, no pérdidas de datos.
+Abrir el módulo produce **0 escrituras** en `finanzas`, `finanzas_bancos` y
+`finanzas_esc_index` cuando no hay nada que migrar. Antes escribía la fila
+completa (~4,4 MB) sin que nadie editara: `applyData` re-defaultea el blob
+(`{...defaultParams(), ...}`, `defaultParamsAllegriaService`, reconstrucción de
+`params_ap`, etc.), así que lo que se escribía no era igual a lo que se leyó y
+el guardia canónico del contrato no podía suprimirlo.
 
-#### Limitación conocida — conflicto pendiente sin salida en `main` y `allegria`
+La marca es de **identidad de objeto**, no un flag: `aplicadoRef` guarda los
+objetos exactos de `params` y `saldosBancos` tal como quedaron al APLICAR datos
+del servidor (carga inicial, poll/realtime, `recuperarDelServidor`, cambio de
+escenario), y el efecto de auto-save sale antes de agendar si los objetos son
+los mismos. Se eligió identidad porque no exige conocer los sitios de edición:
+toda edición de `params` pasa por `setParams(prev => JSON.parse(JSON.stringify(
+prev))…)`, así que crea un objeto nuevo y el guardado corre igual que siempre.
+Un flag habría que prenderlo en cada sitio y se rompe en el primero que se
+olvide.
 
-Las salidas explícitas del conflicto están conectadas en `FinanzasModule`. En
-`App.jsx` (fila `main`, Tareas) y `AllegriaModule.jsx` (fila `allegria`) el aviso
-llega y nada se pisa, pero la fila queda bloqueada hasta recargar la página (el
-`dbLoad` del arranque llama `registrarCarga`, que limpia el conflicto). No es
-silencioso. Conectar ahí los dos botones queda pendiente.
+Las migraciones legítimas son ahora **escrituras declaradas**, cada una con su
+propio efecto y su prueba, no un efecto colateral del auto-save:
+
+- `saldos_bancos` del blob a la fila dedicada `finanzas_bancos` (solo si está
+  vacía; se autoextingue). El `.catch(()=>{})` que se comía por igual el fallo
+  de lectura y el de guardado se separó: una lectura caída no migra nada y
+  muestra su propio aviso, que no dice "no se guardó" porque no es eso.
+- la migración de identificadores (ver más abajo);
+- `migrateAllegraComisionArandanos`, que antes solo se guardaba de rebote con
+  el PATCH de apertura.
+
+**Pendiente (camino B)**: sacar el re-defaulteo del estado que se serializa, con
+los defaults en una capa de vista. Eso haría innecesaria la marca. Toca
+`applyData` y todos los consumidores de `params*`. El PATCH de `main` al iniciar
+sesión sigue abierto, en `App.jsx`.
+
+Medido con `scripts/e2e/aislamiento.mjs`, que imprime las escrituras por fila al
+abrir y navegar sin editar nada, y exige 0 en esas tres filas y en cualquier
+`finanzas_esc_*`.
+
+#### Las dos salidas del conflicto están en todas las filas-blob (oct-2026)
+
+`main` (Tareas), `pins`, `allegria` y `finanzas` ofrecen las dos salidas
+explícitas. El cableado pantalla↔contrato vive en
+`src/persistencia/conflictoFila.js` (`crearResolucionConflicto`) y el panel en
+`src/PanelConflictoFila.jsx`, extraídos para poder probarlos sin montar
+`App.jsx`. La política sigue entera en `persistContract.js`.
+
+**En las filas que se reemplazan completas** —`finanzas`, `finanzas_esc_*`,
+`finanzas_bancos`, `allegria`, `eeff`, `nominas`, `main`, `pins`— el panel
+advierte que «Conservar la mía **NO combina** los dos trabajos» y nombra qué se
+reemplaza (los PIN de todas las personas, el flujo de las ocho empresas, los
+saldos de todas las cuentas), porque lo de la otra sesión se reemplaza aunque
+haya tocado algo distinto. Antes de escribir se **revalida** la versión vigente:
+si la otra sesión guardó otra vez en el medio, no se reemplaza nada y el bloqueo
+queda puesto de nuevo. En una fila fusionable por ítem la advertencia no
+aparece, porque ahí sí se combina. `reemplazaFilaCompleta(rowId)` decide.
+
+Dos textos que mentían con el contrato nuevo, y eran peligrosos porque recargar
+DESCARTA lo local: `construirAvisoDesde` mandaba el primer conflicto de una
+fila-blob al mensaje «recarga la página y vuelve a aplicarlo», y
+`AvisoPersistencia` pintaba un botón «Recargar página» que con conflicto
+pendiente ES la salida que descarta el trabajo local, sin decirlo. Los dos
+corregidos.
+
+De paso: la pantalla de Tareas no renderizaba ningún `AvisoPersistencia` (el
+único estaba en el hub), y `App.dbSave` devolvía `undefined` cuando el guardia
+anti-pérdida de usuarios bloqueaba, que el `.then` leía como éxito.
+
+#### La fila `main` se escribe con UN solo payload (oct-2026)
+
+La escritura de `main` REEMPLAZA la fila completa, así que un campo que falte en
+un camino se borra. `payloadMain()` es el único armador, desde los refs, para el
+guardado manual y el auto-save.
+
+El defecto que lo motivó era peor de lo que parecía: `tareasOverridesRef` se
+creaba con `useRef(tareasOverrides)` y **nunca se sincronizaba** —faltaba el
+efecto espejo que sí tienen los otros nueve refs del bloque—, así que el payload
+llevaba el campo pero siempre con el valor inicial `{}`. **Cambiar la frecuencia
+de una tarea no se guardaba nunca**, por ningún camino. Fijado con
+`scripts/e2e/tareas-overrides.mjs`, que comprueba contra el almacén: cambiar la
+frecuencia, dejar transcurrir los dos guardados, recargar, y que la tarea
+aparezca en la pestaña de su frecuencia nueva sin haberse llevado por delante lo
+que ya estaba en la fila.
 
 #### Limitación conocida — pendiente con mes fuera del horizonte
 
