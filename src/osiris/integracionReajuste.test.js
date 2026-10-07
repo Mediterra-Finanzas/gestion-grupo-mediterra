@@ -824,3 +824,56 @@ describe("La diferencia contra el actual puede ser negativa", () => {
     expect(d.diferencia).toBeCloseTo(2518.2, 2);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+// Encontrado en el navegador, en la secuencia activar → desactivar →
+// cambiar la fecha → activar: el diálogo anunciaba "Filas que cambian: 0 ·
+// Diferencia US$ 0.00" y el total se movía 17.983,99. La previa simulaba la
+// activación conservando el SELLO ANTERIOR, mientras que `activar()` vuelve
+// a sellar con los términos cargados. Previa y acción calculaban cosas
+// distintas, y lo que el CFO confirmaba no era lo que se aplicaba.
+describe("La previa de una reactivación usa los términos de hoy, no el sello viejo", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const { previsualizarActivacion, activar, estadoActivacion } = require("./reajusteAplicado");
+
+  // Dado de baja, con un sello viejo que NO sirve, y términos nuevos cargados.
+  const conSelloViejo = () => CONTRATO({
+    reajusteActivacion: {
+      activado: false,
+      sello: { pct: 2, fechaReferencia: "", reglaFecha: "" },   // sello inservible
+      fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+      reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula 1.2.5",
+      historial: [{ evento: "activacion", autor: "X", fecha: "2026-10-05" },
+                  { evento: "desactivacion", autor: "X", fecha: "2026-10-06" }],
+    },
+  });
+  const base = (ct) => derivarRoyaltyComercialDesdeContratos(
+    [{ ...ct, reajusteActivacion: { ...(ct.reajusteActivacion || {}), activado: false } }], { ct_sint: [] });
+
+  test("la previa anuncia la diferencia real, no cero", () => {
+    const ct = conSelloViejo();
+    const prev = previsualizarActivacion(ct, base(ct), { mesCobro: ct.rcMesCobro });
+    expect(prev.filasQueCambian).toBe(4);
+    expect(prev.diferenciaAplicada).toBeCloseTo(25690.69, 2);
+  });
+
+  dCrear("y lo que se aplica coincide con lo anunciado", () => {
+    test("activar mueve exactamente lo que la previa dijo", () => {
+      const ct = conSelloViejo();
+      const prev = previsualizarActivacion(ct, base(ct), { mesCobro: ct.rcMesCobro });
+      const res = activar(ct, {
+        fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+        reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula 1.2.5",
+        puedeEditar: true, usuarioActual: USUARIO, confirmado: true,
+        impacto: prev.diferenciaAplicada,
+      });
+      expect(res.ok).toBe(true);
+      // El sello nuevo, no el viejo.
+      expect(res.contrato.reajusteActivacion.sello.fechaReferencia).toBe("2026-07-01");
+      expect(estadoActivacion(res.contrato).activo).toBe(true);
+      const antes = base(ct).reduce((s, f) => s + f.montoFact, 0);
+      const despues = filas(res.contrato).reduce((s, f) => s + f.montoFact, 0);
+      expect(r2(despues - antes)).toBeCloseTo(prev.diferenciaAplicada, 2);
+    });
+  });
+});

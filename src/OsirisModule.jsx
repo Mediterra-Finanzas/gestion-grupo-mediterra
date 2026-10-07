@@ -10102,7 +10102,14 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                             permiso dentro de la accion, identidad canonica, vista
                             previa y confirmacion explicita. */}
                         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                          {act.activo
+                          {/* El boton se elige por si EXISTE un registro, no por si la
+                              activacion esta vigente. Con un registro marcado pero no
+                              vigente -incompleto, o en conflicto con la configuracion
+                              antigua- la pantalla ofrecia "Activar", que no hace nada
+                              porque la accion lo bloquea. Lo que corresponde ofrecer es
+                              retirar ese registro, que es una operacion economica con su
+                              vista previa, su motivo y su confirmacion. */}
+                          {ra.activado===true
                             ? <button disabled={!can||!puedeDesactivar(r,{puedeEditar:can}).puede} onClick={()=>{
                                 const pm = puedeDesactivar(r,{puedeEditar:can});
                                 if(!pm.puede){ window.alert(pm.motivo); return; }
@@ -10111,13 +10118,25 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                 const pd = previsualizarDesactivacion(r, rcRowsBase, {mesCobro:r.rcMesCobro, antecedentesDe:antes});
                                 const lineas = pd.detalle.filter(x=>x.diferencia<0)
                                   .map(x=>`${x.temporada}: $${N(x.conReajuste.toFixed(2))} → $${N(x.sinReajuste.toFixed(2))}`).join("\n");
+                                // En conflicto, el motor NO esta usando este registro: usa la
+                                // configuracion antigua. Retirarlo no quita ese reajuste y no
+                                // mueve ningun importe, y la previa tiene que decirlo.
+                                const enConflicto = act.estado===REAJ_CONFLICTO;
+                                const encabezado = enConflicto
+                                  ? "Retirar este registro NO cambia los importes.\n\n"+
+                                    "La configuracion antigua ("+N(inflPct)+" %/año) sigue OPERANDO y es la que "+
+                                    "produce los importes actuales. Desactivar el registro nuevo no la quita.\n"+
+                                    "El registro, sus terminos y su historial se conservan, con constancia de la baja.\n\n"
+                                  : "Desactivar devuelve importes a la base.\n\n";
                                 const motivo = window.prompt(
-                                  "Desactivar devuelve importes a la base.\n\n"+lineas+
+                                  encabezado+lineas+
                                   "\n\nFilas que bajan: "+pd.filasQueBajan+
                                   "\nSe deja de aplicar: US$ "+Math.abs(pd.diferencia).toFixed(2)+
-                                  "\n\n¿Por que se desactiva? (obligatorio)");
+                                  "\n\n¿Por que se retira? (obligatorio)");
                                 if(!motivo||!motivo.trim()) return;
-                                const ok = window.confirm("¿Confirmas desactivar y dejar de aplicar US$ "+Math.abs(pd.diferencia).toFixed(2)+"?");
+                                const ok = window.confirm(enConflicto
+                                  ? "¿Confirmas retirar el registro? Los importes no cambian: la configuracion antigua sigue operando."
+                                  : "¿Confirmas desactivar y dejar de aplicar US$ "+Math.abs(pd.diferencia).toFixed(2)+"?");
                                 if(!ok) return;
                                 const res = desactivarReajuste(r,{motivo, usuarioActual, confirmado:true, impacto:pd.diferencia, puedeEditar:can});
                                 if(!res.ok){ window.alert(res.motivo); return; }

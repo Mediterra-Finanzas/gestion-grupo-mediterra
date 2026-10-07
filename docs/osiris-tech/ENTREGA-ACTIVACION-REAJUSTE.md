@@ -140,10 +140,55 @@ control con una garantía.
 
 **Dos cosas que quedan sin tocar, por estar fuera del alcance:**
 
+### Lo que encontró la revisión sobre el arreglo de D-N1
+
+El arreglo de D-N1 cerró el callejón sin salida, pero **abrió un camino peor**, y hubo que
+corregirlo dos veces.
+
+**Primer error.** La guarda pasó a mirar `estadoActivacion().activo`. Un contrato **en conflicto
+con la configuración antigua** tiene la activación registrada y `activo === false` —el motor usa
+la antigua—, así que la guarda no cortaba, y `puedeEditarTerminos` tampoco bloquea ese estado.
+Por ahí se podía **sobrescribir el sello** con un diálogo que anunciaba "US$ 0.00". El daño era
+**diferido**: aparecía el día que se retirara la configuración antigua.
+
+| | |
+|---|---|
+| Con el sello original | US$ 655.240,69 |
+| Con el sello resellado | US$ 644.861,66 |
+| **Diferencia diferida** | **−US$ 10.379,03**, confirmada como "US$ 0,00" |
+
+**Segundo error.** Se intentó afinar permitiendo el resello cuando el sello previo fuera
+"inservible". Tampoco corresponde: que un sello esté incompleto **no autoriza a sustituirlo en
+silencio**. Completarlo puede cambiar el efecto económico presente o futuro, y este paquete no
+tiene un flujo autorizado para eso.
+
+**Lo que quedó.** Si ya hay un registro, `activar()` no lo toca: ni para resellarlo ni para
+completarlo. El registro y su historial se conservan, y la acción explica por qué no procede. La
+pantalla deja de ofrecer "Activar" sobre un registro existente y ofrece **retirarlo**, que es una
+operación económica con su vista previa, su motivo y su confirmación.
+
+**Retirar conserva todo.** Términos, sello e historial quedan, más la constancia de la baja. Y en
+un contrato en conflicto la pantalla lo dice antes de pedir el motivo: *"Retirar este registro NO
+cambia los importes. La configuración antigua sigue OPERANDO y es la que produce los importes
+actuales. Desactivar el registro nuevo no la quita."* La vista previa refleja ese resultado real:
+cero filas bajan.
+
+> La retirada de la configuración antigua es **exclusivamente una prueba sintética**, no una
+> operación productiva autorizada.
+
+**La prueba reproduce la secuencia completa**, en un bloque que corre en las dos versiones:
+conflicto → intento de editar y activar → retirada sintética de la configuración antigua. Se
+comprueba que el sello original se conserva y que **no aparece** la diferencia diferida de
+US$ 10.379,03.
+
+### Riesgos residuales
+
 - **`activar()` acepta estados que no aplican nada** (conflicto con la configuración antigua,
   regla sin declarar, regla sin respaldo): devuelve `ok:true`, sella términos y escribe un
-  evento con impacto 0, aunque el motor después no aplique nada. Es **preexistente**, no lo
-  introdujo este paquete, y no mueve importes. Pero deja un sello y una entrada de bitácora de
+  evento con impacto 0, aunque el motor después no aplique nada. **Corregido**: `activar()` exige
+  los cuatro términos y valida la regla de fecha, y un registro existente no se toca. Lo que sí
+  es preexistente es que `puedeEditarTerminos` no bloquea el estado de conflicto; hoy eso no
+  permite resellar nada, porque la guarda lo impide. Pero deja un sello y una entrada de bitácora de
   una activación que no aplica. Conviene resolverlo antes de habilitar activaciones
   productivas.
 - **El ida y vuelta de la recuperación se afirma de un solo lado.** `TABLA_EDITADO` solo se
