@@ -213,6 +213,29 @@ export function clavesDuplicadas(emp) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// MARCADOR DE BUILD (solo lectura)
+// Para saber QUÉ versión está cargada sin tener que editar nada ni abrir la
+// consola: cuando algo no cuadra entre lo que se ve y lo que está en la base, lo
+// primero que hay que descartar es un bundle viejo en caché.
+// Orden de preferencia: el SHA del commit si el entorno de build lo inyectó; si
+// no, el nombre del archivo JS que sirvió la página. Nunca rompe el build ni el
+// render si nada de eso existe.
+// ═══════════════════════════════════════════════════════════════════
+export function marcadorBuild() {
+  try {
+    const env = (typeof process !== "undefined" && process.env) || {};
+    const sha = env.REACT_APP_COMMIT_SHA || env.REACT_APP_VERCEL_GIT_COMMIT_SHA || env.REACT_APP_GIT_SHA;
+    if (sha) return `build ${String(sha).slice(0, 7)}`;
+    if (typeof document !== "undefined") {
+      const srcs = [...document.querySelectorAll("script[src]")].map(e => e.getAttribute("src") || "");
+      const main = srcs.find(u => /main[.\-][\w]+\.js$/.test(u)) || srcs.find(u => /\.js($|\?)/.test(u));
+      if (main) return `bundle: ${main.split("/").pop()}`;
+    }
+  } catch (_) {}
+  return "build sin identificar";
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // SUPABASE
 // ═══════════════════════════════════════════════════════════════════
 const SUPA_URL = "https://bywovqayuzodbzwsriet.supabase.co";
@@ -12349,6 +12372,9 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const aplicadoRef = React.useRef(null);
   if(aplicadoRef.current === null) aplicadoRef.current = { params, saldos: saldosBancos };
 
+  // Qué versión del bundle está cargada (solo lectura, se calcula una vez).
+  const marcaBuild = useMemo(()=>marcadorBuild(),[]);
+
   // Migración de formato de la comisión de arándanos detectada al cargar (valor a
   // escribir) y marca de que ya se intentó en esta sesión.
   const migArandanosRef = React.useRef(null);
@@ -12368,22 +12394,36 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       // antiguos UNA vez, de forma determinista (hash del contenido y la posición,
       // prefijo `mig_`), idempotente, conservando todos los campos y sin tocar un id
       // existente.
-      // Se aplica EN MEMORIA al cargar, para que la pantalla trabaje con identidad
-      // firme desde el primer render. NO se escribe acá: escribir al abrir el módulo
-      // es justo lo que se corrigió. La escritura es un paso explícito del CFO
-      // (banner + botón), que pasa por el contrato de concurrencia.
-      let normalizado = d.allegria_params, pendiente = null;
+      //
+      // EL VALOR NORMALIZADO **NO** ENTRA EN `params` ACÁ. El estado se queda con lo
+      // que vino del servidor, tal cual, sin identidades. Antes se metía en memoria
+      // "para que la pantalla trabaje con identidad firme desde el primer render", y
+      // eso tenía dos consecuencias malas:
+      //   · el control de sustitución (`sinIdentidad = !e.id` en
+      //     ProgramasComerciales) se DESBLOQUEABA con identidades que el servidor
+      //     todavía no tenía: si después el guardado fallaba, quedaba una referencia
+      //     a un id inexistente;
+      //   · `normalizarIdentidadesAhora` recalculaba sobre ese estado ya normalizado,
+      //     obtenía `huboCambios:false`, limpiaba el aviso y volvía SIN ESCRIBIR. La
+      //     identidad quedaba guardada, cuando se guardaba, por el auto-save de
+      //     apertura: el resultado correcto por accidente, sin aviso y sin registro
+      //     en la auditoría (medido en navegador: aviso visible = false).
+      // Ahora acá solo se CALCULA y se deja en `normPendiente`. La identidad entra a
+      // `params` recién cuando el servidor confirmó la escritura, que es lo que
+      // desbloquea las sustituciones.
+      let pendiente = null;
       try {
         const idn = normalizarIdentidades(d.allegria_params);
-        normalizado = idn.valor;
         if(idn.huboCambios) pendiente = { cambios: idn.cambios, valor: idn.valor };
       } catch(e) {
         console.error("[identidades] no se pudo normalizar:", e);
       }
       // Se construye el valor y se guarda su identidad ANTES de setearlo: lo que
       // acaba de entrar viene del servidor, no de una edición, y el auto-save del
-      // blob no tiene que escribirlo de vuelta.
-      const paramsAplicados = {...defaultParams(),...normalizado};
+      // blob no tiene que escribirlo de vuelta. Al no llevar identidades, lo que
+      // escribiría ese auto-save es lo mismo que leyó: ya no puede "completar" la
+      // migración de rebote.
+      const paramsAplicados = {...defaultParams(),...d.allegria_params};
       aplicadoRef.current = {...aplicadoRef.current, params: paramsAplicados};
       setParams(paramsAplicados);
       setNormPendiente(pendiente);
@@ -12772,55 +12812,67 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // permiso, el contrato de concurrencia optimista y el estado visible. No se
   // persiste tras una carga fallida porque `cargaOkRef` sigue en false.
   //
-  // LO QUE DECIDE SI SE ESCRIBE ES `normPendiente`, NO EL RECÁLCULO.
-  // `applyData` ya dejó el estado normalizado EN MEMORIA, así que recalcular
-  // sobre el estado vivo devuelve `huboCambios:false` casi siempre. Antes se
-  // interpretaba eso como "no hay nada que guardar", se limpiaba el banner y se
-  // volvía SIN escribir: la identidad quedaba solo en memoria y la pantalla decía
-  // que había funcionado. En producción el CFO abrió el módulo y las 29
-  // estimaciones de Allegria siguieron sin `id` en la base.
-  // `huboCambios:false` significa "no hay nada MÁS que normalizar". Lo que hay que
-  // guardar es lo que la CARGA encontró, que es justo lo que `normPendiente`
-  // representa: mientras esté puesto, el servidor todavía tiene los registros sin
-  // identidad y hay que escribir.
-  // Es idempotente: si la fila ya quedó con las identidades en el servidor, el
-  // guardia canónico del contrato no emite PATCH y devuelve `{ok:true,
-  // sinCambios:true}` — eso es éxito y el banner se retira igual.
+  // LO QUE DECIDE SI SE ESCRIBE ES `normPendiente`, NO UN RECÁLCULO.
+  // `normPendiente` lo pone la CARGA cuando encontró registros sin identidad, y se
+  // escribe `normPendiente.valor`: el mismo valor normalizado que el aviso le está
+  // mostrando al CFO. Antes se recalculaba sobre `paramsRef.current`, que
+  // `applyData` ya había normalizado en memoria, así que `huboCambios` salía false,
+  // se limpiaba el aviso y se volvía SIN escribir; la identidad terminaba guardada,
+  // cuando se guardaba, por el auto-save de apertura. Correcto por accidente.
+  //
+  // El aviso se retira SOLO con la confirmación del servidor (`r && r.ok`), y recién
+  // ahí la identidad entra a `params`: eso es lo que desbloquea el control de
+  // sustitución, y no puede desbloquearse contra identidades que el servidor no
+  // tiene. Si falla por red, por HTTP o por conflicto, el aviso queda con su botón,
+  // el estado visible queda en error o en conflicto y las sustituciones siguen
+  // bloqueadas.
+  //
+  // Idempotencia: si la fila ya trae las identidades, la carga no encuentra nada,
+  // `normPendiente` no se pone y no hay aviso ni escritura. Si el servidor ya quedó
+  // con este mismo valor, el guardia canónico del contrato devuelve `{ok:true,
+  // sinCambios:true}` y eso también es éxito.
   const normalizarIdentidadesAhora = useCallback(async ()=>{
     if(!normPendiente) return;
     setNormBusy(true);
     try {
-      // Se recalcula sobre el estado VIVO, no sobre la foto de la carga: el CFO
-      // pudo editar algo entremedio y esa edición no se puede perder. Si entremedio
-      // nació otro registro sin id, este recálculo lo incluye.
-      const idn = normalizarIdentidades(paramsRef.current || {});
-      // Cuenta HONESTA para el usuario y para la auditoría: los que encontró la
-      // carga (29) más los que aparecieron después. El recálculo solo aporta los
-      // nuevos, porque la memoria ya venía normalizada.
-      const cambios = [
-        ...(normPendiente.cambios || []),
-        ...(idn.huboCambios ? (idn.cambios || []) : []),
-      ];
-      const r = await persistAll({ allegria_params: idn.valor });
+      // Normalmente se escribe EXACTAMENTE lo que calculó la carga: así las
+      // identidades que quedan en el servidor son las mismas que el CFO vio en el
+      // aviso, sin depender de que el hash determinista dé igual sobre un objeto
+      // que entremedio pasó por `defaultParams()`.
+      // Caso aparte: si el CFO editó algo entre la carga y el reintento del botón,
+      // `params` ya no es el objeto que aplicó la carga, y escribir la foto de la
+      // carga BORRARÍA esa edición. Ahí se normaliza sobre el estado vivo, que no
+      // tiene identidades (ver `applyData`), así que el recálculo sí encuentra
+      // trabajo y la edición se conserva.
+      const huboEdicion = paramsRef.current !== (aplicadoRef.current && aplicadoRef.current.params);
+      let valor = normPendiente.valor;
+      if(huboEdicion){
+        const idn = normalizarIdentidades(paramsRef.current || {});
+        valor = idn.valor;
+      }
+      const cuantos = (normPendiente.cambios || []).length;
+      const r = await persistAll({ allegria_params: valor });
       if(r && r.ok){
-        const nuevos = {...(paramsRef.current||{}), ...idn.valor};
-        // El auto-save del blob no tiene que volver a escribir lo mismo por este
+        // RECIÉN ACÁ la identidad entra a `params`.
+        const nuevos = {...defaultParams(), ...valor};
+        // El auto-save del blob no tiene que escribir de nuevo lo mismo por este
         // cambio de identidad de `params` (ver `aplicadoRef`).
         aplicadoRef.current = {...aplicadoRef.current, params: nuevos};
         setParams(nuevos);
         setNormPendiente(null);
-        setSaved(`✅ ${cambios.length} registros quedaron con identificador propio.`);
+        setSaved(`✅ ${cuantos} registros quedaron con identificador propio.`);
         setTimeout(()=>setSaved(null),6000);
         try {
           if(window.auditLog) window.auditLog({
             modulo:"finanzas", accion:"normalizar_identidades",
-            detalle:`${cambios.length} registros sin id recibieron identidad`,
-            cambios, usuario: usuarioActual?.nombre || "",
+            detalle:`${cuantos} registros sin id recibieron identidad`,
+            cambios: normPendiente.cambios || [], usuario: usuarioActual?.nombre || "",
           });
         } catch(_){}
       }
       // Si no se confirmó, `persistAll` ya dejó el aviso y el estado en error o en
-      // conflicto. El banner sigue puesto: la normalización NO se declara hecha.
+      // conflicto. El banner sigue puesto: la normalización NO se declara hecha y
+      // las sustituciones siguen bloqueadas.
       return r;
     } finally { setNormBusy(false); }
   },[normPendiente, persistAll, usuarioActual]); // eslint-disable-line
@@ -13535,6 +13587,12 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
               onError={e=>{e.target.style.display="none";}}/>
           </div>
           <div style={{fontSize:10,color:"rgba(255,255,255,0.7)"}}>Apr-2026 → Jun-2031 · 64 meses · USD</div>
+          {/* Qué versión está cargada. Solo lectura: no hay que editar nada para
+              poder descartar un bundle viejo en caché. */}
+          <div data-testid="marcador-build" title="Versión de la aplicación cargada en este navegador"
+            style={{fontSize:9,color:"rgba(255,255,255,0.45)",fontFamily:"ui-monospace, monospace",whiteSpace:"nowrap"}}>
+            {marcaBuild}
+          </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           {saved&&<span style={{fontSize:11,color:"rgba(255,255,255,0.85)",background:"rgba(255,255,255,0.1)",

@@ -154,19 +154,22 @@ async function dbSave(value) {
       const minUsers = 6; // WORKERS_BASE tiene 6 usuarios mínimo
       if(usrs.length < minUsers) {
         console.warn(`[dbSave] ⚠️ BLOQUEADO: usuarios pasó de ${minUsers}+ a ${usrs.length}. No se permite reducir por debajo de WORKERS_BASE.`);
-        return;
+        // Se devuelve un resultado de FALLO (antes era `return;` → undefined, y el
+        // .then del auto-save lo leía como éxito y mostraba "✅ Guardado" sin que
+        // se hubiera escrito nada).
+        return { ok:false, motivo:"anti_perdida", detalle:"usuarios bajo el piso de WORKERS_BASE" };
       }
       const prevCount = window._lastSavedUsersCount || minUsers;
       if(usrs.length < prevCount) {
         console.warn(`[dbSave] ⚠️ BLOQUEADO: usuarios pasó de ${prevCount} a ${usrs.length}. Posible pérdida.`);
-        return;
+        return { ok:false, motivo:"anti_perdida", detalle:"la lista de usuarios se redujo" };
       }
       window._lastSavedUsersCount = usrs.length;
       // Verificar que ningún usuario de WORKERS_BASE perdió sus permisos
       const admins = usrs.filter(u=>u.rol==="admin");
       if(admins.length === 0) {
         console.warn("[dbSave] ⚠️ BLOQUEADO: no hay ningún admin. Se requiere al menos 1 administrador.");
-        return;
+        return { ok:false, motivo:"anti_perdida", detalle:"ningún administrador" };
       }
     }
     // F0-B: la escritura pasa por el contrato compartido → PATCH condicionado
