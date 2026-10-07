@@ -168,3 +168,18 @@ describe('InputNumero en pantalla', () => {
     expect(vistos).toEqual([0.125]);
   });
 });
+
+describe("entrar y salir sin escribir no es un cambio", () => {
+  const React = require("react");
+  const { render, fireEvent } = require("@testing-library/react");
+  const InputNumero = require("../InputNumero.jsx").default;
+  test("foco + blur sin teclear: no llama onChange; teclear sí", () => {
+    const onChange = jest.fn();
+    const { container } = render(React.createElement(InputNumero, { value: "17433", onChange }));
+    const inp = container.querySelector("input");
+    fireEvent.focus(inp); fireEvent.blur(inp);
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.focus(inp); fireEvent.change(inp, { target: { value: "18000" } }); fireEvent.blur(inp);
+    expect(onChange).toHaveBeenCalledWith(18000);
+  });
+});
