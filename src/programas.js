@@ -621,6 +621,9 @@ export function resumenLado({
     // `excedente` (excedenteReal + excesoCompromisos) se retiró a propósito:
     // son dos números distintos y la regla prohíbe sumarlos.
     detalle, faltanDatos, sobreSustitucion, sinAsignarUsd,
+    // Referencias a identificadores que no existen: una sustitución contra un
+    // id inexistente no sustituye nada. Se muestra; nunca se ignora en silencio.
+    referenciasInvalidas: referenciasInvalidas({ estimaciones, programas, lado }),
     programasFuera: fuera,
     // ── cuadre nuevo ──────────────────────────────────────────────
     posiciones, bloque, todas,
@@ -1465,6 +1468,10 @@ export function referenciasInvalidas({
   progs.forEach(p => p.cuotas.forEach(c => {
     (c.sustituye || []).forEach(sx => {
       const idRef = (sx && sx.estimacionId) || "";
+      // Una sustitución sin referencia NO llega hasta acá: `normalizarCuota` la
+      // descarta (filter sobre `estimacionId`). Declararla es imposible desde la
+      // pantalla, que bloquea el control cuando la estimación no tiene identidad
+      // todavía: es la única forma de que el monto no quede proyectado dos veces.
       if (!idRef || idsEst.has(idRef)) return;
       out.push({
         tipo: "sustitucion", clase: "estimacion", lado: p.lado,

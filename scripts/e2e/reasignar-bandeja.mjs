@@ -351,11 +351,26 @@ console.log('\n=== 8 · estado visible del guardado y salir del módulo ===');
   const contar = (r) => { if (r.method() === 'PATCH' && /calendario_data/.test(r.url())) patches++; };
   page.on('request', contar);
 
+  // Para poder OBSERVAR el estado "Guardando..." se retrasa a propósito la
+  // respuesta del PATCH: contra el servidor falso la escritura es instantánea y
+  // el muestreo no alcanza a verla. El retraso se quita después.
+  // El indicador de un bloque anterior tarda 2 s en borrarse: se espera a que la
+  // pantalla quede limpia antes de medir.
+  for (let i = 0; i < 80; i++) {
+    if (!/Guardando\.\.\.|(^|\n)\s*Guardado\s*(\n|$)/.test(await texto())) break;
+    await esperar(50);
+  }
+  let frenar = true;
+  await ctx.route('**bywovqayuzodbzwsriet.supabase.co/**', async (route) => {
+    if (frenar && route.request().method() === 'PATCH') await new Promise(r => setTimeout(r, 1200));
+    await route.fallback();
+  });
+
   // (a) Estado visible: se registra un movimiento nuevo en la bandeja y se mira
   // el indicador ANTES de que termine el guardado.
   const antesEstado = JSON.stringify(filaFinanzas().movimientos_sin_asignar || []);
   {
-    const b = bandeja().getByRole('button', { name: /registrar un movimiento/i });
+    const b = bandeja().getByRole('button', { name: /sin operación identificada/i });
     if (await b.count()) {
       await b.first().click(); await esperar(300);
       const form = bandeja();
@@ -364,40 +379,56 @@ console.log('\n=== 8 · estado visible del guardado y salir del módulo ===');
       await monto.fill(''); await monto.type('11000'); await monto.blur();
       await form.locator('input[placeholder="referencia / cartola"]').first().fill('cartola 9020');
       await form.getByRole('button', { name: /^Guardar$/ }).first().click();
-      // El indicador tiene que aparecer: "Guardando..." o ya "Guardado".
-      let visto = '';
-      for (let i = 0; i < 30; i++) {
-        const t = await texto();
-        const m = t.match(/Guardando\.\.\.|No se guardó[^\n]*/);
-        if (m) { visto = m[0]; break; }
-        await esperar(60);
-      }
+      // Se mira la SECUENCIA, no un instante: primero "Guardando..." (el PATCH
+      // está frenado 1,2 s a propósito) y después "Guardado", que aparece solo
+      // cuando el servidor confirmó y se borra solo a los 2 s.
+      const esperarTexto = async (re, intentos) => {
+        for (let i = 0; i < intentos; i++) {
+          if (re.test(await texto())) return true;
+          await esperar(50);
+        }
+        return false;
+      };
+      const vioGuardando = await esperarTexto(/Guardando\.\.\./, 60);
       check('ESPERADO: la operación muestra "Guardando..." mientras está en vuelo',
-            /^Guardando/.test(visto), visto || '(no apareció el indicador)');
-      await esperar(1200);
-      const t2 = await texto();
-      check('ESPERADO: y pasa a "Guardado" cuando el servidor confirmó',
-            /Guardado/.test(t2) || /11\.?000/.test(t2),
-            (t2.match(/Guardando\.\.\.|Guardado|No se guardó[^\n]*/) || ['(sin indicador)'])[0]);
+            vioGuardando, vioGuardando ? 'Guardando...' : '(no apareció el indicador)');
+      const vioGuardado = await esperarTexto(/(^|\n)\s*Guardado\s*(\n|$)/, 80);
+      const vioError = /No se guardó/.test(await texto());
+      check('ESPERADO: y pasa a "Guardado" cuando el servidor confirmó, sin pasar por error',
+            vioGuardado && !vioError,
+            `guardando=${vioGuardando} guardado=${vioGuardado} error=${vioError}`);
+      // Recién ahora se mira el servidor: el PATCH venía frenado, así que antes
+      // de que "Guardado" apareciera el dato legítimamente no estaba escrito.
+      for (let i = 0; i < 60; i++) {
+        if ((filaFinanzas().movimientos_sin_asignar || []).some(m => Number(m.usd) === 11000)) break;
+        await esperar(100);
+      }
       check('ESPERADO: el movimiento quedó en el servidor, no solo en pantalla',
             (filaFinanzas().movimientos_sin_asignar || []).some(m => Number(m.usd) === 11000),
             JSON.stringify((filaFinanzas().movimientos_sin_asignar || []).map(m => m.usd)));
     } else {
-      check('ESPERADO: la bandeja ofrece registrar un movimiento', false, '(no se encontró el botón)');
+      check('ESPERADO: la bandeja ofrece registrar un movimiento sin operación identificada', false, '(no se encontró el botón)');
     }
   }
   check('ESPERADO: el estado del servidor cambió respecto del inicio del bloque',
         JSON.stringify(filaFinanzas().movimientos_sin_asignar || []) !== antesEstado);
+
+
+  frenar = false;   // el resto del bloque corre a velocidad normal
 
   // (b) Salir del módulo dentro de la ventana del debounce. Se anula el
   // movimiento recién creado y se vuelve al Hub de inmediato (sin esperar los
   // 800 ms): la anulación TIENE que llegar igual al servidor.
   const patchesAntes = patches;
   {
+    // Se ubica el botón por la FILA del movimiento, no por índice: un movimiento
+    // anulado no dibuja botones, así que el índice del arreglo no corresponde al
+    // del botón.
+    const fila11 = bandeja().locator('div').filter({ hasText: /\$11,000/ }).last();
+    const botones = fila11.getByRole('button', { name: /^anular$/ });
     const idx = (filaFinanzas().movimientos_sin_asignar || []).findIndex(m => Number(m.usd) === 11000);
-    const botones = bandeja().getByRole('button', { name: /^anular$/ });
-    if (idx >= 0 && await botones.count() > idx) {
-      await botones.nth(idx).click(); await esperar(400);
+    if (idx >= 0 && await botones.count() > 0) {
+      await botones.first().click(); await esperar(400);
       await bandeja().locator('input[placeholder="motivo de la anulación"]').first()
         .fill('prueba de salida con guardado pendiente');
       await bandeja().getByRole('button', { name: /^Anular$/ }).first().click();
@@ -411,8 +442,8 @@ console.log('\n=== 8 · estado visible del guardado y salir del módulo ===');
       check('ESPERADO: y se escribió de verdad (hubo un PATCH tras salir)',
             patches > patchesAntes, `${patchesAntes} → ${patches}`);
     } else {
-      check('ESPERADO: el movimiento de 11.000 está en la bandeja para anularlo', false,
-            `idx=${idx}`);
+      check('ESPERADO: el movimiento de 11.000 está en la bandeja con su botón anular',
+            false, `idx=${idx} · botones=${await botones.count()}`);
     }
   }
   page.off('request', contar);

@@ -202,6 +202,7 @@ export function crearPersistencia(opts = {}) {
   // id -> { version, valorServidor, ts, motivoOrigen }
   const _conflicto = new Map();
   const _ultimoMotivo = new Map(); // id -> último motivo de fallo (para la UI)
+  const _enVuelo = new Map();      // id -> guardados encolados/en vuelo (indicador "guardando…")
   // Cola de coalescencia por id (req 9/10): cadena de promesas + último valor deseado + generación.
   const _cadena = new Map();   // id -> Promise
   const _deseado = new Map();  // id -> { value, opts }
@@ -489,24 +490,29 @@ export function crearPersistencia(opts = {}) {
   // contiene). El estado dirty se limpia solo cuando el servidor confirma.
   function saveConfirmed(id, computeNext, options = {}) {
     _dirty.set(id, true);
+    _enVuelo.set(id, (_enVuelo.get(id) || 0) + 1);   // "guardando…" desde el encolado
     const miGen = (_gen.get(id) || 0) + 1;
     _gen.set(id, miGen);
     _deseado.set(id, { value: computeNext, opts: options });
 
     const previa = _cadena.get(id) || Promise.resolve();
     const corrida = previa.then(async () => {
-      // ¿Me superó una edición posterior mientras esperaba en la cola?
-      if (_gen.get(id) !== miGen) {
-        return { ok: true, superseded: true, id };
+      try {
+        // ¿Me superó una edición posterior mientras esperaba en la cola?
+        if (_gen.get(id) !== miGen) {
+          return { ok: true, superseded: true, id };
+        }
+        const d = _deseado.get(id);
+        const res = await _guardarUnaVez(id, d.value, d.opts || {});
+        // Solo se limpia el "sucio" si YO era la última solicitud y el backend confirmó.
+        if (_gen.get(id) === miGen) {
+          if (res.ok) _dirty.set(id, false);
+          else _dirty.set(id, true); // sigue sucio hasta que alguien logre confirmar (req 2)
+        }
+        return { ...res, id };
+      } finally {
+        _enVuelo.set(id, Math.max(0, (_enVuelo.get(id) || 1) - 1));
       }
-      const d = _deseado.get(id);
-      const res = await _guardarUnaVez(id, d.value, d.opts || {});
-      // Solo se limpia el "sucio" si YO era la última solicitud y el backend confirmó.
-      if (_gen.get(id) === miGen) {
-        if (res.ok) _dirty.set(id, false);
-        else _dirty.set(id, true); // sigue sucio hasta que alguien logre confirmar (req 2)
-      }
-      return { ...res, id };
     });
     // La cadena nunca rechaza (los errores viajan como {ok:false}), para no romper
     // la serialización del id.
@@ -637,19 +643,85 @@ export function crearPersistencia(opts = {}) {
 
   // ── utilidades ───────────────────────────────────────────────────────────────
   function isDirty(id) { return !!_dirty.get(id); }
+  // Filas con edición local que el servidor aún NO confirmó. Para el "¿salís sin
+  // guardar?" y para el indicador global de la UI. Solo lectura.
+  function idsSucios() { return [..._dirty.entries()].filter(([, v]) => v).map(([k]) => k); }
+  // Filas en conflicto pendiente (nadie eligió todavía entre las dos salidas).
+  function idsEnConflicto() { return [..._conflicto.keys()]; }
+  // El conflicto pendiente de una fila, o null. Incluye el valor del servidor para
+  // que la UI pueda mostrar/comparar sin volver a leer.
+  function conflictoPendiente(id) {
+    const c = _conflicto.get(id);
+    return c ? { version: c.version, valorServidor: clonarValor(c.valorServidor), ts: c.ts, motivoOrigen: c.motivoOrigen, conflictos: c.conflictos } : null;
+  }
   function marcarSucio(id) { _dirty.set(id, true); }
   function marcarLimpio(id) { _dirty.set(id, false); }
-  function estado(id) { return { version: _version.get(id), base: _base.get(id), cargaOk: !!_cargaOk.get(id), dirty: !!_dirty.get(id), encoding: _encoding.get(id) || null }; }
+  // Estado por fila para la UI (guardando/guardado/error). Las claves viejas
+  // (version/base/cargaOk/dirty/encoding) se conservan; las nuevas son aditivas.
+  function estado(id) {
+    const c = _conflicto.get(id) || null;
+    return {
+      version: _version.get(id), base: _base.get(id), cargaOk: !!_cargaOk.get(id),
+      dirty: !!_dirty.get(id), encoding: _encoding.get(id) || null,
+      sucio: !!_dirty.get(id),
+      conflictoPendiente: !!c,
+      conflicto: c ? { version: c.version, ts: c.ts, motivoOrigen: c.motivoOrigen, conflictos: c.conflictos } : null,
+      ultimoMotivo: _ultimoMotivo.get(id) || null,
+      enVuelo: (_enVuelo.get(id) || 0) > 0,
+      guardadosEnVuelo: _enVuelo.get(id) || 0,
+      servidorConocido: _servidor.has(id),
+    };
+  }
   function reset(id) {
-    if (id === undefined) { _version.clear(); _base.clear(); _cargaOk.clear(); _dirty.clear(); _cadena.clear(); _deseado.clear(); _gen.clear(); _encoding.clear(); }
-    else { _version.delete(id); _base.delete(id); _cargaOk.delete(id); _dirty.delete(id); _cadena.delete(id); _deseado.delete(id); _gen.delete(id); _encoding.delete(id); }
+    if (id === undefined) { _version.clear(); _base.clear(); _servidor.clear(); _conflicto.clear(); _ultimoMotivo.clear(); _cargaOk.clear(); _dirty.clear(); _cadena.clear(); _deseado.clear(); _gen.clear(); _encoding.clear(); _enVuelo.clear(); }
+    else { _version.delete(id); _base.delete(id); _servidor.delete(id); _conflicto.delete(id); _ultimoMotivo.delete(id); _cargaOk.delete(id); _dirty.delete(id); _cadena.delete(id); _deseado.delete(id); _gen.delete(id); _encoding.delete(id); _enVuelo.delete(id); }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // API PÚBLICA (lo agregado en oct-2026 va marcado NUEVO; nada cambió de firma)
+  //
+  //  load(id)                                  → {ok,existe,value,version}  · lanza
+  //  registrarCarga(id, valor, version, encoding[, valorServidor])
+  //        NUEVO 5º argumento OPCIONAL: el valor CRUDO de la fila cuando `valor` está
+  //        transformado en memoria. Sin él, el guardia "sin cambios" no actúa.
+  //  saveConfirmed(id, computeNext, options)    → {ok, motivo?, value?, version?,
+  //        fusionado?, sinCambios?, noEscrito?, superseded?, conflictoPendiente?,
+  //        valorServidor?}
+  //        options: { merge?, intentos?, forzar? }   · NUEVO `forzar`: escribe aunque
+  //        el valor sea idéntico al confirmado por el servidor (siembras/migraciones).
+  //  flush(id)                                  → {ok, confirmado, pendiente,
+  //        conflicto, motivo, version, id}      · NUEVO: `confirmado`/`conflicto`/`motivo`
+  //  reconcileIncoming(id, remoteValue, remoteVersion, o)
+  //                                             → {apply, value?, version,
+  //        motivo?, conflictoPendiente?, valorServidor?}
+  //
+  //  NUEVO · salidas explícitas del conflicto pendiente (las DOS únicas):
+  //  recuperarDelServidor(id)                   → {ok, value, version, existe,
+  //        descartaLocal:true} | {ok:false, motivo}        (a) descarta lo local
+  //  reconciliarConservandoLocal(id[, computeNext][, options])
+  //        sin computeNext → {ok:true, desbloqueado:true, version, valorServidor}
+  //        con computeNext → resultado de saveConfirmed sobre la versión vigente
+  //                                                        (b) conserva lo local
+  //
+  //  NUEVO · lo que la pantalla necesita para "guardando / guardado / error":
+  //  estado(id) → { version, base, cargaOk, dirty, encoding,          (ya existían)
+  //                 sucio, conflictoPendiente, conflicto:{version,ts,motivoOrigen,
+  //                 conflictos}|null, ultimoMotivo, enVuelo, guardadosEnVuelo,
+  //                 servidorConocido }
+  //  idsSucios()          → [id]   filas con cambios locales sin confirmar
+  //  idsEnConflicto()     → [id]   filas bloqueadas esperando decisión
+  //  conflictoPendiente(id) → {version, valorServidor, ts, motivoOrigen, conflictos}|null
+  //  canonico(v)          → huella JSON de claves ordenadas (comparar sin orden)
+  //  MOTIVOS.CONFLICTO_PENDIENTE = "conflicto_pendiente"
+  // ═══════════════════════════════════════════════════════════════════════════
   return {
     load, registrarCarga, saveConfirmed, flush, reconcileIncoming,
-    isDirty, marcarSucio, marcarLimpio, estado, reset,
+    // Salidas explícitas del conflicto pendiente (las DOS únicas).
+    recuperarDelServidor, reconciliarConservandoLocal,
+    isDirty, idsSucios, idsEnConflicto, conflictoPendiente,
+    marcarSucio, marcarLimpio, estado, reset,
     // helpers expuestos (fusión por ítem para casos avanzados)
-    fusionarPorId, esListaFusionable, MOTIVOS,
+    fusionarPorId, esListaFusionable, MOTIVOS, canonico,
     _leerFila, // solo diagnóstico/test
   };
 }
@@ -670,6 +742,15 @@ export function construirAvisoDesde(id, resultado, etiqueta) {
     return { id, tipo: "conflicto", conflictos: r.conflictos || [],
       texto: `No se guardó ${nombre}: otra persona editó al mismo tiempo ${n === 1 ? "el mismo registro" : "los mismos registros"} que tú. ` +
              `Para no borrar su trabajo se conservó lo que está en el servidor. Anota tu cambio, recarga la página y vuelve a aplicarlo.` };
+  }
+  if (r.motivo === MOTIVOS.CONFLICTO_PENDIENTE) {
+    // La fila está bloqueada a propósito: ya hubo un conflicto y nadie eligió qué
+    // hacer. El texto no dice "recargá" porque recargar perdería lo local: dice que
+    // hay que decidir (las dos salidas las ofrece el caller).
+    return { id, tipo: "conflicto", conflictoPendiente: true,
+      texto: `No se guardó ${nombre}: otra persona lo modificó y el conflicto sigue sin resolver. ` +
+             `Tus cambios siguen en pantalla y NO se están guardando. Tenés que elegir: traer la versión del ` +
+             `servidor (se descarta lo tuyo) o guardar lo tuyo encima de la versión del servidor.` };
   }
   if (r.motivo === MOTIVOS.CONFLICTO) {
     return { id, tipo: "conflicto",

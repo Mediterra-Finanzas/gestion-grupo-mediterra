@@ -26,7 +26,7 @@ import {
   cuotaAcordado, cuotaPendiente, cuotaRealizado, estPendiente, estDisponible,
   estSobreSustituida, efectoImputacion, imputarMovimiento, moverRealizacion,
   archivarPrograma, tieneHistorial, nuevoIdPrograma, nuevoIdCuota, esDato,
-  MODELO_VERSION,
+  MODELO_VERSION, normalizarIdentidades,
 } from './programas.js';
 import ProgramasPanel, { ResumenLado } from './ProgramasComerciales.jsx';
 
@@ -1883,7 +1883,9 @@ function AnticipList({items,onChange,label,meses=MESES_65,base=0,tipo="cliente",
 
   // `v: MODELO_VERSION` al crear: una estimación nueva sin mes queda reservada
   // (pendiente de calendarizar), no se trata como registro antiguo.
-  const addRow=()=>onChange([...lista, normalizarAnticipo({mes:"",usd_kg:0,v:MODELO_VERSION})]);
+  // `id` al CREAR: los normalizadores ya no acuñan identidad (corren en cada
+  // render). Sin esto la estimación nacería sin id y no sería referenciable.
+  const addRow=()=>onChange([...lista, normalizarAnticipo({id:nuevoIdAnticipo(),mes:"",usd_kg:0,v:MODELO_VERSION})]);
   const updRow=(i,field,val)=>{const n=[...lista];n[i]={...normalizarAnticipo(n[i]),[field]:val};onChange(n);};
   const delRow=i=>{
     const a=lista[i];
@@ -12037,6 +12039,12 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // Conflicto pendiente de la fila: { valorServidor, version } + las DOS salidas
   // explícitas. Mientras está puesto, el contrato no escribe nada.
   const [conflictoFila,setConflictoFila]=useState(null);
+  // Registros antiguos sin identificador detectados al cargar: { cambios, valor }.
+  // Se normalizan en memoria y la ESCRITURA es un paso explícito (ver banner).
+  const [normPendiente,setNormPendiente]=useState(null);
+  const [normBusy,setNormBusy]=useState(false);
+  const normPendienteRef   = React.useRef(null);
+  const migrarIdentidadesRef = React.useRef(null);
   // ── Escenarios (workspaces paralelos del flujo) ──
   // escActivo: null = Base (original, fila "finanzas"); si no, id del escenario.
   const [escenarios,setEscenarios]=useState([]);   // [{id,name,createdAt}]
@@ -12306,7 +12314,29 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     if(d?.finanzas_real) setRealData(d.finanzas_real);
     else if(d?.calendario_data) setRealData(d.calendario_data);
     else if(d&&!d.calendario_data&&!d.allegria_params&&!d.finanzas_real) setRealData(d);
-    if(d?.allegria_params) setParams(prev=>({...defaultParams(),...d.allegria_params}));
+    if(d?.allegria_params) {
+      // IDENTIDAD ESTABLE. Los normalizadores del modelo ya NO acuñan `id` (corrían
+      // en cada render, así que un registro guardado sin id recibía uno nuevo cada
+      // vez y una sustitución declarada contra él proyectaba el mismo dinero dos
+      // veces, sin aviso). `normalizarIdentidades` asigna identidad a los registros
+      // antiguos UNA vez, de forma determinista (hash del contenido y la posición,
+      // prefijo `mig_`), idempotente, conservando todos los campos y sin tocar un id
+      // existente.
+      // Se aplica EN MEMORIA al cargar, para que la pantalla trabaje con identidad
+      // firme desde el primer render. NO se escribe acá: escribir al abrir el módulo
+      // es justo lo que se corrigió. La escritura es un paso explícito del CFO
+      // (banner + botón), que pasa por el contrato de concurrencia.
+      let normalizado = d.allegria_params, pendiente = null;
+      try {
+        const idn = normalizarIdentidades(d.allegria_params);
+        normalizado = idn.valor;
+        if(idn.huboCambios) pendiente = { cambios: idn.cambios, valor: idn.valor };
+      } catch(e) {
+        console.error("[identidades] no se pudo normalizar:", e);
+      }
+      setParams(prev=>({...defaultParams(),...normalizado}));
+      setNormPendiente(pendiente);
+    }
     if(d?.allegria_comision_arandanos) {
       setAllegraComisionArandanos(d.allegria_comision_arandanos);
     } else {
@@ -12392,6 +12422,16 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           }
         }).catch(()=>{});
         cargaOkRef.current = true; setLoading(false);
+        // MIGRACIÓN DECLARADA de identificadores. Se corre UNA vez, recién
+        // después de una carga exitosa (si la carga falla, `cargaOkRef` queda en
+        // false y no se escribe nada), y es idempotente. No es una escritura
+        // silenciosa al abrir: va con estado visible y deja su registro; el
+        // banner solo desaparece cuando el servidor confirmó.
+        // Se hace acá y no en el auto-save porque la identidad tiene que quedar
+        // guardada ANTES de poder declarar una sustitución contra un registro
+        // antiguo. Hasta que esté, la pantalla bloquea ese control.
+        // El disparo va en un efecto propio (más abajo): `setNormPendiente` de
+        // `applyData` todavía no se reflejó en este mismo tick.
       })
       .catch(e=>{ console.error("[Finanzas] Carga falló — GUARDADO DESHABILITADO esta sesión (no se sobrescribe Supabase):", e); setLoading(false); });
 
@@ -12648,9 +12688,56 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     return res;
   },[]); // eslint-disable-line
 
+  // ── Normalización controlada de identificadores ───────────────────────────────
+  // Paso EXPLÍCITO, no automático. Escribe la identidad que ya está en memoria
+  // usando `persistAll`, así hereda el gate anti-borrado (`cargaOkRef`), el de
+  // permiso, el contrato de concurrencia optimista y el estado visible. No se
+  // persiste tras una carga fallida porque `cargaOkRef` sigue en false.
+  // Es idempotente: si se corre dos veces, la segunda no encuentra cambios.
+  const normalizarIdentidadesAhora = useCallback(async ()=>{
+    if(!normPendiente) return;
+    setNormBusy(true);
+    try {
+      // Se recalcula sobre el estado VIVO, no sobre la foto de la carga: el CFO
+      // pudo editar algo entremedio y esa edición no se puede perder.
+      const idn = normalizarIdentidades(paramsRef.current || {});
+      if(!idn.huboCambios){ setNormPendiente(null); return; }
+      const r = await persistAll({ allegria_params: idn.valor });
+      if(r && r.ok){
+        setParams(prev=>({...prev, ...idn.valor}));
+        setNormPendiente(null);
+        setSaved(`✅ ${idn.cambios.length} registros quedaron con identificador propio.`);
+        setTimeout(()=>setSaved(null),6000);
+        try {
+          if(window.auditLog) window.auditLog({
+            modulo:"finanzas", accion:"normalizar_identidades",
+            detalle:`${idn.cambios.length} registros sin id recibieron identidad`,
+            cambios: idn.cambios, usuario: usuarioActual?.nombre || "",
+          });
+        } catch(_){}
+      }
+      // Si no se confirmó, `persistAll` ya dejó el aviso y el estado en error o en
+      // conflicto. El banner sigue puesto: la normalización NO se declara hecha.
+      return r;
+    } finally { setNormBusy(false); }
+  },[normPendiente, persistAll, usuarioActual]); // eslint-disable-line
+
   // Mantiene la ref del permiso al día para el gate de autorización de persistAll.
   useEffect(()=>{ puedoEditRef.current = puedoEdit; },[tabPermisos,esAdmin]); // eslint-disable-line
   useEffect(()=>{ estadoPersistRef.current = estadoPersist; },[estadoPersist]);
+  useEffect(()=>{ normPendienteRef.current = normPendiente; },[normPendiente]);
+  useEffect(()=>{ migrarIdentidadesRef.current = normalizarIdentidadesAhora; },[normalizarIdentidadesAhora]);
+  // Dispara la migración declarada de identificadores UNA vez por sesión, en
+  // cuanto hay carga exitosa y hay registros sin identidad. Si no se confirma,
+  // no se reintenta sola: el banner queda con su botón (reintentar en bucle
+  // contra un conflicto o un 403 solo generaría ruido).
+  const migracionIntentadaRef = React.useRef(false);
+  useEffect(()=>{
+    if(loading || !normPendiente || migracionIntentadaRef.current) return;
+    if(!cargaOkRef.current) return;
+    migracionIntentadaRef.current = true;
+    normalizarIdentidadesAhora();
+  },[loading, normPendiente, normalizarIdentidadesAhora]); // eslint-disable-line
 
   // ── Las DOS salidas explícitas del conflicto pendiente ────────────────────────
   // (a) Recuperar el estado vigente del servidor: DESCARTA lo local y lo aplica a
@@ -13210,6 +13297,33 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           {estadoPersist==="ok" && "Guardado"}
           {estadoPersist==="error" && "No se guardó — ver el aviso"}
           {estadoPersist==="conflicto" && "No se guardó: otra sesión cambió los datos"}
+        </div>
+      )}
+      {/* Registros antiguos sin identificador. Mientras no se normalicen, declarar
+          una sustitución contra uno de ellos proyecta el mismo dinero dos veces.
+          La normalización es un paso explícito y se puede repetir sin efecto. */}
+      {normPendiente && puedoEdit("flujo") && (
+        <div style={{margin:"0 0 16px",padding:14,borderRadius:8,
+          background:"#f59e0b14",border:"1px solid #f59e0b55"}}>
+          <div style={{fontWeight:800,fontSize:13,color:"#fbbf24",marginBottom:6}}>
+            {normPendiente.cambios.length} registros guardados sin identificador propio
+          </div>
+          <div style={{fontSize:12,lineHeight:1.6,color:C.sub,marginBottom:10}}>
+            Son registros anteriores al modelo actual. En pantalla ya trabajan con una
+            identidad firme, pero esa identidad todavía no está guardada. Hasta que lo
+            esté, <strong>declarar una sustitución contra uno de ellos proyectaría el
+            mismo monto dos veces</strong>, porque la referencia no calzaría.
+            <br/>
+            Normalizar solo agrega el identificador: no cambia montos, meses, historial
+            ni ningún otro campo, no toca los registros que ya tienen identidad, y
+            repetirlo no hace nada.
+          </div>
+          <button onClick={normalizarIdentidadesAhora} disabled={normBusy}
+            style={{padding:"8px 14px",borderRadius:6,border:"1px solid #f59e0b",
+              background:"#f59e0b22",color:"#fbbf24",fontWeight:700,fontSize:12,
+              cursor:normBusy?"default":"pointer",opacity:normBusy?0.6:1}}>
+            {normBusy ? "Normalizando..." : "Normalizar y guardar los identificadores"}
+          </button>
         </div>
       )}
       {/* Conflicto pendiente: la fila queda BLOQUEADA para escritura y los cambios
