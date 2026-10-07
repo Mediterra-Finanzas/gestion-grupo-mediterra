@@ -14,11 +14,12 @@ const FILAS = [
 test("el respaldo descargable no trae credenciales y conserva los datos de negocio", () => {
   const b = armarRespaldoDescargable(FILAS, { usuario: "Angelo", ahora: new Date("2026-10-06T12:00:00Z") });
   const txt = JSON.stringify(b);
-  expect(b.version).toBe("Mediterra Hub Backup v2");
+  expect(b.version).toBe("Mediterra Hub Backup v3");
+  expect(b.tablas).toBeUndefined();                       // la versión anterior (rollback) lo rechaza: no restaura a ciegas
   expect(b.excluidas).toEqual(["pins"]);
   expect(buscarFugas(txt, ["482913", "771100", "aa11bb22cc33dd44"])).toEqual([]);
   expect(txt).toContain("abc123docsha");                    // hash de documento ≠ credencial
-  expect(b.tablas.main.rutasQuitadas).toEqual(["usuarios[email=a@x.cl].pin", "usuarios[email=c@x.cl].pin_temporal"]);
+  expect(b.tablasSaneadas.main.rutasQuitadas).toEqual(["usuarios[email=a@x.cl].pin", "usuarios[email=c@x.cl].pin_temporal"]);
 });
 
 test("validación: versión desconocida, sin fecha o sin tablas se rechaza", () => {

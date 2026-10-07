@@ -1532,8 +1532,8 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
                 a.click();
                 URL.revokeObjectURL(url);
                 if(btn) btn.textContent="💾 Respaldo";
-                const nQuit = Object.values(backup.tablas).reduce((a,t)=>a+(t.rutasQuitadas||[]).length,0);
-                alert(`✅ Respaldo descargado (sin credenciales).\n\n${Object.keys(backup.tablas).length} filas · excluidas: ${backup.excluidas.join(", ")||"pins"} · ${nQuit} datos de credenciales quitados.`);
+                const nQuit = Object.values(backup.tablasSaneadas).reduce((a,t)=>a+(t.rutasQuitadas||[]).length,0);
+                alert(`✅ Respaldo descargado (sin credenciales).\n\n${Object.keys(backup.tablasSaneadas).length} filas · excluidas: ${backup.excluidas.join(", ")||"pins"} · ${nQuit} datos de credenciales quitados.`);
               } catch(e) {
                 alert("❌ Error al generar respaldo: "+e.message);
               }
@@ -2470,8 +2470,8 @@ export default function App(){
         const backup = armarRespaldoDescargable(allData.filter(r=>!filaExcluida(r.id)), { usuario: usuarioActual.nombre });
 
         // Generar resumen para el email
-        const tablasList = Object.keys(backup.tablas).join(", ");
-        const totalRegistros = Object.values(backup.tablas).reduce((s,t)=>{
+        const tablasList = Object.keys(backup.tablasSaneadas).join(", ");
+        const totalRegistros = Object.values(backup.tablasSaneadas).reduce((s,t)=>{
           if(Array.isArray(t.data)) return s+t.data.length;
           if(t.data&&typeof t.data==="object") return s+Object.keys(t.data).length;
           return s+1;

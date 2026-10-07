@@ -183,7 +183,7 @@ function planRestaurar({ respaldo, actuales, ids, fechaRespaldo }) {
 // Lee un archivo de respaldo (botón "💾 Respaldo" v1/v2 o paquete auto-v4) y
 // devuelve { ok, version, fecha, respaldo, excluidas, errores } con los datos
 // YA SANEADOS (aunque el archivo antiguo traiga credenciales).
-const VERSIONES_ARCHIVO = ["Mediterra Hub Backup v1", "Mediterra Hub Backup Automático v1", "Mediterra Hub Backup v2", "mediterra-respaldo-v4"];
+const VERSIONES_ARCHIVO = ["Mediterra Hub Backup v1", "Mediterra Hub Backup Automático v1", "Mediterra Hub Backup v2", "Mediterra Hub Backup v3", "mediterra-respaldo-v4"];
 function leerArchivoRespaldo(obj) {
   const errores = [];
   if (!obj || typeof obj !== "object") return { ok: false, errores: ["el archivo no es un objeto JSON"] };
@@ -191,7 +191,8 @@ function leerArchivoRespaldo(obj) {
   if (!VERSIONES_ARCHIVO.includes(version)) errores.push(`versión desconocida: ${JSON.stringify(version)} (se aceptan: ${VERSIONES_ARCHIVO.join(", ")})`);
   const fecha = obj.fecha;
   if (!fecha || isNaN(Date.parse(fecha))) errores.push("falta la fecha del respaldo o no es válida");
-  const fuente = version === "mediterra-respaldo-v4" ? obj.filas : obj.tablas;
+  // v3 guarda las filas en `tablasSaneadas` (ver armarRespaldoDescargable); v1/v2 en `tablas`.
+  const fuente = version === "mediterra-respaldo-v4" ? obj.filas : (obj.tablasSaneadas || obj.tablas);
   if (!fuente || typeof fuente !== "object" || Array.isArray(fuente) || !Object.keys(fuente).length) errores.push("no trae filas (tablas) para restaurar");
   if (errores.length) return { ok: false, version, fecha, errores };
   const respaldo = {}, excluidas = [], saneadas = [];
@@ -210,15 +211,19 @@ function leerArchivoRespaldo(obj) {
 }
 
 // Respaldo descargable desde el navegador (botón "💾 Respaldo"): saneado.
+// Las filas van en `tablasSaneadas` y NO en `tablas` A PROPÓSITO: la versión anterior de la
+// app (rollback) restaura todo lo que venga en `tablas` sin plan ni credenciales, así que
+// borraría los PIN heredados y los campos saneados. Sin `tablas`, la versión anterior
+// rechaza el archivo ("Archivo inválido"); esta versión lo lee igual.
 function armarRespaldoDescargable(filas, { usuario = "", ahora = new Date() } = {}) {
-  const out = { version: "Mediterra Hub Backup v2", formato: "saneado", fecha: new Date(ahora).toISOString(), usuario,
-    nota: "Sin credenciales: no incluye la fila pins ni PIN, hashes, tokens o JWT. Las rutas quitadas están en rutasQuitadas.",
-    tablas: {}, excluidas: [] };
+  const out = { version: "Mediterra Hub Backup v3", formato: "saneado", fecha: new Date(ahora).toISOString(), usuario,
+    nota: "Sin credenciales: no incluye la fila pins ni PIN, hashes, tokens o JWT. Las rutas quitadas están en rutasQuitadas. Restaurar solo con la versión que lo generó o posterior.",
+    tablasSaneadas: {}, excluidas: [] };
   (filas || []).forEach((row) => {
     if (filaExcluida(row.id)) { out.excluidas.push(row.id); return; }
     const { valor } = decodificar(row.value);
     const s = sanear(valor);
-    out.tablas[row.id] = { data: s.valor, updated_at: row.updated_at, rutasQuitadas: s.rutas };
+    out.tablasSaneadas[row.id] = { data: s.valor, updated_at: row.updated_at, rutasQuitadas: s.rutas };
   });
   return out;
 }

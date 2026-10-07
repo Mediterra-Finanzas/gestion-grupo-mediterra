@@ -43,11 +43,11 @@ const pinsAntes = JSON.stringify(store.pins);
 const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /💾 Respaldo/ }).click()]);
 const archivo = path.join(OUT, 'respaldo-v2.json'); await dl.saveAs(archivo);
 const txt = fs.readFileSync(archivo, 'utf8'); const resp = JSON.parse(txt);
-check('el respaldo es v2 saneado', resp.version === 'Mediterra Hub Backup v2' && resp.formato === 'saneado');
-check('no trae la fila pins', !('pins' in resp.tablas));
+check('el respaldo es v3 saneado (filas en tablasSaneadas: la versión anterior lo rechaza)', resp.version === 'Mediterra Hub Backup v3' && resp.formato === 'saneado' && !resp.tablas);
+check('no trae la fila pins', !('pins' in resp.tablasSaneadas));
 check('no trae PIN heredado ni hash de PIN', !txt.includes('123456') && !/"salt"\s*:/.test(txt) && !txt.includes('"pin":'), '');
 check('trae los datos de negocio', txt.includes('dato de negocio'));
-check('anota la ruta quitada', JSON.stringify(resp.tablas[filaUsuarios].rutasQuitadas || []).includes('.pin'), JSON.stringify(resp.tablas[filaUsuarios].rutasQuitadas));
+check('anota la ruta quitada', JSON.stringify(resp.tablasSaneadas[filaUsuarios].rutasQuitadas || []).includes('.pin'), JSON.stringify(resp.tablasSaneadas[filaUsuarios].rutasQuitadas));
 
 // 2. Pérdida de datos + PIN cambiado después
 await page.waitForTimeout(1500);
