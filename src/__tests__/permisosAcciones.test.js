@@ -26,15 +26,19 @@ describe("nivel explícito y tope de consulta", () => {
   });
 });
 
-describe("Rendiciones · marcar pagada", () => {
-  test("permitido: aprobada + perfil con pestaña Pagos (rendVerTodas, CFO o admin)", () => {
-    expect(puedeMarcarPagada(CAROL, r("aprobada"))).toBe(true);
+describe("Rendiciones · marcar pagada (solo autorización explícita)", () => {
+  test("permitido: admin o esCFO con la rendición aprobada", () => {
     expect(puedeMarcarPagada(ANGELO, r("aprobada"))).toBe(true);
+    expect(puedeMarcarPagada({ ...TRABAJADOR, esCFO: true }, r("aprobada"))).toBe(true);
   });
-  test("denegado: rol consulta aunque tenga rendVerTodas", () => {
+  test("denegado: rendVerTodas NO autoriza a pagar (es un permiso de ver)", () => {
+    expect(puedeMarcarPagada(CAROL, r("aprobada"))).toBe(false);
+  });
+  test("denegado: rol consulta, incluso con rendVerTodas", () => {
     expect(puedeMarcarPagada(CONSULTA, r("aprobada"))).toBe(false);
+    expect(puedeMarcarPagada({ ...CONSULTA, esCFO: true }, r("aprobada"))).toBe(false);
   });
-  test("denegado: trabajador sin pestaña Pagos", () => {
+  test("denegado: trabajador sin autorización", () => {
     expect(puedeMarcarPagada(TRABAJADOR, r("aprobada"))).toBe(false);
   });
   test("intento directo: marcar pagada algo NO aprobado se rechaza, incluso al admin", () => {

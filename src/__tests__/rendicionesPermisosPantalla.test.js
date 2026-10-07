@@ -37,6 +37,7 @@ function preparar() {
   mockStore.rendiciones_config = { aprobadores: {} };
 }
 const USUARIOS = [
+  { nombre: "Angelo Huerta", email: "ahuerta@x.cl", rol: "admin", esCFO: true },
   { nombre: "Carol Machuca", email: "cmachuca@x.cl", rol: "editor", rendVerTodas: true },
   { nombre: "Consulta Uno", email: "cmachuca@x.cl", rol: "consulta", rendVerTodas: true },
 ];
@@ -50,17 +51,25 @@ const ir = async (re) => { fireEvent.click(screen.getAllByRole("button", { name:
 
 beforeEach(preparar);
 
-test("Carol (rendVerTodas): ve y usa 'Marcar pagada' en una aprobada; se guarda como pagada", async () => {
-  await abrir({ nombre: "Carol Machuca", email: "cmachuca@x.cl", rol: "editor", rendVerTodas: true });
+test("Angelo (admin): ve y usa 'Marcar pagada' en una aprobada; se guarda como pagada", async () => {
+  await abrir({ nombre: "Angelo Huerta", email: "ahuerta@x.cl", rol: "admin", esCFO: true });
   await ir(/Pagos/);
-  const b = screen.getByRole("button", { name: "Marcar pagada" });
-  fireEvent.click(b);
+  fireEvent.click(screen.getByRole("button", { name: "Marcar pagada" }));
   // guardado diferido real (debounce del módulo)
   await waitFor(() => expect(mockSaves.length).toBeGreaterThan(0), { timeout: 8000 });
   const ultima = mockSaves[mockSaves.length - 1].v.find(x => x.id === "a");
   expect(ultima.estado).toBe("pagada");
-  expect(ultima.pagadoPor).toBe("Carol Machuca");
+  expect(ultima.pagadoPor).toBe("Angelo Huerta");
 }, 15000);
+
+test("Carol (rendVerTodas, sin CFO): ve Pagos pero SIN 'Marcar pagada', y no escribe nada", async () => {
+  await abrir({ nombre: "Carol Machuca", email: "cmachuca@x.cl", rol: "editor", rendVerTodas: true });
+  await ir(/Pagos/);
+  expect(screen.getByText(/Rend 1/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Marcar pagada" })).toBeNull();
+  await act(async () => { await new Promise(r => setTimeout(r, 2500)); });
+  expect(mockSaves.length).toBe(0);
+}, 10000);
 
 test("rol consulta con rendVerTodas: ve Pagos pero SIN 'Marcar pagada', y no escribe nada", async () => {
   await abrir({ nombre: "Consulta Uno", email: "cmachuca@x.cl", rol: "consulta", rendVerTodas: true });

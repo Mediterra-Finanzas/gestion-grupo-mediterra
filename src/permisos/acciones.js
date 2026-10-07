@@ -45,11 +45,16 @@ export function puedeAprobarRendicion(u, r) {
   return meTocaAprobar(r, u.email, !!u.admin, !!u.esCFO);
 }
 
-// Quién paga hoy = quien ve la pestaña Pagos (admin, CFO, rendVerTodas). Esa regla
-// NO se cambia (decisión pendiente); solo se exige que esté aprobada y que no sea consulta.
+// Marcar pagada: solo con autorización EXPLÍCITA para pagar.
+//   · admin (rol "Administrador – acceso total") y esCFO (CLAUDE.md: Pagos = admin o esCFO).
+//   · rendVerTodas NO autoriza a pagar: su definición en RendicionesModule es "ve TODAS
+//     (solo lectura; solo el dueño modifica)". Antes bastaba para ver el botón.
+// Si alguien más debe pagar, se decide y se configura de forma explícita (decisión D1);
+// acá no se infiere de otros flags ni de la lista de avisos EMAILS_PAGO.
+// Condiciones necesarias además: la rendición está aprobada y el usuario no es de consulta.
 export function puedeMarcarPagada(u, r) {
   if (!r || r.estado !== "aprobada" || u?.consulta) return false;
-  return !!(u.admin || u.esCFO || u.rendVerTodas);
+  return !!(u.admin || u.esCFO);
 }
 
 // Devolver una rendición aprobada: quien la aprobó o un admin (regla existente).

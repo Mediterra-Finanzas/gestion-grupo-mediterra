@@ -48,3 +48,8 @@ audit/gen_*.py
 docs/osiris-fase0/snapshots/osiris-snapshot-*.json
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
+
+# Respaldos descargados de la app y copias de datos reales: nunca al repositorio
+backup_mediterra_*.json
+respaldo-mediterra-*.json
+creditos-minimo-*.json

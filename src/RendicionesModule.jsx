@@ -1175,7 +1175,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   };
 
   const marcarPagada = (r) => {
-    if (!puedeMarcarPagada(yo, r)) { setAviso({ id: "permiso", tipo: "error", texto: `No se puede marcar pagada la rendición #${r?.folio ?? ""}: debe estar aprobada y tu perfil debe tener la pestaña Pagos (no consulta).` }); return; }
+    if (!puedeMarcarPagada(yo, r)) { setAviso({ id: "permiso", tipo: "error", texto: `No se puede marcar pagada la rendición #${r?.folio ?? ""}: debe estar aprobada y solo la marca un perfil autorizado a pagar (administrador o CFO).` }); return; }
     upsert(pushHist({ ...r, estado: "pagada", pagadoEn: nowISO(), pagadoPor: nombreUsuario }, "pagada"));
   };
 
