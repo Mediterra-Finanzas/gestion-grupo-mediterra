@@ -337,7 +337,11 @@ export function activar(ct, datos) {
   const faltanTerminos = [];
   if (!aFecha(d.fechaReferencia)) faltanTerminos.push("fecha de referencia");
   if (!txt(d.respaldo)) faltanTerminos.push("respaldo de la fecha");
-  if (!txt(d.reglaFecha)) faltanTerminos.push("regla de fecha aplicable");
+  if (!REGLAS_FECHA.includes(txt(d.reglaFecha))) faltanTerminos.push("regla de fecha aplicable");
+  // `estadoActivacion` tambien exige el respaldo de la regla. Sin el, la
+  // activacion queda marcada pero inactiva: un sello y un evento de algo que
+  // no aplica, que es justo lo que esta comprobacion viene a impedir.
+  if (!txt(d.reglaFechaRespaldo)) faltanTerminos.push("respaldo de la regla");
   if (faltanTerminos.length)
     return {
       ok: false,
@@ -346,10 +350,23 @@ export function activar(ct, datos) {
       contrato: ct,
     };
 
-  // La guarda mira el ESTADO, no la bandera cruda. Una activacion marcada
-  // pero incompleta no es una activacion vigente, y bloquearla aca dejaba al
-  // contrato sin ninguna accion disponible desde la pantalla.
-  if (estadoActivacion(ct).activo === true) {
+  // Si YA HAY UN REGISTRO, esta accion no lo toca. Ni para resellarlo ni para
+  // completarlo.
+  //
+  // Hubo dos intentos previos de afinar esto y los dos estuvieron mal. Mirar
+  // solo `estadoActivacion().activo` dejaba fuera el conflicto con la
+  // configuracion antigua -ahi `activo` es false y los campos quedan
+  // editables-, y por ahi se sobrescribia el sello con un dialogo que
+  // anunciaba "US$ 0.00" y un impacto diferido de -10.379,03 el dia que se
+  // retirara la antigua. Despues se probo permitir el resello cuando el sello
+  // previo fuera "inservible", y eso tampoco corresponde: que un sello este
+  // incompleto no autoriza a sustituirlo en silencio. Completarlo puede
+  // cambiar el efecto economico presente o futuro, y este paquete no tiene un
+  // flujo autorizado para eso.
+  //
+  // El registro se conserva con su historial. La accion se bloquea y dice por
+  // que.
+  if (previa.activado === true) {
     const propuesto = sellarTerminos(cfg, d);
     const sello = previa.sello || {};
     const mismos = sello.pct === propuesto.pct &&
@@ -358,10 +375,13 @@ export function activar(ct, datos) {
     return {
       ok: false,
       motivo: mismos
-        ? "Ya hay una activacion vigente con estos mismos terminos. No hay nada que registrar: " +
-          "los importes ya incluyen el ajuste y la diferencia es cero."
-        : "Ya hay una activacion vigente, con terminos distintos de los propuestos. " +
-          "La modificacion de terminos economicos no esta habilitada en este paquete.",
+        ? "Ya hay una activacion registrada con estos mismos terminos. No hay nada que " +
+          "registrar: el sello es el mismo, y el registro se conserva con su historial."
+        : "Ya hay una activacion registrada en este contrato. Esta accion no la modifica ni " +
+          "la completa: cambiar o completar sus terminos puede mover importes -ahora o cuando " +
+          "cambien las condiciones del contrato- y la modificacion de terminos economicos no " +
+          "esta habilitada en este paquete. El registro y su historial se conservan tal como " +
+          "estan.",
       contrato: ct,
     };
   }
@@ -655,7 +675,14 @@ export function reajusteDeFila(ct, fila, opciones) {
 export function comoSiSeActivara(ct) {
   const ra = (ct && ct.reajusteActivacion) || {};
   if (ra.activado) return ct;
-  return Object.assign({}, ct, { reajusteActivacion: Object.assign({}, ra, { activado: true }) });
+  // Se retira el sello anterior a proposito. `activar()` vuelve a sellar con
+  // los terminos cargados hoy, asi que simular con el sello viejo haria que
+  // la previa calcule una cosa y la accion aplique otra. Pasaba de verdad:
+  // activar, desactivar, cambiar la fecha de referencia y volver a activar
+  // anunciaba "Filas que cambian: 0 · Diferencia US$ 0.00" y movia 17.983,99.
+  const sinSello = Object.assign({}, ra, { activado: true });
+  delete sinSello.sello;
+  return Object.assign({}, ct, { reajusteActivacion: sinSello });
 }
 
 // Vista previa por fila. Los totales SOLO suman lo que se aplica de verdad.
