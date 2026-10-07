@@ -41,7 +41,7 @@ test("sin cotización: usd null y motivo, nunca 0 ni TC fijo", () => {
 test("lectura: nuevo vs histórico vs sin paridad", () => {
   const nuevo = { moneda: "clp", monto: 95000000, fecha: "2026-09-15", ...convertirSaldoNuevo(95000000, "clp", "2026-09-15", TC) };
   expect(leerUsdSaldo(nuevo, "clp")).toMatchObject({ usd: 102658.31, estado: "politica" });
-  expect(leerUsdSaldo(nuevo, "clp").etiqueta).toBe("TC 925,4 USD-CLP al 2026-09-15 · mindicador");
+  expect(leerUsdSaldo(nuevo, "clp").etiqueta).toBe("TC 925,4 USD-CLP al 2026-09-15 · mindicador · del mismo día");
   expect(leerUsdSaldo({ moneda: "clp", monto: 50000000, usd: 52083.33 }, "clp")).toMatchObject({ usd: 52083.33, estado: "historico" }); // se respeta, no se recalcula
   expect(leerUsdSaldo({ moneda: "clp", monto: 95000000, usd: null }, "clp")).toMatchObject({ usd: null, estado: "sin_paridad" });
   expect(leerUsdSaldo({ moneda: "eur", monto: 50000, usd: 0 }, "eur")).toMatchObject({ usd: null, estado: "sin_paridad" });
@@ -69,4 +69,25 @@ test("saldo vigente: fecha local, futuras excluidas si se pide, 'antesDe' estric
   expect(saldosVigentes(SB, "A", { excluirFuturas: true, hoy: new Date(2026, 9, 7) })).toHaveLength(0);
   expect(saldosVigentes(SB, "A", { excluirFuturas: true, hoy: new Date(2026, 9, 8, 23) })).toHaveLength(1);
   expect(saldosVigentes(SB, "A", { antesDe: new Date(2026, 9, 8) })).toHaveLength(0);
+});
+
+describe("antigüedad, días hábiles y cotización modificada después de confirmar", () => {
+  const { diasCorridosEntre, revisarCotizacionGuardada, textoAntiguedad } = require("../tc/conversionSaldos.js");
+  test("días hábiles excluyen solo sábado y domingo; se informan también los corridos", () => {
+    expect(diasHabilesEntre("2026-09-17", "2026-09-21")).toBe(2);   // jue → lun (18-sep feriado cuenta como hábil)
+    expect(diasCorridosEntre("2026-09-17", "2026-09-21")).toBe(4);
+    const r = convertirSaldoNuevo(1000000, "clp", "2026-09-14", TC);  // usa el viernes 11-09
+    expect(r).toMatchObject({ tcFecha: "2026-09-11", tcDiasHabiles: 1, tcDiasCorridos: 3 });
+    expect(leerUsdSaldo({ moneda: "clp", monto: 1000000, ...r }, "clp").etiqueta).toContain("1 día hábil (3 corridos) antes del saldo");
+    expect(textoAntiguedad(0, 0)).toBe("del mismo día");
+  });
+  test("si se corrige la cotización manual, el saldo confirmado NO cambia y queda el aviso", () => {
+    const rec = { moneda: "pen", monto: 380000, fecha: "2026-09-15", ...convertirSaldoNuevo(380000, "pen", "2026-09-15", TC) };
+    expect(rec.usd).toBe(101333.33);
+    const TC2 = { ...TC, "USD-PEN": [{ fecha: "2026-09-14", valor: 3.8, fuente: "manual" }] };   // alguien corrigió 3,75 → 3,80
+    expect(leerUsdSaldo(rec, "pen").usd).toBe(101333.33);                                          // no se recalcula
+    expect(revisarCotizacionGuardada(rec, "pen", TC2)).toMatchObject({ guardado: { tc: 3.75 }, actual: { tc: 3.8 }, usdConActual: 100000 });
+    expect(revisarCotizacionGuardada(rec, "pen", TC)).toBeNull();
+    expect(revisarCotizacionGuardada({ moneda: "clp", monto: 1, usd: 1 }, "clp", TC)).toBeNull();   // histórico: no aplica
+  });
 });

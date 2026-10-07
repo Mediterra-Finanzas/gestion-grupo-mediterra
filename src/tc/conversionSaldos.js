@@ -4,8 +4,11 @@
 //
 // Una sola regla para todas las pantallas y exportaciones:
 //   · TC de maestro_tc VIGENTE EN LA FECHA DEL SALDO; si ese día no hay, la última
-//     cotización anterior dentro de MAX_DIAS_HABILES días hábiles (lun–vie; los
-//     feriados no se descuentan, así que el límite es más estricto, no más laxo).
+//     cotización anterior dentro de MAX_DIAS_HABILES días hábiles.
+//     DEFINICIÓN: día hábil = lunes a viernes. Se excluyen SOLO sábados y domingos;
+//     los feriados cuentan como hábiles (no hay calendario oficial de feriados en la
+//     app). Efecto: tras un feriado el plazo es un día más corto, nunca más largo.
+//     La antigüedad usada se guarda y se muestra (días hábiles y corridos).
 //   · CLP: USD-CLP (dólar observado, mindicador). EUR: EUR-USD (BCE) o USD-EUR.
 //     PEN: USD-PEN solo con fuente "manual" (no hay fuente automática).
 //   · Sin cotización dentro del límite → la cuenta queda SIN PARIDAD (no suma y el
@@ -42,6 +45,11 @@ export function fechaLocalTC(d) {
 }
 
 // Días hábiles (lun–vie) en (desde, hasta]. 0 si es el mismo día.
+export function diasCorridosEntre(desde, hasta) {
+  const a = fechaLocalTC(desde), b = fechaLocalTC(hasta);
+  return Math.round((Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) - Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) / 86400000);
+}
+
 export function diasHabilesEntre(desde, hasta) {
   const a = fechaLocalTC(desde), b = fechaLocalTC(hasta);
   if (!(a < b)) return 0;
@@ -70,7 +78,7 @@ export function cotizacionSaldo(moneda, fechaSaldo, tcData) {
     const ult = serie.reduce((a, b) => (b.fecha > a.fecha ? b : a));
     const dh = diasHabilesEntre(ult.fecha, fs);
     if (dh > MAX_DIAS_HABILES) { motivos.push(`${c.par} más reciente del ${ult.fecha.slice(0, 10)} (${dh} días hábiles antes; máximo ${MAX_DIAS_HABILES})`); continue; }
-    return { ok: true, tc: Number(ult.valor), par: c.par, op: c.op, fechaTC: ult.fecha.slice(0, 10), fuente: ult.fuente || "sin fuente", diasHabiles: dh };
+    return { ok: true, tc: Number(ult.valor), par: c.par, op: c.op, fechaTC: ult.fecha.slice(0, 10), fuente: ult.fuente || "sin fuente", diasHabiles: dh, diasCorridos: diasCorridosEntre(ult.fecha, fs) };
   }
   return { ok: false, motivo: motivos.join("; ") };
 }
@@ -82,10 +90,23 @@ export function convertirSaldoNuevo(monto, moneda, fechaSaldo, tcData) {
   const c = cotizacionSaldo(moneda, fechaSaldo, tcData);
   if (!c.ok) return { usd: null, tcPolitica: POLITICA_TC, tcEstado: "sin_tc", tcMotivo: c.motivo };
   const usd = c.op === "div" ? m / c.tc : m * c.tc;
-  return { usd: r2(usd), tc: c.tc, tcPar: c.par, tcOp: c.op, tcFecha: c.fechaTC, tcFuente: c.fuente, tcDiasHabiles: c.diasHabiles, tcPolitica: POLITICA_TC };
+  return { usd: r2(usd), tc: c.tc, tcPar: c.par, tcOp: c.op, tcFecha: c.fechaTC, tcFuente: c.fuente, tcDiasHabiles: c.diasHabiles, tcDiasCorridos: c.diasCorridos, tcPolitica: POLITICA_TC };
 }
 
 const fmtTC = (x) => Number(x).toLocaleString("es-CL", { maximumFractionDigits: 4 });
+export const textoAntiguedad = (dh, dc) => (!dh && !dc ? "del mismo día" : `${dh || 0} día${dh === 1 ? "" : "s"} hábil${dh === 1 ? "" : "es"}${dc != null ? ` (${dc} corrido${dc === 1 ? "" : "s"})` : ""} antes del saldo`);
+
+// ¿maestro_tc cambió después de confirmar el saldo? El saldo NO se recalcula: se avisa.
+// → null si no aplica o coincide; si no, { actual:{tc,par,fechaTC,fuente}, guardado:{...}, usdConActual }
+export function revisarCotizacionGuardada(rec, moneda, tcData) {
+  if (!rec?.tcPolitica || rec.usd == null || !tcData || String(moneda || rec.moneda) === "usd") return null;
+  const q = cotizacionSaldo(moneda || rec.moneda, rec.fecha, tcData);
+  if (!q.ok) return { actual: null, guardado: { tc: rec.tc, par: rec.tcPar, fechaTC: rec.tcFecha, fuente: rec.tcFuente }, motivo: q.motivo };
+  if (q.par === rec.tcPar && q.fechaTC === rec.tcFecha && Number(q.tc) === Number(rec.tc)) return null;
+  const m = Number(rec.monto) || 0;
+  return { actual: { tc: q.tc, par: q.par, fechaTC: q.fechaTC, fuente: q.fuente }, guardado: { tc: rec.tc, par: rec.tcPar, fechaTC: rec.tcFecha, fuente: rec.tcFuente },
+    usdConActual: r2(q.op === "div" ? m / q.tc : m * q.tc) };
+}
 
 // Lectura ÚNICA del US$ de un saldo guardado (todas las pantallas y exportaciones).
 // → { usd:number|null, estado:"usd"|"politica"|"historico"|"sin_paridad", etiqueta, motivo? }
@@ -96,7 +117,7 @@ export function leerUsdSaldo(rec, moneda) {
   const u = rec?.usd == null ? NaN : Number(rec.usd);
   if (rec?.tcPolitica) {
     if (!Number.isFinite(u)) return { usd: null, estado: "sin_paridad", etiqueta: "sin paridad", motivo: rec.tcMotivo || "sin cotización" };
-    return { usd: u, estado: "politica", etiqueta: `TC ${fmtTC(rec.tc)} ${rec.tcPar} al ${rec.tcFecha} · ${rec.tcFuente}${rec.tcDiasHabiles ? ` (${rec.tcDiasHabiles} d.h. antes)` : ""}` };
+    return { usd: u, estado: "politica", etiqueta: `TC ${fmtTC(rec.tc)} ${rec.tcPar} al ${rec.tcFecha} · ${rec.tcFuente} · ${textoAntiguedad(rec.tcDiasHabiles, rec.tcDiasCorridos)}` };
   }
   if (!Number.isFinite(u)) return { usd: null, estado: "sin_paridad", etiqueta: "sin paridad", motivo: "guardado sin TC" };
   if (u === 0 && monto !== 0) return { usd: null, estado: "sin_paridad", etiqueta: "sin paridad", motivo: "se guardó US$ 0: la fuente no traía la moneda" };

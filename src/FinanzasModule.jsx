@@ -9,7 +9,7 @@ import { buildAllpaPeruLineas, ALLPA_PERU_KG_2026, ALLPA_PERU_PRECIO_2026, ALLPA
 import { calcularAmortizacionSocio, generarInteresPeriodico } from './creditoSocio.js';
 import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
 import { uploadDocNomina, urlFirmadaNomina, dbLoadGeneric } from './friskuHelpers';
-import { leerUsdSaldo, saldosVigentes, totalSaldosUSD, convertirSaldoNuevo, textoConversionSaldos, cotizacionSaldo, MAX_DIAS_HABILES } from './tc/conversionSaldos.js';
+import { leerUsdSaldo, saldosVigentes, totalSaldosUSD, convertirSaldoNuevo, textoConversionSaldos, cotizacionSaldo, MAX_DIAS_HABILES, revisarCotizacionGuardada, textoAntiguedad } from './tc/conversionSaldos.js';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
 import { USE_GUARD, pollRow } from './guardClient';
 import { persist, construirAvisoDesde } from './persistencia/instancia.js';
@@ -8989,9 +8989,18 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
   const [fecha,setFecha]   = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; });
   // Tipos de cambio: maestro_tc es la ÚNICA fuente de conversión (política maestro_tc_v1).
   // open.er-api queda solo como referencia "mercado hoy", fuera de los cálculos.
+  // tcData === null: NO cargado (cargando o falló la lectura) ≠ {}: cargado sin filas.
+  // Una falla de carga NUNCA se confunde con "no hay cotización": los saldos en
+  // moneda extranjera no se guardan y se ofrece reintentar.
   const [tcData,setTcData] = useState(null);
   const [tcError,setTcError] = useState(null);
-  useEffect(()=>{ dbLoadGeneric("maestro_tc").then(v=>setTcData(v||{})).catch(e=>setTcError(String(e?.message||e))); },[]);
+  const [avisoGuardado,setAvisoGuardado] = useState(null);
+  const cargarTC = useCallback(()=>{
+    setTcError(null);
+    return dbLoadGeneric("maestro_tc").then(v=>{ setTcData(v||{}); return v||{}; })
+      .catch(e=>{ setTcData(null); setTcError(String(e?.message||e)); return null; });
+  },[]);
+  useEffect(()=>{ cargarTC(); },[cargarTC]);
   const [saving,setSaving] = useState(false);
   const [edits,setEdits]   = useState({});
   const [dirty,setDirty]   = useState({});
@@ -9037,22 +9046,37 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
       const [emp] = (k||"").split("||");
       if(empresaVisibleSet.has(emp)) next[k] = JSON.parse(JSON.stringify(v));
     });
+    const guardadas=[], retenidas=[], sinParidadNuevas=[];
     Object.keys(dirty).forEach(key=>{
       const c=CUENTAS_VISIBLES.find(x=>x.key===key);
       if(!c) return; // descartar dirty fuera del subset (defensa)
       const val=parseFloat(edits[key]);
-      if(isNaN(val)) { delete next[key]; return; }
+      if(isNaN(val)) { delete next[key]; guardadas.push(key); return; }
+      // maestro_tc no cargado (falla de red/servidor o aún cargando): NO se guarda la
+      // cuenta en moneda extranjera; queda pendiente y el saldo confirmado sigue igual.
+      if(c.moneda!=="usd" && tcData===null) { retenidas.push(c); return; }
+      const conv = convertirSaldoNuevo(val, c.moneda, fecha, tcData);
+      if(c.moneda!=="usd" && conv.usd==null) sinParidadNuevas.push(`${c.emp} · ${c.banco} ${c.moneda.toUpperCase()} (${conv.tcMotivo})`);
+      guardadas.push(key);
       // Saldo NUEVO: conversión con maestro_tc a la fecha del saldo (fecha, TC, par y
       // fuente quedan guardados). Sin cotización ≤ 5 días hábiles → usd null + motivo.
       next[key]={
         empresa:c.emp, banco:c.banco, moneda:c.moneda,
         monto:val, fecha,
         semana:semanaDeDate(fecha), mes:mesDeDate(fecha),
-        ...convertirSaldoNuevo(val, c.moneda, fecha, tcData),
+        ...conv,
       };
     });
-    await onSave(next);
-    setDirty({});
+    // Sin cotización real (dato ausente, no falla de carga): se guarda sin paridad SOLO
+    // si el usuario lo confirma.
+    if(sinParidadNuevas.length && !window.confirm(`No hay tipo de cambio para ${sinParidadNuevas.length} cuenta(s):\n\n${sinParidadNuevas.join("\n")}\n\nSi guarda, quedarán SIN PARIDAD (no suman y el total queda incompleto) hasta cargar la cotización y volver a guardarlas. ¿Guardar igual?`)) {
+      setSaving(false); return;
+    }
+    if(guardadas.length) await onSave(next);
+    setDirty(p=>{ const n={...p}; guardadas.forEach(k=>delete n[k]); return n; });
+    setAvisoGuardado(retenidas.length
+      ? `No se guardaron ${retenidas.length} cuenta(s) en moneda extranjera porque maestro_tc no se pudo leer (${retenidas.map(c=>`${c.emp} · ${c.banco} ${c.moneda.toUpperCase()}`).join(", ")}). Su saldo confirmado sigue igual; reintente la carga y guarde de nuevo.`
+      : null);
     setSaving(false);
   }
 
@@ -9169,7 +9193,7 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
               <div style={{fontSize:14,fontWeight:700,color:q.ok?C.yellow:C.red}}>
                 {q.ok?Number(q.tc).toLocaleString("es-CL",{maximumFractionDigits:4}):"sin cotización"}
               </div>
-              <div style={{fontSize:9,color:C.muted,marginTop:2}}>{q.ok?`${q.par} del ${q.fechaTC} · ${q.fuente}${q.diasHabiles?` · ${q.diasHabiles} d.h. antes`:""}`:(tcData?q.motivo:(tcError?"maestro_tc no se pudo leer":"cargando maestro_tc…"))}</div>
+              <div style={{fontSize:9,color:C.muted,marginTop:2}}>{q.ok?`${q.par} del ${q.fechaTC} · ${q.fuente} · ${textoAntiguedad(q.diasHabiles,q.diasCorridos)}`:(tcData?q.motivo:(tcError?"maestro_tc no se pudo leer":"cargando maestro_tc…"))}</div>
             </div>
           );
         })}
@@ -9183,8 +9207,11 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
           </button>
         </div>
       </div>
-      {tcError&&<div role="alert" style={{padding:"8px 12px",background:`${C.red}14`,border:`1px solid ${C.red}55`,borderRadius:8,fontSize:11,color:C.text}}>
-        No se pudo leer maestro_tc ({tcError}). Los saldos que se guarden ahora en CLP, EUR o PEN quedarán <strong>sin paridad</strong> hasta volver a guardarlos.</div>}
+      {(tcError||avisoGuardado)&&<div role="alert" data-aviso="tc-carga" style={{padding:"8px 12px",background:`${C.red}14`,border:`1px solid ${C.red}55`,borderRadius:8,fontSize:11,color:C.text,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{flex:1,minWidth:240}}>{tcError?<>No se pudo leer maestro_tc ({tcError}). Es una <strong>falla de carga</strong>, no falta de cotización: los saldos en CLP, EUR o PEN <strong>no se guardarán</strong> hasta que cargue; los saldos confirmados no cambian. Los saldos en USD sí se pueden guardar.</>:null}
+          {avisoGuardado&&<div style={{marginTop:tcError?4:0}}>{avisoGuardado}</div>}</span>
+        <button onClick={()=>cargarTC().then(v=>{ if(v) setAvisoGuardado(null); })} style={{padding:"4px 12px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,color:C.text,cursor:"pointer",fontSize:11}}>Reintentar carga de maestro_tc</button>
+      </div>}
 
       {/* ── Dashboard resumen por empresa ─────────────────────── */}
       <Card>
@@ -9366,6 +9393,11 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
                                     : (lect.estado==="sin_paridad" ? lect.motivo : lect.etiqueta)}
                                 </div>
                               )}
+                              {!prev&&saved&&(()=>{ const d=revisarCotizacionGuardada(saved,c.moneda,tcData); if(!d) return null; return (
+                                <div data-aviso="tc-modificada" style={{fontSize:9,color:C.yellow,fontWeight:600,whiteSpace:"normal",maxWidth:240,marginLeft:"auto"}}
+                                  title="El saldo conserva el TC con que se confirmó. Para usar la cotización actual, vuelva a guardar el saldo.">
+                                  ⚠ maestro_tc cambió: hoy {d.actual?`TC ${Number(d.actual.tc).toLocaleString("es-CL",{maximumFractionDigits:4})} ${d.actual.par} al ${d.actual.fechaTC} (${d.actual.fuente}) → US$ ${Number(d.usdConActual).toLocaleString("es-CL",{maximumFractionDigits:0})}`:`sin cotización (${d.motivo})`}. Este saldo conserva TC {Number(d.guardado.tc).toLocaleString("es-CL",{maximumFractionDigits:4})} y no se recalcula.
+                                </div>); })()}
                             </td>
                             <td style={{padding:"8px 14px",color:C.muted,fontSize:10,whiteSpace:"nowrap"}}>
                               {saved?.fecha||"—"}
@@ -9383,7 +9415,7 @@ function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
       </div>
 
       <div style={{fontSize:10,color:C.muted2,textAlign:"center"}}>
-        Conversión a US$: maestro_tc a la fecha de cada saldo (máx. {MAX_DIAS_HABILES} días hábiles hacia atrás; PEN solo carga manual). Los saldos guardados antes de esta política conservan su US$ y se rotulan "TC histórico".
+        Conversión a US$: maestro_tc a la fecha de cada saldo (máx. {MAX_DIAS_HABILES} días hábiles hacia atrás; día hábil = lunes a viernes, los feriados no se descuentan; PEN solo carga manual). Los saldos guardados antes de esta política conservan su US$ y se rotulan "TC histórico".
       </div>
     </div>
   );
