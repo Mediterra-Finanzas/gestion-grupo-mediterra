@@ -199,7 +199,7 @@ await ponerNumero(page, 'Desc. exportadora', 0);
 await ponerNumero(page, 'Materiales US$/kg', 0.178);
 await ponerNumero(page, 'Servicios US$/kg', 0);
 
-const pCli = panel(page, '📥 Cobros al cliente');
+const pCli = panel(page, '📥 Cobros al cliente (estimación de la temporada)');
 await pCli.getByRole('button', { name: '+ Agregar anticipo' }).click();
 await page.waitForTimeout(300);
 await pCli.locator('select').first().selectOption('Oct-26');
@@ -214,7 +214,7 @@ await pCli.getByRole('button', { name: 'Guardar' }).click();
 await page.waitForTimeout(500);
 await selectTras(page, 'Mes liquidación final').selectOption('Mar-27');
 
-const pProd = panel(page, '📤 Pagos al productor');
+const pProd = panel(page, '📤 Pagos al productor (estimación de la temporada)');
 await pProd.getByRole('button', { name: '+ Agregar anticipo' }).click();
 await page.waitForTimeout(300);
 await pProd.locator('select').first().selectOption('Oct-26');
@@ -231,8 +231,8 @@ await page.waitForTimeout(1200);
 await page.screenshot({ path: `${OUT}/fase1-parametros.png`, fullPage: true });
 
 const txt1 = await page.locator('body').innerText();
-const porCobrar = /Queda por cobrar: ([^\s]+)/.exec(txt1)?.[1];
-const porPagar = /Queda por pagar: ([^\s]+)/.exec(txt1)?.[1];
+const porCobrar = /Saldo económico pendiente \(por cobrar\)\s+(\S+)/.exec(txt1)?.[1];
+const porPagar = /Saldo económico pendiente \(por pagar\)\s+(\S+)/.exec(txt1)?.[1];
 console.log('  pantalla · queda por cobrar:', porCobrar, '· queda por pagar:', porPagar);
 anota('base · panel Parámetros', 'Queda por cobrar', '—', 540000, num(porCobrar), 'resumen del panel');
 anota('base · panel Parámetros', 'Queda por pagar', '—', 352000, num(porPagar), 'resumen del panel');
@@ -263,18 +263,18 @@ await elegirEmpresa(page, 'Allegria Foods');
 await irAParametros(page);
 await page.screenshot({ path: `${OUT}/fase2-parametros-tras-recarga.png`, fullPage: true });
 const txt2 = await page.locator('body').innerText();
-console.log('  tras recarga · cobrado:', /ya cobrados: ([^\s]+)/.exec(txt2)?.[1],
-            '· pagado:', /ya pagados: ([^\s]+)/.exec(txt2)?.[1]);
-anota('recarga', 'Realizado cliente conservado', '—', 60000, num(/ya cobrados: ([^\s]+)/.exec(txt2)?.[1]));
-anota('recarga', 'Realizado productor conservado', '—', 70000, num(/ya pagados: ([^\s]+)/.exec(txt2)?.[1]));
-anota('recarga', 'Queda por cobrar', '—', 540000, num(/Queda por cobrar: ([^\s]+)/.exec(txt2)?.[1]));
-anota('recarga', 'Queda por pagar', '—', 352000, num(/Queda por pagar: ([^\s]+)/.exec(txt2)?.[1]));
+console.log('  tras recarga · cobrado:', /Anticipos ya cobrados\s+(\S+)/.exec(txt2)?.[1],
+            '· pagado:', /Anticipos ya pagados\s+(\S+)/.exec(txt2)?.[1]);
+anota('recarga', 'Realizado cliente conservado', '—', 60000, num(/Anticipos ya cobrados\s+(\S+)/.exec(txt2)?.[1]));
+anota('recarga', 'Realizado productor conservado', '—', 70000, num(/Anticipos ya pagados\s+(\S+)/.exec(txt2)?.[1]));
+anota('recarga', 'Queda por cobrar', '—', 540000, num(/Saldo económico pendiente \(por cobrar\)\s+(\S+)/.exec(txt2)?.[1]));
+anota('recarga', 'Queda por pagar', '—', 352000, num(/Saldo económico pendiente \(por pagar\)\s+(\S+)/.exec(txt2)?.[1]));
 const r2 = await compararCaso(page, 'fase2-recarga');
 
 // ───────────────── FASE 3 · anticipo cerrado parcialmente realizado ─────────────────
 console.log('\n=== FASE 3 · anticipo cerrado con 20.000 cobrados ===');
 await irAParametros(page);
-const pCli3 = panel(page, '📥 Cobros al cliente');
+const pCli3 = panel(page, '📥 Cobros al cliente (estimación de la temporada)');
 await pCli3.getByRole('button', { name: '+ Agregar anticipo' }).click();
 await page.waitForTimeout(400);
 const filasCli = pCli3.locator('select');
@@ -291,7 +291,7 @@ await pCli3.locator('input[type=checkbox]').nth(1).check();   // cerrado
 await page.waitForTimeout(800);
 await page.screenshot({ path: `${OUT}/fase3-parametros.png`, fullPage: true });
 const txt3 = await page.locator('body').innerText();
-anota('cierre parcial', 'Queda por cobrar', '—', 520000, num(/Queda por cobrar: ([^\s]+)/.exec(txt3)?.[1]));
+anota('cierre parcial', 'Queda por cobrar', '—', 520000, num(/Saldo económico pendiente \(por cobrar\)\s+(\S+)/.exec(txt3)?.[1]));
 const r3 = await compararCaso(page, 'fase3-cerrado');
 const ing3 = buscaFila(r3.pantalla, '+ INGRESOS OPERACIONALES');
 anota('cierre parcial · pantalla', 'Anticipo cerrado no proyecta', 'Nov-26', 0, ing3['Nov-26'] || 0);
@@ -304,26 +304,30 @@ await ponerNumero(page, 'KG a exportar', 800000);
 await page.waitForTimeout(1000);
 await page.screenshot({ path: `${OUT}/fase4-parametros.png`, fullPage: true });
 const txt4 = await page.locator('body').innerText();
-console.log('  cobrado tras cambiar kilos:', /ya cobrados: ([^\s]+)/.exec(txt4)?.[1]);
+console.log('  cobrado tras cambiar kilos:', /Anticipos ya cobrados\s+(\S+)/.exec(txt4)?.[1]);
 // tras la fase 3 hay dos anticipos cliente: 60.000 + 20.000 ya cobrados
-anota('cambio de kilos', 'Realizado cliente intacto (60.000 + 20.000)', '—', 80000, num(/ya cobrados: ([^\s]+)/.exec(txt4)?.[1]));
-anota('cambio de kilos', 'Realizado productor intacto', '—', 70000, num(/ya pagados: ([^\s]+)/.exec(txt4)?.[1]));
-anota('cambio de kilos', 'Queda por cobrar', '—', 400000, num(/Queda por cobrar: ([^\s]+)/.exec(txt4)?.[1]));
-anota('cambio de kilos', 'Queda por pagar', '—', 267600, num(/Queda por pagar: ([^\s]+)/.exec(txt4)?.[1]));
+anota('cambio de kilos', 'Realizado cliente intacto (60.000 + 20.000)', '—', 80000, num(/Anticipos ya cobrados\s+(\S+)/.exec(txt4)?.[1]));
+anota('cambio de kilos', 'Realizado productor intacto', '—', 70000, num(/Anticipos ya pagados\s+(\S+)/.exec(txt4)?.[1]));
+anota('cambio de kilos', 'Queda por cobrar', '—', 400000, num(/Saldo económico pendiente \(por cobrar\)\s+(\S+)/.exec(txt4)?.[1]));
+anota('cambio de kilos', 'Queda por pagar', '—', 267600, num(/Saldo económico pendiente \(por pagar\)\s+(\S+)/.exec(txt4)?.[1]));
 const r4 = await compararCaso(page, 'fase4-kilos');
 
 // ───────────────── FASE 5 · anular una realización ─────────────────
 console.log('\n=== FASE 5 · anular el cobro de 60.000 ===');
 await irAParametros(page);
-const pCli5 = panel(page, '📥 Cobros al cliente');
+const pCli5 = panel(page, '📥 Cobros al cliente (estimación de la temporada)');
 await pCli5.getByRole('button', { name: 'anular' }).first().click();
+await page.waitForTimeout(400);
+// Anular exige motivo y confirmación (queda en el historial; no se borra)
+await pCli5.locator('input[placeholder="motivo (queda en el historial)"]').fill('QA: cobro registrado por error');
+await pCli5.getByRole('button', { name: 'Anular', exact: true }).click();
 await page.waitForTimeout(900);
 await page.screenshot({ path: `${OUT}/fase5-parametros.png`, fullPage: true });
 const txt5 = await page.locator('body').innerText();
-console.log('  cobrado tras anular:', /ya cobrados: ([^\s]+)/.exec(txt5)?.[1]);
+console.log('  cobrado tras anular:', /Anticipos ya cobrados\s+(\S+)/.exec(txt5)?.[1]);
 // se anula el cobro de 60.000; queda el de 20.000 del anticipo cerrado
-anota('anulación', 'Realizado cliente baja de 80.000 a 20.000', '—', 20000, num(/ya cobrados: ([^\s]+)/.exec(txt5)?.[1]));
-anota('anulación', 'Queda por cobrar', '—', 460000, num(/Queda por cobrar: ([^\s]+)/.exec(txt5)?.[1]));
+anota('anulación', 'Realizado cliente baja de 80.000 a 20.000', '—', 20000, num(/Anticipos ya cobrados\s+(\S+)/.exec(txt5)?.[1]));
+anota('anulación', 'Queda por cobrar', '—', 460000, num(/Saldo económico pendiente \(por cobrar\)\s+(\S+)/.exec(txt5)?.[1]));
 anota('anulación', 'Historial conserva el anulado', '—', 1,
       /cobros? anulados?/.test(txt5) || /anulado/.test(txt5) ? 1 : 0, 'texto "anulado" visible');
 const r5 = await compararCaso(page, 'fase5-anulacion');

@@ -4673,19 +4673,18 @@ function DetalleSaldoBancos({ cuentas, titulo = "Saldo bancario en US$" }) {
   return (
     <details data-detalle="saldo-bancos" style={{fontSize:11,color:C.muted,padding:"6px 12px",background:C.card,border:`1px solid ${C.border}`,borderRadius:8}}>
       <summary style={{cursor:"pointer"}}>{titulo}: US$ {f0(total)} · {cuentas.length} cuenta{cuentas.length>1?"s":""}{noUsd?` (${noUsd} convertida${noUsd>1?"s":""}: ver TC, fecha y fuente)`:""}</summary>
-      <table style={{width:"100%",borderCollapse:"collapse",marginTop:6,fontSize:10}}>
-        <tbody>
-          {cuentas.map((c,i)=>(
-            <tr key={i} style={{borderBottom:`1px solid ${C.border}22`}}>
-              <td style={{padding:"3px 6px"}}>{c.empresa} · {c.banco}</td>
-              <td style={{padding:"3px 6px",whiteSpace:"nowrap"}}>{String(c.moneda).toUpperCase()} {Number(c.monto).toLocaleString("es-CL",{maximumFractionDigits:2})} al {c.fecha}</td>
-              <td style={{padding:"3px 6px",textAlign:"right",whiteSpace:"nowrap",color:c.usd==null?C.red:C.text}}>{c.usd==null?"sin paridad":`US$ ${f0(c.usd)}`}</td>
-              <td style={{padding:"3px 6px",color:c.estado==="historico"?C.yellow:C.muted}}>{c.estado==="usd"?"":c.estado==="sin_paridad"?c.motivo:c.etiqueta}</td>
-            </tr>
-          ))}
-          <tr><td colSpan={2} style={{padding:"3px 6px",fontWeight:700}}>Total</td><td style={{padding:"3px 6px",textAlign:"right",fontWeight:700}}>US$ {f0(total)}</td><td/></tr>
-        </tbody>
-      </table>
+      {/* Grilla (no <table>): la tabla del flujo debe seguir siendo la primera de la pantalla */}
+      <div style={{display:"grid",gridTemplateColumns:"minmax(140px,1.2fr) minmax(150px,1.3fr) auto minmax(160px,2fr)",columnGap:10,rowGap:2,marginTop:6,fontSize:10}}>
+        {cuentas.map((c,i)=>(
+          <React.Fragment key={i}>
+            <span>{c.empresa} · {c.banco}</span>
+            <span style={{whiteSpace:"nowrap"}}>{String(c.moneda).toUpperCase()} {Number(c.monto).toLocaleString("es-CL",{maximumFractionDigits:2})} al {c.fecha}</span>
+            <span style={{textAlign:"right",whiteSpace:"nowrap",color:c.usd==null?C.red:C.text}}>{c.usd==null?"sin paridad":`US$ ${f0(c.usd)}`}</span>
+            <span style={{color:c.estado==="historico"?C.yellow:C.muted}}>{c.estado==="usd"?"":c.estado==="sin_paridad"?c.motivo:c.etiqueta}</span>
+          </React.Fragment>
+        ))}
+        <strong style={{gridColumn:"1 / 3"}}>Total</strong><strong style={{textAlign:"right"}}>US$ {f0(total)}</strong><span/>
+      </div>
     </details>
   );
 }
