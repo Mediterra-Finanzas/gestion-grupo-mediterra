@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mediterra · Inicio por perfil (prototipo)</title>
+<style>
+:root{
+  --bg:#f4f5f7; --surface:#fff; --surface-2:#f0f2f5; --border:#d6dae1; --border-strong:#7a8496;
+  --text:#14181f; --text-2:#3d4554; --muted:#566070; --brand:#1e2a5a; --brand-soft:#e6e9f4;
+  --red:#b42318; --red-soft:#fdecea; --amber:#8a5300; --amber-soft:#fff4e0; --green:#146c43; --green-soft:#e5f4ec;
+  --focus:#1d4ed8; --radius:10px; --fs:15px; --fs-sm:13px;
+  --c0w:clamp(132px, 34vw, 280px);   /* ancho ÚNICO de la columna de conceptos: la usan th, td y el rótulo de grupo */
+  --tap:44px;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0f1218; --surface:#171b23; --surface-2:#1f2430; --border:#323a49; --border-strong:#6b7790;
+  --text:#eef1f6; --text-2:#c9cfda; --muted:#a3acbb; --brand:#aab8f0; --brand-soft:#252c47;
+  --red:#ff8a80; --red-soft:#3a1d1b; --amber:#ffc266; --amber-soft:#3a2b10; --green:#7fd6a6; --green-soft:#173326; --focus:#8fb0ff; } }
+:root[data-theme="dark"]{
+  --bg:#0f1218; --surface:#171b23; --surface-2:#1f2430; --border:#323a49; --border-strong:#6b7790;
+  --text:#eef1f6; --text-2:#c9cfda; --muted:#a3acbb; --brand:#aab8f0; --brand-soft:#252c47;
+  --red:#ff8a80; --red-soft:#3a1d1b; --amber:#ffc266; --amber-soft:#3a2b10; --green:#7fd6a6; --green-soft:#173326; --focus:#8fb0ff; }
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:var(--fs)/1.45 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-text-size-adjust:100%}
+a{color:var(--brand)}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.skip{position:absolute;left:-999px;top:0;z-index:100;background:var(--surface);padding:10px 14px}
+.skip:focus{left:8px;top:8px}
+button,select,input{font:inherit;color:inherit}
+.btn{min-height:var(--tap);min-width:var(--tap);padding:0 16px;border-radius:8px;border:1px solid var(--border-strong);background:var(--surface);cursor:pointer;display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.btn.pri{background:var(--brand);border-color:var(--brand);color:var(--surface)}
+.btn.peligro{border-color:var(--red);color:var(--red)}
+.btn[disabled]{opacity:.55;cursor:not-allowed}
+@media (pointer:fine){ :root{--tap:36px} }   /* con mouse/trackpad: 36px (≥ 24 de WCAG 2.5.8) */
+.ficticio{background:#7c2d12;color:#fff;font-size:var(--fs-sm);font-weight:600;padding:6px 16px;text-align:center}
+.top{position:sticky;top:0;z-index:40;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:8px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
+.top .marca{font-weight:700;color:var(--brand);margin-right:auto}
+.top label{font-size:var(--fs-sm);color:var(--muted);display:flex;align-items:center;gap:6px}
+.top select{min-height:var(--tap);border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);padding:0 8px;max-width:58vw}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
+.seg button{min-height:var(--tap);min-width:var(--tap);padding:0 12px;border:0;background:var(--surface);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--brand);color:var(--surface)}
+.shell{display:grid;grid-template-columns:240px 1fr;min-height:calc(100vh - 90px)}
+.nav{background:var(--surface);border-right:1px solid var(--border);padding:12px 8px}
+.nav a{display:flex;align-items:center;gap:10px;min-height:var(--tap);padding:0 12px;border-radius:8px;color:var(--text);text-decoration:none}
+.nav a[aria-current="page"]{background:var(--brand-soft);color:var(--brand);font-weight:600}
+.nav .ico{width:22px;text-align:center;flex:none}
+.nav .badge{margin-left:auto}
+.nav h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:16px 12px 4px}
+.badge{display:inline-block;min-width:22px;padding:1px 7px;border-radius:999px;background:var(--red);color:#fff;font-size:12px;font-weight:700;text-align:center}
+.badge.n{background:var(--surface-2);color:var(--text-2);border:1px solid var(--border)}
+main{padding:20px 24px 96px;min-width:0}
+h1{font-size:24px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:var(--fs-sm);margin-bottom:16px}
+.aviso{border:1px solid var(--border-strong);border-left:4px solid var(--amber);background:var(--amber-soft);border-radius:var(--radius);padding:10px 14px;font-size:var(--fs-sm);margin:0 0 16px}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.card h2{font-size:16px;margin:0 0 10px}
+.cues{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.cue{display:block;text-decoration:none;color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:12px;background:var(--surface);min-height:88px}
+.cue .n{font-size:28px;font-weight:700;line-height:1.1}
+.cue .l{font-size:var(--fs-sm);color:var(--text-2)}
+.cue.alta{border-left:4px solid var(--red)} .cue.media{border-left:4px solid var(--amber)} .cue.ok{border-left:4px solid var(--green)}
+.acciones{display:flex;flex-wrap:wrap;gap:8px}
+.kpis{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.kpi{border:1px solid var(--border);border-radius:var(--radius);padding:12px;background:var(--surface)}
+.kpi .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.kpi .d{font-size:12px;color:var(--muted)}
+.tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;border:1px solid var(--border-strong);color:var(--text-2);background:var(--surface-2)}
+.tag.alta{border-color:var(--red);color:var(--red);background:var(--red-soft)}
+.tag.media{border-color:var(--amber);color:var(--amber);background:var(--amber-soft)}
+.tag.ok{border-color:var(--green);color:var(--green);background:var(--green-soft)}
+/* Bandeja */
+.bandeja{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:16px;align-items:start}
+.lista{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.lista li+li{border-top:1px solid var(--border)}
+.lista button{all:unset;box-sizing:border-box;display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;width:100%;padding:12px 14px;cursor:pointer;min-height:64px}
+.lista button:focus-visible{outline:3px solid var(--focus);outline-offset:-3px}
+.lista button[aria-current="true"]{background:var(--brand-soft)}
+.lista .t{font-weight:600}
+.lista .m{grid-column:2/4;font-size:var(--fs-sm);color:var(--muted)}
+.filtros{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.chip{min-height:var(--tap);padding:0 14px;border-radius:999px;border:1px solid var(--border-strong);background:var(--surface);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--brand);color:var(--surface);border-color:var(--brand)}
+.detalle{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;position:sticky;top:110px}
+.detalle dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0 0 12px}
+.detalle dt{color:var(--muted);font-size:var(--fs-sm)} .detalle dd{margin:0}
+.barra-acc{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.lineas{width:100%;border-collapse:collapse;font-size:var(--fs-sm);font-variant-numeric:tabular-nums}
+.lineas th,.lineas td{padding:6px 8px;border-bottom:1px solid var(--border);text-align:left}
+.lineas td.num,.lineas th.num{text-align:right}
+/* Tabla de flujo — sin solapamiento */
+.tabla-wrap{overflow:auto;max-height:70vh;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);
+  scroll-snap-type:x mandatory; scroll-padding-left:var(--c0w); overscroll-behavior-x:contain}
+.ft{border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums;font-size:14px}
+.ft th,.ft td{padding:0 10px;height:34px;white-space:nowrap;border-bottom:1px solid var(--border);background:var(--surface)}
+.ft td.num,.ft th.num{text-align:right;min-width:var(--colw,104px);width:var(--colw,104px);max-width:var(--colw,104px)}
+.ft .tot{min-width:var(--colw,112px);width:var(--colw,112px);max-width:var(--colw,112px)}
+.ft th .rt{display:block;font-size:12px;font-weight:400;color:var(--muted);line-height:1}
+.ft thead th{height:44px}
+.ft thead th{position:sticky;top:0;z-index:3;background:var(--surface-2);font-weight:600}
+.ft thead th.mes{scroll-snap-align:start}
+.ft .c0{position:sticky;left:0;z-index:2;width:var(--c0w);min-width:var(--c0w);max-width:var(--c0w);overflow:hidden;text-overflow:ellipsis;border-right:1px solid var(--border-strong);text-align:left}
+.ft thead .c0{z-index:4}
+.ft tr.grupo td{background:var(--surface-2);font-weight:600}
+.ft tr.grupo td.c0{background:var(--surface-2)}
+.ft tr.neto td{font-weight:700;border-top:2px solid var(--text)}
+.ft .tot{border-left:1px solid var(--border-strong);font-weight:600}
+@media (min-width:1024px){ .ft .tot{position:sticky;right:0;z-index:2} .ft thead .tot{z-index:4} }
+.ft .real{color:var(--muted)}
+.ft td.neg{color:var(--red)}
+/* Vista mes a mes (teléfono) */
+.mesnav{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.mesnav strong{flex:1;text-align:center;font-size:17px}
+.filas-mes{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)}
+.filas-mes li{display:flex;justify-content:space-between;gap:10px;padding:10px 14px;border-top:1px solid var(--border);font-variant-numeric:tabular-nums}
+.filas-mes li:first-child{border-top:0}
+.filas-mes li.g{background:var(--surface-2);font-weight:600}
+.filas-mes li.n{font-weight:700;border-top:2px solid var(--text)}
+.filas-mes .c{min-width:0;overflow-wrap:anywhere}
+.subir{border:2px dashed var(--border-strong);border-radius:var(--radius);padding:18px;text-align:center;background:var(--surface-2)}
+.subir input{position:absolute;opacity:0;width:1px;height:1px}
+.subir label{display:inline-flex}
+.bottom{display:none}
+.solo-movil{display:none}
+/* ── Tablet (600–1023): riel ── */
+@media (max-width:1023px){
+  .shell{grid-template-columns:88px 1fr}
+  .nav{padding:8px 4px}
+  .nav h2{display:none}
+  .nav a{flex-direction:column;justify-content:center;gap:2px;padding:6px 2px;font-size:12px;text-align:center;min-height:64px;position:relative}
+  .nav a .ico{font-size:20px}
+  .nav a .badge{position:absolute;top:4px;right:10px;margin:0}
+  .nav a .txt{max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bandeja{grid-template-columns:1fr}
+  .bandeja.con-detalle .lista-col{display:none}
+  .detalle{position:static}
+  .solo-movil{display:inline-flex}
+}
+/* Tablet horizontal ancha: lista + detalle lado a lado */
+@media (min-width:900px) and (max-width:1023px) and (orientation:landscape){
+  .bandeja{grid-template-columns:minmax(300px,380px) 1fr}
+  .bandeja.con-detalle .lista-col{display:block}
+  .bandeja .solo-movil{display:none}
+}
+/* ── Teléfono (<600): barra inferior ── */
+@media (max-width:599px){
+  :root{--fs:16px}
+  .shell{display:block}
+  .nav{display:none}
+  main{padding:14px 16px calc(96px + env(safe-area-inset-bottom))}
+  h1{font-size:21px}
+  .top{padding:6px 12px}
+  .top .lbl-txt{display:none}
+  .top{flex-wrap:nowrap}
+  .top .marca{font-size:14px}
+  .top select{max-width:46vw;font-size:14px}
+  .ficticio{font-size:12px;padding:4px 10px}
+  .ficticio .largo{display:none}
+  .bottom{display:grid;grid-template-columns:repeat(4,1fr);position:fixed;bottom:0;left:0;right:0;z-index:50;background:var(--surface);border-top:1px solid var(--border);padding-bottom:env(safe-area-inset-bottom)}
+  .bottom a{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60px;font-size:12px;color:var(--text-2);text-decoration:none;position:relative}
+  .bottom a[aria-current="page"]{color:var(--brand);font-weight:700}
+  .bottom .ico{font-size:20px}
+  .bottom .badge{position:absolute;top:4px;left:calc(50% + 6px)}
+  .detalle .barra-acc{position:sticky;bottom:calc(64px + env(safe-area-inset-bottom));background:var(--surface);padding:10px 0;margin:12px -16px -16px;padding-inline:16px;border-top:1px solid var(--border)}
+  .barra-acc .btn{flex:1}
+  .grid{grid-template-columns:1fr}
+  .ft .c0{white-space:normal;line-height:1.2;padding-block:6px;text-overflow:clip}
+  .ft td{height:auto;min-height:44px}
+}
+/* Teléfono horizontal (bajo): la barra inferior pasa a riel para no comer alto */
+@media (max-height:500px) and (orientation:landscape) and (max-width:1023px){
+  .shell{display:grid;grid-template-columns:88px 1fr}
+  .nav{display:block}
+  .bottom{display:none}
+  main{padding-bottom:24px}
+  .detalle .barra-acc{position:static;margin:12px 0 0;padding:0;border:0}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#principal">Saltar al contenido</a>
+<div class="ficticio" role="note">PROTOTIPO · datos ficticios · <span class="largo">el selector de perfil </span>SIMULA perfiles<span class="largo"> (lo que vería cada persona)</span>: no es control de acceso</div>
+<header class="top">
+  <span class="marca">Mediterra Hub</span>
+  <label><span class="lbl-txt">Perfil</span>
+    <select id="persona" aria-label="Perfil simulado"></select></label>
+  <span class="seg" role="group" aria-label="Alternativa de navegación">
+    <button type="button" data-alt="A" aria-pressed="false" title="A · Inicio por perfil">A</button>
+    <button type="button" data-alt="B" aria-pressed="false" title="B · Bandeja primero">B</button>
+  </span>
+</header>
+<div class="shell">
+  <nav class="nav" id="nav" aria-label="Navegación principal"></nav>
+  <main id="principal" tabindex="-1"></main>
+</div>
+<nav class="bottom" id="bottom" aria-label="Navegación inferior"></nav>
+<script>
+"use strict";
+/* ── Perfiles: salen de los defaults del código (src/App.jsx WORKERS_BASE, TAREAS_BASE,
+   AUTORIZADORES de nóminas, RendicionesModule). En producción mandan los permisos guardados
+   en Supabase (fila "usuarios"), que este prototipo NO conoce. ── */
+const PERSONAS = {
+  angelo:  { nombre:"Angelo Huerta", cargo:"Gerencia Adm. y Finanzas", rol:"admin", funciones:["CFO","Aprobador final de nóminas","Aprobador de rendiciones","Supervisor de 22 tareas"],
+             modulos:["tareas","finanzas","contabilidad","osiris","allegria","frisku","allegria_service"], cfo:true },
+  carol:   { nombre:"Carol Machuca", cargo:"Analista Finanzas", rol:"editor", funciones:["Tesorería y flujo","V°B° de nóminas","Responsable de 11 tareas, supervisa 3","Ve todas las rendiciones"],
+             modulos:["tareas","finanzas","contabilidad","osiris"] },
+  michelle:{ nombre:"Michelle Garcia", cargo:"Contadora General", rol:"editor", funciones:["Contabilidad y cierre","V°B° de nóminas (sin módulo Finanzas por defecto)","Responsable de 5 tareas, co-responsable F29 y Análisis"],
+             modulos:["tareas","contabilidad","finanzas:rendiciones"] },
+  pablo:   { nombre:"Pablo Duran", cargo:"Asistente Contable", rol:"editor", funciones:["Asientos y análisis de cuentas","Responsable de 5 tareas, co-responsable Cierre+EEFF"],
+             modulos:["tareas","contabilidad","finanzas:rendiciones"] },
+  milagros:{ nombre:"Milagros Becerra", cargo:"Sec. Administrativa", rol:"editor", funciones:["12 tareas semanales","Recibe recordatorios","Rendiciones (propias y de otros)"],
+             modulos:["tareas","finanzas:rendiciones"] },
+  nicolas: { nombre:"Nicolás Fuenzalida", cargo:"Gerente Técnico", rol:"gerente_tecnico", funciones:["Operación técnica Osiris","Aprueba informes técnicos"],
+             modulos:["osiris","finanzas:rendiciones"] },
+  comercial:{ nombre:"Perfil comercial (sin usuario en los defaults)", cargo:"Frisku / Allegria", rol:"editor", funciones:["Programa y embarques","Liquidaciones y cobranza"],
+             modulos:["frisku","allegria","finanzas:rendiciones"] },
+  consulta:{ nombre:"Perfil consulta (rol existente, sin usuario)", cargo:"Solo lectura", rol:"consulta", funciones:["Consulta de informes"],
+             modulos:["finanzas:dashboard","finanzas:reporte"] },
+  personal:{ nombre:"Personal (solo rendiciones)", cargo:"Cualquier trabajador", rol:"editor", funciones:["Cargar sus gastos con respaldo"],
+             modulos:["finanzas:rendiciones"] },
+};
+const MOD = {
+  inicio:{ico:"⌂",txt:"Inicio"}, bandeja:{ico:"✓",txt:"Bandeja"}, tareas:{ico:"☑",txt:"Tareas"}, flujo:{ico:"▤",txt:"Flujo"},
+  nominas:{ico:"₿",txt:"Nóminas"}, bancos:{ico:"🏦",txt:"Saldos"}, creditos:{ico:"％",txt:"Créditos"},
+  contabilidad:{ico:"∑",txt:"Contabilidad"}, rendiciones:{ico:"🧾",txt:"Rendiciones"}, osiris:{ico:"🌱",txt:"Osiris"},
+  frisku:{ico:"🚢",txt:"Frisku"}, allegria:{ico:"🍒",txt:"Allegria"}, reporte:{ico:"📄",txt:"Reporte"}, mas:{ico:"⋯",txt:"Más"}, cargar:{ico:"＋",txt:"Cargar"}
+};
+function destinos(p){
+  const m = p.modulos, d = [];
+  const tiene = (k) => m.includes(k) || m.some(x => x.startsWith(k + ":"));
+  const fin = (t) => m.includes("finanzas") || m.includes("finanzas:" + t);
+  if (tiene("tareas")) d.push("tareas");
+  if (m.includes("finanzas")) d.push("flujo", "bancos", "creditos", "nominas");
+  if (fin("reporte") && !m.includes("finanzas")) d.push("reporte");
+  if (tiene("contabilidad")) d.push("contabilidad");
+  if (tiene("osiris")) d.push("osiris");
+  if (tiene("frisku")) d.push("frisku");
+  if (tiene("allegria")) d.push("allegria");
+  if (fin("rendiciones")) d.push("rendiciones");
+  return d;
+}
+/* ── Pendientes ficticios, cada uno con la regla real que decide quién actúa ── */
+const PEND = [
+  { id:"n41", tipo:"aprobar", mod:"nominas", sev:"alta", t:"Nómina S41 · Allegria Service", m:"US$ 48.210 · 14 líneas · en revisión · preparada por Milagros hace 5 h",
+    quien:["carol","michelle"], regla:"revision → V°B°: solo Carol Machuca o Michelle Garcia (AUTORIZADORES)", estado:"revision", cobertura:"14/14 con respaldo",
+    lineas:[["Proveedor envases","12.400"],["Flete Valparaíso","8.950"],["Remuneraciones","21.300"],["Otros (11)","5.560"]] },
+  { id:"n40", tipo:"aprobar", mod:"nominas", sev:"alta", t:"Nómina S40 · Mediterra", m:"US$ 31.900 · V°B° de Michelle · falta aprobación final",
+    quien:["angelo"], regla:"V°B° → aprobada: solo rol admin", estado:"aprobada1", cobertura:"9/9 con respaldo",
+    lineas:[["Cuota Privado Particular","17.325"],["Honorarios","9.200"],["Otros (7)","5.375"]] },
+  { id:"r12", tipo:"aprobar", mod:"rendiciones", sev:"media", t:"Rendición · Nicolás Fuenzalida", m:"CLP 184.500 · 6 gastos · 1 sin TC (PEN)",
+    quien:["angelo"], regla:"Aprobador asignado en Rendiciones → Maestros (config.aprobadores)", estado:"enviada", cobertura:"6/6 boletas",
+    lineas:[["Peaje y combustible","62.000"],["Almuerzo terreno","38.500"],["Hotel Talca","84.000"]] },
+  { id:"r13", tipo:"pagar", mod:"rendiciones", sev:"media", t:"Pagar rendición · Milagros Becerra", m:"CLP 42.300 · aprobada hace 2 días",
+    quien:["angelo"], regla:"Hoy CUALQUIERA con 'ver todas' puede marcar pagada (sin control de rol): el prototipo lo limita al CFO — decisión pendiente", estado:"aprobada", cobertura:"3/3 boletas",
+    lineas:[["Courier","18.300"],["Útiles","24.000"]] },
+  { id:"t14", tipo:"tarea", mod:"tareas", sev:"alta", t:"F29 · Allegria Foods (vencida)", m:"Venció el 20-10 · responsable Michelle (Pablo co-responsable)",
+    quien:["michelle","pablo"], regla:"Responsable o co-responsable marca su semáforo", estado:"vencida" },
+  { id:"t17", tipo:"tarea", mod:"tareas", sev:"media", t:"Pago F29 · 4 sociedades", m:"Vence el 20-10 · depende de F29",
+    quien:["angelo"], regla:"Responsable: Angelo (m17)", estado:"hoy" },
+  { id:"ts3", tipo:"tarea", mod:"tareas", sev:"media", t:"Conciliación semanal de facturas", m:"Semana 41 · hoy",
+    quien:["milagros"], regla:"Responsable: Milagros", estado:"hoy" },
+  { id:"ts8", tipo:"supervisar", mod:"tareas", sev:"baja", t:"Supervisar: Cierre + EEFF Sep-26", m:"Pablo marcó ✓ · falta tu revisión",
+    quien:["carol","angelo"], regla:"Supervisor marca su semáforo", estado:"por_supervisar" },
+  { id:"sb", tipo:"revisar", mod:"bancos", sev:"media", t:"2 cuentas sin paridad", m:"Total de saldos INCOMPLETO · falta USD-PEN manual",
+    quien:["carol","angelo"], regla:"Cargar USD-PEN en Maestros → TC y volver a guardar el saldo", estado:"incompleto" },
+  { id:"cr", tipo:"conciliar", mod:"creditos", sev:"media", t:"3 pagos de crédito por conciliar", m:"US$ 1.647.854 vencidos sin pago registrado (no se marcan solos)",
+    quien:["carol","angelo"], regla:"Se concilia contra cartola; nada se marca pagado automáticamente", estado:"por_conciliar" },
+  { id:"os", tipo:"aprobar", mod:"osiris", sev:"media", t:"Informe técnico · Vivero Los Andes", m:"En revisión · 12 fotos",
+    quien:["nicolas","angelo"], regla:"Aprobar/enviar: gerente técnico o admin", estado:"revision" },
+  { id:"fr", tipo:"revisar", mod:"frisku", sev:"media", t:"Liquidación FR-2026-118 en borrador", m:"Cliente Disney · comisión US$ 6.420",
+    quien:["comercial","angelo"], regla:"Liquidaciones: permiso de edición de la pestaña", estado:"borrador" },
+  { id:"rp", tipo:"cargar", mod:"rendiciones", sev:"baja", t:"Tu rendición de octubre está en borrador", m:"2 gastos sin respaldo",
+    quien:["personal","milagros","nicolas","michelle","pablo","comercial"], regla:"Cada persona carga sus propios gastos", estado:"borrador" },
+];
+const ACC = {
+  angelo:["Aprobar nóminas","Revisar flujo consolidado","Generar reporte semanal","Revisar créditos por conciliar"],
+  carol:["Preparar nómina","Actualizar saldos bancarios","Revisar flujo por empresa","V°B° de nóminas"],
+  michelle:["V°B° de nóminas","Marcar F29","Análisis de cuentas","Mis rendiciones"],
+  pablo:["Cargar asientos","Análisis de cuentas","Cierre + EEFF","Mis rendiciones"],
+  milagros:["Mis tareas de la semana","Cargar gasto con boleta","Recordatorios"],
+  nicolas:["Informes técnicos","Contratos y royalties","Cargar gasto con boleta"],
+  comercial:["Programa semanal","Embarques","Liquidaciones","Cargar gasto con boleta"],
+  consulta:["Ver dashboard","Descargar reporte semanal"],
+  personal:["Cargar gasto con boleta","Ver estado de mis rendiciones"],
+};
+/* ── Flujo ficticio (Allegria Foods, US$) ── */
+const MESES = ["Jul-26","Ago-26","Sep-26","Oct-26","Nov-26","Dic-26","Ene-27","Feb-27","Mar-27","Abr-27","May-27","Jun-27"];
+const HOY = 3;
+function rnd(s){ return () => (s = (s * 16807) % 2147483647) / 2147483647; }
+const r = rnd(42);
+const GRUPOS = [
+  ["Ingresos operacionales", 1, ["Venta cerezas exportación","Comisión arándanos Perú","Anticipos clientes"]],
+  ["Egresos operacionales", -1, ["Pago productores cerezas","Anticipos productor","Materiales de embalaje","Servicio de proceso","Flete y frío"]],
+  ["Costos fijos / SG&A", -1, ["Remuneraciones","Fee holding","Arriendo oficinas"]],
+  ["Egresos no operacionales", -1, ["Préstamos · cuotas Santander e Itaú"]],
+];
+const FLUJO = GRUPOS.map(([g, s, ls]) => ({ g, s, lineas: ls.map(l => ({ l, v: MESES.map(() => Math.round(r() * 900 + 40) * 100 * s)})) }));
+const fmt = (n) => (n < 0 ? "(" : "") + Math.abs(n).toLocaleString("es-CL") + (n < 0 ? ")" : "");
+
+/* ── Estado ── */
+const est = { alt:"A", persona:"angelo", vista:"inicio", sel:null, mes:HOY, tabla:false, filtro:"todos" };
+function leerHash(){
+  const p = (location.hash || "#/A/angelo/inicio").slice(2).split("/");
+  est.alt = p[0] === "B" ? "B" : "A"; est.persona = PERSONAS[p[1]] ? p[1] : "angelo";
+  est.vista = p[2] || (est.alt === "B" ? "bandeja" : "inicio"); est.sel = p[3] || null;
+}
+const ruta = (v, sel) => `#/${est.alt}/${est.persona}/${v}${sel ? "/" + sel : ""}`;
+const mios = () => PEND.filter(x => x.quien.includes(est.persona) && (destinos(PERSONAS[est.persona]).includes(x.mod)));
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function render(){
+  const p = PERSONAS[est.persona];
+  document.querySelectorAll("[data-alt]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.alt === est.alt)));
+  document.getElementById("persona").value = est.persona;
+  const d = destinos(p), n = mios().length;
+  // Navegación lateral / riel
+  const nav = document.getElementById("nav");
+  nav.innerHTML = (est.alt === "A"
+      ? `<a href="${ruta("inicio")}" ${est.vista==="inicio"?'aria-current="page"':""}><span class="ico" aria-hidden="true">${MOD.inicio.ico}</span><span class="txt">Inicio</span>${n?`<span class="badge" aria-label="${n} pendientes">${n}</span>`:""}</a>`
+      : `<a href="${ruta("bandeja")}" ${est.vista==="bandeja"?'aria-current="page"':""}><span class="ico" aria-hidden="true">${MOD.bandeja.ico}</span><span class="txt">Bandeja</span>${n?`<span class="badge" aria-label="${n} pendientes">${n}</span>`:""}</a>
+         <a href="${ruta("inicio")}" ${est.vista==="inicio"?'aria-current="page"':""}><span class="ico" aria-hidden="true">${MOD.inicio.ico}</span><span class="txt">Resumen</span></a>`)
+    + `<h2>Módulos</h2>` + d.map(k => {
+      const c = PEND.filter(x => x.mod === k && x.quien.includes(est.persona)).length;
+      return `<a href="${ruta(k)}" ${est.vista===k?'aria-current="page"':""}><span class="ico" aria-hidden="true">${MOD[k].ico}</span><span class="txt">${MOD[k].txt}</span>${c?`<span class="badge n" aria-label="${c} pendientes">${c}</span>`:""}</a>`;
+    }).join("");
+  // Barra inferior (teléfono): 4 destinos, solo navegación
+  const bot = est.alt === "A"
+    ? [["inicio","Inicio"], [d.includes("flujo")?"flujo":(d[0]||"inicio"), d.includes("flujo")?"Flujo":MOD[d[0]||"inicio"].txt], ["rendiciones","Rendir"], ["mas","Más"]]
+    : [["bandeja","Bandeja"], ["consultar","Consultar"], ["rendiciones","Cargar"], ["mas","Más"]];
+  document.getElementById("bottom").innerHTML = bot.filter(([k]) => k !== "rendiciones" || d.includes("rendiciones")).map(([k, t]) => {
+    const ico = k === "consultar" ? "🔎" : (MOD[k] || MOD.mas).ico, act = est.vista === k || (k === "consultar" && ["flujo","bancos","creditos","reporte"].includes(est.vista));
+    const b = (k === "bandeja" || (k === "inicio" && est.alt === "A")) && n ? `<span class="badge" aria-label="${n} pendientes">${n}</span>` : "";
+    return `<a href="${ruta(k)}" ${act?'aria-current="page"':""}><span class="ico" aria-hidden="true">${ico}</span>${t}${b}</a>`;
+  }).join("");
+  const main = document.getElementById("principal");
+  const V = { inicio: vInicio, bandeja: vBandeja, flujo: vFlujo, nominas: () => vModuloLista("nominas"), rendiciones: vRendiciones, mas: vMas, consultar: vConsultar };
+  main.innerHTML = (V[est.vista] || (() => vModuloLista(est.vista)))();
+  enlazar();
+}
+function cabecera(t, s){ return `<h1>${t}</h1><div class="sub">${s}</div>`; }
+function avisoPermisos(p){
+  return `<p class="aviso"><strong>${esc(p.nombre)}</strong> · ${esc(p.cargo)} · rol <code>${p.rol}</code>. Funciones: ${p.funciones.map(esc).join(" · ")}.
+  Simulación con los permisos <em>por defecto del código</em>; en producción mandan los guardados en Supabase. Ocultar una opción acá no protege el dato: hoy el acceso se controla en el navegador.</p>`;
+}
+function cues(lista){
+  const cnt = (f) => lista.filter(f).length;
+  const c = [
+    ["Vencidas", cnt(x => x.estado === "vencida"), "alta"],
+    ["Por aprobar", cnt(x => x.tipo === "aprobar" || x.tipo === "pagar"), "alta"],
+    ["Por conciliar / revisar", cnt(x => ["conciliar","revisar","supervisar"].includes(x.tipo)), "media"],
+    ["Tareas de hoy", cnt(x => x.tipo === "tarea" && x.estado === "hoy"), "ok"],
+  ];
+  return `<div class="cues">${c.map(([l, n, s]) => `<a class="cue ${n ? s : ""}" href="${ruta("bandeja")}"><div class="n">${n}</div><div class="l">${l}</div></a>`).join("")}</div>`;
+}
+function kpisCFO(){
+  return `<section class="card" aria-labelledby="kpi-h"><h2 id="kpi-h">Visión del grupo · corte 07-10-2026</h2>
+  <div class="kpis">
+    <div class="kpi"><div class="d">Caja consolidada (6 sociedades)</div><div class="v">1.284.500</div><div class="d">US$ · <span class="tag media">INCOMPLETO</span> 2 cuentas sin paridad</div></div>
+    <div class="kpi"><div class="d">Saldo mínimo proyectado</div><div class="v" style="color:var(--red)">(310.940)</div><div class="d">Oct-26 · Allegria Foods</div></div>
+    <div class="kpi"><div class="d">Capital por vencer</div><div class="v">4.571.791</div><div class="d">+ 1.647.854 por conciliar · JV aparte 1.556.701</div></div>
+    <div class="kpi"><div class="d">Compromisos 8 semanas</div><div class="v">1.987.636</div><div class="d">con fecha 998.220 · mensual sin desglose 989.416</div></div>
+  </div></section>`;
+}
+function vInicio(){
+  const p = PERSONAS[est.persona], l = mios();
+  return cabecera(est.alt === "A" ? `Hola, ${esc(p.nombre.split(" ")[0])}` : "Resumen", `Tu entrada: pendientes primero, después acciones frecuentes${p.cfo ? " y la visión del grupo" : ""}.`)
+    + avisoPermisos(p)
+    + `<div class="grid">
+        <section class="card" aria-labelledby="pend-h" style="grid-column:1/-1"><h2 id="pend-h">Tus pendientes (${l.length})</h2>${cues(l)}
+          <ul class="lista" style="margin-top:12px">${l.slice(0, 5).map(itemLista).join("") || `<li style="padding:14px">Sin pendientes.</li>`}</ul></section>
+        ${p.cfo ? `<div style="grid-column:1/-1">${kpisCFO()}</div>` : ""}
+        <section class="card" aria-labelledby="acc-h"><h2 id="acc-h">Acciones frecuentes</h2><div class="acciones">${(ACC[est.persona] || []).map(a => `<button class="btn" type="button">${esc(a)}</button>`).join("")}</div></section>
+        <section class="card" aria-labelledby="mod-h"><h2 id="mod-h">Tus módulos</h2><div class="acciones">${destinos(p).map(k => `<a class="btn" href="${ruta(k)}">${MOD[k].txt}</a>`).join("")}</div></section>
+      </div>`;
+}
+function itemLista(x){
+  return `<li><button type="button" data-abrir="${x.id}" ${est.sel === x.id ? 'aria-current="true"' : ""}>
+    <span class="tag ${x.sev === "baja" ? "" : x.sev}">${{aprobar:"Aprobar",pagar:"Pagar",tarea:"Tarea",supervisar:"Supervisar",revisar:"Revisar",conciliar:"Conciliar",cargar:"Cargar"}[x.tipo]}</span>
+    <span class="t">${esc(x.t)}</span><span aria-hidden="true">›</span><span class="m">${esc(x.m)}</span></button></li>`;
+}
+function vBandeja(){
+  const p = PERSONAS[est.persona];
+  const tipos = [["todos","Todo"],["aprobar","Aprobar"],["tarea","Tareas"],["conciliar","Conciliar/revisar"]];
+  let l = mios();
+  if (est.filtro !== "todos") l = l.filter(x => est.filtro === "conciliar" ? ["conciliar","revisar","supervisar"].includes(x.tipo) : est.filtro === "aprobar" ? ["aprobar","pagar"].includes(x.tipo) : x.tipo === est.filtro);
+  const x = PEND.find(y => y.id === est.sel && y.quien.includes(est.persona));
+  return cabecera("Bandeja de trabajo", `${l.length} pendiente(s) de ${esc(p.nombre)} en todos sus módulos, ordenados por urgencia.`)
+    + `<div class="filtros" role="group" aria-label="Filtrar">${tipos.map(([k, t]) => `<button class="chip" type="button" data-filtro="${k}" aria-pressed="${est.filtro === k}">${t}</button>`).join("")}</div>`
+    + `<div class="bandeja ${x ? "con-detalle" : ""}"><div class="lista-col"><ul class="lista">${l.map(itemLista).join("") || `<li style="padding:14px">Sin pendientes.</li>`}</ul></div>
+       <div class="detalle-col">${x ? vDetalle(x) : `<div class="detalle"><p>Elige un pendiente para ver su detalle y actuar.</p></div>`}</div></div>`;
+}
+function vDetalle(x){
+  const puede = x.quien.includes(est.persona) && PERSONAS[est.persona].rol !== "consulta";
+  const acciones = {
+    aprobar: x.mod === "nominas" ? (x.estado === "revision" ? ["Dar V°B°","Devolver"] : ["Aprobar","Devolver"]) : ["Aprobar","Rechazar"],
+    pagar: ["Marcar pagada (registrar comprobante)"], tarea: ["Marcar hecha","Adjuntar respaldo"], supervisar: ["Confirmar revisión","Devolver"],
+    conciliar: ["Abrir conciliación"], revisar: ["Abrir"], cargar: ["Cargar boleta","Enviar a aprobación"],
+  }[x.tipo];
+  return `<section class="detalle" aria-labelledby="det-h">
+    <a class="btn solo-movil" href="${ruta("bandeja")}" style="margin-bottom:10px">‹ Volver a la bandeja</a>
+    <h2 id="det-h" style="margin-top:0">${esc(x.t)}</h2>
+    <dl><dt>Estado</dt><dd>${esc(x.estado)}</dd>${x.cobertura ? `<dt>Respaldo</dt><dd>${esc(x.cobertura)}</dd>` : ""}<dt>Quién actúa</dt><dd>${esc(x.regla)}</dd><dt>Detalle</dt><dd>${esc(x.m)}</dd></dl>
+    ${x.lineas ? `<table class="lineas"><caption class="sub" style="text-align:left">Líneas (ficticias)</caption><thead><tr><th scope="col">Concepto</th><th scope="col" class="num">Monto</th></tr></thead><tbody>${x.lineas.map(([a, b]) => `<tr><td>${esc(a)}</td><td class="num">${b}</td></tr>`).join("")}</tbody></table>` : ""}
+    ${x.mod === "nominas" ? `<p><a href="${ruta("flujo")}">Ver efecto en el flujo de caja</a></p>` : ""}
+    <div class="barra-acc">${acciones.map((a, i) => `<button class="btn ${i === 0 ? "pri" : (/Devolver|Rechazar/.test(a) ? "peligro" : "")}" type="button" ${puede ? "" : "disabled"} data-accion="${esc(a)}">${esc(a)}</button>`).join("")}</div>
+    <p class="sub" role="status" id="eco" style="margin:8px 0 0"></p>
+  </section>`;
+}
+function vFlujo(){
+  const movil = matchMedia("(max-width:599px)").matches;
+  const neto = MESES.map((_, i) => FLUJO.reduce((a, g) => a + g.lineas.reduce((b, l) => b + l.v[i], 0), 0));
+  const head = `<h1>Flujo · Allegria Foods</h1><div class="sub">US$ · real Jul–Sep-26, proyección desde Oct-26 · <span class="tag media">Datos ficticios</span></div>`;
+  const conm = `<div class="filtros" role="group" aria-label="Formato"><button class="chip" type="button" data-tabla="0" aria-pressed="${!est.tabla}">Mes a mes</button><button class="chip" type="button" data-tabla="1" aria-pressed="${est.tabla}">Tabla completa</button></div>`;
+  if (movil && !est.tabla) {
+    const i = est.mes;
+    return head + conm + `<div class="mesnav"><button class="btn" type="button" data-mes="-1" aria-label="Mes anterior" ${i === 0 ? "disabled" : ""}>‹</button><strong aria-live="polite">${MESES[i]}${i < HOY ? " · real" : ""}</strong><button class="btn" type="button" data-mes="1" aria-label="Mes siguiente" ${i === MESES.length - 1 ? "disabled" : ""}>›</button></div>
+      <ul class="filas-mes">${FLUJO.map(g => `<li class="g"><span class="c">${g.g}</span><span>${fmt(g.lineas.reduce((a, l) => a + l.v[i], 0))}</span></li>` + g.lineas.map(l => `<li><span class="c">${l.l}</span><span>${fmt(l.v[i])}</span></li>`).join("")).join("")}
+      <li class="n"><span class="c">Flujo neto</span><span>${fmt(neto[i])}</span></li></ul>`;
+  }
+  const tot = (v) => v.slice(HOY).reduce((a, b) => a + b, 0);
+  return head + (movil ? conm : "") + `<div class="tabla-wrap" tabindex="0" role="region" aria-label="Tabla de flujo, desplazable"><table class="ft"><thead><tr><th class="c0" scope="col">Concepto</th>${MESES.map((m, i) => `<th class="num mes ${i < HOY ? "real" : ""}" scope="col">${m}${i < HOY ? '<span class="rt">real</span>' : ""}</th>`).join("")}<th class="num tot" scope="col">Oct–Jun</th></tr></thead><tbody>`
+    + FLUJO.map(g => `<tr class="grupo"><td class="c0" title="${g.g}">${g.g}</td>${MESES.map((_, i) => { const v = g.lineas.reduce((a, l) => a + l.v[i], 0); return `<td class="num ${v < 0 ? "neg" : ""}">${fmt(v)}</td>`; }).join("")}<td class="num tot">${fmt(g.lineas.reduce((a, l) => a + tot(l.v), 0))}</td></tr>`
+      + g.lineas.map(l => `<tr><td class="c0" title="${l.l}">${l.l}</td>${l.v.map((v, i) => `<td class="num ${i < HOY ? "real" : ""} ${v < 0 ? "neg" : ""}">${fmt(v)}</td>`).join("")}<td class="num tot">${fmt(tot(l.v))}</td></tr>`).join("")).join("")
+    + `<tr class="neto"><td class="c0">Flujo neto</td>${neto.map(v => `<td class="num ${v < 0 ? "neg" : ""}">${fmt(v)}</td>`).join("")}<td class="num tot">${fmt(tot(neto))}</td></tr></tbody></table></div>
+    <p class="sub">Al desplazar, la tabla se detiene en el borde de un mes: ninguna cifra queda cortada bajo la columna de conceptos.</p>`;
+}
+function vModuloLista(k){
+  const l = PEND.filter(x => x.mod === k && x.quien.includes(est.persona));
+  return cabecera(MOD[k] ? MOD[k].txt : k, `Pantalla completa del módulo (no se rediseña en este prototipo). Pendientes tuyos acá: ${l.length}.`)
+    + `<ul class="lista">${l.map(itemLista).join("") || `<li style="padding:14px">Sin pendientes tuyos en este módulo.</li>`}</ul>`;
+}
+function vRendiciones(){
+  return cabecera("Cargar gasto", "Recorrido corto para teléfono: foto de la boleta, monto, moneda y envío.")
+    + `<form class="card" onsubmit="event.preventDefault();document.getElementById('eco2').textContent='Prototipo: no se guarda nada.'">
+      <div class="subir"><label class="btn pri" for="foto">📷 Tomar foto o elegir archivo</label><input id="foto" type="file" accept="image/*,application/pdf" capture="environment">
+        <p class="sub" style="margin:8px 0 0">JPG, PNG o PDF. El archivo queda como respaldo del gasto.</p></div>
+      <p><label>Monto<br><input inputmode="decimal" required style="min-height:var(--tap);width:100%;border:1px solid var(--border-strong);border-radius:8px;padding:0 10px"></label></p>
+      <p><label>Moneda<br><select style="min-height:var(--tap);width:100%;border:1px solid var(--border-strong);border-radius:8px"><option>CLP</option><option>USD</option><option>PEN</option></select></label></p>
+      <p class="sub">PEN sin cotización USD-PEN cargada: el gasto queda marcado y no suma al total.</p>
+      <div class="barra-acc"><button class="btn pri" type="submit">Guardar borrador</button></div><p class="sub" id="eco2" role="status"></p></form>`;
+}
+function vConsultar(){
+  const d = destinos(PERSONAS[est.persona]).filter(k => ["flujo","bancos","creditos","reporte","contabilidad","frisku","osiris","allegria"].includes(k));
+  return cabecera("Consultar", "Detalle financiero y módulos de consulta.") + `<div class="acciones">${d.map(k => `<a class="btn" href="${ruta(k)}">${MOD[k].txt}</a>`).join("") || "Sin módulos de consulta."}</div>`;
+}
+function vMas(){
+  return cabecera("Más", "Todos tus módulos.") + `<ul class="lista">${destinos(PERSONAS[est.persona]).map(k => `<li><a class="btn" style="width:100%;justify-content:flex-start;border:0" href="${ruta(k)}">${MOD[k].ico} ${MOD[k].txt}</a></li>`).join("")}</ul>`;
+}
+/* Cabe un número ENTERO de meses entre la columna fija y el total fijo: con el ajuste a borde
+   (scroll-snap) ninguna cifra queda cortada a la izquierda ni a la derecha. */
+function ajustarColumnas(){
+  const w = document.querySelector(".tabla-wrap"); if (!w) return;
+  const t = w.querySelector(".ft"), c0 = t.querySelector("thead .c0"), tot = t.querySelector("thead .tot");
+  // Todas las columnas desplazables (meses y, si no es fija, la del total) miden lo mismo: así
+  // el final del desplazamiento también cae en un borde de columna.
+  const sticky = getComputedStyle(tot).position === "sticky";
+  const cw = c0.getBoundingClientRect().width;
+  let min = 104;
+  for (let k = 0; k < 3; k++) {
+    const disp = w.clientWidth - cw;
+    // con total fijo, n meses + total = disp ⇒ colw = disp / (n + 1); sin total fijo, disp / n
+    const n = Math.max(1, Math.floor(disp / min) - (sticky ? 1 : 0));
+    const colw = disp / (n + (sticky ? 1 : 0));
+    t.style.setProperty("--colw", colw + "px");
+    const real = t.querySelector("thead th.mes").getBoundingClientRect().width;
+    if (real <= colw + 0.5) break;
+    min = real;                          // el contenido pide más ancho: recalcular
+  }
+}
+document.addEventListener("keydown", (e) => {
+  const w = e.target.closest && e.target.closest(".tabla-wrap"); if (!w) return;
+  const colw = w.querySelector("thead th.mes").getBoundingClientRect().width;
+  const paso = { ArrowRight: colw, ArrowLeft: -colw, End: 1e6, Home: -1e6 }[e.key];
+  if (paso === undefined) return;
+  e.preventDefault(); w.scrollBy({ left: paso });
+});
+addEventListener("resize", ajustarColumnas);
+function enlazar(){
+  ajustarColumnas();
+  document.querySelectorAll("[data-abrir]").forEach(b => b.onclick = () => { location.hash = ruta("bandeja", b.dataset.abrir); });
+  document.querySelectorAll("[data-filtro]").forEach(b => b.onclick = () => { est.filtro = b.dataset.filtro; render(); });
+  document.querySelectorAll("[data-mes]").forEach(b => b.onclick = () => { est.mes = Math.max(0, Math.min(MESES.length - 1, est.mes + Number(b.dataset.mes))); render(); });
+  document.querySelectorAll("[data-tabla]").forEach(b => b.onclick = () => { est.tabla = b.dataset.tabla === "1"; render(); });
+  document.querySelectorAll("[data-accion]").forEach(b => b.onclick = () => { document.getElementById("eco").textContent = `Prototipo: "${b.dataset.accion}" no guarda nada.`; });
+}
+document.getElementById("persona").innerHTML = Object.entries(PERSONAS).map(([k, p]) => `<option value="${k}">${esc(p.nombre)} — ${esc(p.cargo)}</option>`).join("");
+document.getElementById("persona").onchange = (e) => { est.persona = e.target.value; location.hash = ruta(est.alt === "B" ? "bandeja" : "inicio"); };
+document.querySelectorAll("[data-alt]").forEach(b => b.onclick = () => { est.alt = b.dataset.alt; location.hash = ruta(est.alt === "B" ? "bandeja" : "inicio"); });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && est.sel) location.hash = ruta("bandeja"); });
+addEventListener("hashchange", () => { const prev = est.sel; leerHash(); render(); if (est.sel) { const h = document.getElementById("det-h"); h && h.setAttribute("tabindex", "-1"); h && h.focus(); } else if (prev) { const b = document.querySelector(`[data-abrir="${prev}"]`); b && b.focus(); } });
+matchMedia("(max-width:599px)").addEventListener("change", render);
+leerHash(); render();
+</script>
+</body>
+</html>
