@@ -223,8 +223,13 @@ export function clavesDuplicadas(emp) {
 // ═══════════════════════════════════════════════════════════════════
 export function marcadorBuild() {
   try {
-    const env = (typeof process !== "undefined" && process.env) || {};
-    const sha = env.REACT_APP_COMMIT_SHA || env.REACT_APP_VERCEL_GIT_COMMIT_SHA || env.REACT_APP_GIT_SHA;
+    // Acceso DIRECTO a `process.env.REACT_APP_*`: es la forma que CRA sustituye en
+    // el build (DefinePlugin). Pasar por una variable intermedia o por
+    // `typeof process` no se sustituye y el SHA se perdería en producción. Si la
+    // variable no está definida, queda `undefined` y no rompe nada.
+    const sha = process.env.REACT_APP_COMMIT_SHA
+      || process.env.REACT_APP_VERCEL_GIT_COMMIT_SHA
+      || process.env.REACT_APP_GIT_SHA;
     if (sha) return `build ${String(sha).slice(0, 7)}`;
     if (typeof document !== "undefined") {
       const srcs = [...document.querySelectorAll("script[src]")].map(e => e.getAttribute("src") || "");
