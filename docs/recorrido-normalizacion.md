@@ -24,10 +24,22 @@ otro módulo o fila.
 
 ---
 
-## 2 · Comprobar qué versión está corriendo tu pestaña (solo lectura)
+## 2 · Comprobar que corre la versión correcta (solo lectura)
 
-En la app abierta, consola del navegador. Hace un GET de un archivo estático y
-no escribe nada:
+Dos pruebas, y hacen falta las dos:
+
+1. **El deployment de producción asociado al SHA.** Vercel → proyecto
+   `gestion-grupo-mediterra` → Deployments: el último con la etiqueta
+   **Production**, estado **Ready** y commit **`41f79f1`**. (Claude lo confirma
+   también por la API de GitHub.)
+2. **El marcador de build en la cabecera de Finanzas.** Es un texto chico junto
+   al breadcrumb que **no existe en `3a9d33e`**: si no aparece, la pestaña corre
+   el código anterior → Ctrl+Shift+R. Muestra el SHA si Vercel expone las
+   variables de sistema; si no, el nombre del bundle.
+
+La comparación del bundle cargado contra `asset-manifest.json` **no basta sola**:
+solo prueba que tu pestaña corre lo mismo que publica el servidor, no que eso sea
+el commit nuevo. Sirve como complemento:
 
 ```js
 const m = await (await fetch('/asset-manifest.json', {cache:'no-store'})).json();
@@ -36,9 +48,6 @@ const cargado = [...document.querySelectorAll('script[src]')]
   .map(s => s.src.split('/').pop()).find(n => /^main\./.test(n));
 console.table([{ cargado, servidor, mismo: cargado === servidor }]);
 ```
-
-- `mismo: true` → estás en el código que el servidor publica. Sigue al paso 3.
-- `mismo: false` → tu pestaña corre un bundle viejo. Ctrl+Shift+R y repite.
 
 ---
 
