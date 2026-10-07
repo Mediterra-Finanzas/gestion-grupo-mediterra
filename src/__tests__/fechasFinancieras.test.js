@@ -17,3 +17,11 @@ test("semana real de una fecha de vencimiento del día 1", () => {
   expect(posicionSemana("2027-01-01")).toMatchObject({ mes: "Jan-27", semIdx: 0 });
   expect(posicionSemana("2026-06-01").mes).toBe("Jun-26");
 });
+
+test("la semana de un sábado de invierno no depende de la zona horaria (cambio de hora)", () => {
+  // 01-08-2026 es sábado; con la versión anterior y hora de Chile daba S32 (semana siguiente)
+  const { semanaEnMes } = require("../FinanzasModule.jsx");
+  expect(semanaEnMes("2026-08-01", "Aug-26")).toBe("S31");
+  expect(posicionSemana("2026-08-01")).toMatchObject({ mes: "Aug-26", semana: "S31", semIdx: 0 });
+  expect(posicionSemana("2026-06-13")).toMatchObject({ semana: "S24" });   // sábado de junio
+});

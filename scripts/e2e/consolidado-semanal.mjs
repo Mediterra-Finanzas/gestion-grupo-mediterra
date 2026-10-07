@@ -145,6 +145,7 @@ const txtRep = await page.locator('body').innerText();
 check('Reporte Semanal abre sin error de módulo', !/Ocurrió un error en/i.test(txtRep) && erroresPagina.length === 0 ? 1 : 0, 1);
 check('Reporte Semanal muestra "Compromisos 8 Sem."', /compromisos 8 sem\./i.test(txtRep) ? 1 : 0, 1);
 check('Reporte Semanal calcula movimientos por empresa', logsReporte.length > 0 ? 1 : 0, 1);
+check('Reporte: KPI separa "con fecha" de "mensual sin desglose"', /con fecha USD [\d.]+ · mensual sin desglose USD [\d.]+/.test(txtRep) ? 1 : 0, 1);
 await page.screenshot({ path: path.join(OUT, 'reporte-semanal.png') });
 
 fs.writeFileSync(path.join(OUT, 'consolidado-semanal.json'), JSON.stringify({ ok, fallos, det }, null, 2));

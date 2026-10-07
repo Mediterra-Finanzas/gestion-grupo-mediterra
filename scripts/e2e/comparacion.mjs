@@ -14,7 +14,8 @@ const OUT = process.env.OUT_DIR || '.';
 fs.mkdirSync(OUT, { recursive: true });
 
 const store = juegoDeDatos();
-const { browser, ctx, page } = await abrirApp(store, { ctxOpts: { timezoneId: 'America/Santiago' } });
+// NAV_TZ permite medir el efecto de la zona horaria (p. ej. NAV_TZ=UTC con el build anterior)
+const { browser, ctx, page } = await abrirApp(store, { ctxOpts: { timezoneId: process.env.NAV_TZ || 'America/Santiago' } });
 await ctx.route(/open\.er-api\.com|mindicador\.cl|frankfurter\.app/, r => r.abort());
 await ctx.route(/\/api\/send-email|emailjs/, r => r.fulfill({ status: 200, body: '{}' }));
 page.on('dialog', d => d.accept().catch(() => {}));
