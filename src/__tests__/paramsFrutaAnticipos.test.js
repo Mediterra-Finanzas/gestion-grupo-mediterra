@@ -231,7 +231,9 @@ describe('formato de los campos de parámetros', () => {
     const g = guardar();
     render(<ParamsFruta seasonKey="2026-2027" fruta="cerezas" params={params()} setParams={g.set}/>);
     escribir(etiqueta, texto);
-    expect(g.leer()["2026-2027"].cerezas[campo]).toBe(esperado);
+    // Si el texto es igual al valor actual no hay cambio y no se guarda nada: queda el valor de antes.
+    const guardado = g.leer()?.["2026-2027"]?.cerezas?.[campo] ?? params()["2026-2027"].cerezas[campo];
+    expect(guardado).toBe(esperado);
   });
 
   test('KG a exportar sí acepta separador de miles', () => {
