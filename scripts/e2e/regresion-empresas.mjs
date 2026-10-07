@@ -185,8 +185,10 @@ for (const empresa of EMPRESAS) {
       const val = num((await celda.innerText()).trim());
       if (val === 54321) { aplicado = etiqueta; break; }
     }
-    if (!aplicado) { console.log('  ⚠ no se pudo aplicar override (sin celda editable en May-26)'); }
-    else {
+        if (!aplicado) {
+      anota(`${emp} · override`, 'override manual aplicado', 'May-26', 1, 0,
+            'no se pudo aplicar el override: la comprobación quedó sin ejercer y cuenta como falla');
+    } else {
       console.log(`  override en «${aplicado}» May-26 = 54.321`);
       // Releer el flujo desde cero: al cambiar de pestaña y volver, la tabla
       // vuelve con las categorías plegadas y sus totales visibles.

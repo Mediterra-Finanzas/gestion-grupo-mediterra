@@ -315,10 +315,13 @@ Reglas que no hay que romper:
   del anticipo y `resumenAnticipos(...).liquidacion` en el mes de liquidación.
 - **Un mes que pasa NO da por cobrado nada.** El pendiente vencido se marca en pantalla
   y se reprograma a mano; nunca se mueve ni se salda solo.
-- **Un anticipo sin mes válido no se proyecta y tampoco descuenta** de la liquidación
-  (se cobra/paga al liquidar): así la caja no desaparece. Es el comportamiento histórico.
-- **Sobre-anticipo:** la liquidación queda en 0 y el excedente se muestra explícito
-  (pantalla y fila propia en el Excel). No se genera devolución automática.
+- **Un anticipo sin mes válido no se proyecta y su PENDIENTE tampoco descuenta** de la
+  liquidación (se cobra/paga al liquidar): así la caja no desaparece. Es el comportamiento
+  histórico. Lo **realizado sí descuenta siempre**, tenga mes o no: esa plata ya se movió.
+- **Sobre-anticipo:** se mide contra el TOTAL (venta o costo neto), nunca contra el
+  calendario de anticipos. Pasarse del calendario no deja la liquidación en cero; recién
+  cuando el descuento supera el total, la liquidación queda en 0 y el excedente se muestra
+  explícito (pantalla y fila propia en el Excel). No se genera devolución automática.
 - **Realizaciones:** no se borran ni se editan. Corregir = anular con motivo (queda en el
   historial) y registrar la correcta. Un anticipo con realizaciones vigentes no se puede
   eliminar.
@@ -383,6 +386,205 @@ concepto que existe en dos categorías no dicen a cuál pertenecen. La app:
    con ambos montos y no sobrescribe sin decisión explícita.
 
 Meses distintos del mismo concepto pueden ir a categorías distintas.
+
+#### Liquidación con anticipos y programas por contraparte — Allegria Foods (oct-2026)
+
+Representa la operación entre cliente, exportadora y productor, no un calendario
+de cuotas. Modelo puro en `src/programas.js` (`node src/programas.test.mjs`, 76
+casos), pantalla en `src/ProgramasComerciales.jsx`.
+
+```
+Cliente    → base = kg × FOB
+Productor  → base = kg × MAX(0, FOB×(1−desc%) − mat/kg − srv/kg)   ← retorno NETO
+
+base        = liquidación definitiva si existe, si no el presupuesto
+liquidación = MAX(0, base − realizado − pendientes con mes)
+saldo       = pendientes + liquidación     ·  excedente = MAX(0, realizado+pend − base)
+```
+
+Materiales y servicios se descuentan del precio del productor **y** se pagan en
+sus propias líneas (`dist_mat`/`dist_srv`): no hay duplicación. El descuento de
+exportadora se queda en Allegria y no es salida de caja.
+
+```
+fruta.programas: [{ id, lado:"cliente"|"productor", contraparte, kilos,
+  precio_usd_kg (informativo), fueraPresupuesto, archivado, motivoArchivo,
+  cuotas:[{ id, fecha_prevista, mes, modalidad:"usd_kg"|"monto"|"por_confirmar",
+            usd_kg|monto, extra_acordado, estado:"borrador"|"vigente"|"anulada",
+            sustituye:[{estimacionId, usd}], realizaciones:[...] }] }]
+fruta.liq_definitiva_cliente / _productor : { total, nota, usuario, ts } | null
+fruta.movimientos_sin_asignar : [{ id, fecha, usd, referencia, lado, aplicaciones }]
+```
+
+Las estimaciones son las filas de siempre (`anticipos_cliente` /
+`anticipos_productor`): US$/kg sobre los kilos de la FRUTA, sin contraparte.
+
+Reglas que no hay que romper:
+
+- **Un movimiento real descuenta UNA sola vez**, exista o no la cuota, esté o no
+  completo el programa, supere o no lo acordado. Cambiar kilos, tarifas o meses
+  no mueve el dinero ya cobrado o pagado.
+- **Imputar no modifica el acuerdo.** `cuotaPendiente = total acordado − imputado`.
+  La app pregunta si el movimiento estaba incluido o es adicional y muestra el
+  efecto (`efectoImputacion`) antes de confirmar; lo adicional va a
+  `extra_acordado`, sin tocar la tarifa pactada.
+- **Sustitución parcial por monto declarado**, nunca inferida. `estDisponible` =
+  acordado − realizado originado − sustituido. Una estimación cerrada no se
+  sustituye. Sin `MAX(0)` que esconda el exceso: `estSobreSustituida` lo expone.
+- **Borrador no proyecta ni sustituye**, pero su realizado descuenta igual.
+- **`estRealizadoOriginado` cuenta las realizaciones movidas desde la estimación**,
+  estén donde estén: mover no reabre su pendiente y revertir tampoco.
+- **Nada se borra con historial**: `archivarPrograma` exige motivo; anular una
+  realización sí le quita efecto en todo (realizado global y capacidad de la
+  estimación de origen).
+- **Fuera de presupuesto**: no proyecta ni descuenta de las operaciones
+  presupuestadas; su dinero real se muestra aparte (`realizadoFuera`).
+- **Sin asignar**: la bandeja de conciliación es visible y no descuenta de
+  ninguna liquidación. Registrar la aplicación comercial no toca el saldo
+  bancario.
+- **Vencido aparte**: el pendiente programado antes del mes en curso se proyecta
+  antes del corte y NO entra al saldo acumulado; nunca se llama flujo futuro.
+- **Registro de anticipos históricos** (`cuota.historico`): los anticipos ya
+  cobrados o pagados de una contraparte se guardan en una cuota marcada
+  `historico`, que `normalizarCuota` **fuerza a borrador siempre** (no se
+  activa ni editando el dato). Su realizado descuenta porque ya se movió, no
+  proyecta nada propio y no toca las cuotas del calendario. Se rotula como tal
+  en pantalla y en el Excel. No admite `mes_estimado`.
+- **Estimación de caja** (`cuota.estimacion_caja = {mes, motivo, usuario, ts,
+  historial[]}`): proyecta la cuota en otro mes **sin tocar la fecha
+  contractual**, que sigue en `fecha_prevista` y `mes`. `registrarEstimacionCaja`
+  exige mes y motivo; `quitarEstimacionCaja` la devuelve a su mes contractual
+  dejando el rastro. Un **compromiso vencido sigue vencido**: el vencimiento se
+  mide contra la fecha contractual (`cuotaVencidaContractual`), y
+  `resumenLado()` informa `vencidoContractual` / `vencidosContractuales[]`
+  aparte de las cubetas. `proyeccionEstimada` totaliza cuánto de la proyección
+  descansa en fechas estimadas. Para una cuota SIN fecha pactada está la marca
+  simple `mes_estimado` (ahí no hay dos fechas que preservar). La cuota muestra
+  las cuatro cosas a la vez: fecha contractual, condición de vencida, mes de
+  caja estimado y motivo (con usuario y fecha), en edición y en solo lectura.
+  Fijado con `src/__tests__/cuotaVencidaPantalla.test.js`, que renderiza el
+  panel real con el caso TUNGSHING (contractual Sep-26 vencido + caja estimada
+  en Feb-27): una estimación futura NO puede borrar el vencimiento.
+- **Un compromiso vencido no se traslada solo**: el pendiente con mes anterior
+  al corte se proyecta antes del corte, se lista como vencido y no entra al
+  saldo acumulado. Reprogramar es explícito.
+- **Un compromiso no es un pago**: evidencia de compromiso (pagaré, contrato)
+  justifica una CUOTA; evidencia de movimiento (cartola, comprobante)
+  justifica una REALIZACIÓN. Nada promueve lo primero a lo segundo
+  automáticamente. Un pendiente sin fecha no se traslada solo a la liquidación:
+  o se calendariza, o se declara que la proyección está incompleta por ese
+  monto.
+- **Antecedentes**: un monto informado sin fecha verificada
+  (`programa.antecedentes[]`) existe, se ve y **no** cuenta como realizado, no
+  se proyecta, no descuenta de ninguna liquidación y no se declara conciliado
+  con bancos. `completarAntecedente` exige la fecha real (nunca se inventa) y
+  lo convierte en imputación a una cuota o en movimiento de la bandeja; el
+  antecedente queda marcado como convertido, nunca borrado, así el monto no se
+  registra dos veces. En el Excel va como constante informativa, fuera de los
+  descuentos.
+- **Una sola fuente**: `movimientosLado()` alimenta `calcAllegria`, la pantalla
+  (`ResumenLado`) y el Excel (`bloqueLiquidacionLado`). En el Excel el realizado
+  y lo sustituido van como constantes, nunca como fórmula. `bloqueLiquidacionLado`
+  recibe `modeloVersion` y `decisionesSinFecha` y resuelve el trato de un
+  pendiente sin fecha con `tratoSinFecha`, el MISMO helper de la app: sin eso el
+  archivo mostraba caja que la pantalla declara no proyectable.
+- **Archivar no borra dinero**: un programa archivado deja de proyectar y de
+  sustituir, pero su realizado SIGUE descontando (`realizadoArchivado` lo
+  informa aparte, y el Excel lleva su fila). Antes el realizado desaparecía del
+  cuadre y la liquidación subía por ese monto.
+- **Una posición sale del bloque entera**: `presupuestoRetirado` descuenta el
+  `presupuesto_asignado` y, si no lo hay, el `importe_definitivo`. Si no, la
+  base total crecía en silencio (la posición se sumaba encima del presupuesto
+  completo de la fruta), idéntico en pantalla, flujo y Excel.
+- **El lado no se adivina**: `resumenLado` pone `lado` en cada posición y en el
+  bloque, y `reconocerDesdePosicion` lo exige. Antes todo excedente reconocido
+  nacía como "productor" y un sobrecobro de cliente se proyectaba como
+  recuperación (ingreso) en vez de devolución (egreso).
+- **El exceso de compromisos cuenta lo compensado**:
+  `MAX(0, realizado + compromisos + compensado − base) − excedenteReal`. Sin el
+  compensado la identidad de cuadre no cerraba y el aviso salía en cero.
+- **La versión del modelo se estampa al CREAR** (`v: MODELO_VERSION` en
+  `addCuota`/`addHistorico` de la pantalla y en `addRow` de las estimaciones).
+  Nadie la escribía, así que todo registro nuevo se trataba como antiguo: su
+  pendiente sin fecha se absorbía en la liquidación (justo lo que la regla
+  prohíbe) y la pantalla lo llamaba "registro antiguo". Lo ya guardado NO se
+  migra y conserva su comportamiento.
+- **Mover una realización entre estimaciones está prohibido**: reabriría el
+  pendiente de la de origen (`estRealizadoOriginado` sigue las movidas a una
+  CUOTA, no a otra estimación).
+- **Reasignar un movimiento, no volver a registrarlo** (oct-2026): el
+  formulario «Reasignar un movimiento ya registrado» de la tarjeta ofrece
+  origen y destino libres entre **estimación → cuota**, **cuota → estimación**
+  y **cuota → cuota** (antes solo la primera, así que corregir una asignación
+  obligaba a anular y re-registrar, que es lo que se hace cuando el movimiento
+  está MAL registrado, no cuando solo está mal asignado). El movimiento
+  conserva id, monto, fecha, nota e historial (`origen`, `movidaPor`,
+  `movidaTs`), y no queda copia en el contenedor de origen. Antes de confirmar
+  se muestran origen, destino, el pendiente de cada uno antes/después, el
+  efecto en la liquidación y el realizado total, que NO debe cambiar.
+  El efecto se calcula con el **mismo `resumenLado`** que alimenta pantalla,
+  flujo y Excel: no se replica la regla en la pantalla (una copia divergió en
+  el primer intento y mostraba un número que no era el que después aparecía).
+  `pendienteDe` para una estimación pasa `programas` a `estPendiente`, si no
+  una estimación cuyo movimiento se movió aparecería reabriendo su pendiente.
+  Fijado con `src/__tests__/reasignarMovimiento.test.js` (14) y el escenario
+  **H** de `excelRecalcFlujo` (Excel recalculado de verdad en la dirección
+  cuota → estimación).
+- **Aplicar un movimiento de la bandeja NO es reasignar** (oct-2026): un
+  movimiento sin asignar todavía **no descontaba** ninguna liquidación, así que
+  al aplicarlo el **realizado y el saldo económico SÍ cambian**. Lo que no
+  aumenta es el total del dinero registrado: el movimiento se consume, no se
+  duplica. `aplicarMovimiento({movimiento, estimaciones, programas, usd, hacia,
+  usuario})` crea una realización en la estimación o cuota destino con la
+  **fecha y la referencia del movimiento** y `origen:{tipo:"bandeja", id}`.
+  Admite aplicación **parcial**, y la pantalla muestra cada importe **con su
+  efecto**: «aplicado X · ya descuenta en su operación» y «sin asignar Y ·
+  solo este importe no descuenta». Sin esa aclaración el rótulo se leía como
+  si el movimiento entero siguiera sin descontar.
+  **Lo aplicado NO se lleva en un contador aparte**: `aplicadoDeMovimiento`
+  cuenta las realizaciones VIGENTES originadas en el movimiento, estén donde
+  estén. Así el mismo dinero no se aplica dos veces (se valida contra lo que
+  queda), anular la realización **libera el monto solo** y no pueden quedar
+  datos huérfanos. `sinAsignarUsd` de `resumenLado` descuenta lo ya aplicado.
+- **La bandeja se anula con motivo, no se borra**: `anularMovimientoSinAsignar`
+  exige motivo, conserva el dato con `anulada/motivoAnulacion/anuladaPor/
+  anuladaTs`, y **se bloquea si el movimiento tiene importes aplicados**
+  (habría descuentos activos sin su movimiento): primero se anulan esas
+  realizaciones. Reemplaza al botón «quitar», que borraba con un confirm.
+  Fijado con `src/__tests__/bandejaAplicar.test.js` (12), el escenario **I** de
+  `excelRecalcFlujo` y `scripts/e2e/reasignar-bandeja.mjs` (navegador).
+
+Guía de carga: `docs/programas-allegria-carga.md`. Guía de revisión en
+pantalla antes de cargar: `docs/revision-estimaciones-pantalla.md`. Propuesta de carga y
+pendientes comerciales (WLH, Don Alberto, fichas Perú / Allegria Service):
+`docs/propuesta-carga-allegria.md`. Pruebas:
+`src/__tests__/programasFlujo.test.js` y `integracionSaldos.test.js` (su
+comparación de Excel lee el valor EN CACHÉ: es control de forma, no prueba de
+las fórmulas), **`src/__tests__/excelRecalcFlujo.test.js`** (`RECALC=1`: Excel
+recalculado en LibreOffice contra `calcAllegria`, mes a mes, en los seis
+escenarios que la comparación en caché no podía ver),
+`src/__tests__/saldosExcelRecalc.test.js` (`RECALC=1`),
+`src/__tests__/cuotaVencidaPantalla.test.js` (RTL: lo que la cuota muestra), y
+`scripts/e2e/programas-allegria.mjs` + `regresion-empresas.mjs` (navegador +
+Excel recalculado, datos sintéticos) y **`scripts/e2e/reasignar-bandeja.mjs`**
+(navegador, dedicado al formulario de reasignación y a la bandeja: cuota →
+estimación, cuota → cuota, bandeja parcial a cuota y a estimación, guardado y
+recarga, cancelación, anulación con motivo y su bloqueo. El caso de SOLO
+LECTURA no se ejercita ahí porque el store de la prueba trae una única
+credencial de administrador; está cubierto en las pruebas de componente).
+
+#### Limitación conocida — pendiente con mes fuera del horizonte
+
+Un pendiente cuyo mes cae fuera del horizonte (`fuera_horizonte`) descuenta de
+la liquidación y no se proyecta en ningún mes, porque no tiene columna. La
+pantalla lo declara («· después del horizonte (no tienen columna en el
+flujo)») y el Excel hace lo mismo, así que pantalla y archivo coinciden; lo que
+pasa es que ese monto sale de la proyección. Hoy **no es alcanzable desde la
+pantalla** (el selector de mes solo ofrece meses del horizonte). Se vuelve
+alcanzable el día que el horizonte se corra hacia adelante. Decisión pendiente
+de Angelo: o no descuenta (se cobra/paga al liquidar, como un sin-fecha
+histórico) o se declara como monto no proyectable aparte. No se cambió en el
+cierre de oct-2026 por no tener dato real con el que validarlo.
 
 #### Limitación conocida — costos de ciruelas
 
