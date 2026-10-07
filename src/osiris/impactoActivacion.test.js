@@ -100,8 +100,14 @@ d("impacto de la activación sobre los contratos reales", () => {
     expect(Array.isArray(protegidas)).toBe(true);
   });
 
-  test("crear activaciones está habilitado en esta versión", () => {
-    expect(puedeCrearActivacion().puede).toBe(true);
+  test("la versión dice lo que hace con la creación de activaciones", () => {
+    // Esta suite corre en las dos versiones cuando hay snapshot, así que la
+    // afirmación tiene que depender de la bandera, no darla por supuesta.
+    const { ACTIVACIONES_NUEVAS_HABILITADAS } = require("./reajusteAplicado");
+    expect(puedeCrearActivacion().puede).toBe(ACTIVACIONES_NUEVAS_HABILITADAS);
+    if (!ACTIVACIONES_NUEVAS_HABILITADAS) {
+      expect(puedeCrearActivacion().motivo).toMatch(/no permite crear nuevas/);
+    }
   });
 
   afterAll(() => {
