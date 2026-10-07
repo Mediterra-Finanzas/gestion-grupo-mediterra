@@ -480,6 +480,15 @@ Verificación: `src/__tests__/prestamosSemanas.test.js` y
 `scripts/e2e/semanal-cuadre.mjs` (392 comprobaciones: Σ semanas = mes,
 ingresos − egresos = neto, Σ líneas = subtotal, saldo anterior + neto = saldo).
 
+#### Fechas "AAAA-MM-DD" = fecha local (oct-2026)
+
+`new Date("2027-01-01")` se interpreta en UTC; en un navegador de Chile queda en el
+31-12-2026. Así, con los créditos por defecto, 10 de 54 cuotas caían en el mes
+anterior en producción (el bullet de 550.000 del 01-01-2027 en Dec-26). Las pruebas
+corren en UTC y no lo veían. `fechaLocal()` lee la fecha como local y la usan
+`mesDeDate`, `semanaDeDate` y las cuotas mensuales. Verificar siempre también con
+`npm run test:cl` (TZ=America/Santiago). Test: `src/__tests__/fechaLocal.test.js`.
+
 #### Un solo motor: Flujo Empresas, Consolidado semanal y Reporte Semanal (oct-2026)
 
 `motorFlujoEmpresa({emp, proyOverrides, resoluciones, subLines, addedLines, prestamosSemanas})`

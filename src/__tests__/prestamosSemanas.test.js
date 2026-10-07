@@ -14,7 +14,10 @@ import { calcularAmortizacionSocio } from "../creditoSocio.js";
 const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const MESES = []; for (let i = 0; i < 63; i++) { const m = (3 + i) % 12, y = 26 + Math.floor((3 + i) / 12); MESES.push(`${MN[m]}-${y}`); }
 const mIdx = (l) => MESES.indexOf(l);
-const mesDeDate = (d) => { const date = new Date(d); return `${MN[date.getMonth()]}-${String(date.getFullYear()).slice(2)}`; };
+// La anterior usaba new Date("AAAA-MM-DD") (UTC): solo era correcta con el reloj en
+// UTC. La referencia lee la fecha como local, que es lo que hacía en UTC.
+const fechaLocalRef = (d) => { const m = typeof d === "string" && d.match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(d); };
+const mesDeDate = (d) => { const date = fechaLocalRef(d); return `${MN[date.getMonth()]}-${String(date.getFullYear()).slice(2)}`; };
 function calcPrestamosEmpresaAnterior(empresa, creditos) {
   const arr = Array(63).fill(0);
   creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
@@ -26,7 +29,7 @@ function calcPrestamosEmpresaAnterior(empresa, creditos) {
     if (!c.f_venc || !c.cuota) return;
     const cuota = Number(c.cuota) || 0; if (cuota === 0) return;
     if (c.tipo_cr === "Cuotas Mensuales" && c.f_inicio) {
-      const inicio = new Date(c.f_inicio), fin = new Date(c.f_venc); if (isNaN(inicio) || isNaN(fin)) return;
+      const inicio = fechaLocalRef(c.f_inicio), fin = fechaLocalRef(c.f_venc); if (isNaN(inicio) || isNaN(fin)) return;
       let fecha = new Date(inicio); fecha.setMonth(fecha.getMonth() + 1);
       while (fecha <= fin) { const i = mIdx(`${MN[fecha.getMonth()]}-${String(fecha.getFullYear()).slice(2)}`); if (i >= 0) arr[i] += cuota; fecha.setMonth(fecha.getMonth() + 1); }
     } else { const mes = mesDeDate(c.f_venc); if (!mes || mes.includes("NaN")) return; const i = mIdx(mes); if (i >= 0) arr[i] += cuota; }

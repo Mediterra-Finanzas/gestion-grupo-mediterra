@@ -583,15 +583,25 @@ export function calcAllegria(params) {
   return { ing, cost, mat, srv, recup, devol };
 }
 
+// "AAAA-MM-DD" como fecha LOCAL. new Date("2027-01-01") la interpreta en UTC y,
+// en Chile (UTC-3/-4), queda en el 31-12-2026: una cuota con vencimiento el día 1
+// caía en el mes (y año) anterior. Las pruebas corren en UTC y no lo veían.
+export function fechaLocal(d) {
+  if (d instanceof Date) return new Date(d.getTime());
+  const m = typeof d === "string" && d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return new Date(d);
+}
+
 function semanaDeDate(d) {
-  const date = new Date(d);
+  const date = fechaLocal(d);
   const jan1 = new Date(date.getFullYear(),0,1);
   const week = Math.ceil(((date-jan1)/86400000+jan1.getDay()+1)/7);
   return `S${String(week).padStart(2,"0")}`;
 }
 
 function mesDeDate(d) {
-  const date=new Date(d);
+  const date=fechaLocal(d);
   return `${MN[date.getMonth()]}-${String(date.getFullYear()).slice(2)}`;
 }
 
@@ -695,8 +705,8 @@ export function cuotasPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
 
     if(c.tipo_cr === "Cuotas Mensuales" && c.f_inicio) {
       // Distribuir cuotas mensuales desde f_inicio hasta f_venc
-      const inicio = new Date(c.f_inicio);
-      const fin = new Date(c.f_venc);
+      const inicio = fechaLocal(c.f_inicio);
+      const fin = fechaLocal(c.f_venc);
       if(isNaN(inicio) || isNaN(fin)) return;
       let fecha = new Date(inicio);
       // Primera cuota en el mes siguiente al desembolso
@@ -4594,7 +4604,7 @@ function fechasSaldosEmpresa(saldosBancos, empNombre) {
   return Object.values(porCuenta);
 }
 
-function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
+export function getSaldoBancoInicial(saldosBancos, empNombre, fallback) {
   if(!saldosBancos) return fallback;
   const porCuenta={};
   Object.entries(saldosBancos).forEach(([key,rec])=>{
@@ -5559,7 +5569,7 @@ function sumCatWF(emp, cat, indices) {
 }
 
 // Saldo banco en USD por empresa (suma todas las monedas convertidas)
-function getSaldoBancoUSD(saldosBancos, empNombre) {
+export function getSaldoBancoUSD(saldosBancos, empNombre) {
   if(!saldosBancos) return 0;
   const HOY = new Date();
   const porCuenta = {};
@@ -9703,7 +9713,7 @@ function _formatCLP(v) {
 }
 
 // Saldo bancos por moneda para una empresa específica
-function reporte_calcSaldosPorMoneda(empNombre, saldosBancos, tcUSDtoCLP = REPORTE_TC_DEFAULT_CLP) {
+export function reporte_calcSaldosPorMoneda(empNombre, saldosBancos, tcUSDtoCLP = REPORTE_TC_DEFAULT_CLP) {
   // omitidas: cuentas en monedas sin regla de conversión en el reporte (hoy EUR).
   // No suman al total; el total queda marcado incompleto (política de TC pendiente).
   const resultado = { usd: 0, clp: 0, equivCLPenUSD: 0, totalUSD: 0, lineas: [], omitidas: [], incompleto: false };

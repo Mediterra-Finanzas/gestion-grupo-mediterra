@@ -17,7 +17,8 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "test:cl": "TZ=America/Santiago react-scripts test --watchAll=false"
   },
   "eslintConfig": {
     "extends": [
