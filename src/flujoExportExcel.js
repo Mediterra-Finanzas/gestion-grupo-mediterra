@@ -78,6 +78,7 @@ const thin = { style:'thin', color:{ rgb:BORDERC } };
 const BORD = { top:thin, bottom:thin, left:thin, right:thin };
 const S = {
   avisoPie: { font:{ name:FONT, sz:10, bold:true, color:{rgb:'C00000'} }, alignment:{ horizontal:'left' } },
+  notaPie: { font:{ name:FONT, sz:9, italic:true, color:{rgb:'595959'} }, alignment:{ horizontal:'left' } },
   title:    { font:{ name:FONT, sz:13, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' } },
   titleSub: { font:{ name:FONT, sz:10, italic:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' } },
   seasonHdr:{ font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:BLUE} }, alignment:{ horizontal:'center', vertical:'center' }, border:BORD },
@@ -151,9 +152,11 @@ function fillAdditive(cells, num, r1, cols, sty) {
 // acumularse sobre un saldo que ya los contiene (su saldo queda en blanco).
 // avisos: notas de la app que deben viajar al archivo (p. ej. valores manuales
 // antiguos aplicados con un criterio provisional, sin categoría confirmada).
+// notasPie: notas SOLO al pie (no en el subtítulo), p. ej. de qué cuentas,
+// fechas y paridades sale el saldo inicial.
 function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue,
                           saldoIniMonth0Formula, saldoIniMonth0Number, startAccumIdx = 0,
-                          avisos = [] }) {
+                          avisos = [], notasPie = [] }) {
   // cats: [{ cat, lines:[{label,vals}], monthFormula?(mc)->string }]
   const cells = {}; const rows = []; const merges = []; const num = {};
   let r = 0;
@@ -313,6 +316,10 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
   if (avisos && avisos.length) {
     r += 2;
     avisos.forEach(a => { cells[ref(r+1,0)] = { t:'s', v:a, s:S.avisoPie }; rows[r] = { level:0 }; r++; });
+  }
+  if (notasPie && notasPie.length) {
+    r += (avisos && avisos.length) ? 1 : 2;
+    notasPie.forEach(a => { cells[ref(r+1,0)] = { t:'s', v:a, s:S.notaPie }; rows[r] = { level:0 }; r++; });
   }
 
   return { cells, rows, merges, num, lastRow:r, lastCol:lastColIdx, catRows, saldoIniRow, flujoRow, saldoFinRow, kIni };
@@ -1395,7 +1402,7 @@ const PARAM_BUILDERS = {
   'Allegria Foods':   (p, m) => p.paramsAllegria && buildParametrosAllegria(p.paramsAllegria, p.allegraComisionArandanos, m),
 };
 
-export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName, params = null, avisos = [] }) {
+export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName, params = null, avisos = [], notasSaldo = [] }) {
   if (!emp) throw new Error('Empresa sin datos');
   const { months, cols, monthOrder } = buildHorizonte(lastSeasonStartYear);
 
@@ -1415,6 +1422,7 @@ export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonSta
     saldoIniValue: Number(saldoIni) || 0,
     startAccumIdx: idxMesActual(months),
     avisos,
+    notasPie: notasSaldo,
   });
 
   const wb = XLSX.utils.book_new();
@@ -1430,7 +1438,7 @@ export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonSta
 }
 
 // ═══════════════════════════════════════════════════════════════════
-export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldoIniPorEmp, lastSeasonStartYear = null, fileName, escenarioNombre = null, avisosPorEmp = {} }) {
+export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldoIniPorEmp, lastSeasonStartYear = null, fileName, escenarioNombre = null, avisosPorEmp = {}, notasSaldoPorEmp = {} }) {
   const allMonths = genMonths();
   // lastSeasonStartYear null → flujo completo (hasta la última temporada proyectada)
   const months = lastSeasonStartYear == null ? allMonths : allMonths.filter(mo => seasonOf(mo) <= lastSeasonStartYear);
@@ -1476,6 +1484,7 @@ export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldo
       saldoIniValue: Number(saldoIniPorEmp?.[n]) || 0,
       startAccumIdx: kIni,
       avisos: avisosPorEmp[n] || [],
+      notasPie: notasSaldoPorEmp[n] || [],
     });
   });
 

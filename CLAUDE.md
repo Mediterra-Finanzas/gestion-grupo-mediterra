@@ -225,6 +225,19 @@ pantalla): los meses anteriores muestran su flujo pero quedan **sin** saldo inic
 y el arrastre parte en el mes en curso. Aplica al export individual y al consolidado (que
 además ancla su fórmula de saldo a la columna de ese mes).
 
+#### Saldo bancario en US$: una sola regla (oct-2026)
+
+`src/saldosBancosUSD.js` (`saldoBancoEmpresaUSD`) es la única fuente del saldo en US$ por
+empresa: Saldos Bancos, flujo por empresa, consolidado, KPI, reporte semanal y los dos Excel.
+Criterio: último saldo de cada cuenta (banco+moneda) con monto ≠ 0 y fecha no futura; cuenta
+no-US$ al `usd` **guardado** al registrar el saldo (open.er-api de ese momento). Sin `usd`
+guardado = «sin TC», no suma y se avisa. Antes Saldos Bancos convertía con la paridad **en
+vivo** y el flujo/Excel con la guardada (Allegria Foods: ~US$142 de diferencia), y el Excel
+no excluía fechas futuras. La paridad de hoy se muestra aparte, solo como referencia, con la
+diferencia por TC. El Excel lleva al pie las cuentas, fechas y TC del saldo inicial. Al
+guardar un saldo no-US$ se registra `tc`, `tcFuente`, `tcTs`. Prueba:
+`src/__tests__/saldoInicialUnico.test.js`.
+
 #### Allpa Farms: subtotales inflados por etiquetas repetidas (ARREGLADO)
 
 `Allpa Farms` mostraba US$107.783 de Costos Fijos en Apr-26 donde el valor propio
