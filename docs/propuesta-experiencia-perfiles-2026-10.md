@@ -31,7 +31,9 @@ Cualquier inicio por perfil es, por eso, **orden y foco**, no seguridad. Ninguna
 
 Una persona tiene varios roles: Carol es tesorería, aprobadora y responsable de tareas a la vez. Por eso la entrada se arma con **sus pendientes de todos sus módulos**, no con un menú por rol.
 
-### Defectos de permisos encontrados (no corregidos: fuera del alcance de diseño)
+### Defectos de permisos encontrados
+
+> Estado vigente, correcciones y pruebas: `docs/estado-rama-2026-10.md` §4 (P1, P5, P6, P8 corregidos; P2–P4 pendientes de decisión; P7 era documentación).
 
 | # | Defecto | Evidencia | Efecto |
 |---|---|---|---|

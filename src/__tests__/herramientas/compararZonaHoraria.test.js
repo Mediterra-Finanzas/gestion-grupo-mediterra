@@ -16,7 +16,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { cuotasPrestamosEmpresa, CREDITOS_DEFAULT, SEMANAS_MES } from "../../FinanzasModule.jsx";
+import { cuotasPrestamosEmpresa, CREDITOS_DEFAULT, SEMANAS_MES, verificarLeasing, capitalPendienteCreditos, hoyISOlocal } from "../../FinanzasModule.jsx";
 import { calcularAmortizacionSocio } from "../../creditoSocio.js";
 
 const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -47,7 +47,9 @@ function leerCreditos(archivo) {
   const val = (x) => (typeof x === "string" ? JSON.parse(x) : x);
   if (Array.isArray(j)) return j;
   if (Array.isArray(j.creditos_data)) return j.creditos_data;
-  const fin = j.tablas?.finanzas ? val(j.tablas.finanzas.data ?? j.tablas.finanzas.value) : null;
+  if (j.tipo === "mediterra-creditos-minimo" && Array.isArray(j.creditos)) return j.creditos;   // scripts/datos/extraer-creditos-minimo.html
+  const tablas = j.tablasSaneadas || j.tablas;                                                   // respaldo v3 / v1-v2
+  const fin = tablas?.finanzas ? val(tablas.finanzas.data ?? tablas.finanzas.value) : null;
   if (fin && Array.isArray(fin.creditos_data)) return fin.creditos_data;
   throw new Error("No encontré creditos_data en el archivo");
 }
@@ -86,6 +88,15 @@ correr(`comparación zona horaria (${ARCHIVO ? "copia autorizada" : "datos FICTI
   const csv = ["empresa;acreedor;n;tipo;fecha;monto;mes_antes;mes_despues;semana_antes;semana_despues"]
     .concat(cambios.map(c => [c.empresa, c.acreedor, c.n, c.tipo, c.fecha, c.monto, c.mesAntes, c.mesDespues, c.semanaAntes, c.semanaDespues].join(";"))).join("\n");
   fs.writeFileSync(path.join(SALIDA, "comparacion-zona-horaria.csv"), csv);
+  // Leasing y capital con los MISMOS datos (misma función que la pantalla): ¿cuota − monto es
+  // el interés a la tasa declarada? Si no, el KPI no puede presentarse como capital.
+  const corte = process.env.COMPARAR_TZ_CORTE || hoyISOlocal();
+  const leasing = verificarLeasing(creditos);
+  const cap = capitalPendienteCreditos(creditos, corte);
+  fs.writeFileSync(path.join(SALIDA, "verificacion-leasing-capital.json"), JSON.stringify({ origen: r.origen, corte, leasing,
+    capital: { consolidado: cap.consolidado, fueraConsolidado: cap.fueraConsolidado, empresasFuera: cap.empresasFuera,
+      porConciliarConsolidado: cap.porConciliarConsolidado, porConciliarFuera: cap.porConciliarFuera, vencidoImpago: cap.vencidoImpago } }, null, 2));
+  console.log(`[leasing] ${leasing.length} crédito(s) leasing; consistentes: ${leasing.filter(l => l.consistente).length} · corte ${corte}`);
   console.log(`[zona horaria ${tz}] ${r.origen}: ${r.cuotasConCambioDeMes} cuotas cambian de mes, ${r.cuotasConCambioSoloDeSemana} solo de semana → ${SALIDA}`);
   if (tz !== "America/Santiago") console.warn("Ojo: corre con TZ=America/Santiago (npm run comparar:tz); en UTC no hay diferencias que medir.");
   // Cuadre: el total de cada empresa no cambia; solo se mueve entre meses o semanas

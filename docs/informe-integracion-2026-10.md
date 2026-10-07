@@ -1,6 +1,6 @@
 # Informe de integración — rama `claude/fervent-bell-uu6ae8` (oct-2026)
 
-> **Reemplazado** en riesgos e integración por `docs/cierre-funcional-2026-10.md` (el calendario afecta 11 meses, no 12; el inventario es de 138 tablas, no ~92).
+> **Histórico.** El estado vigente está en `docs/estado-rama-2026-10.md` (el calendario afecta 11 meses, no 12; el inventario es de 138 tablas, no ~92).
 
 Estado: **sin merge a `main` y sin publicar.** Todas las pruebas son **locales**: navegador real contra el build de la rama, con un Supabase falso y aislado y con hora de Chile. **Nada se verificó en producción**, porque la red de este entorno bloquea Vercel y Supabase.
 
