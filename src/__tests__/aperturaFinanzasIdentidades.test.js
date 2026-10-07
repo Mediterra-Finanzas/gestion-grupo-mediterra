@@ -446,3 +446,35 @@ test("mientras el PATCH está en vuelo, el aviso está en pantalla nombrando los
   expect(document.body.textContent).not.toMatch(/registros guardados sin identificador propio/);
   expect(todasLasEstimaciones(SRV.leer("finanzas").allegria_params).filter(a => !a.id)).toHaveLength(0);
 });
+
+// ── Los identificadores no dependen del re-defaulteo ────────────────────────
+// `applyData` arma `{...defaultParams(), ...d.allegria_params}`: agrega temporadas
+// y un `rebate` con frutas vacías ANTES de las claves guardadas. La migración
+// escribe la foto normalizada de la CARGA, pero si el CFO editó algo mientras la
+// escritura estaba en vuelo se normaliza el estado vivo (que ya pasó por los
+// defaults). Los dos caminos tienen que dar los MISMOS identificadores, si no la
+// pantalla mostraría ids distintos de los que quedaron en el servidor.
+test("los identificadores son los mismos con y sin el re-defaulteo de applyData", () => {
+  const { normalizarIdentidades } = require("../programas.js");
+  const base = {};
+  ["2026-2027", "2027-2028"].forEach(t => { base[t] = { cerezas: fruta(), ciruelas: fruta(), arandanos: fruta() }; });
+  base["2026-2027"].cerezas = fruta({
+    kg: 850000, fob_usd_kg: 4.5,
+    anticipos_cliente: [
+      { id: "pre_a", mes: "Sep-26", usd_kg: 0.25, realizaciones: [] },
+      { mes: "Nov-26", usd_kg: 0.44, realizaciones: [] },
+      { mes: "Dec-26", usd_kg: 0.44, realizaciones: [] },
+    ],
+  });
+  const defs = {};
+  ["2025-2026", ...TEMPS].forEach(t => {
+    defs[t] = { cerezas: fruta(), ciruelas: fruta(), arandanos: fruta(),
+                rebate: { usdKg: 0, pctKilos: 100, pagos: [] } };
+  });
+  const ids = (v) => v["2026-2027"].cerezas.anticipos_cliente.map(e => e.id);
+  const crudo = normalizarIdentidades(JSON.parse(JSON.stringify(base)));
+  const conDefaults = normalizarIdentidades({ ...defs, ...JSON.parse(JSON.stringify(base)) });
+  expect(ids(crudo.valor)).toEqual(ids(conDefaults.valor));
+  expect(ids(crudo.valor)[0]).toBe("pre_a");
+  expect(ids(crudo.valor).slice(1).every(i => /^mig_/.test(i))).toBe(true);
+});

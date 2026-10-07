@@ -12856,13 +12856,30 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         valor = idn.valor;
       }
       const cuantos = (normPendiente.cambios || []).length;
+      const antes = paramsRef.current;
       const r = await persistAll({ allegria_params: valor });
       if(r && r.ok){
         // RECIÉN ACÁ la identidad entra a `params`.
-        const nuevos = {...defaultParams(), ...valor};
-        // El auto-save del blob no tiene que escribir de nuevo lo mismo por este
-        // cambio de identidad de `params` (ver `aplicadoRef`).
-        aplicadoRef.current = {...aplicadoRef.current, params: nuevos};
+        // Si el CFO editó MIENTRAS la escritura estaba en vuelo, aplicar la foto
+        // normalizada borraría esa edición, y el auto-save siguiente escribiría el
+        // estado editado SIN identidades: la migración quedaría deshecha en el
+        // servidor y sin aviso. En ese caso se normaliza el estado VIVO (los
+        // identificadores son deterministas: salen los mismos, con o sin el
+        // re-defaulteo) y NO se marca como aplicado, para que el auto-save guarde
+        // la edición junto con la identidad.
+        const editoDurante = paramsRef.current !== antes;
+        let nuevos;
+        if(editoDurante){
+          try {
+            const re = normalizarIdentidades(paramsRef.current || {});
+            nuevos = re.huboCambios ? re.valor : paramsRef.current;
+          } catch(_) { nuevos = paramsRef.current; }
+        } else {
+          nuevos = {...defaultParams(), ...valor};
+          // El auto-save del blob no tiene que escribir de nuevo lo mismo por este
+          // cambio de identidad de `params` (ver `aplicadoRef`).
+          aplicadoRef.current = {...aplicadoRef.current, params: nuevos};
+        }
         setParams(nuevos);
         setNormPendiente(null);
         setSaved(`✅ ${cuantos} registros quedaron con identificador propio.`);
