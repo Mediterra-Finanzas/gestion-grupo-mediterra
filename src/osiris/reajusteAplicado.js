@@ -276,8 +276,9 @@ export function puedeEditarTerminos(ct) {
       campos: ["porcentaje", "fecha de referencia", "regla de fecha"],
       motivo: "El reajuste esta activo. Cambiar el porcentaje, la fecha de referencia o la regla de " +
         "fecha mueve importes, asi que es una modificacion economica y no una edicion de antecedentes. " +
-        "Ese flujo (vista previa fila por fila y confirmacion explicita) no esta en este paquete: " +
-        "para modificar, primero hay que desactivar, que tambien es una operacion economica.",
+        "La modificacion de terminos economicos no esta habilitada en este paquete: requiere su " +
+        "propio flujo, con vista previa fila por fila y confirmacion explicita. Desactivar es una " +
+        "operacion economica independiente, no la via para eludir el sello.",
     };
   }
   return { puede: true, campos: [], motivo: "" };
@@ -307,10 +308,12 @@ export function activar(ct, datos) {
   if (cfg.tipo === "porcentaje" && !(Number(cfg.pct) > 0))
     return {
       ok: false,
-      motivo: "El porcentaje declarado es " + (cfg.pct === null || cfg.pct === "" ? "—" : cfg.pct) +
-        " %. Un reajuste de 0 % no mueve ningun importe: activarlo solo dejaria un sello y " +
-        "una entrada de historial de algo que no se aplica. Si el porcentaje todavia no esta " +
-        "definido, queda pendiente, no en cero.",
+      motivo: "Hay un " + cfg.pct + " % registrado. Un reajuste de " + cfg.pct +
+        " % no tiene efecto sobre ningun importe, asi que no hay nada que activar: solo " +
+        "quedaria un sello y una entrada de historial de algo que no se aplica." +
+        (cfg.pctOrigen === "ingresado" ? ""
+          : " No consta si ese 0 se ingreso asi o quedo de una conversion anterior del campo, " +
+            "que guardaba como 0 lo vacio y lo invalido."),
       contrato: ct,
     };
   if (d.confirmado !== true)
@@ -322,6 +325,29 @@ export function activar(ct, datos) {
     };
 
   const previa = (ct && ct.reajusteActivacion) || {};
+
+  // Con la activacion ya vigente, la diferencia que calcula la previa es cero
+  // -el importe actual ya incluye el ajuste-. Esa igualdad NO habilita volver
+  // a activar: no hay nada que registrar, y resellar terminos por esta via
+  // seria una modificacion economica sin vista previa ni confirmacion. Para
+  // cambiar los terminos hay que desactivar, que es una operacion propia.
+  if (previa.activado === true) {
+    const propuesto = sellarTerminos(cfg, d);
+    const sello = previa.sello || {};
+    const mismos = sello.pct === propuesto.pct &&
+      sello.fechaReferencia === propuesto.fechaReferencia &&
+      sello.reglaFecha === propuesto.reglaFecha;
+    return {
+      ok: false,
+      motivo: mismos
+        ? "Ya hay una activacion vigente con estos mismos terminos. No hay nada que registrar: " +
+          "los importes ya incluyen el ajuste y la diferencia es cero."
+        : "Ya hay una activacion vigente, con terminos distintos de los propuestos. " +
+          "La modificacion de terminos economicos no esta habilitada en este paquete.",
+      contrato: ct,
+    };
+  }
+
   const fecha = txt(d.fecha) || new Date().toISOString().slice(0, 10);
   const act = {
     activado: true,
@@ -527,13 +553,20 @@ export function reajusteDeFila(ct, fila, opciones) {
   const ant = antecedentesDeCobro(o.antecedentes);
   const fechas = fechasDeLaFila(fila, o.antecedentes, o.mesCobro);
 
+  // `base` es el importe SIN reajuste, que es desde donde se compone el
+  // factor. `actual` es lo que la fila vale hoy: si la activacion ya esta
+  // vigente, NO es la base. Confundirlas hace que la diferencia que el
+  // usuario confirma se mida contra un numero que no es el que tiene
+  // enfrente. Si nadie pasa el actual, se asume que es la base.
+  const actual = (o.actual === undefined || o.actual === null) ? base : Number(o.actual);
+
   const salida = {
-    temporada, base,
+    temporada, base, actual,
     aplica: false,            // ¿entra en totales y exportaciones operativas?
     bloqueado: true,          // por defecto, nada se aplica
     factor: 1, periodos: 0,
     ajustado: base,           // SIEMPRE la base mientras esté bloqueado
-    diferencia: 0,
+    diferencia: 0,            // contra el ACTUAL, no contra la base
     motivo: "", escenarios: [], intocable: false, reglaPendiente: false,
     fechas, antecedentes: ant,
   };
@@ -586,7 +619,10 @@ export function reajusteDeFila(ct, fila, opciones) {
   salida.periodos = n;
   salida.factor = FACTOR(act.pct, n);
   salida.ajustado = +(base * salida.factor).toFixed(2);
-  salida.diferencia = +(salida.ajustado - base).toFixed(2);
+  // La diferencia se mide contra el importe ACTUAL. Si la activacion ya esta
+  // vigente, el actual ya incluye el ajuste y la diferencia es cero: activar
+  // de nuevo no mueve nada, y eso es lo que hay que mostrar.
+  salida.diferencia = +(salida.ajustado - salida.actual).toFixed(2);
   salida.aplica = n > 0;
   return salida;
 }
@@ -611,8 +647,15 @@ export function comoSiSeActivara(ct) {
 function resumenDeFilas(ct, filas, opciones) {
   const o = opciones || {};
   const antesDe = o.antecedentesDe || (() => null);
+  // `actualPorTemporada` trae lo que cada fila vale HOY. Sin eso, la previa
+  // compara contra la base y, con la activacion ya vigente, anuncia una
+  // diferencia que en realidad ya esta aplicada.
+  const act = o.actualPorTemporada || null;
   const detalle = (filas || []).map((f) =>
-    reajusteDeFila(ct, f, { mesCobro: o.mesCobro, antecedentes: antesDe(f) }));
+    reajusteDeFila(ct, f, {
+      mesCobro: o.mesCobro, antecedentes: antesDe(f),
+      actual: act ? act[(f && f.temporada) || ""] : undefined,
+    }));
 
   const aplicadas = detalle.filter((d) => d.aplica && !d.bloqueado && !d.intocable);
   return {
@@ -623,6 +666,7 @@ function resumenDeFilas(ct, filas, opciones) {
     filasIntocables: detalle.filter((d) => d.intocable).length,
     filasBloqueadasPorReglaPendiente: detalle.filter((d) => d.reglaPendiente).length,
     totalBase: +detalle.reduce((s, d) => s + d.base, 0).toFixed(2),
+    totalActual: +detalle.reduce((s, d) => s + d.actual, 0).toFixed(2),
     // Un importe no confirmado NO entra acá. El total refleja lo que se cobraría.
     totalAplicado: +detalle.reduce((s, d) => s + d.ajustado, 0).toFixed(2),
     diferenciaAplicada: +aplicadas.reduce((s, d) => s + d.diferencia, 0).toFixed(2),
@@ -658,10 +702,11 @@ export function reajusteOperativoConActivacion(ct, opciones) {
   if (!(pct > 0)) {
     return {
       estado: REAJUSTE_ACTIVADO_APLICANDO, aplica: false, pct: 0, llevanElAjuste: 0,
-      titulo: "Reajuste activado al 0 %: no mueve importes",
-      aviso: "Hay una activacion registrada con 0 %. No cambia ningun importe. Si el " +
-        "porcentaje todavia no esta definido, corresponde dejarlo pendiente y desactivar, " +
-        "no sostener una activacion que no aplica.",
+      titulo: "0 % registrado: sin efecto de reajuste",
+      aviso: "Hay una activacion registrada con 0 %. No cambia ningun importe. El valor se " +
+        "conserva tal como esta; no se le atribuye un respaldo que no consta, porque hasta " +
+        "que se corrigio el campo un vacio o un valor invalido tambien se guardaba como 0. " +
+        "Lo que no corresponde es sostener una activacion que no aplica nada.",
       detalle: "Activado el " + (act.fecha || "—") + (act.usuario ? " por " + act.usuario : "") + ".",
     };
   }

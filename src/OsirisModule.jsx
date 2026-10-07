@@ -7966,7 +7966,10 @@ function OrdenesCompraSec({r, upd, can, ocsVivero=[]}) {
   );
 }
 
-function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[],setVariedadesMaestro,especiesMaestro=[],setEspeciesMaestro,obtentoresData=[],viverosData=[],setViveros,can,tiposAnexoPersist,setTiposAnexoPersist,tiposContratoPersist,setTiposContratoPersist,usuarioActual={}}){
+// Se exporta para poder renderizar la pantalla real en una prueba de
+// integracion. Las reglas de linter controlan el texto del codigo; esta
+// prueba ejecuta el codigo. Son cosas distintas y hacen falta las dos.
+export function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[],setVariedadesMaestro,especiesMaestro=[],setEspeciesMaestro,obtentoresData=[],viverosData=[],setViveros,can,tiposAnexoPersist,setTiposAnexoPersist,tiposContratoPersist,setTiposContratoPersist,usuarioActual={}}){
   const [vista,setVista]=useState("tabla");
   const [sel,setSel]=useState(null);
   const [sec,setSec]=useState("empresa");
@@ -8885,7 +8888,11 @@ Motivo del retiro:`, "");
                 // sintetico para escribir. El resto de la ficha usa <Cell>, que en
                 // solo lectura no renderiza ningun input.
                 const upB = (campo,val)=>{ if(!can) return; upd(r.id,"beneficioFee",{...(r.beneficioFee||{}),[campo]:val}); };
-                const upR = (campo,val)=>{ if(!can) return; upd(r.id,"reajuste",{...(r.reajuste||{}),[campo]:val}); };
+                // Acepta un campo o un objeto con varios. Va en una sola linea a
+                // proposito: el control de T3 identifica la funcion con guarda
+                // por su propia linea, y partirla la haria aparecer como una
+                // escritura directa de las que esa prueba caza.
+                const upR = (campo,val)=>{ if(!can) return; upd(r.id,"reajuste",{...(r.reajuste||{}),...((campo&&typeof campo==="object")?campo:{[campo]:val})}); };
                 const inp2 = {padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11};
                 const marco = (ok)=>({background: ok?C.successBg:(C.amBg||"#fef9c3"), border:`1px solid ${ok?C.success:(C.am||"#ca8a04")}`, borderRadius:10, padding:12, marginBottom:14});
                 return (<>
@@ -8974,8 +8981,20 @@ Motivo del retiro:`, "");
                         </select></div>
                       {rj.tipo==="porcentaje"&&(
                         <div><div style={{fontSize:10,color:C.gris}}>Porcentaje anual</div>
-                          <input type="number" disabled={!can} value={rj.pct===null?"":rj.pct} placeholder="sin definir"
-                            onChange={e=>upR("pct",e.target.value===""?"":(parseFloat(e.target.value)||0))} style={{...inp2,width:110}}/></div>
+                          {/* D2: antes esto hacia parseFloat(valor)||0, asi que una entrada
+                              vacia o invalida se guardaba como 0 y despues se daba por
+                              una configuracion completa. Ahora se guarda lo escrito tal
+                              cual y el modelo distingue sin definir, invalido y cero
+                              expreso. Un 0 escrito a proposito sigue siendo un 0. */}
+                          <input type="number" disabled={!can} value={rj.pctCrudo} placeholder="sin definir"
+                            onChange={e=>upR({pct:e.target.value, pctOrigen:"ingresado"})}
+                            style={{...inp2,width:110,borderColor:rj.pctEstado==="invalido"?C.danger:undefined}}/>
+                          {rj.pctEstado==="invalido"&&<div style={{fontSize:9,color:C.danger,marginTop:2}}>
+                            Lo cargado no es un numero. Queda sin definir, no en cero.</div>}
+                          {rj.pctEstado==="cero"&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>
+                            {rj.pctOrigen==="ingresado"
+                              ? "0 % ingresado en este campo: sin efecto de reajuste."
+                              : "0 % registrado: sin efecto de reajuste. No consta si se ingreso asi o quedo de una conversion anterior del campo."}</div>}</div>
                       )}
                       {rj.tipo==="indice"&&(<>
                         <div><div style={{fontSize:10,color:C.gris}}>Indice</div>
@@ -9648,8 +9667,13 @@ Motivo del retiro:`, "");
               const antecedentesDeFila=(f)=>((r.rcPagos||{})[f.temporada]||null);
               const rcRowsBase=derivarRoyaltyComercialDesdeContratos(
                 [{...r, reajusteActivacion:{...(r.reajusteActivacion||{}), activado:false}}], ocsByCt);
+              // Lo que cada temporada vale HOY. Si la activacion ya esta vigente,
+              // esto NO es la base: es la base con el ajuste puesto. La previa
+              // lo necesita para medir la diferencia contra el importe que el
+              // usuario tiene delante, no contra la base.
+              const actualPorTemporada=rcRows.reduce((m,x)=>(m[x.temporada]=x.montoFact,m),{});
               const previaRC=previsualizarActivacion(r, rcRowsBase,
-                {mesCobro:r.rcMesCobro, antecedentesDe:antecedentesDeFila});
+                {mesCobro:r.rcMesCobro, antecedentesDe:antecedentesDeFila, actualPorTemporada});
               const filasRC={cambian:previaRC.filasQueCambian, protegidas:previaRC.filasIntocables};
               const avisoRC=reajusteOperativoConActivacion(r, {filas:filasRC});
               // Royalty Planta por tandas de plantas (entrada directa en el contrato).
@@ -10039,7 +10063,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                         <div style={{overflowX:"auto",marginBottom:8}}>
                           <table style={{borderCollapse:"collapse",width:"100%",fontSize:10}}>
                             <thead><tr style={{background:C.card}}>
-                              {["Temporada","Monto actual","Con el reajuste","Diferencia","Estado"].map(h=>(
+                              {["Temporada","Base sin reajuste","Importe actual","Resultado propuesto","Diferencia","Estado"].map(h=>(
                                 <th key={h} style={{padding:"4px 8px",textAlign:"left",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>{h}</th>
                               ))}
                             </tr></thead>
@@ -10047,7 +10071,8 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                               {prev.detalle.map(d=>(
                                 <tr key={d.temporada}>
                                   <td style={{padding:"4px 8px"}}>{d.temporada}</td>
-                                  <td style={{padding:"4px 8px",textAlign:"right"}}>${N(d.base.toFixed(2))}</td>
+                                  <td style={{padding:"4px 8px",textAlign:"right",color:C.muted}}>${N(d.base.toFixed(2))}</td>
+                                  <td style={{padding:"4px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(d.actual.toFixed(2))}</td>
                                   <td style={{padding:"4px 8px",textAlign:"right"}}>{d.intocable||d.bloqueado?"\u2014":`$${N(d.ajustado.toFixed(2))}`}</td>
                                   <td style={{padding:"4px 8px",textAlign:"right",color:d.diferencia>0?C.success:C.muted2}}>{d.diferencia>0?`+$${N(d.diferencia.toFixed(2))}`:"\u2014"}</td>
                                   <td style={{padding:"4px 8px",fontSize:9,color:C.muted}}>

@@ -94,6 +94,40 @@ delta-cero sin acceso a nada. Da otras cifras —12 contratos, 11 filas, 5.421.2
 4.608.054 neto— y el delta sigue siendo cero. **No reemplaza al de 23**: es más viejo y más
 chico, y se nombra para que nadie confunda una medición con la otra.
 
+## 1 bis · La prueba de pantalla, que es la que faltaba
+
+Dos veces seguidas pasó lo mismo: se revirtió un arreglo en la pantalla y la suite siguió
+verde, porque las pruebas ejercitaban la **función** corregida y no el **sitio que la llama**.
+`src/osiris/pantallaReajuste.test.js` renderiza la pantalla real (`ControlContratos`, exportado
+para esto), hace clic y lee el DOM. Las reglas de linter miran el texto del código; esta prueba
+ejecuta el código. Son cosas distintas y hacen falta las dos.
+
+```bash
+MSYS_NO_PATHCONV=1 CI=true npx react-scripts test --watchAll=false \
+  --testMatch "**/src/osiris/pantallaReajuste.test.js" \
+  --testPathIgnorePatterns "/node_modules/" "/build/"
+```
+
+**Contraprueba, que es lo que le da valor.** Se repone cada llamada anterior en
+`OsirisModule.jsx` y se comprueba que la prueba falla. El archivo se restaura y se verifica el
+md5 (`1034b5097146aecd982ca9db08493803`, idéntico antes y después):
+
+| Reversión | Resultado |
+|---|---|
+| Volver al aviso que ignora la activación (R4) | **2 pruebas fallan** |
+| Quitarle el detalle de filas al aviso (R7) | **2 pruebas fallan** |
+| Reponer el spread en `activarReajuste` (R3) | **1 prueba falla** |
+| Calcular la previa sobre las filas ya ajustadas (H3) | **1 prueba falla** |
+
+Las cuatro fallan **sin que la regla de linter intervenga**.
+
+**Una advertencia sobre las contrapruebas mismas.** La cuarta, en su primera versión, pasaba —y
+parecía decir que el control no servía—. El planteo estaba mal: reponer las filas ajustadas es
+el defecto H3, y lo estaba probando sobre un contrato **sin activar**, donde las dos listas de
+filas son idénticas por definición, así que la reversión no cambiaba nada. Corregida, se prueba
+sobre el contrato activado. Una contraprueba que no reproduce las condiciones del defecto da un
+falso tranquilizador igual que una prueba mal escrita.
+
 ## 2 bis · Revisión en navegador, entorno aislado
 
 La capa de pantalla no tiene pruebas, así que se verifica a mano sobre el **bundle del

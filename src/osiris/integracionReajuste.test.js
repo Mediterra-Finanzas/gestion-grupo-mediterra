@@ -637,8 +637,10 @@ dCrear("D2 · no se activa un reajuste de 0 %", () => {
       usuarioActual: USUARIO, puedeEditar: true, confirmado: true,
     }));
     expect(res.ok).toBe(false);
-    expect(res.motivo).toMatch(/0 % no mueve ningun importe/);
-    expect(res.motivo).toMatch(/queda pendiente, no en cero/);
+    expect(res.motivo).toMatch(/no tiene efecto sobre ningun importe/);
+    // Y no se le atribuye una intencion que no consta.
+    expect(res.motivo).toMatch(/No consta si ese 0 se ingreso asi/);
+    expect(res.motivo).not.toMatch(/este contrato no reajusta/);
     expect(res.contrato).toBe(ct);                 // ni una copia modificada
   });
 
@@ -662,6 +664,135 @@ describe("D2 · una activación al 0 % que viniera de los datos se nombra", () =
     expect(ro.aplica).toBe(false);
     expect(ro.llevanElAjuste).toBe(0);
     expect(ro.aviso).toMatch(/No cambia ningun importe/);
-    expect(ro.titulo).toMatch(/0 %/);
+    expect(ro.titulo).toMatch(/0 % registrado: sin efecto de reajuste/);
+    // No se le atribuye respaldo ni intencion.
+    expect(ro.aviso).toMatch(/no se le atribuye un respaldo que no consta/);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// El origen del cero. Antes de corregir el campo, un vacío o un valor
+// inválido se guardaba como 0, así que un cero histórico puede ser
+// cualquiera de las tres cosas y no se le atribuye intención.
+describe("El origen de un cero solo consta si se ingresó con el campo corregido", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const { estadoPct, configReajuste } = require("./condicionesConfigurables");
+  const CERO = (extra) => CONTRATO({
+    reajuste: Object.assign({ tipo: "porcentaje", pct: 0, desde: "2026-07-01",
+      referencia: "x", confirmado: true }, extra || {}),
+  });
+
+  test("un cero histórico queda con origen desconocido", () => {
+    const e = estadoPct(CERO());
+    expect(e.estado).toBe("cero");
+    expect(e.origen).toBe("noConsta");
+  });
+
+  test("un cero escrito con el campo corregido lleva su marca", () => {
+    const e = estadoPct(CERO({ pctOrigen: "ingresado" }));
+    expect(e.estado).toBe("cero");
+    expect(e.origen).toBe("ingresado");
+  });
+
+  test("la marca no aparece por leer ni por guardar otro campo", () => {
+    // configReajuste es lo que la pantalla lee en cada render: no escribe.
+    const ct = CERO();
+    configReajuste(ct);
+    configReajuste(ct);
+    expect(ct.reajuste.pctOrigen).toBe(undefined);
+    // Y editar otro campo del reajuste no la introduce: el patrón de la
+    // pantalla es extender lo que ya hay y tocar una sola clave.
+    const trasEditarOtro = Object.assign({}, ct, {
+      reajuste: Object.assign({}, ct.reajuste, { desde: "2027-01-01" }),
+    });
+    expect(trasEditarOtro.reajuste.pctOrigen).toBe(undefined);
+    expect(estadoPct(trasEditarOtro).origen).toBe("noConsta");
+  });
+
+  test("el valor no se migra ni se reinterpreta: sigue siendo 0", () => {
+    const ct = CERO();
+    expect(configReajuste(ct).pct).toBe(0);
+    expect(configReajuste(ct).pctCrudo).toBe("0");
+    // Y sigue contando como configuración completa, no como dato faltante.
+    const { faltantesReajuste } = require("./condicionesConfigurables");
+    expect(faltantesReajuste(ct)).toEqual([]);
+  });
+
+  test("un valor inválido NO se convierte en cero: queda sin definir", () => {
+    const ct = CERO({ pct: "dos por ciento" });
+    const e = estadoPct(ct);
+    expect(e.estado).toBe("invalido");
+    expect(e.valor).toBe(null);
+    const { faltantesReajuste } = require("./condicionesConfigurables");
+    expect(faltantesReajuste(ct).join(" ")).toMatch(/no es un numero/);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// Lo que tiene que correr EN LA RECUPERACIÓN. Allá no se puede crear una
+// activación, así que la creación exitosa se omite; lo que NO puede omitirse
+// es la prueba negativa: que el intento se rechace dentro de la acción, sin
+// tocar datos ni historial. Y que lo ya activo se conserve y se pueda
+// desactivar con autorización.
+const dNoCrear = sePuedeCrear ? describe.skip : describe;
+
+dNoCrear("Recuperación · el rechazo ocurre dentro de la acción", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const ARGS_OK = Object.assign({}, DATOS_ACTIVACION, {
+    usuarioActual: USUARIO, puedeEditar: true, confirmado: true,
+  });
+
+  test("activar se rechaza y no devuelve un contrato modificado", () => {
+    const ct = CONTRATO();
+    const res = activar(ct, ARGS_OK);
+    expect(res.ok).toBe(false);
+    expect(res.motivo).toMatch(/no permite crear nuevas/);
+    expect(res.contrato).toBe(ct);                      // la misma referencia
+    expect(ct.reajusteActivacion).toBe(undefined);      // ni se creó el campo
+  });
+
+  test("reactivar tampoco: un contrato dado de baja no se puede volver a encender", () => {
+    // Un contrato que estuvo activo y se desactivó: conserva sello e historial.
+    const dado = Object.assign({}, CONTRATO(), {
+      reajusteActivacion: Object.assign({}, ACTIVACION, {
+        activado: false, desactivadoMotivo: "Se anulo el respaldo",
+        historial: [{ evento: "activacion", autor: "X", fecha: "2026-10-05" },
+                    { evento: "desactivacion", autor: "X", fecha: "2026-10-06" }],
+      }),
+    });
+    const antes = JSON.parse(JSON.stringify(dado));
+    const res = activar(dado, ARGS_OK);
+    expect(res.ok).toBe(false);
+    expect(res.contrato).toBe(dado);
+    // Ni un evento más, ni un campo movido.
+    expect(dado).toEqual(antes);
+    expect(historialActivacion(dado).length).toBe(2);
+  });
+
+  test("los importes de una activación vigente se conservan", () => {
+    const activo = CONTRATO({ reajusteActivacion: ACTIVACION });
+    const f = porTemp(filas(activo));
+    Object.keys(TABLA_CANDIDATO).forEach((t) =>
+      expect(r2(f[t].montoFact)).toBe(r2(TABLA_CANDIDATO[t])));
+  });
+
+  test("desactivar sí está permitido, con sus tres exigencias", () => {
+    const activo = CONTRATO({ reajusteActivacion: ACTIVACION });
+    // Sin motivo, no.
+    expect(desactivar(activo, { confirmado: true, usuarioActual: USUARIO }).ok).toBe(false);
+    // Sin confirmación, no.
+    expect(desactivar(activo, { motivo: "x", usuarioActual: USUARIO }).ok).toBe(false);
+    // Sin permiso, no.
+    expect(desactivar(activo, { motivo: "x", confirmado: true, usuarioActual: USUARIO, puedeEditar: false }).ok).toBe(false);
+    // Con las tres, sí, y los importes vuelven a la base.
+    const res = desactivar(activo, {
+      motivo: "Se anulo el respaldo del primer pago", confirmado: true,
+      usuarioActual: USUARIO, impacto: -25690.69,
+    });
+    expect(res.ok).toBe(true);
+    const f = porTemp(filas(res.contrato));
+    Object.keys(TABLA_CANDIDATO).forEach((t) => expect(r2(f[t].montoFact)).toBe(125910));
+    // Y el rastro queda.
+    expect(historialActivacion(res.contrato).slice(-1)[0].evento).toBe("desactivacion");
   });
 });
