@@ -16321,7 +16321,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
   const montoLabel = soloUSD ? "Monto USD" : soloPEN ? "Monto PEN" : soloCLP ? "Monto CLP" : null;
   const headers = ["Tipo Doc","Proveedor / Nombre","RUT","N° Doc","F. Doc","F. Venc","Sem","Concepto",
     ...(soloUSD ? ["Monto USD"] : soloPEN ? ["Monto PEN"] : soloCLP ? ["Monto CLP"] : ["Monto CLP","Monto USD"]),
-    "Anticipo","Saldo a Pagar","Comentario","Crédito","Respaldo"];
+    "Anticipo","Saldo a Pagar","Comentario","","Crédito","Respaldo"];
   // La columna de respaldo documental queda FIJA al borde derecho: con la columna
   // Crédito la tabla es más ancha que la pantalla y el botón 📎 quedaba fuera de la
   // vista (había que desplazar la tabla). Vincular un crédito es opcional e
@@ -16523,22 +16523,8 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                         style={inputSt} placeholder="Obs."/>
                     : <span style={{color:C.muted,fontSize:10}}>{it.comentario||""}</span>}
                 </td>
-                <td style={{padding:"3px 6px"}}>
-                  <CeldaCreditoNomina it={it} creditosData={creditosData} empresa={empresa} nominaId={nominaId} nombreNomina={nombreNomina}
-                    estadoNomina={estadoNomina} canEdit={canEdit} puedePagar={puedePagarCredito} moneda={moneda} usuario={usuario}
-                    onPagoCredito={onPagoCredito}
-                    onVincular={(id,vinc)=>onChange(items.map(x=>x.id===id?{...x, creditoVinculo:vinc||undefined,
-                      historial:[...(x.historial||[]),{accion:vinc?"credito_vinculado":"credito_desvinculado",usuario:usuario?.nombre||"—",fecha:new Date().toISOString(),
-                        detalle:vinc?`${vinc.acreedor} cuota ${vinc.fecha}`:`${x.creditoVinculo?.acreedor||""} cuota ${x.creditoVinculo?.fecha||""}`}]}:x))}/>
-                </td>
-                <td data-col-respaldo style={{padding:"3px 6px",textAlign:"center",whiteSpace:"nowrap",
-                  ...stickyRespaldo,background:it.pagado?"#f2f9f4":i%2===0?C.card:C.rowAlt}}>
-                  <button onClick={()=>setDocsItemId(it.id)} data-boton-respaldo
-                    title={tieneRespaldo(it)?`${docsActivos(it).length} documento(s) de respaldo — ver, descargar o adjuntar otro`:"Sin respaldo — adjuntar documento"}
-                    style={{background:`${C.border}33`,border:"none",borderRadius:5,
-                      padding:"3px 7px",cursor:"pointer",fontSize:11,color:C.text,marginRight:3}}>
-                    {tieneRespaldo(it)?`🟢 📎 Ver (${docsActivos(it).length})`:"🔴 📎 Adjuntar"}
-                  </button>
+                {/* ✓ pagado / × inactivar: columna propia, fuera de la columna fija de Respaldo */}
+                <td style={{padding:"3px 6px",textAlign:"center",whiteSpace:"nowrap"}}>
                   {canEdit&&(
                     <>
                       <button onClick={()=>updItem(it.id,"pagado",!it.pagado)}
@@ -16552,6 +16538,23 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                           padding:"3px 7px",cursor:"pointer",fontSize:11,color:"#ef4444"}}>×</button>
                     </>
                   )}
+                </td>
+                <td style={{padding:"3px 6px"}}>
+                  <CeldaCreditoNomina it={it} creditosData={creditosData} empresa={empresa} nominaId={nominaId} nombreNomina={nombreNomina}
+                    estadoNomina={estadoNomina} canEdit={canEdit} puedePagar={puedePagarCredito} moneda={moneda} usuario={usuario}
+                    onPagoCredito={onPagoCredito}
+                    onVincular={(id,vinc)=>onChange(items.map(x=>x.id===id?{...x, creditoVinculo:vinc||undefined,
+                      historial:[...(x.historial||[]),{accion:vinc?"credito_vinculado":"credito_desvinculado",usuario:usuario?.nombre||"—",fecha:new Date().toISOString(),
+                        detalle:vinc?`${vinc.acreedor} cuota ${vinc.fecha}`:`${x.creditoVinculo?.acreedor||""} cuota ${x.creditoVinculo?.fecha||""}`}]}:x))}/>
+                </td>
+                <td data-col-respaldo style={{padding:"3px 6px",textAlign:"center",whiteSpace:"nowrap",
+                  ...stickyRespaldo,background:it.pagado?"#f2f9f4":i%2===0?C.card:C.rowAlt}}>
+                  <button onClick={()=>setDocsItemId(it.id)} data-boton-respaldo
+                    title={tieneRespaldo(it)?`${docsActivos(it).length} documento(s) de respaldo — ver, descargar o adjuntar otro`:"Sin respaldo — adjuntar documento"}
+                    style={{background:`${C.border}33`,border:"none",borderRadius:5,
+                      padding:"3px 7px",cursor:"pointer",fontSize:11,color:C.text}}>
+                    {tieneRespaldo(it)?`🟢 📎 Ver (${docsActivos(it).length})`:"🔴 📎 Adjuntar"}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -16596,6 +16599,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                   ):(!soloPEN&&!totalSaldoCLP&&!totalSaldoUSD?"—":null)}
                 </td>
                 <td colSpan={3}/>
+                <td style={{...stickyRespaldo,background:C.bg2}}/>
               </tr>
             </tfoot>
           )}
