@@ -322,7 +322,7 @@ export const CAMPO_PESTANA = {
   allegria_params:"flujo", allegria_comision_arandanos:"flujo", params_emp:"flujo",
   params_as:"flujo", params_if:"flujo", params_af:"flujo", params_ap:"flujo",
   params_osiris:"flujo", params_participacion:"flujo", params_frisku:"flujo",
-  creditos_data:"creditos",
+  creditos_data:"creditos", creditos_saldos_informados:"creditos", creditos_config:"creditos",
 };
 
 // Decide si este guardado está autorizado. `puedoEdit(pestaña) -> boolean`.
@@ -8053,8 +8053,10 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
   async function guardarPago(){
     try {
       const { _v, _clave, ...datos } = pagoForm;
+      // Con `duplicado` (el pago ya está en pantalla por un intento anterior sin
+      // confirmar) se guarda igual: solo el servidor puede confirmar que lo tiene.
       const r = registrarPagoIdempotente(credito, { ...datos, origen:{ tipo:"manual", clave:_clave } }, usuario);
-      if(!r.duplicado) await onSave(r.credito);
+      await onSave(r.credito);
       setPagoForm(null);
     } catch(err){ alert(err.message); }
   }
@@ -9137,7 +9139,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   async function guardarUno(nuevo){
     const next = creditosVisibles.map(c=>uidCredito(c)===uidCredito(nuevo)?nuevo:c);
     const res = onSaveCreditos ? await onSaveCreditos(next) : null;
-    if(res && res.ok===false) throw new Error("No se pudo guardar en el servidor. El cambio NO quedó registrado; revisa la conexión y vuelve a intentar.");
+    if(res && res.ok===false) throw new Error("El servidor no confirmó el guardado: el cambio NO está registrado. Revisa la conexión y vuelve a intentar (reintentar no lo duplica). Si aparece un conflicto, resuélvelo primero.");
     return res;
   }
   const EMPTY_FORM = {
@@ -14180,7 +14182,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     // Estado VISIBLE. "guardado" solo cuando el servidor confirmó. Un conflicto
     // pendiente NO es un error de red: deja la fila bloqueada hasta que se elija
     // una de las dos salidas (recuperar el servidor o conservar lo local).
-    if(res && res.motivo === persist.MOTIVOS.CONFLICTO_PENDIENTE){
+    if(res && !res.ok && (res.conflictoPendiente || res.motivo === persist.MOTIVOS.CONFLICTO_PENDIENTE)){
       setEstadoPersist("conflicto");
       setConflictoFila({ rowId, valorServidor: res.valorServidor, version: res.version });
     } else if(res && res.ok){
@@ -14644,20 +14646,31 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     //  · se guarda en el siguiente ciclo (como el resto de handlers de main), y la
     //    promesa devuelve el resultado REAL ({ok,…}) para que Créditos no confirme
     //    un pago que el servidor no recibió;
-    //  · si el servidor NO confirma, se vuelve al estado anterior SOLO si nadie
-    //    cambió los créditos entretanto (una reversión nunca borra ediciones
-    //    posteriores). La edición sigue en el formulario de quien la hizo, y el
-    //    reintento no duplica: los pagos manuales llevan una clave estable
-    //    (registrarPagoIdempotente). Un `superseded` del contrato es ok: su valor
-    //    quedó dentro del guardado posterior.
+    //  · un `superseded` del contrato NO es confirmación: mi valor viaja en un
+    //    guardado posterior, así que se espera el resultado real de la fila (flush);
+    //  · si el servidor RECHAZÓ (http, sin permiso, sin carga: no aplicó nada), se
+    //    vuelve al estado anterior SOLO si nadie cambió los créditos entretanto
+    //    (una reversión nunca borra ediciones posteriores). Ante red/respuesta
+    //    perdida, sin confirmación o conflicto NO se revierte: el servidor pudo
+    //    haberlo aplicado, y lo local tiene que seguir vivo para las dos salidas
+    //    del conflicto y para que el reintento reenvíe EXACTAMENTE lo mismo (el
+    //    contrato lo da por guardado si ya está). Los pagos llevan clave de origen
+    //    estable (registrarPagoIdempotente): reintentar nunca duplica.
     //  · conflicto, aviso y estado visible los resuelve persistAll (main).
     return new Promise(r=>setTimeout(r,0))
       .then(()=>persistAll({ creditos_data: final }))
-      .then(res=>{
-        const ok = !!(res && res.ok);
-        if(!ok && creditosRef.current===final){ setCreditosData(anterior); creditosRef.current = anterior; }
+      .then(async res=>{
+        let r = res || { ok:false, motivo:"sin_respuesta" };
+        if(r.ok && r.superseded){
+          const f = await persist.flush(activeRowRef.current);
+          r = f.ok ? { ...r, ok:true }
+                   : { ok:false, superseded:true, motivo: f.conflicto ? persist.MOTIVOS.CONFLICTO_PENDIENTE : (f.motivo || persist.MOTIVOS.SIN_CONFIRMACION) };
+        }
+        const ok = !!r.ok;
+        const rechazoDefinitivo = !ok && ["http","sin_permiso","sin_carga"].includes(r.motivo);
+        if(rechazoDefinitivo && creditosRef.current===final){ setCreditosData(anterior); creditosRef.current = anterior; }
         setSaved(ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000);
-        return res || { ok:false, motivo:"sin_respuesta" };
+        return r;
       });
   },[persistAll, usuarioActual]);
 
@@ -14714,8 +14727,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     let nuevo, pagoId = null;
     try {
       if(accion === "registrar"){
+        // Con `duplicado` también se guarda: estar en pantalla no prueba que el
+        // servidor lo tenga (un intento anterior pudo quedar sin confirmar). Si ya
+        // está, el contrato lo da por guardado sin escribir.
         const r = registrarPagoIdempotente(c, d.pago, usuarioActual?.nombre || "");
-        if(r.duplicado) return { ok:true, pagoId:r.pagoId, duplicado:true };
         nuevo = r.credito; pagoId = r.pagoId;
       } else if(accion === "anular" || accion === "anotar"){
         const p = pagosVigentes(c).find(x => x.id === d.pagoId);
