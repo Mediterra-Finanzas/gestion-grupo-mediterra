@@ -13,6 +13,7 @@ import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
 import { crearUsuariosStore } from "./permisos/permisosUsuariosStore.js";
 import { crearAplicadorUsuarios } from "./permisos/usuariosGlue.js";
 import AvisoPersistencia from "./AvisoPersistencia.jsx";
+import AvisoCreditosPendientes from "./AvisoCreditosPendientes.jsx";
 import PanelConflictoFila from "./PanelConflictoFila.jsx";
 import { crearResolucionConflicto } from "./persistencia/conflictoFila.js";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
@@ -3532,6 +3533,9 @@ Equipo Mediterra`);
   const avisosPersistencia = (
     <>
       <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
+      {/* Cambios de Créditos que el servidor no confirmó, aunque Finanzas ya se haya
+          cerrado (creditosPendientes.js). Persistente: no se cierra desde acá. */}
+      <AvisoCreditosPendientes />
       {Object.keys(conflictos).map(rowId=>(
         <PanelConflictoFila key={rowId} conflicto={conflictos[rowId]}
           ocupado={resolviendoConflicto}

@@ -21,10 +21,10 @@
 import fs from 'fs';
 import path from 'path';
 import { nuevoStore, leerFila } from './fake.mjs';
-import { abrirApp, login, entrarFinanzas, subTab, inputTras, ponerNumero } from './lib.mjs';
+import { abrirApp, login, entrarFinanzas, subTab, inputTras, ponerNumero, BASE } from './lib.mjs';
 // Los montos del formulario se muestran con formato es-CL ("40.000", "1.234,5").
 const monto = (v) => { if (v == null || v === '') return null; const n = parseFloat(String(v).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.')); return isNaN(n) ? null : n; };
-const SOLO = (process.env.ESCENARIOS || '1,2,4,5').split(',');
+const SOLO = (process.env.ESCENARIOS || '1,2,4,5,6').split(',');
 
 const OUT = process.env.OUT_DIR || '.';
 fs.mkdirSync(OUT, { recursive: true });
@@ -258,6 +258,68 @@ for (const variante of SOLO.includes('4') ? ['a', 'b'] : []) {
   check(`4${variante} · una edición posterior no borra el pago (servidor: ${tag}=1 y OP-POST=1)`,
     pagosServ(s, A, tag).length === 1 && pagosServ(s, B, `OP-POST-${variante}`).length === 1,
     `${tag}=${pagosServ(s, A, tag).length} OP-POST=${pagosServ(s, B, `OP-POST-${variante}`).length} panel=${await panelConflicto(s)} alertas=${s.alertas.length}${/No se guardó/.test(t) ? ' aviso "No se guardó"' : ''}`);
+  await cerrarSesion(s);
+}
+
+// ═════ 6. El guardado FALLA después de cerrar el módulo ═════════════════
+// Sin pantalla de Finanzas donde avisar: el cambio queda anotado en el navegador
+// (creditosPendientes.js), con aviso persistente en el Hub y tras recargar, y se
+// recupera desde Créditos. El usuario nunca ve el pago como registrado sin
+// confirmación.
+const avisoPend = (s) => s.page.locator('[data-aviso-creditos-pendientes]');
+async function recargarYEntrar(s) {
+  await s.page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  const email = s.page.locator('input[type=email]');
+  if (await email.waitFor({ timeout: 6000 }).then(() => true).catch(() => false)) {
+    await email.fill('ahuerta@grupomediterra.cl'); await s.page.locator('input[type=password]').fill('482913');
+    await s.page.keyboard.press('Enter'); await s.page.waitForTimeout(2500);
+  }
+  await s.page.waitForTimeout(1500);
+  for (const t of ['Entendido', 'Aceptar']) { const b = s.page.getByRole('button', { name: t }); if (await b.count()) await b.first().click().catch(() => {}); }
+  await s.page.screenshot({ path: path.join(OUT, `${s.nombre}-tras-recargar.png`) });
+  // La app puede reabrir el último módulo: si no está el acceso del Hub, se vuelve al Hub.
+  if (!(await s.page.getByRole('button', { name: /Flujo de Caja Grupo Mediterra/ }).count())) {
+    await s.page.getByRole('button', { name: 'Mediterra', exact: true }).first().click().catch(() => {});
+    await s.page.waitForTimeout(800);
+  }
+}
+for (const variante of SOLO.includes('6') ? ['a', 'b'] : []) {
+  const k = `6${variante}`;
+  const s = await sesion(`${k}-falla-tras-cerrar`);
+  const tag = `OP-CIERRE-${variante}`;
+  await abrirDetalle(s, A);
+  await llenarPago(s, tag);
+  s.store.__plan.push(variante === 'a' ? { delay: 2500, status: 500 } : { delay: 2500, perdida: true });
+  await registrar(s);
+  await s.page.waitForTimeout(300);
+  check(`${k} · mientras no hay confirmación, el pago se marca "sin confirmar por el servidor"`, await s.page.locator('[data-pago-sin-confirmar]').count() > 0);
+  await cerrarModal(s);
+  await s.page.getByRole('button', { name: 'Mediterra', exact: true }).first().click();   // Hub
+  await s.page.waitForTimeout(4000);                                                         // la respuesta llega (y falla) con el módulo cerrado
+  const enHub = (await avisoPend(s).count()) ? await avisoPend(s).first().innerText() : '';
+  if (variante === 'a') {
+    check('6a · falla tras cerrar: el servidor NO tiene el pago', pagosServ(s, A, tag).length === 0);
+    check('6a · aviso persistente en el Hub: "NO confirmados"', /NO confirmados/.test(enHub), enHub.slice(0, 90));
+    await recargarYEntrar(s);
+    const tras = (await avisoPend(s).count()) ? await avisoPend(s).first().innerText() : '';
+    check('6a · el aviso y el cambio sobreviven a recargar la página', /NO confirmados/.test(tras), tras.slice(0, 90));
+    await entrarFinanzas(s.page); await subTab(s.page, /💳 Créditos/); await s.page.waitForTimeout(1500);
+    const item = s.page.locator('[data-pendiente-credito]').first();
+    check('6a · en Finanzas se lista el cambio y se ofrece reintentar', (await item.count()) > 0 && /se puede reintentar/.test(await item.innerText()));
+    await item.getByRole('button', { name: 'Reintentar' }).click();
+    await s.page.waitForTimeout(3000);
+    check('6a · reintentar → exactamente UN pago en el servidor', pagosServ(s, A, tag).length === 1, `${pagosServ(s, A, tag).length}`);
+    check('6a · el aviso desaparece cuando el servidor confirma', await avisoPend(s).count() === 0);
+    await abrirDetalle(s, A);
+    check('6a · UNO en pantalla y sin marca "sin confirmar"', await pagosPant(s, tag) === 1 && await s.page.locator('[data-pago-sin-confirmar]').count() === 0);
+  } else {
+    check('6b · respuesta perdida tras cerrar: el servidor SÍ tiene el pago', pagosServ(s, A, tag).length === 1);
+    check('6b · aviso persistente en el Hub (no se da por registrado sin confirmación)', /NO confirmados/.test(enHub), enHub.slice(0, 90));
+    await entrarFinanzas(s.page); await subTab(s.page, /💳 Créditos/); await s.page.waitForTimeout(2000);
+    check('6b · al abrir Créditos el servidor ya lo tiene: el aviso se retira solo', await avisoPend(s).count() === 0);
+    await abrirDetalle(s, A);
+    check('6b · exactamente UN pago en servidor y pantalla', pagosServ(s, A, tag).length === 1 && await pagosPant(s, tag) === 1);
+  }
   await cerrarSesion(s);
 }
 

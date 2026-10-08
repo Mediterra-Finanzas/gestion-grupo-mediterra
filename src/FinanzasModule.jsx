@@ -25,6 +25,11 @@ import { USE_GUARD, pollRow } from './guardClient';
 import { persist, construirAvisoDesde } from './persistencia/instancia.js';
 import { planGuardado, guardarFila, fusionarNominas, resumirGuardado, iguales as igualesNom } from './nominasPersistencia.js';
 import AvisoPersistencia from './AvisoPersistencia.jsx';
+import AvisoCreditosPendientes, { useCreditosPendientes } from './AvisoCreditosPendientes.jsx';
+import { pendientesCreditos, diffCreditos, clasificar as clasificarPendiente, pagosNuevos, pagosSinConfirmar } from './creditosPendientes.js';
+// Ids de las anotaciones de Créditos cuyo guardado sigue vivo en ESTA página
+// (sobreviven a desmontar el módulo: la petición sigue en vuelo).
+const pendVivosCreditos = new Set();
 import { computeOverlay, applyOverlay } from './escenarioOverlay';
 import {
   antAcordado, antRealizado, antPendiente, antDescuentoLiq, realizacionesVigentes,
@@ -8024,9 +8029,50 @@ function CamposContrato({form,setForm,EMP_SELECT}){
   );
 }
 
+// ── Cambios de Créditos sin confirmar por el servidor (creditosPendientes.js) ──
+// Aviso persistente + revisión: qué cambio, si el servidor ya lo tiene, si se puede
+// reintentar o si el crédito cambió desde entonces. Nada se descarta sin decisión.
+function PanelCreditosPendientes({creditos, canEdit, onReintentar, usuario}){
+  const lista = useCreditosPendientes();
+  const [ocupado,setOcupado]=useState(null);
+  const sinConf = lista.filter(e=>e.estado==="sin_confirmar");
+  if(!lista.length) return null;
+  const desc = (c)=>{ const d=c.despues||{}; return `${d.empresa||""} · ${d.acreedor||""}${d.n!=null?` (n ${d.n})`:""}`; };
+  const etiqueta = { confirmado:"ya está en el servidor", reaplicable:"se puede reintentar", conflicto:"el crédito cambió en el servidor desde entonces: revisar a mano" };
+  return (
+    <div style={{margin:"0 0 12px"}}>
+      <AvisoCreditosPendientes texto="revísalos aquí abajo: reintentar (no duplica) o descartar con motivo." />
+      {sinConf.map(e=>(
+        <div key={e.id} data-pendiente-credito={e.id} style={{background:"#fff",border:"1px solid #fecaca",borderRadius:10,padding:"8px 12px",marginBottom:8,fontSize:11}}>
+          <div style={{color:C.muted,marginBottom:4}}>{fmtDate((e.ts||"").slice(0,10))} {(e.ts||"").slice(11,16)} · {e.usuario||"—"} · motivo: {e.motivo||"sin confirmación"}</div>
+          {(e.cambios||[]).map(c=>{
+            const cl = clasificarPendiente(c, creditos||[]);
+            const pagos = pagosNuevos(c);
+            return (
+              <div key={c.uid} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",padding:"3px 0"}}>
+                <b>{desc(c)}</b>
+                <span>{pagos.length?pagos.map(p=>`pago ${fmtDate(p.fecha)} ${$c(totalPago(p),c.despues?.moneda||"USD")}${p.nota?` · ${p.nota}`:""}`).join(" · "):"cambio del registro"}</span>
+                <span style={{color:cl==="conflicto"?C.red:cl==="reaplicable"?C.orange:C.green}}>— {etiqueta[cl]}</span>
+                {cl==="reaplicable"&&canEdit&&<button disabled={!!ocupado} onClick={async()=>{ setOcupado(e.id); try{ const r=await onReintentar(c); if(!r||!r.ok) alert("El servidor no confirmó el reintento. El cambio sigue anotado para recuperarlo."); } finally{ setOcupado(null); } }}
+                  style={{padding:"3px 10px",borderRadius:6,border:"none",background:C.primary,color:"#fff",cursor:"pointer",fontSize:11}}>Reintentar</button>}
+              </div>);
+          })}
+          <button disabled={!!ocupado} onClick={()=>{
+            const motivo = window.prompt("Descartar estos cambios SIN registrarlos en el servidor.\nSe pierden de este navegador. Motivo (obligatorio):");
+            if(!motivo||!motivo.trim()) return;
+            const reg = pendientesCreditos.descartar(e.id, motivo.trim(), usuario);
+            if(window.auditLog) window.auditLog("descartar", { modulo:"finanzas", seccion:"creditos", descripcion:`Cambios de Créditos sin confirmar descartados: ${motivo.trim()}`, registroId:e.id, detalle:reg });
+          }} style={{marginTop:4,padding:"2px 8px",borderRadius:6,border:"1px solid #fca5a5",background:"#fff",color:"#991b1b",cursor:"pointer",fontSize:10}}>Descartar…</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Detalle de un crédito: calendario, pagos, historial ──────────────
 function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
   const hoy = hoyISO();
+  const sinConfirmar = pagosSinConfirmar(useCreditosPendientes());
   const e = useMemo(()=>estadoCredito(credito, hoy),[credito, hoy]);
   const mon = credito.moneda||"USD";
   const [pagoForm,setPagoForm]=useState(null); // {vencKey, fecha, capital, interes, cargos, sinDesglose, nota}
@@ -8216,7 +8262,8 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
                   return (
                     <tr key={p.id} style={{opacity:p.anulado?0.5:1,textDecoration:p.anulado?"line-through":"none"}}>
                       <td style={{...CR_TD,whiteSpace:"nowrap"}}>{fmtDate(p.fecha)}</td>
-                      <td style={CR_TD}>{p.tipo==="prepago"?"Prepago":p.tipo==="extincion"?"Extinción (sin caja)":"Pago"}{p.origen?.tipo==="nomina"&&<div style={{fontSize:9,color:C.blue}}>Nómina {p.origen.nombreNomina||p.origen.nominaId}</div>}</td>
+                      <td style={CR_TD}>{p.tipo==="prepago"?"Prepago":p.tipo==="extincion"?"Extinción (sin caja)":"Pago"}{p.origen?.tipo==="nomina"&&<div style={{fontSize:9,color:C.blue}}>Nómina {p.origen.nombreNomina||p.origen.nominaId}</div>}
+                        {sinConfirmar.has(p.id)&&<div data-pago-sin-confirmar style={{fontSize:9,fontWeight:700,color:C.red}}>⏳ sin confirmar por el servidor</div>}</td>
                       <td style={{...CR_TD,whiteSpace:"nowrap",color:C.muted}}>{v?fmtDate(v.fecha):(p.vencKey?"⚠ sin vencimiento":"—")}</td>
                       <td style={{...CR_TD,textAlign:"right"}}>{$c(p.capital,mon)}</td>
                       <td style={{...CR_TD,textAlign:"right"}}>{$c(p.interes,mon)}</td>
@@ -14710,6 +14757,12 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     //    contrato lo da por guardado si ya está). Los pagos llevan clave de origen
     //    estable (registrarPagoIdempotente): reintentar nunca duplica.
     //  · conflicto, aviso y estado visible los resuelve persistAll (main).
+    // Antes de enviar: se anota qué créditos cambian. La anotación se borra solo
+    // cuando el servidor confirma; si no, queda (aunque el módulo ya se haya
+    // cerrado) con aviso persistente y para recuperarla (creditosPendientes.js).
+    const cambiosPend = activeRowRef.current==="finanzas" ? diffCreditos(anterior, final) : [];
+    const idPend = cambiosPend.length ? pendientesCreditos.registrar({ usuario: usuarioActual?.nombre || "", cambios: cambiosPend }) : null;
+    if(idPend) pendVivosCreditos.add(idPend);
     return new Promise(r=>setTimeout(r,0))
       .then(()=>persistAll({ creditos_data: final }))
       .then(async res=>{
@@ -14726,6 +14779,11 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         // Sin confirmar pero NO revertido (red, conflicto, o ya hubo otra edición
         // encima): el cambio sigue en pantalla y viajará en el próximo guardado.
         if(!ok && !revierte) r = { ...r, conservado:true };
+        if(idPend){
+          pendVivosCreditos.delete(idPend);
+          if(ok){ pendientesCreditos.confirmar(idPend); pendientesCreditos.depurar(final); }
+          else pendientesCreditos.fallar(idPend, r.motivo);
+        }
         setSaved(ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000);
         return r;
       });
@@ -15000,6 +15058,27 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     return ()=>clearTimeout(t);
   },[params,saldosBancos,loading]); // eslint-disable-line
 
+  // ── Créditos sin confirmar de una sesión/montaje anterior ─────────────────────
+  // Tras la carga: lo que quedó "en vuelo" sin nadie que lo espere pasa a "sin
+  // confirmar", y se retira solo lo que el servidor ya tiene (clasificación).
+  useEffect(()=>{
+    if(loading || !cargaOkRef.current || activeRowRef.current!=="finanzas") return;
+    pendientesCreditos.marcarHuerfanos(pendVivosCreditos);
+    pendientesCreditos.depurar(creditosRef.current || []);
+  },[loading]); // eslint-disable-line
+
+  // Reintentar un cambio sin confirmar que sigue siendo aplicable (el crédito en el
+  // servidor está como estaba antes). Pasa por el guardado normal: confirmación
+  // real, sin duplicar (los pagos llevan clave de origen).
+  const reintentarPendienteCredito = useCallback(async (cambio)=>{
+    const lista = creditosRef.current || [];
+    const existe = lista.some(c=>uidCredito(c)===cambio.uid);
+    const next = existe ? lista.map(c=>uidCredito(c)===cambio.uid ? cambio.despues : c) : [...lista, cambio.despues];
+    const r = await handleSaveCreditos(next);
+    if(r && r.ok) pendientesCreditos.depurar(creditosRef.current || []);
+    return r;
+  },[handleSaveCreditos]);
+
   // ── Salir del módulo con una operación pendiente ──────────────────────────────
   // El efecto de arriba hace clearTimeout en su cleanup. Eso está bien cuando se
   // re-ejecuta por otro cambio (el nuevo timer lo reemplaza), pero al DESMONTAR
@@ -15072,6 +15151,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       overflowX:"hidden",
     }}>
       <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
+      <PanelCreditosPendientes creditos={creditosData} canEdit={!loading && cargaOkRef.current}
+        onReintentar={reintentarPendienteCredito} usuario={usuarioActual?.nombre||""} />
       {/* Fallo al LEER los saldos de bancos. No es "no se guardó": es que la
           posición de caja que se está viendo puede estar incompleta. Antes el
           `.catch(()=>{})` de la carga lo tragaba y la caja aparecía en cero como

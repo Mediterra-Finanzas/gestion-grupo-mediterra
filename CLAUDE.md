@@ -207,6 +207,14 @@ Reglas que no hay que romper:
   (`registrarPagoIdempotente`) y un `duplicado` se guarda igual: reintentar nunca
   duplica. `dbLoad` espera los guardados en vuelo de la fila antes de leer.
   Prueba: `scripts/e2e/creditos-guardado-fallas.mjs`.
+- **Cambios de Créditos sin confirmar** (`src/creditosPendientes.js`, `AvisoCreditosPendientes.jsx`):
+  antes de enviar, `handleSaveCreditos` anota en localStorage qué créditos cambian
+  ({uid, antes, despues}); se borra solo con confirmación del servidor. Si falla o la
+  pestaña/módulo se cierra antes: aviso persistente (Hub/Tareas en App.jsx y Finanzas),
+  pago marcado "⏳ sin confirmar", y en Finanzas cada cambio se clasifica contra el
+  servidor: confirmado (se retira solo), reaplicable ("Reintentar", sin duplicar) o
+  conflicto (revisar a mano). Descartar exige motivo y queda en auditoría.
+  Tests: `node src/creditosPendientes.test.mjs` y el escenario 6 del E2E de fallas.
 - **Nóminas ↔ Créditos**: una línea guarda `creditoVinculo {uid, vencKey}`
   (vincular NO paga). "Confirmar pago efectivo" solo con la nómina "aprobada" y
   permiso de Créditos; registra el pago con `origen.clave = nomina:<id>:<línea>`
@@ -927,6 +935,7 @@ vercel --prod
 # Tests
 node src/anticipos.test.mjs                 # modelo de anticipos (puro)
 node src/creditos.test.mjs                  # modelo de créditos (puro)
+node src/creditosPendientes.test.mjs        # cambios de Créditos sin confirmar (puro)
 OUT_DIR=/tmp/e2e node scripts/e2e/creditos.mjs   # Créditos en navegador (Supabase falso)
 OUT_DIR=/tmp/e2e node scripts/e2e/nomina-credito.mjs   # Nómina ↔ crédito en navegador
 OUT_DIR=/tmp/e2e node scripts/e2e/creditos-guardado-fallas.mjs   # pago con 500, respuesta perdida, conflicto (2 salidas), salir/reabrir con guardado en vuelo, reversión vs. edición posterior
