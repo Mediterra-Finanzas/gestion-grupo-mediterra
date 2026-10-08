@@ -128,6 +128,7 @@ t = await txt(s.page);
 check('Consulta: Saldos Bancos visible', /Saldos/.test(t));
 check('Consulta: Saldos Bancos SIN edición (no aparece "Fecha del saldo")', !/Fecha del saldo/.test(t));
 check('Consulta: Parámetros en solo lectura', (await parametrosAllegria(s.page)) === true);
+check('Consulta sin configurar: Flujo Empresas NO editable (sin "Nuevo escenario")', !/Nuevo escenario/.test(await txt(s.page)));
 check('Consulta: sin errores de página', s.errores.length === 0, s.errores.join(' | '));
 await s.browser.close();
 
@@ -138,7 +139,7 @@ await clic(s.page, /Saldos Bancos/);
 check('Lucía: Saldos Bancos sin edición (no configurado → ver)', !/Fecha del saldo/.test(await txt(s.page)));
 check('Lucía: Parámetros NO aparece (sin_acceso)', (await parametrosAllegria(s.page)) === null);
 t = await txt(s.page);
-check('Lucía: Flujo Empresas sin aviso de solo lectura (editar explícito)', !/modo solo lectura/.test(t));
+check('Lucía: Flujo Empresas editable ("Nuevo escenario"), por el editar explícito', /Nuevo escenario/.test(t));
 check('Lucía: sin errores de página', s.errores.length === 0, s.errores.join(' | '));
 await s.browser.close();
 
