@@ -924,3 +924,150 @@ dCrear("activar() exige los cuatro términos y una regla válida", () => {
     expect(ct.reajusteActivacion).toBe(undefined);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+// CASO NEGATIVO DE REGRESIÓN. Un registro marcado SIN sello no es un estado
+// imposible: la revisión demostró que se producía desde la pantalla,
+// completando a mano los campos de un registro atascado. Se conserva como
+// caso negativo aunque los casos válidos se construyan con la acción.
+//
+// Describe plano: corre en las dos versiones, porque esto es del motor.
+describe("Un registro marcado sin sello no aplica", () => {
+  const { estadoActivacion, selloCompleto } = require("./reajusteAplicado");
+  const { derivarRoyaltyComercialDesdeContratos } = require("../OsirisModule");
+  const total = (ct) => Math.round(
+    derivarRoyaltyComercialDesdeContratos([ct], { ct_pantalla: [] })
+      .reduce((s, f) => s + f.montoFact, 0) * 100) / 100;
+
+  // Los cuatro términos completos, la marca puesta, y NINGÚN sello: es
+  // exactamente lo que dejaba el defecto al completar los campos a mano.
+  const SIN_SELLO = () => CONTRATO({
+    reajusteActivacion: {
+      activado: true, fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+      reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula 1.2.5",
+    },
+  });
+
+  test("con los cuatro términos completos pero sin sello, NO aplica", () => {
+    const ct = SIN_SELLO();
+    const e = estadoActivacion(ct);
+    expect(e.activo).toBe(false);
+    expect(e.faltan).toContain("sello completo");
+    expect(e.motivo).toMatch(/completar los campos no lo produce/);
+    // Y el importe es el de la base: 41,97 × 3.000 × 5 temporadas.
+    expect(total(ct)).toBe(629550);
+  });
+
+  test("un sello a medias tampoco sirve", () => {
+    [
+      { pct: 2, fechaReferencia: "", reglaFecha: "inicioPeriodoServicio" },
+      { pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "" },
+      { pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "cuandoSea" },
+      { pct: "", fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio" },
+    ].forEach((sello) => {
+      expect(selloCompleto(sello)).toBe(false);
+      const ct = CONTRATO({ reajusteActivacion: Object.assign({}, SIN_SELLO().reajusteActivacion, { sello }) });
+      expect(estadoActivacion(ct).activo).toBe(false);
+      expect(total(ct)).toBe(629550);
+    });
+  });
+
+  test("el registro se conserva: no se borra ni se normaliza", () => {
+    const ct = SIN_SELLO();
+    const antes = JSON.parse(JSON.stringify(ct.reajusteActivacion));
+    estadoActivacion(ct);
+    total(ct);
+    expect(ct.reajusteActivacion).toEqual(antes);
+    expect(ct.reajusteActivacion.activado).toBe(true);     // la marca queda
+  });
+
+  test("con el sello completo, sí aplica: la diferencia es el sello", () => {
+    // La contraparte, para que se vea que lo único que cambia es el sello.
+    const ct = CONTRATO({
+      reajusteActivacion: Object.assign({}, SIN_SELLO().reajusteActivacion, {
+        sello: { pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio" },
+      }),
+    });
+    expect(estadoActivacion(ct).activo).toBe(true);
+    expect(total(ct)).toBeCloseTo(655240.69, 2);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// La previa simula el sello que la acción produciría, y NO escribe nada.
+describe("La vista previa no escribe datos ni historial", () => {
+  const { previsualizarActivacion, comoSiSeActivara } = require("./reajusteAplicado");
+  const { derivarRoyaltyComercialDesdeContratos } = require("../OsirisModule");
+
+  const PARA_ACTIVAR = () => CONTRATO({
+    reajusteActivacion: {
+      activado: false, fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+      reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula 1.2.5",
+      historial: [{ evento: "activacion", autor: "X", fecha: "2026-10-05" }],
+    },
+  });
+
+  test("ni la simulación ni la previa tocan el contrato", () => {
+    const ct = PARA_ACTIVAR();
+    const antes = JSON.parse(JSON.stringify(ct));
+    const base = derivarRoyaltyComercialDesdeContratos([ct], { ct_pantalla: [] });
+    comoSiSeActivara(ct);
+    previsualizarActivacion(ct, base, { mesCobro: ct.rcMesCobro });
+    expect(ct).toEqual(antes);
+    expect(ct.reajusteActivacion.activado).toBe(false);    // sigue sin activar
+    expect(ct.reajusteActivacion.sello).toBe(undefined);   // no se sello nada
+    expect(ct.reajusteActivacion.historial.length).toBe(1); // ni un evento mas
+  });
+
+  test("la copia simulada lleva el sello que la acción produciría", () => {
+    const hip = comoSiSeActivara(PARA_ACTIVAR());
+    expect(hip.reajusteActivacion.sello).toEqual({
+      pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio",
+    });
+    // Y no arrastra historial nuevo.
+    expect(hip.reajusteActivacion.historial.length).toBe(1);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// Que una activación VÁLIDAMENTE SELLADA conserve sus importes no lo
+// acredita el snapshot de los 23 contratos reales: esos no tienen ninguna
+// activación, así que lo que prueban es impacto cero sobre esos datos. Lo
+// acredita este caso sintético sellado, con cifras escritas, y el hecho de
+// que este describe sea plano: corre igual en candidato y en recuperación.
+describe("Una activación sellada calcula lo mismo en las dos versiones", () => {
+  const { derivarRoyaltyComercialDesdeContratos } = require("../OsirisModule");
+  const SELLADA = () => CONTRATO({
+    reajusteActivacion: Object.assign({}, ACTIVACION, { reglaFechaRespaldo: "Clausula 1.2.5" }),
+  });
+  const porTemporada = (ct) => derivarRoyaltyComercialDesdeContratos([ct], { ct_pantalla: [] })
+    .reduce((m, f) => (m[f.temporada] = Math.round(f.montoFact * 100) / 100, m), {});
+
+  // 41,97 ha × US$3.000 = 125.910, compuesto al 2 % desde 2026-07-01.
+  const ESPERADO = {
+    "2026/2027": 125910, "2027/2028": 128428.2, "2028/2029": 130996.76,
+    "2029/2030": 133616.7, "2030/2031": 136289.03,
+  };
+
+  test("las cinco temporadas, contra importes escritos", () => {
+    const t = porTemporada(SELLADA());
+    Object.keys(ESPERADO).forEach((k) => expect(t[k]).toBeCloseTo(ESPERADO[k], 2));
+  });
+
+  test("el total también", () => {
+    const t = porTemporada(SELLADA());
+    const total = Object.keys(t).reduce((s, k) => s + t[k], 0);
+    expect(Math.round(total * 100) / 100).toBeCloseTo(655240.69, 2);
+  });
+
+  test("la fila protegida por factura queda en su base", () => {
+    const ct = CONTRATO({
+      reajusteActivacion: Object.assign({}, ACTIVACION, { reglaFechaRespaldo: "Clausula 1.2.5" }),
+      rcPagos: { "2029/2030": { nFact: "999", pagado: true } },
+    });
+    const t = porTemporada(ct);
+    expect(t["2029/2030"]).toBe(125910);
+    const total = Object.keys(t).reduce((s, k) => s + t[k], 0);
+    expect(Math.round(total * 100) / 100).toBeCloseTo(647533.99, 2);
+  });
+});

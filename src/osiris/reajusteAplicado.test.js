@@ -20,11 +20,18 @@ const ACT_OK = {
   reglaFecha: "emision", reglaFechaRespaldo: "Clausula sintetica 1.2.6",
   usuario: "prueba", fecha: "2026-10-05",
 };
-// Estas activaciones se arman a mano. La accion autorizada SIEMPRE produce
-// un sello, y desde que el motor lo exige, armarlas sin sello probaria otra
-// cosa. El ayudante sella con los mismos terminos, que es exactamente lo que
-// haria `activar()`. Las que a proposito vienen incompletas se dejan igual:
+// Estas activaciones se arman a mano. `activar()` siempre produce un sello, y
+// desde que el motor lo exige, armar un caso de activacion VALIDA sin sello
+// probaria otra cosa. El ayudante sella con los mismos terminos, que es lo
+// que haria la accion. Las que a proposito vienen incompletas se dejan igual:
 // ahi lo que se prueba es el hueco.
+//
+// Importante, y lo digo porque me equivoque al afirmar lo contrario: un
+// registro marcado SIN sello NO es un estado imposible. La revision demostro
+// que se podia producir desde la pantalla, completando los campos a mano de
+// un registro atascado. Por eso se conserva como caso negativo de regresion
+// -ver "Un registro marcado sin sello no aplica"-, aunque los casos de
+// activacion valida se construyan ahora con la accion.
 const CT = (reaj, act, extra) => Object.assign(
   {
     id: "c1", pais: "Peru", valorRoyaltyComercial: 3000, reajuste: reaj,

@@ -75,6 +75,15 @@ es que la evidencia sobre datos reales no se puede reproducir sin los datos.
 Esas dos cifras son lo que **calcula el motor**. No son facturación emitida ni cobros
 acreditados: el motor no sabe nada de eso.
 
+**Qué acredita este snapshot, y qué no.** Los 23 contratos **no tienen ninguna activación**. Lo
+que estas 38 pruebas acreditan es **impacto cero sobre esos datos**: el paquete no mueve un peso
+en lo que hay hoy. Lo que **no** demuestran es que una activación válida conserve sus importes,
+porque no hay ninguna que medir. Esa afirmación se apoya en los **casos sintéticos sellados**,
+comparados entre candidato y recuperación: `describe("Una activación sellada calcula lo mismo en
+las dos versiones")` en `pantallaReajuste.test.js`, con las cinco temporadas contra importes
+escritos y el total en 655.240,69. Es un describe plano, así que corre en las dos ramas con el
+mismo `OsirisModule.jsx`.
+
 ### Las tres temporadas con antecedentes
 
 | Contrato | Temporada | Antecedentes registrados |
@@ -256,6 +265,37 @@ El entorno aislado quedó restaurado: 24 contratos, sin claves de prueba.
 **R4.** Con el reajuste activado y $647.533,99 en pantalla, el encabezado seguía afirmando que
 los montos no llevaban reajuste y que la activación no estaba hecha. Ninguna prueba lo iba a
 ver: el motor estaba bien, la pantalla llamaba a la función equivocada.
+
+## 2 ter · El sello es lo único que habilita cálculo
+
+La corrección de fondo del cierre. `estadoActivacion` construía los términos vigentes **desde el
+sello si existía, y si no desde los campos vivos**. Ese "si no" era la raíz del defecto crítico:
+con la marca puesta y los campos llenos, el motor aplicaba sin que ninguna acción hubiera
+sellado nada.
+
+Ahora hay una sola condición: **un sello completo**, que solo produce `activar()`.
+
+| Caso | El registro | ¿Habilita cálculo? |
+|---|---|---|
+| Sello completo | se conserva | **sí** |
+| Sin sello, con los cuatro términos cargados | se conserva | **no** |
+| Sello a medias (sin fecha, sin regla, regla inválida, sin porcentaje) | se conserva | **no** |
+| Marca no booleana (`1`, `"true"`, `{}`) | se conserva | **no** |
+
+Nada se normaliza ni se migra: preservar y bloquear son dos cosas distintas, y se hacen las dos.
+
+**Un registro marcado sin sello NO es un estado imposible.** Lo afirmé y era falso: la revisión
+demostró que se producía desde la pantalla, completando a mano los campos de un registro
+atascado. Por eso se conserva como **caso negativo de regresión**
+(`describe("Un registro marcado sin sello no aplica")`, plano, en las dos versiones), aunque los
+casos de activación válida se construyan ahora llamando a la acción.
+
+**Consecuencia sobre la previa**, que costó dos intentos entender: la simulación tiene que
+**construir el sello que `activar()` produciría**. Conservar el anterior hacía que previa y
+acción calcularan distinto; borrarlo sin reemplazo hace que la previa anuncie cero siempre,
+ahora que el motor exige sello. Sellar igual que la acción es lo único que las mantiene diciendo
+lo mismo por construcción. La simulación **no escribe nada**: ni la marca, ni el sello, ni un
+evento de historial, y hay una prueba que lo comprueba.
 
 ## 3 · Lo que las pruebas NO cubren
 
