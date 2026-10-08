@@ -1,6 +1,6 @@
 /* eslint-disable */
 import {
-  crearClienteServidor, ErrorServidor, diffMain, fusionarMain, sanearUsuarios, aplicarCambiosServidor,
+  crearClienteServidor, ErrorServidor, diffMain, fusionarMain, sanearUsuarios, aplicarCambiosServidor, configEditada,
   mensajeErrorLogin, crearGuardadorMain, crearSincroUsuarios,
 } from "../authServidor";
 import { crearPersistencia } from "../persistencia/persistContract";
@@ -192,6 +192,16 @@ describe("guardador de main: correcciones de la revisión", () => {
     const serv  = { estados: { x: { aprobado: false, estadoSup: "gris", estadoResp: "gris" } } };
     expect(fusionarMain({}, local, serv).conflictos).toEqual([]);
   });
+  test("configEditada: los valores por defecto que el servidor no tiene no cuentan", () => {
+    const base = { tareasConfig: { t1: { nombre: "A" } }, tareasExtra: [] };
+    // t2 viene de TAREAS_BASE (el servidor no lo tiene) y tareasOverrides vacío: no es edición
+    expect(configEditada(base, { tareasConfig: { t1: { nombre: "A" }, t2: { nombre: "def" } }, tareasExtra: [], tareasOverrides: {} })).toBe(false);
+    // cambiar algo que el servidor sí tiene: es edición
+    expect(configEditada(base, { tareasConfig: { t1: { nombre: "B" } } })).toBe(true);
+  });
+  test("aplicarCambiosServidor no deja undefined si el servidor ya no trae la clave", () => {
+    expect(aplicarCambiosServidor({ tareasOverrides: { a: 1 } }, {}, { tareasOverrides: { a: 1 } }).tareasOverrides).toEqual({ a: 1 });
+  });
   test("mes/anio: gana la última escritura, nunca abren conflicto", () => {
     const f = fusionarMain({ mes: 1, anio: 2026 }, { mes: 3, anio: 2026 }, { mes: 5, anio: 2026 });
     expect(f.conflictos).toEqual([]);
@@ -199,11 +209,11 @@ describe("guardador de main: correcciones de la revisión", () => {
   });
   test("sin cambios efectivos deja la fila limpia; cambios de config no enviados se informan", async () => {
     const persist = persistFalso();
-    persist.registrarCarga("main", { estados: {}, tareasConfig: {} }, "v1", "object");
+    persist.registrarCarga("main", { estados: {}, tareasConfig: { t: 0 } }, "v1", "object");
     persist.marcarSucio("main");
     const cliente = { patchMain: async () => ({ version: "v2" }) };
     const g = crearGuardadorMain({ cliente, persist });
-    const r = await g.guardar({ estados: {}, tareasConfig: {} });
+    const r = await g.guardar({ estados: {}, tareasConfig: { t: 0 } });
     expect(r.sinCambios).toBe(true);
     expect(persist.isDirty("main")).toBe(false);
     const r2 = await g.guardar({ estados: {}, tareasConfig: { t: 1 } }, { sinConfig: true });

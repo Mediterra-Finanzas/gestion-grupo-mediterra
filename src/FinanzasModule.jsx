@@ -14062,6 +14062,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           if(!rf.ok || !vivo || activeRowRef.current!=="finanzas") return;
           const row = (await rf.json())?.[0];
           if(!row || !row.value) return;
+          // Es la versión de nuestro propio guardado (llegó mientras se descargaba): nada que aplicar.
+          if((row.updated_at||null) === persist.estado("finanzas").version) return;
           const d = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
           // F0-B: reconcileIncoming protege la edición local sin confirmar.
           const dec = persist.reconcileIncoming("finanzas", d, row.updated_at || null);

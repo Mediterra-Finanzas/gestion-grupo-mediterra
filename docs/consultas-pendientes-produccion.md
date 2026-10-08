@@ -67,3 +67,26 @@ Copiar **solo** el bloque indicado: el texto desde el comentario `-- N.N` hasta 
 - La fase D (rama `claude/seguridad-main-pins`).
 - La reversión de ambas.
 - `verificar_activacion_nominas.sql`: es para el día de la activación. Su sección 3 es inofensiva, pero hoy no aporta nada.
+
+## S — Seguridad main/pins (rama `claude/seguridad-main-pins`), solo lectura
+
+| Código | Consulta | Qué obtiene | Para qué |
+|---|---|---|---|
+| **S1** | abajo | Cuántos usuarios no administradores tienen guardado `tab_permisos.tareas.config = "editar"` y sus nombres (sin credenciales) | En modo servidor la Config de Tareas exige permiso EXPLÍCITO. La app antigua completaba las pestañas sin definir con "editar" y esa lista se guardó, así que la regla probablemente no restringe a nadie. Angelo decide si se ajusta antes de activar el modo servidor |
+
+```sql
+-- S1 (solo lectura). La fila `usuarios` puede estar guardada como texto o como jsonb.
+with u as (
+  select e
+  from calendario_data c,
+       jsonb_array_elements(case when jsonb_typeof(c.value) = 'string' then (c.value #>> '{}')::jsonb else c.value end) e
+  where c.id = 'usuarios'
+)
+select count(*) filter (where e->'modulos' ? 'tareas')                                   as con_tareas,
+       count(*) filter (where e->'tab_permisos'->'tareas'->>'config' = 'editar'
+                          and coalesce(e->>'rol','') <> 'admin')                          as no_admin_config_editar,
+       string_agg(e->>'nombre', ', ') filter (where e->'tab_permisos'->'tareas'->>'config' = 'editar'
+                          and coalesce(e->>'rol','') <> 'admin')                          as nombres
+from u;
+```
+

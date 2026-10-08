@@ -21,7 +21,7 @@ import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash
 import { credencialPreservada } from "./data/credencialPreservada";
 // Modo "autenticación en el servidor" (REACT_APP_AUTH_SERVER==='true'). Apagado = sin cambios.
 import { AUTH_SERVER, servidor as authSrv, mensajeErrorLogin, mensajeErrorCambioPin,
-  crearGuardadorMain, crearSincroUsuarios, sanearUsuarios, diffMain, aplicarCambiosServidor, CLAVES_MAIN, CLAVES_CONFIG_MAIN, FILAS_SOLO_SERVIDOR } from "./authServidor";
+  crearGuardadorMain, crearSincroUsuarios, sanearUsuarios, diffMain, aplicarCambiosServidor, canonico, CLAVES_MAIN, CLAVES_CONFIG_MAIN, FILAS_SOLO_SERVIDOR } from "./authServidor";
 import { restaurarFilas, mensajeRestauracion } from './restaurarRespaldo.js';
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
@@ -155,6 +155,7 @@ const guardadorMainSrv = AUTH_SERVER ? crearGuardadorMain({ persist, alFusionar:
 const CLAVE_COPIA_TAREAS = "mediterra_tareas_sin_guardar";
 function leerCopiasTareas(){ try { const v = JSON.parse(localStorage.getItem(CLAVE_COPIA_TAREAS) || "[]"); return Array.isArray(v) ? v : []; } catch(e){ return []; } }
 function escribirCopiasTareas(l){ try { if(l.length) localStorage.setItem(CLAVE_COPIA_TAREAS, JSON.stringify(l)); else localStorage.removeItem(CLAVE_COPIA_TAREAS); return true; } catch(e){ return false; } }
+const MAX_COPIAS_TAREAS = 5; // por persona: las más antiguas se descartan al agregar una nueva
 const usuariosSrv = AUTH_SERVER ? crearSincroUsuarios() : null;
 
 async function dbLoad() {
@@ -941,11 +942,12 @@ function AvisoCopiaTareas({ usuario }) {
     } catch (e) {}
   };
   const descartar = (c) => {
-    if (!window.confirm("¿Descartar esta copia? Los cambios que contiene no se guardaron en el servidor y no se podrán recuperar.")) return;
+    const motivo = (window.prompt("Descartar esta copia: los cambios que contiene no se guardaron en el servidor y no se podrán recuperar.\n\nEscribe el motivo para descartarla:") || "").trim();
+    if (!motivo) return;
     const resto = leerCopiasTareas().filter(x => x.id !== c.id);
     escribirCopiasTareas(resto); setLista(resto);
     try { window.auditLog && window.auditLog("descartar_copia_tareas", { modulo:"tareas", seccion:"persistencia",
-      descripcion:`Descartó la copia local de cambios de Tareas sin guardar (${c.ts}, ${c.motivo})`, registroId:c.id }); } catch (e) {}
+      descripcion:`Descartó la copia local de cambios de Tareas sin guardar (${c.ts}, ${c.motivo}). Motivo: ${motivo}`, registroId:c.id }); } catch (e) {}
   };
   return (
     <div role="alert" data-aviso-copia-tareas style={{ background:"#fef2f2", border:"1px solid #dc2626", color:"#7f1d1d",
@@ -2374,7 +2376,13 @@ export default function App(){
   const resolucionMain=useMemo(()=>crearResolucionConflicto({
     persist: AUTH_SERVER ? guardadorMainSrv.comoPersist() : persist, rowId:"main", etiqueta:"las Tareas",
     aplicarValor:(v)=>aplicarCamposMain(v,{reemplazar:true}),
-    guardarLocal:()=>(guardarMainRef.current?guardarMainRef.current():Promise.resolve({ok:false,motivo:"sin_carga"})),
+    guardarLocal: AUTH_SERVER
+      // Modo servidor: un resultado "reemplazado por otro guardado" no confirma nada:
+      // se repite hasta tener el resultado real (como mucho 3 veces).
+      ? async()=>{ if(!guardarMainRef.current) return {ok:false,motivo:"sin_carga"};
+          let r; for(let i=0;i<3;i++){ r=await guardarMainRef.current(); if(!r||!r.superseded) return r; }
+          return {ok:false,motivo:"sin_confirmacion"}; }
+      : ()=>(guardarMainRef.current?guardarMainRef.current():Promise.resolve({ok:false,motivo:"sin_carga"})),
     setConflicto:(info)=>setConflictoFila("main",info),
     setEstado:(e)=>{ setGuardado(e); if(e==="ok") setTimeout(()=>setGuardado(g=>g==="ok"?"idle":g),2000); },
     setAviso:setAvisoPersist,
@@ -2765,12 +2773,19 @@ export default function App(){
       // de cada campo (lo editado mientras tanto no se pisa).
       const SETTERS_MAIN = { estados:setEstados, comentarios:setComentarios, tareasConfig:setTareasConfig,
         supervisores:setSupervisores, tareasExtra:setTareasExtra, tareasOverrides:setTareasOverrides,
-        recsDone:setRecsDone, recsComentarios:setRecsComentarios, mes:setMes, anio:setAnio };
+        recsDone:setRecsDone, recsComentarios:setRecsComentarios };
+      // (mes/anio no: son la vista de cada persona.) Los refs se actualizan en el acto
+      // para que un guardado en cola no lea la copia de antes del render.
+      const REFS_MAIN = { estados:estadosRef, comentarios:comentariosRef, tareasConfig:tareasConfigRef,
+        supervisores:supervisoresRef, tareasExtra:tareasExtraRef, tareasOverrides:tareasOverridesRef,
+        recsDone:recsDoneRef, recsComentarios:recsComRef };
       window._aplicarFusionMainSrv = (srv, baseAnt) => {
         Object.entries(SETTERS_MAIN).forEach(([k, set]) => {
           const b = (baseAnt || {})[k], sv = (srv || {})[k];
-          if (JSON.stringify(b) === JSON.stringify(sv)) return;
-          set(prev => aplicarCambiosServidor({ [k]: prev }, { [k]: sv }, { [k]: b }, [k])[k]);
+          if (sv === undefined || canonico(b) === canonico(sv)) return;
+          const nuevo = aplicarCambiosServidor({ [k]: REFS_MAIN[k].current }, { [k]: sv }, { [k]: b }, [k])[k];
+          REFS_MAIN[k].current = nuevo;
+          set(nuevo);
         });
       };
       const hayCambiosLocales = () => {
@@ -2786,8 +2801,11 @@ export default function App(){
           const r = await authSrv.leerMain();
           if (!r || !r.version || r.version === persist.estado("main").version) return;
           if (hayCambiosLocales()) return; // hubo una edición mientras se leía
+          const baseVieja = persist.estado("main").base || {};
           persist.registrarCarga("main", r.valor || {}, r.version, "object");
-          aplicarSrv(r.valor || {});
+          // Lo que cambió el servidor, borrados incluidos (antes una sub-clave borrada
+          // por otra sesión sobrevivía acá y el auto-guardado la volvía a escribir).
+          window._aplicarFusionMainSrv(r.valor || {}, baseVieja);
         } catch (e) { /* red / sesión: se reintenta en el próximo ciclo */ }
       };
       const iv = setInterval(tick, 30000);
@@ -3272,10 +3290,13 @@ export default function App(){
     return sucio ? { conflicto, cambios } : null;
   }
   function guardarCopiaTareasSrv(p, motivo){
-    const u = usuarioActual && usuarioActual.nombre;
-    const copia = { id:`ct-${Date.now().toString(36)}`, usuario:u||"", ts:new Date().toISOString(), motivo,
+    const u = (usuarioActual && usuarioActual.nombre) || "";
+    const copia = { id:`ct-${Date.now().toString(36)}`, usuario:u, ts:new Date().toISOString(), motivo,
       conflicto:p.conflicto, versionServidor: persist.estado("main").version || null, cambios:p.cambios };
-    return escribirCopiasTareas([...leerCopiasTareas(), copia]);
+    const todas = [...leerCopiasTareas(), copia];
+    const mias = todas.filter(c=>c.usuario===u);
+    const sobran = new Set(mias.slice(0, Math.max(0, mias.length - MAX_COPIAS_TAREAS)).map(c=>c.id));
+    return escribirCopiasTareas(todas.filter(c=>!sobran.has(c.id)));
   }
   // Antes de cerrar la sesión en modo servidor: sin cambios pendientes → sigue. Con
   // "Salir" se pide confirmación; por inactividad se intenta guardar y, si no se
@@ -3285,25 +3306,34 @@ export default function App(){
     let p = tareasPendientesSrv();
     if(!p) return true;
     if(revocar){
-      const txt = p.conflicto
+      const txt0 = p.conflicto
         ? "Tus cambios de Tareas están en conflicto con los de otra persona y NO se han guardado.\n\nCancela para resolverlo con el panel (\"Recuperar la del servidor\" o \"Conservar la mía\"). Si sales igual, se guardará una copia en este navegador para recuperarla después."
         : "Tienes cambios de Tareas que el servidor todavía no confirmó.\n\nCancela y espera a que diga \"Guardado\". Si sales igual, se guardará una copia en este navegador para recuperarla después.";
-      if(!window.confirm(txt)) return false;
-    } else if(!p.conflicto) {
+      if(!window.confirm(txt0)) return false;
+      if(!guardarCopiaTareasSrv(p, "salir"))
+        return window.confirm("Este navegador NO permitió guardar la copia de tus cambios de Tareas (almacenamiento lleno o bloqueado). Si sales ahora se PIERDEN.\n\nCancela para quedarte y resolverlo. ¿Salir igual?");
+      return true;
+    }
+    // Inactividad: la sesión se cierra igual (el bloqueo no espera a nadie). Primero
+    // se intenta guardar lo que no está en conflicto; si no se puede, queda una copia
+    // en este navegador y AvisoCopiaTareas la muestra al volver a ingresar.
+    if(!p.conflicto){
       try { await Promise.race([guardarAhora(), new Promise(r=>setTimeout(r,10000))]); } catch(e){}
       p = tareasPendientesSrv();
       if(!p) return true;
     }
-    const ok = guardarCopiaTareasSrv(p, revocar ? "salir" : "inactividad");
-    if(!revocar){ try{ window.alert(ok
-      ? "Se cerró la sesión por inactividad. Tus cambios de Tareas no se pudieron guardar: quedó una copia en este navegador. Al volver a ingresar podrás descargarla."
-      : "Se cerró la sesión por inactividad. Tus cambios de Tareas no se pudieron guardar y este navegador no permitió dejar una copia."); }catch(e){} }
+    guardarCopiaTareasSrv(p, "inactividad");
     return true;
   }
+  const saliendoSrvRef = useRef(false);
   function doLogout(opts) {
     const revocar = !(opts && opts.revocar === false);
     if(AUTH_SERVER && !(opts && opts._listo)){
-      prepararSalidaSrv(revocar).then(seguir=>{ if(seguir) doLogout({ revocar, _listo:true }); });
+      if(saliendoSrvRef.current) return; // ya hay un cierre en curso (Salir + inactividad)
+      saliendoSrvRef.current = true;
+      prepararSalidaSrv(revocar)
+        .catch(()=>{ try { const p = tareasPendientesSrv(); if(p) guardarCopiaTareasSrv(p, revocar?"salir":"inactividad"); } catch(e){} return true; })
+        .then(seguir=>{ if(seguir) doLogout({ revocar, _listo:true }); else saliendoSrvRef.current = false; });
       return;
     }
     const u = usuarioActual;

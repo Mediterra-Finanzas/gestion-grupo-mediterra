@@ -196,3 +196,26 @@ corre la lógica real de osiris-auth bajo Node, con un shim de Deno y un sandbox
   código con `admin-reset-pin`.
 - No se probó contra Vercel ni contra Supabase reales. El envío SMTP real tampoco se probó:
   en las pruebas los correos se capturan.
+
+## Conflicto de Tareas en modo servidor (oct-2026, al integrar `main` 0b86538)
+
+Mismo contrato que `main` para las filas que se reemplazan completas:
+
+- Tras un 409, si las dos sesiones cambiaron cosas distintas se fusiona y se guarda; a la
+  pantalla va solo lo que cambió el servidor, sin pisar lo editado mientras tanto.
+- Si cambiaron lo MISMO, no se escribe nada, no se descarta lo local y la fila queda en
+  **conflicto pendiente** con el panel de dos salidas (Recuperar / Conservar la mía). Las dos
+  usan `/api/datos/main`; "Conservar la mía" relee la versión vigente y escribe con ella (si el
+  otro guardó otra vez, vuelve a quedar pendiente). Ningún auto-guardado lo resuelve.
+- `mes`/`anio` son vista: gana la última escritura, no abren conflicto.
+- **Salir** con cambios sin confirmar o en conflicto pide confirmación y deja una copia en el
+  navegador (`mediterra_tareas_sin_guardar`, máx. 5 por persona, sin credenciales). El **cierre
+  por inactividad** no espera: intenta guardar lo que no está en conflicto y, si no puede, deja
+  la copia. Al volver a entrar se muestra con "Descargar copia" y "Descartar…" (exige motivo,
+  queda en auditoría). Nunca se re-aplica sola.
+- `pins` no tiene salidas desde el navegador; `dbLoadPins`/`dbSavePins` no tocan la red.
+- Restaurar: `pins`/`usuarios`/`main` cuentan como NO restauradas (el informe dice PARCIAL).
+- Finanzas no abre el WebSocket anónimo (entregaba los cambios de toda la tabla): sondea la
+  versión de `finanzas` cada 30 s. El cierre definitivo de esa vía es del lado del servidor (fase B).
+- Prueba: `scripts/e2e/seguridad-conflicto-main.mjs`.
+

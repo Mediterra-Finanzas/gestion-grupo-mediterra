@@ -436,30 +436,22 @@ try {
   await abrirTareas(Mi);
   await Mi.page.waitForTimeout(3000); await cerrarAvisos(Mi);
   const tabCfgMi = Mi.page.getByRole('button', { name: '⚙️ Config', exact: true });
-  // Solo pantalla: getTabPerm dice "sin_acceso" por defecto para config, pero la fusión del padrón
-  // en App.jsx inicializa las pestañas no definidas en "editar" (TABS_PERMISOS_CONFIG.tareas incluye config).
+  // Modo servidor: config sin definir en el padrón = sin acceso (igual que getTabPerm y que el servidor).
   check('e9. (pantalla) Michelle, sin tareas/config en el padrón, no ve la pestaña ⚙️ Config', (await tabCfgMi.count()) === 0);
-  if (await tabCfgMi.count()) {
-    const mainM0 = filaDb(env, 'main');
+  {
+    // Sin tocar configuración, Michelle NO debe recibir el aviso de permiso (antes salía en cada
+    // guardado por los valores por defecto de TAREAS_BASE que el servidor no tiene).
     const nM = nPatch(Mi);
     let fm = null;
     for (const tab of [null, '📅 Semanales', '📆 Mensuales', '📋 Diarias']) {
       if (tab) { const bb = Mi.page.getByRole('button', { name: tab }); if (!(await bb.count())) continue; await bb.first().click(); await Mi.page.waitForTimeout(400); }
       fm = await filaQueCambia(Mi); if (fm) break;
     }
-    await tabCfgMi.first().click(); await Mi.page.waitForTimeout(500);
-    await Mi.page.getByRole('button', { name: /Editar/ }).first().click(); await Mi.page.waitForTimeout(300);
-    const NOMBRE_M = 'Nombre cambiado por Michelle sin permiso';
-    await Mi.page.locator('tr input').first().fill(NOMBRE_M);
-    await Mi.page.getByRole('button', { name: /Guardar/ }).first().click();
-    const pm200 = await esperarPatch(Mi, nM, 15000, 200);
-    await Mi.page.waitForTimeout(2500);
-    const pesM = Mi.api.filter((x) => x.metodo === 'PATCH' && x.ruta === '/api/datos/main').slice(nM);
-    const mainM1 = filaDb(env, 'main');
-    check('e10. Michelle edita la configuración: el servidor la rechaza (403) y guarda el resto (200)', pesM.some((x) => x.status === 403) && !!pm200, pesM.map((x) => x.status).join(','));
-    check('e11. Michelle recibe el aviso de permiso', /No tienes permiso para cambiar la configuración de Tareas/.test(await Mi.page.evaluate(() => document.body.innerText)));
-    check('e12. la configuración de Michelle NO quedó en la base y su semáforo SÍ', !JSON.stringify(mainM1).includes(NOMBRE_M) && (!fm || clavesCambiadas(mainM0, mainM1).length > 0),
-      `semáforo: ${fm ? fm.txt : 'ninguno clicable'}; claves cambiadas: ${clavesCambiadas(mainM0, mainM1).join(',')}`);
+    const pm = fm ? await esperarPatch(Mi, nM, 15000, 200) : null;
+    await Mi.page.waitForTimeout(1500);
+    check('e10. Michelle cambia un semáforo y se guarda (PATCH 200)', !!fm && !!pm, fm ? fm.txt : 'sin fila clicable');
+    check('e11. Michelle NO recibe el aviso de permiso de configuración (no tocó configuración)',
+      !/No tienes permiso para cambiar la configuración de Tareas/.test(await Mi.page.evaluate(() => document.body.innerText)));
   }
   await Mi.browser.close();
 
@@ -521,6 +513,44 @@ try {
     escriturasR.map((r) => `${r.metodo} [${r.ids.join(',')}]`).join(' | '));
   console.log(`   (info) escrituras de A por /api/datos (últimas 4): ${A.api.filter((x) => x.metodo !== 'GET' && /\/api\/datos\//.test(x.ruta)).slice(-4).map((x) => `${x.metodo} ${x.ruta} ${x.status}`).join(', ')}`);
   await A.page.waitForTimeout(3000);
+
+  // ══ (g) Salir con un conflicto pendiente: confirmación, copia local y descarte con motivo ══
+  fase.actual = 'g-salir';
+  await irAlHub(A, env); await abrirTareas(A);
+  const B2 = await abrir(env, 'B2'); abiertos.push(B2);
+  await ingresar(B2, env, U.angelo.email, U.angelo.pin);
+  check('g0. una sesión nueva (B2) entra', await esperarHub(B2));
+  await abrirTareas(B2);
+  await A.page.waitForTimeout(2000); await B2.page.waitForTimeout(2000);
+  {
+    const B = B2;
+    const nAg = nPatch(A), nBg = nPatch(B);
+    const fg = await filaQueCambia(A);
+    B.antesPatchMain = async () => { await esperarPatch(A, nAg, 15000, 200); };
+    if (fg) { await clicFila(B, fg.i); await B.page.waitForTimeout(150); await clicFila(B, fg.i); }
+    await esperarPatch(B, nBg, 20000);
+    await B.page.waitForTimeout(2500);
+    check('g1. B queda con conflicto pendiente', !!fg && (await panel(B).count()) > 0);
+    const nDlgB = B.dialogos.length;
+    await B.page.getByRole('button', { name: 'Salir', exact: true }).first().click();
+    // El cierre muestra el login y después recarga la página: esperar a que la recarga termine.
+    await B.page.waitForEvent('load', { timeout: 20000 }).catch(() => {});
+    await B.page.waitForTimeout(1500);
+    await formLogin(B).waitFor({ timeout: 20000 }).catch(() => {});
+    const dlg = B.dialogos.slice(nDlgB).join(' || ');
+    check('g2. "Salir" pidió confirmación por el conflicto', /en conflicto/.test(dlg), dlg.slice(0, 160));
+    const copias = await B.page.evaluate(() => { try { return JSON.parse(localStorage.getItem('mediterra_tareas_sin_guardar') || '[]'); } catch (e) { return null; } });
+    check('g3. quedó una copia local con el cambio (sin credenciales)', Array.isArray(copias) && copias.length === 1 && copias[0].conflicto === true
+      && Object.keys(copias[0].cambios || {}).includes('estados') && !/pinsPersonalizados|"usuarios"/.test(JSON.stringify(copias)), JSON.stringify(copias).slice(0, 200));
+    await ingresar(B, env, U.angelo.email, U.angelo.pin);
+    check('g4. B vuelve a entrar', await esperarHub(B));
+    const aviso = B.page.locator('[data-aviso-copia-tareas]');
+    check('g5. al volver a entrar se muestra el aviso de la copia', (await aviso.count()) > 0);
+    // El manejador de diálogos responde los prompt con un texto: sirve de motivo.
+    if (await aviso.count()) { await aviso.getByRole('button', { name: /Descartar/ }).first().click(); await B.page.waitForTimeout(800); }
+    const resto = await B.page.evaluate(() => localStorage.getItem('mediterra_tareas_sin_guardar'));
+    check('g6. "Descartar…" con motivo retira la copia y el aviso', resto === null && (await aviso.count()) === 0);
+  }
 
   // ══ (f) Red: ninguna petición con la llave pública a pins/usuarios/main; WebSocket ══
   fase.actual = 'fin';

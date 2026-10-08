@@ -15,6 +15,8 @@
 // prueba en src/__tests__/authServidor.test.js.
 // ══════════════════════════════════════════════════════════════════════
 
+import { canonico } from "./persistencia/persistContract.js";
+
 export const AUTH_SERVER = process.env.REACT_APP_AUTH_SERVER === "true";
 
 // Error tipado: `codigo` = el {error} del servidor ("credenciales", "desactivado",
@@ -127,14 +129,10 @@ export function mensajeErrorCambioPin(e) {
 }
 
 // ── Utilidades puras ───────────────────────────────────────────────────
-// Serialización con claves ordenadas: la base (jsonb) reordena las claves de los
-// objetos, así que comparar con JSON.stringify daba "distinto" para valores iguales
+// Comparación con claves ordenadas (la misma de persistContract): la base (jsonb)
+// reordena las claves, así que JSON.stringify daba "distinto" para valores iguales
 // (y un conflicto falso al abrir Tareas en dos sesiones a la vez).
-export function canonico(v) {
-  if (Array.isArray(v)) return `[${v.map(canonico).join(",")}]`;
-  if (v && typeof v === "object") return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonico(v[k])}`).join(",")}}`;
-  return JSON.stringify(v === undefined ? null : v);
-}
+export { canonico };
 function igual(a, b) {
   if (a === b) return true;
   try { return canonico(a) === canonico(b); } catch (e) { return false; }
@@ -192,6 +190,20 @@ export function fusionarMain(base, local, servidor, claves = CLAVES_MAIN) {
   return { valor, conflictos };
 }
 
+// ¿La pantalla cambió configuración que YA estaba en el servidor? Lo que el
+// servidor no tiene (valores por defecto del código: tareas de TAREAS_BASE,
+// overrides vacíos) no cuenta: si no, quien no tiene permiso de Config recibía el
+// aviso "no se guardó la configuración" en cada guardado sin haber tocado nada.
+const vacioMain = (x) => x == null || (typeof x === "object" && Object.keys(x).length === 0);
+export function configEditada(base, local) {
+  const b = base || {}, l = local || {};
+  return CLAVES_CONFIG_MAIN.some((k) => {
+    if (l[k] === undefined || vacioMain(b[k])) return false;
+    if (esObj(b[k]) && esObj(l[k])) return Object.keys(b[k]).some((sub) => !igual(b[k][sub], l[k][sub]));
+    return !igual(b[k], l[k]);
+  });
+}
+
 // Aplica sobre `actual` (la pantalla) solo lo que el servidor cambió desde
 // `baseAnterior`, y solo donde la pantalla sigue como en esa base (lo editado
 // después no se toca). Claves objeto por sub-clave; el resto, la clave completa.
@@ -210,7 +222,9 @@ export function aplicarCambiosServidor(actual, servidor, baseAnterior, claves = 
       out[k] = ak;
       continue;
     }
-    if (igual(a[k], b[k])) out[k] = s[k];
+    // Clave que el servidor ya no trae: se deja la de la pantalla (nunca undefined,
+    // que rompe la pantalla).
+    if (igual(a[k], b[k]) && s[k] !== undefined) out[k] = s[k];
   }
   return out;
 }
@@ -255,7 +269,7 @@ export function crearGuardadorMain({ cliente = servidor, persist, id = "main", a
     const claves = opts.sinConfig ? CLAVES_MAIN.filter((k) => !CLAVES_CONFIG_MAIN.includes(k)) : CLAVES_MAIN;
     // Cambios de configuración que esta sesión no puede enviar: no se pierden en
     // silencio, se informa que quedaron sin guardar.
-    const configNoEnviada = !!opts.sinConfig && Object.keys(diffMain(est.base || {}, local, CLAVES_CONFIG_MAIN)).length > 0;
+    const configNoEnviada = !!opts.sinConfig && configEditada(est.base || {}, local);
     const conAviso = (r) => (configNoEnviada && r && r.ok ? { ...r, sinPermisoConfig: true } : r);
     let base = est.base || {};
     let version = est.version || null;
