@@ -463,7 +463,17 @@ describe("R2 · la vista previa no puede mostrar cero justo cuando hay que decid
     if (!sePuedeCrear) { expect(res.ok).toBe(false); return; }
     expect(res.ok).toBe(true);
     const real = filas(res.contrato).reduce((s, f) => s + f.montoFact, 0);
+    // Comparar la previa contra el motor es necesario pero no suficiente: los
+    // dos usan el mismo cálculo, así que un error común pasaría. Las cifras
+    // esperadas van escritas, independientes de ese cálculo: 41,97 ha ×
+    // US$3.000 compuesto al 2 % anual desde 2026-07-01.
+    expect(r2(real)).toBeCloseTo(655240.69, 2);
+    expect(r2(prev.totalAplicado)).toBeCloseTo(655240.69, 2);
     expect(r2(real)).toBeCloseTo(r2(prev.totalAplicado), 2);
+    // Y fila por fila, contra los importes escritos.
+    const f = porTemp(filas(res.contrato));
+    Object.keys(TABLA_CANDIDATO).forEach((t) =>
+      expect(r2(f[t].montoFact)).toBe(r2(TABLA_CANDIDATO[t])));
   });
 
   test("sin fecha de referencia la previa no inventa nada", () => {
