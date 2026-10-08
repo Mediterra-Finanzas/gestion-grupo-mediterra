@@ -14,6 +14,25 @@ Correcciones a entregas anteriores:
 - El rollback se había verificado contra `8df9862`. `main` avanzó a **`3a9d33e`** el 07-10-2026 a las 12:07 UTC (otra sesión). La rama ya lo integró y el rollback se repitió contra ese commit (sección 6).
 - "Osiris marca cuotas pagadas sin control de rol" era **falso**: el cambio queda en borrador y "Guardar" exige el permiso del módulo.
 
+**Novedades (cierre funcional, tercera entrega, 08-10-2026):**
+- **Lo incómodo primero:**
+  - **No verifiqué el conjunto sobre el `main` vigente.** `main` pasó de 3fd03d9 a **0b86538** (PR #43, Créditos) y reescribió el guardado de Nóminas.
+  - Permisos, tiempo real y Frisku chocan solo en bloques chicos. Remuneraciones, en cambio, hay que **portarlo** al nuevo guardado de nóminas (§4.17). No lo hice: es integración y no está autorizada.
+  - La verificación anterior vale solo para 3fd03d9.
+- **Tiempo real limitado por fila** (§4.14): cada navegador se suscribe solo a `main` y `usuarios`, más `finanzas` dentro de Finanzas, y solo con sesión iniciada.
+  - Control contra `main`: hoy cualquier navegador, **incluso en la pantalla de ingreso**, recibe completas `nominas_remuneraciones`, `nominas` y `frisku_liquidaciones` cuando cambian.
+  - Con el cambio no las recibe, y la sincronización de `usuarios` y `finanzas` sigue funcionando (Realtime emulado).
+- **Clasificación explícita frente a sugerencia por palabras** (§4.15):
+  - Solo «Anticipos de Sueldo» y el tipo «Remuneraciones» son remuneración.
+  - «Anticipo a proveedor» o «descuento comercial» quedan como sugerencia: no se ocultan y no cambian ningún total.
+  - Quien no está autorizado ve las remuneraciones como **un monto agregado** de solo lectura por nómina, y el total no cambia.
+- **Nómina aprobada:** no se modifica en silencio. Su versión aprobada se congela con una huella en la fila restringida y conserva el total con una línea agregada; la rectificación queda visible, sin montos. Desde una nómina en borrador, la línea pasa al circuito de remuneraciones.
+- **Rollback a `main` y reversión de datos, probados por separado** (§4.16). El fallo de lectura de facultades muestra un aviso con «Reintentar».
+- Evidencia local:
+  - jest 1.828/1.828 en UTC y en hora de Chile;
+  - e2e de remuneraciones 36/36, de tiempo real 8/8, de rollback 9/9 y de permisos 31/31.
+- Sin merge, despliegue ni RLS.
+
 **Novedades (remuneraciones, transición de pagos y Frisku, 08-10-2026, segunda entrega):**
 - **Corregido el periodo sin pagos de la entrega anterior.** Las facultades pasan a una fila propia (`permisos_facultades`). La regla de pago tiene dos modos:
   - **transición**: paga quien paga hoy en producción;
@@ -661,6 +680,159 @@ Volver a transición exige motivo, y cada cambio de modo queda en el historial d
   - Contra `28bb0df`, el caso restringido falla (mostraba «$0»).
 - **Limitación:** no reviso píxel a píxel cada gráfico del espacio de Análisis; la comprobación es sobre el texto de la página.
 
+### 4.14 Tiempo real limitado a las filas autorizadas
+
+**Antes** (código de `main`, también 0b86538):
+- `App.jsx` abre un canal a `realtime:public:calendario_data` **sin filtro**, al cargar la página, antes de iniciar sesión.
+- `FinanzasModule` abre otro igual.
+
+**Ahora** (`src/realtime/filas.js`):
+- Una suscripción **por fila**: `main` y `usuarios` con sesión iniciada, más `finanzas` dentro de Finanzas.
+- Cada una pide el filtro en el tópico (`...:id=eq.<fila>`) y en `postgres_changes`.
+- Cualquier registro de otra fila se descarta.
+
+**Evidencia** (local, Chromium, Realtime **emulado**; `scripts/e2e/realtime-filas.mjs`, 8/8):
+
+| Comprobación | Rama | `main` 0b86538 (control) |
+|---|---|---|
+| Canales abiertos sin sesión | ninguno | 1, sin filtro |
+| Filas que recibe Carol | solo `usuarios` | `usuarios`, `finanzas`, `nominas_remuneraciones`, `frisku_liquidaciones`, `nominas` |
+| Sincroniza `usuarios` (hub) y `finanzas` (Créditos) | sí | sí |
+
+Pruebas unitarias: `realtimeFilas.test.js`, 4/4.
+
+**Dependencia del servidor** [Seguro]:
+- La emulación prueba qué pide el cliente, **no** que el Realtime real de Supabase respete el filtro. Eso no se puede comprobar desde acá.
+- Aunque lo respete, con la llave pública cualquiera puede abrir un canal sin filtro desde fuera de la app.
+- La protección efectiva exige autorización en el servidor:
+  - Supabase Auth con sesión por persona;
+  - RLS por fila en `calendario_data`, que Realtime aplica a `postgres_changes`;
+  - sacar `nominas_remuneraciones` y `frisku_liquidaciones` del alcance de la llave pública.
+
+**Transición comprobable, sin activar nada:**
+
+| Paso | Qué se hace | Cómo se comprueba |
+|---|---|---|
+| 1 | Desplegar este cambio de cliente | Pestaña Red del navegador: solo tópicos con `id=eq.` |
+| 2 | En un proyecto Supabase **de prueba**, activar RLS de solo lectura por rol sobre esas dos filas y confirmar que `postgres_changes` deja de entregarlas a la llave pública | Lo mismo que mide `realtime-filas.mjs`, pero contra el Realtime real |
+| 3 | En producción, solo con tu aprobación y después de la consulta de metadatos | Igual que el paso 2 |
+
+**Rollback:**
+- Código: volver a `main` reabre el canal sin filtro, sin perder datos.
+- Datos: no hay datos que revertir.
+
+### 4.15 Clasificación explícita, versión aprobada y traslado
+
+**Clasificación** (`src/remuneraciones/modelo.js`):
+
+| Tipo | Cuándo | Efecto |
+|---|---|---|
+| **Explícita** | Sección «Anticipos de Sueldo» o tipo de documento «Remuneraciones» | Es remuneración. Quien no está autorizado ve **un** monto agregado de solo lectura por nómina, sin nombres ni documentos; el total no cambia |
+| **Sugerencia por palabras** | Palabras como «anticipo», «descuento», «bono»; una sección con nombre salarial | Solo se lista para revisión. **No se oculta ni cambia ningún total.** «Anticipo a proveedor» y «descuento comercial» quedan como están |
+
+- Confirmar «no es remuneración» en una sugerencia no pide motivo.
+- Hacerlo en una explícita exige motivo y queda como rectificación visible.
+
+**Por qué el agregado va en «Anticipos»** (hallazgo de la prueba de rollback):
+- `main` solo suma en el total las líneas de secciones que conoce.
+- Con una sección nueva, volver a `main` habría bajado el total de las nóminas aprobadas en silencio.
+- **Costo:** dentro de la nómina, el subtotal de «Anticipos» incluye sueldos trasladados. El total general es correcto.
+
+**Agregado por nómina, no por sección:** por sección, una sección con una sola línea mostraba ese monto individual. Aun así, **si una nómina tiene una sola remuneración, el agregado es su monto**, sin nombre. Decisión tuya: aceptarlo o no mostrar el total (lo que sí cambiaría el total visible).
+
+**Traslado según el estado de la nómina de origen:**
+
+| Origen | Qué pasa en la nómina general | Qué pasa en remuneraciones | Pago |
+|---|---|---|---|
+| Ya tramitada (preparada, revisión, V°B° o aprobada) | Estado y aprobación intactos. La línea queda como rastro sin montos ni documentos y su monto pasa al **agregado**: **el total aprobado no cambia**. Rectificación visible, sin montos, con la huella de la versión aprobada | Copia completa con historial y documentos, en una nómina «histórica». **Versión aprobada congelada**: copia de la nómina tal como estaba más su huella (FNV-1a sobre JSON canónico; identifica la versión, no es criptográfica) | Ya se pagó en la general. La histórica no se vuelve a pagar |
+| Borrador | La línea sale, con una rectificación visible («pasa al circuito») | Nómina de remuneraciones en borrador: Angelo la envía y Lucía o Cristobal la aprueban | Solo por el circuito de remuneraciones |
+
+En los dos casos no se duplica ni se omite ningún pago. La comprobación aritmética (e2e):
+- **Aprobada:** 100.000 + 200.000 + 900.000 + 1.500.000 = **2.700.000** antes y después del traslado. El agregado suma 200.000 + 900.000 = 1.100.000.
+- **Borrador:** 50.000 + 300.000 = 350.000 antes. Después, 50.000 en la general más 300.000 en remuneraciones = 350.000.
+
+**Agregados de Flujo y Contabilidad:**
+- Ninguno se calcula desde las nóminas: `dbLoadNominas` solo lo usa el módulo de Nóminas, y Contabilidad lee sus propias tablas.
+- El e2e compara las cifras del Dashboard y de Flujo Empresas antes y después de los traslados: son idénticas.
+- Los agregados de remuneraciones que ya había en el Flujo (líneas proyectadas) no se tocan.
+
+**Documentos:**
+- La referencia del respaldo viaja con la línea; el archivo no se mueve del bucket.
+- La línea agregada no requiere respaldo: no cuenta para la cobertura ni para la validación, y nunca recibe un vale interno automático. Antes el sistema intentaba generárselo; el e2e lo detectó.
+
+**Reversión de datos** (distinta del rollback de código):
+1. Se marca la copia como revertida, con motivo; no se borra.
+2. Se restaura la línea exactamente como estaba y se descuenta del agregado.
+
+Si el paso 2 falla, la pantalla ofrece «Completar reversión». No se revierte una línea cuya nómina de remuneraciones esté en aprobación o aprobada.
+
+**Evidencia:**
+- `remuneracionesModelo.test.js`: 23/23.
+- `scripts/e2e/remuneraciones.mjs`: **36/36**.
+  - Carol ve el agregado y el total 2.700.000, sin nombres; la sugerencia sigue visible.
+  - Guardar no pierde líneas.
+  - Fallo de facultades con «Reintentar».
+  - Traslados en los dos modos, con huella, rectificaciones y documentos.
+  - Dashboard y Flujo sin cambios.
+  - Circuito: Lucía aprueba lo que vino del borrador y Cristobal otra nómina; quien prepara no aprueba.
+  - Reversión de datos.
+
+### 4.16 Rollback de código, reversión de datos y recuperación
+
+**Rollback de CÓDIGO a `main` 0b86538 después de trasladar** (`scripts/e2e/rollback-remuneraciones.mjs`, 9/9, misma base):
+
+| Qué | Con `main` | Riesgo |
+|---|---|---|
+| Totales de nóminas aprobadas | Se conservan (2.700.000). El agregado aparece como una línea de «Anticipos de Sueldo» | Ninguno en una nómina aprobada (`main` no la deja editar). **En una nómina preparada o en revisión, `main` deja editar o inactivar la línea agregada** |
+| Detalle restringido | No aparece: nombres y documentos no están en la fila `nominas` | — |
+| Líneas que pasaron al circuito (borrador) | **No se ven**: `main` no tiene la pantalla de remuneraciones | **Un pago de remuneraciones pendiente queda fuera de la vista** hasta volver a la rama |
+| Preparar o aprobar remuneraciones | No es posible | Hay que volver a la rama |
+| Pagos de rendiciones | Rige la regla de `main`: Michelle, que ve todas, puede marcar pagada | Es el comportamiento publicado hoy |
+| Datos (facultades, remuneraciones, nóminas, pestañas de Frisku) | `main` no los modificó | — |
+| Volver a la rama | Regla de la matriz activa y los 3 traslados intactos | — |
+
+**Antes de un rollback de código:**
+1. Pasar la regla de pago a transición, con motivo.
+2. Confirmar que no haya nóminas de remuneraciones en borrador o por aprobar.
+3. Si hay, aprobarlas y pagarlas, o revertir sus traslados (reversión de datos).
+
+**Si `permisos_facultades` no carga** (probado con la lectura fallando):
+- Todos ven «No se pudo leer la configuración de permisos» con un botón **Reintentar**.
+- Mientras tanto, nadie marca rendiciones pagadas ni usa facultades (Contabilidad, remuneraciones); el resto funciona.
+- Recuperación:
+  1. Reintentar.
+  2. Si persiste, revisar la conexión.
+  3. Si la base no responde, esperar o escalar.
+
+  No hay atajo que habilite pagos sin la fila. **No es una transición sin interrupciones en todos los casos:** si la fila no se puede leer, los pagos se detienen hasta leerla.
+
+**Transición temporal con salida explícita:**
+- Mientras la regla esté en transición, el admin ve en el inicio «Regla de pago en transición (temporal)» con la salida: ⚙️ Permisos → aplicar → Activar regla de la matriz.
+- Las restricciones de Frisku y los «restringido» se mantienen.
+
+### 4.17 Verificación sobre el `main` vigente: bloqueo concreto
+
+**`main` avanzó a 0b86538.** Entre 3fd03d9 y 0b86538:
+- `FinanzasModule.jsx` cambió en unas 4.200 líneas: Créditos y el nuevo guardado de Nóminas.
+- `NominasModule` pasó de 909 a 1.182 líneas, con guardado condicionado por `updated_at`, copia local de cambios no guardados y resolución de conflictos basada en `nominasRef`.
+
+**Al aplicar el conjunto sobre 0b86538:**
+
+| Parte | Resultado |
+|---|---|
+| Permisos, facultades, Frisku, Rendiciones, Allegria | Se aplican; el único conflicto es el bloque de Contabilidad de `App.jsx`, ya conocido |
+| Tiempo real | Conflicto chico en `App.jsx` (el hub cambió) |
+| Remuneraciones en `NominasModule` | **4 conflictos y un problema de fondo** |
+
+**El problema de fondo:**
+- El nuevo guardado de `main` trabaja sobre `nominasRef.current` en unos 20 puntos.
+- Si alguno apunta a la vista saneada en vez de a los datos completos, **guardaría las nóminas sin las líneas ocultas**: pérdida de datos.
+- Portarlo exige auditar los 33 usos de `nominas` del módulo nuevo y repetir los e2e de nóminas y remuneraciones sobre ese commit.
+
+**Lo que necesito:** autorización para hacer esa integración en una rama aparte, o seguir sin ella hasta que decidas la integración. La verificación anterior (build, jest y e2e 30/30 y 33/33) **vale solo para 3fd03d9**.
+
+**También quedó en `main`:** una vista previa local aislada (simulador + política del navegador que bloquea producción), después del incidente del 07-10. Es el camino seguro para revisar la rama de diseño (documento propio de esa rama).
+
 ## 5. Protección del servidor
 
 **[Seguro, por el código]** Ocultar botones o validar en React no protege nada:
@@ -809,8 +981,10 @@ Probada en Postgres local: corre completa y rechaza una escritura.
 | D1–D6 | ~~Matriz §4.3~~: confirmada el 08-10 e implementada en la rama (§4.10) |
 | D11 | ~~Sueldos~~: decidido e implementado (§4.11). Pendiente tuyo: revisar el listado de registros existentes al desplegar |
 | D12 | ~~Frisku Michelle/Lucía~~: conservan consulta (§4.10 F) |
-| D13 | **Canal de tiempo real sin filtro** (§4.11 F): suscripción por fila o canal autorizado en el servidor. Requiere probar contra el Realtime real |
-| D14 | Despliegue con los pasos de transición de §4.12 D |
+| D13 | ~~Canal sin filtro~~: cliente limitado por fila (§4.14). **Pendiente:** autorización en el servidor (Auth + RLS por fila), primero en un proyecto de prueba |
+| D14 | Despliegue con los pasos de transición de §4.12 D y las precauciones de rollback de §4.16 |
+| D15 | **Integrar remuneraciones con el nuevo guardado de nóminas de `main` 0b86538** (§4.17) |
+| D16 | Agregado con una sola remuneración en la nómina: se ve su monto, sin nombre (§4.15) |
 | D7 | Etapa 1 de RLS: **pendiente**. Antes: confirmar el commit desplegado y correr la consulta de metadatos |
 | D8 | Migración de claves del calendario (11 meses): **pendiente**, con los mismos requisitos previos |
 | D9 | Permisos y remuneraciones como primer grupo de integración: verificado sobre `main` 3fd03d9 (§4.10 E y §4.11 D). Sin merge ni despliegue hasta tu aprobación |
@@ -827,4 +1001,6 @@ Probada en Postgres local: corre completa y rechaza una escritura.
 7. Respaldo sin copia externa; secretos sin copia documentada.
 8. Prototipo de experiencia: A y B siguen como alternativas; falta tu revisión de capturas y recorridos, y pruebas en Safari, Firefox y dispositivos reales. La matriz confirmada será la base de sus vistas por perfil.
 9. ~~Periodo sin pagos al desplegar~~: corregido con la regla de transición (§4.12).
-10. Remuneraciones: las líneas antiguas pendientes de clasificar siguen en la fila `nominas` hasta que se trasladen (§4.11 F).
+10. Remuneraciones: las líneas de clasificación explícita siguen en la fila `nominas` (y llegan al navegador de quien prepara nóminas) **hasta que se trasladen**. La pantalla las agrega; los datos no se protegen hasta el traslado.
+11. Rollback de código con remuneraciones en el circuito: ese pago queda fuera de la vista en `main` (§4.16).
+12. El conjunto no está verificado sobre `main` 0b86538 (§4.17).
