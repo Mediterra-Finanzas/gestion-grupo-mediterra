@@ -945,7 +945,11 @@ describe("Barrido · ninguna ruta de escritura evita las guardas", () => {
       .filter(({ l }) => campos.test(l) && !/^\s*\/\//.test(l));
     expect(w.length).toBeGreaterThan(0);
     w.forEach(({ l }) => {
-      const esAlta = /setF\(/.test(l) || /campo="/.test(l);
+      // El alta escribe un formulario local con `setF`, donde no hay registro
+      // de activacion por definicion. `campo="..."` NO alcanza como escape:
+      // <Campo campo="valorRoyaltyComercial" r={r}/> escribe con upd(r.id,...)
+      // SIN guarda, y con ese escape el barrido lo habria dado por alta.
+      const esAlta = /setF[=(]/.test(l);
       const esGuardada = /upProtegido\(/.test(l) || /const upProtegido=/.test(l) ||
         /const MOT_(ANTIGUA|BASE)=/.test(l);
       expect(esAlta || esGuardada).toBe(true);
@@ -966,11 +970,88 @@ describe("Barrido · ninguna ruta de escritura evita las guardas", () => {
     expect(lineaBase.indexOf("can={can&&!hayRegistroDeActivacion(r)}")).toBeGreaterThan(-1);
   });
 
-  test("los tres helpers con guarda siguen siendo de una sola línea", () => {
-    // El control de T3 identifica la función con guarda por su propia línea.
-    ["const upR = (campo,val)=>", "const upA = (campo,val)=>"].forEach((h) => {
-      const i = lineas.findIndex((l) => l.includes(h));
-      expect(i).toBeGreaterThan(-1);
+  test("cada helper declara su guarda de permiso en la misma línea", () => {
+    // El título anterior decía "siguen siendo de una sola línea" y sólo
+    // comprobaba que la declaración existiera: no verificaba ni la guarda ni
+    // la forma. Y el control de T3 ya no depende del formato —recorta el
+    // cuerpo del helper por balance de llaves—, así que lo que importa es
+    // que la guarda esté, no que la línea sea una.
+    expect(src).toMatch(/const upR = \(campo,val\)=>\{ if\(!can\) return;/);
+    expect(src).toMatch(/const upB = \(campo,val\)=>\{ if\(!can\) return;/);
+    expect(src).toMatch(/const upA = \(campo,val\)=>\{ if\(!can \|\| !edit\.puede\) return;/);
+    expect(src).toMatch(/const upProtegido=\(r,campo,val,motivo\)=>\{ if\(!can\) return;/);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// D-3 · El aviso del porcentaje no positivo leía la configuración de HOY y se
+// adelantaba a `reajusteOperativo`. Con la configuración antigua operando al
+// 5 %/año anunciaba "0 % registrado: sin efecto de reajuste" encima de un
+// total de 695.732,23 que sí llevaba reajuste; y con sello 2 % y la
+// configuración editada a −2 % anunciaba "0 % registrado" mientras el sello
+// aplicaba 2 %. Ahora lee el SELLO y cede el aviso cuando la antigua opera.
+// No mueve importes: esta función es de presentación.
+describe("D-3 · el aviso del porcentaje no positivo no tapa nada", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const { reajusteOperativoConActivacion, estadoActivacion, selloCompleto } = require("./reajusteAplicado");
+  const total = (ct) => r2(filasDe(ct).reduce((s, f) => s + f.montoFact, 0));
+  const SELLO = (pct) => ({ pct, fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio" });
+
+  test("con la antigua al 5 %/año, el aviso habla de la antigua y no de 'sin efecto'", () => {
+    const ct = CONTRATO({
+      royaltyInflacion: true, rcInflacionPct: 5,
+      reajuste: { tipo: "porcentaje", pct: 0, desde: "2026-07-01", referencia: "Clausula", confirmado: true },
+      reajusteActivacion: Object.assign({}, ACTIVACION, { sello: SELLO(0) }),
     });
+    expect(total(ct)).toBeCloseTo(695732.23, 2);
+    const ro = reajusteOperativoConActivacion(ct);
+    expect(ro.titulo).toBe("Reajuste aplicándose: 5 %/año");
+    expect(ro.titulo).not.toMatch(/sin efecto de reajuste/);
+    expect(ro.aplica).toBe(true);
+  });
+
+  test("sin la antigua, el 0 % sí se nombra por lo que es", () => {
+    const ct = CONTRATO({
+      reajuste: { tipo: "porcentaje", pct: 0, desde: "2026-07-01", referencia: "Clausula", confirmado: true },
+      reajusteActivacion: Object.assign({}, ACTIVACION, { sello: SELLO(0) }),
+    });
+    expect(total(ct)).toBe(629550);
+    const ro = reajusteOperativoConActivacion(ct);
+    expect(ro.titulo).toBe("0 % registrado: sin efecto de reajuste");
+    expect(ro.llevanElAjuste).toBe(0);
+  });
+
+  test("sello 2 % con la configuración editada a −2 %: el aviso no dice 0 %", () => {
+    const ct = CONTRATO({
+      reajuste: { tipo: "porcentaje", pct: -2, desde: "2026-07-01", referencia: "Clausula", confirmado: true },
+      reajusteActivacion: Object.assign({}, ACTIVACION),
+    });
+    const ro = reajusteOperativoConActivacion(ct);
+    expect(ro.titulo).not.toMatch(/0 % registrado/);
+    // Y el importe no se mueve por una edición posterior del antecedente.
+    expect(total(ct)).toBe(629550);
+  });
+
+  // CP7 · El sello negativo no tenía ninguna red. `selloCompleto` exige
+  // porcentaje > 0, así que un sello deflacionario dejó de calcular: contra
+  // la base 9d90ed2 eso son +24.683,38 (604.866,62 → 629.550) en un dato que
+  // `activar()` no puede crear —rechaza pct ≤ 0— y que en el snapshot
+  // congelado no existe (0 casos). Queda pinchado en las dos versiones.
+  test("un sello con −2 % se conserva, no calcula, y el importe es la base", () => {
+    const ct = CONTRATO({ reajusteActivacion: Object.assign({}, ACTIVACION, { sello: SELLO(-2) }) });
+    expect(selloCompleto(SELLO(-2))).toBe(false);
+    const e = estadoActivacion(ct);
+    expect(e.activo).toBe(false);
+    expect(e.registroBloqueado).toBe(true);
+    expect(ct.reajusteActivacion.sello.pct).toBe(-2);     // se conserva, no se normaliza
+    expect(total(ct)).toBe(629550);
+    const ro = reajusteOperativoConActivacion(ct);
+    expect(ro.titulo).toBe("Porcentaje registrado no positivo (-2 %): sin efecto de reajuste");
+  });
+
+  test("un sello con 2 % sí calcula: la red no bloquea lo legítimo", () => {
+    const ct = CONTRATO({ reajusteActivacion: Object.assign({}, ACTIVACION) });
+    expect(estadoActivacion(ct).activo).toBe(true);
+    expect(total(ct)).toBeCloseTo(655240.69, 2);
   });
 });

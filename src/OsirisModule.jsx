@@ -8903,15 +8903,17 @@ Motivo del retiro:`, "");
                 // sintetico para escribir. El resto de la ficha usa <Cell>, que en
                 // solo lectura no renderiza ningun input.
                 const upB = (campo,val)=>{ if(!can) return; upd(r.id,"beneficioFee",{...(r.beneficioFee||{}),[campo]:val}); };
-                // Acepta un campo o un objeto con varios. Va en una sola linea a
-                // proposito: el control de T3 identifica la funcion con guarda
-                // por su propia linea, y partirla la haria aparecer como una
-                // escritura directa de las que esa prueba caza.
+                // Acepta un campo o un objeto con varios. El control de T3 recorta
+                // el cuerpo del helper por balance de llaves, asi que partir esta
+                // funcion en varias lineas ya no la haria aparecer como una
+                // escritura directa; lo que si comprueba es que la guarda este.
                 // B-1 · Con un registro de activacion vigente, estos terminos no se
                 // tocan: cambiar el tipo o destildar "Confirmado" apaga el reajuste
                 // -25.690,69 sin vista previa, sin confirmacion y sin historial. La
                 // guarda va DENTRO de la funcion: el `disabled` del control no
-                // desconecta el handler. Lo documental (la clausula) sigue abierto.
+                // desconecta el handler. La clausula NO es documental: vaciarla deja el
+                // antecedente en "pendiente" y apaga el sello, el mismo importe por otra
+                // via, asi que entra en la lista igual que los demas terminos.
                 // La autorizacion dice: cuando EXISTA un registro, tambien incompleto, en
                 // conflicto o retirado. Mirar la vigencia dejaba abierto
                 // desactivar -> editar -> reactivar como via de modificacion, que no
@@ -8920,10 +8922,11 @@ Motivo del retiro:`, "");
                 const upR = (campo,val)=>{ if(!can) return;
                   const cambios = (campo&&typeof campo==="object")?campo:{[campo]:val};
                   if(hayRegistro&&Object.keys(cambios).some(k=>TERMINOS_BLOQUEABLES.indexOf(k)>=0)){
-                    window.alert("Este contrato tiene una activacion registrada. Cambiar el tipo, la confirmacion "+
-                      "o el porcentaje alteraria lo que el motor aplica, o lo que aplicaria despues, y eso es una "+
-                      "modificacion economica: no esta habilitada en este paquete. Para cambiarlos hay que retirar "+
-                      "el registro con la accion controlada, que pide motivo y confirmacion y deja historial.");
+                    window.alert("Este contrato tiene un registro de activacion del reajuste. Los terminos del "+
+                      "antecedente -tipo, confirmacion, porcentaje, desde cuando se aplica, indice, fuente, fecha "+
+                      "base y la clausula que lo respalda- determinan lo que el motor aplica, o lo que aplicaria "+
+                      "despues, asi que cambiarlos es una modificacion economica: no esta habilitada en este "+
+                      "paquete. Retirar el registro no levanta esta proteccion.");
                     return; }
                   upd(r.id,"reajuste",{...(r.reajuste||{}),...cambios}); };
                 const inp2 = {padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11};
@@ -9033,19 +9036,19 @@ Motivo del retiro:`, "");
                       )}
                       {rj.tipo==="indice"&&(<>
                         <div><div style={{fontSize:10,color:C.gris}}>Indice</div>
-                          <input disabled={!can} value={rj.indice} placeholder="sin definir" onChange={e=>upR("indice",e.target.value)} style={{...inp2,width:120}}/></div>
+                          <input disabled={!can||hayRegistro} value={rj.indice} placeholder="sin definir" onChange={e=>upR("indice",e.target.value)} style={{...inp2,width:120}}/></div>
                         <div><div style={{fontSize:10,color:C.gris}}>Fuente</div>
-                          <input disabled={!can} value={rj.fuente} placeholder="sin definir" onChange={e=>upR("fuente",e.target.value)} style={{...inp2,width:130}}/></div>
+                          <input disabled={!can||hayRegistro} value={rj.fuente} placeholder="sin definir" onChange={e=>upR("fuente",e.target.value)} style={{...inp2,width:130}}/></div>
                         <div><div style={{fontSize:10,color:C.gris}}>Fecha base</div>
-                          <input type="date" disabled={!can} value={rj.fechaBase} onChange={e=>upR("fechaBase",e.target.value)} style={inp2}/></div>
+                          <input type="date" disabled={!can||hayRegistro} value={rj.fechaBase} onChange={e=>upR("fechaBase",e.target.value)} style={inp2}/></div>
                       </>)}
                       {rj.tipo&&rj.tipo!=="sin_reajuste"&&(
                         <div><div style={{fontSize:10,color:C.gris}}>Se aplica desde</div>
-                          <input type="date" disabled={!can} value={rj.desde} onChange={e=>upR("desde",e.target.value)} style={inp2}/></div>
+                          <input type="date" disabled={!can||hayRegistro} value={rj.desde} onChange={e=>upR("desde",e.target.value)} style={inp2}/></div>
                       )}
                       {rj.tipo&&(
                         <div style={{flex:1,minWidth:200}}><div style={{fontSize:10,color:C.gris}}>Clausula que lo respalda</div>
-                          <input disabled={!can} value={rj.referencia} placeholder="p. ej. Annexure D 1.2.5, p.24"
+                          <input disabled={!can||hayRegistro} value={rj.referencia} placeholder="p. ej. Annexure D 1.2.5, p.24"
                             onChange={e=>upR("referencia",e.target.value)} style={{...inp2,width:"100%",boxSizing:"border-box"}}/></div>
                       )}
                       {rj.tipo&&(
@@ -10137,13 +10140,17 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                             permiso dentro de la accion, identidad canonica, vista
                             previa y confirmacion explicita. */}
                         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                          {/* El boton se elige por si EXISTE un registro, no por si la
-                              activacion esta vigente. Con un registro marcado pero no
-                              vigente -incompleto, o en conflicto con la configuracion
-                              antigua- la pantalla ofrecia "Activar", que no hace nada
-                              porque la accion lo bloquea. Lo que corresponde ofrecer es
-                              retirar ese registro, que es una operacion economica con su
-                              vista previa, su motivo y su confirmacion. */}
+                          {/* El boton se elige por si el registro esta MARCADO
+                              (`activado`), no por si `estadoActivacion` lo declara
+                              activo. Con un registro marcado pero no activo -incompleto,
+                              o en conflicto con la configuracion antigua- la pantalla
+                              ofrecia "Activar", que no hace nada porque la accion lo
+                              bloquea. Lo que corresponde ofrecer es retirar ese registro,
+                              que es una operacion economica con su vista previa, su
+                              motivo y su confirmacion. Ojo: NO es el criterio de las
+                              guardas. Esas miran `hayRegistroDeActivacion`, que incluye
+                              el registro retirado; aca un registro retirado si debe
+                              ofrecer reactivacion, con los terminos conservados. */}
                           {hayRegistroVigente(r)
                             ? <button disabled={!can||!puedeDesactivar(r,{puedeEditar:can}).puede} onClick={()=>{
                                 const pm = puedeDesactivar(r,{puedeEditar:can});

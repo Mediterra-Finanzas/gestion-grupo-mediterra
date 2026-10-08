@@ -270,12 +270,14 @@ export function diferenciasConElSello(ct) {
 // flujo, que no esta en este paquete.
 export function puedeEditarTerminos(ct) {
   const e = estadoActivacion(ct);
-  const hayRegistro = !!((ct && ct.reajusteActivacion) || {}).activado;
-  // Alcanza con que EXISTA un registro. Antes solo se bloqueaba el estado
-  // vigente, y un registro marcado pero incompleto quedaba con los cuatro
-  // campos abiertos: completarlos a mano lo encendia sin pasar por la accion,
-  // sin sello y sin historial. Que un registro este incompleto no autoriza a
-  // completarlo por la via de la edicion.
+  const hayRegistro = hayRegistroDeActivacion(ct);
+  // Alcanza con que EXISTA un registro -marcado, incompleto, en conflicto o
+  // RETIRADO-, igual que las guardas de la pantalla. Mirar la vigencia dejaba
+  // abierto desactivar -> editar -> reactivar: estos cuatro campos son los
+  // terminos que `activar()` vuelve a sellar, asi que editarlos entre medio
+  // reselleaba otros terminos (medido: 655.240,69 -> 629.550). Esa via de
+  // modificacion no esta autorizada. Reactivar con los terminos conservados
+  // sigue siendo posible: `activar()` no consulta esta funcion.
   if (hayRegistro || e.estado === ACTIVADO || e.estado === MODIFICACION_PENDIENTE) {
     return {
       puede: false,
@@ -533,9 +535,13 @@ export function hayRegistroDeActivacion(ct) {
   return !!(ra.activado || ra.sello || (Array.isArray(ra.historial) && ra.historial.length));
 }
 
-// Terminos del antecedente que, con un registro vigente, no se pueden tocar:
-// cambian lo que el registro calcula o lo que calcularia despues.
-export const TERMINOS_BLOQUEABLES = ["tipo", "confirmado", "pct", "desde", "indice", "fuente", "fechaBase"];
+// Terminos del antecedente que, existiendo un registro de activacion, no se
+// pueden tocar: cambian lo que el registro calcula o lo que calcularia despues.
+// `referencia` -la clausula- esta en la lista porque NO es documental:
+// `faltantesReajuste` la exige, asi que vaciarla deja el antecedente en
+// "pendiente", `estadoActivacion` pasa a no activable y el sello deja de
+// aplicar. Es el mismo -25.690,69 que destildar "Confirmado", por otra via.
+export const TERMINOS_BLOQUEABLES = ["tipo", "confirmado", "pct", "desde", "indice", "fuente", "fechaBase", "referencia"];
 
 // Un sello completo es lo unico que habilita calculo. Lo produce `activar()`
 // y nada mas: completar los campos a mano no genera uno.
@@ -828,16 +834,26 @@ export function previsualizarActivacion(ct, filas, opciones) {
 export function reajusteOperativoConActivacion(ct, opciones) {
   const act = estadoActivacion(ct);
 
-  // Un registro con 0 % no aplica -el sello exige porcentaje positivo-, pero
+  // Un registro con porcentaje no positivo no aplica -el sello exige > 0-, pero
   // conviene nombrarlo por lo que es en vez de caer en el aviso generico.
   // Hoy no se puede crear uno (activar lo rechaza); puede venir de datos
   // viejos, y en ese caso se conserva tal cual.
+  // Dos correcciones: se lee el SELLO, que es lo que habilitaria calculo, y no
+  // la configuracion de hoy -con sello 2 % y configuracion -2 % este aviso
+  // anunciaba "0 % registrado" mientras el sello aplicaba 2 %-; y no se
+  // adelanta cuando la configuracion antigua esta OPERANDO, porque ahi si hay
+  // un reajuste moviendo importes y decir "sin efecto" seria falso.
   const cfg0 = configReajuste(ct);
-  if (hayRegistroVigente(ct) && cfg0.tipo === "porcentaje" && !(Number(cfg0.pct) > 0)) {
+  const sello0 = ((ct && ct.reajusteActivacion) || {}).sello || null;
+  const pct0 = Number(sello0 ? sello0.pct : cfg0.pct);
+  if (hayRegistroVigente(ct) && !configAntiguaOperando(ct).opera &&
+      (sello0 || cfg0.tipo === "porcentaje") && !(pct0 > 0)) {
     return {
-      estado: REAJUSTE_ACTIVADO_APLICANDO, aplica: false, pct: 0, llevanElAjuste: 0,
-      titulo: "0 % registrado: sin efecto de reajuste",
-      aviso: "Hay una activacion registrada con 0 %. No cambia ningun importe. El valor se " +
+      estado: REAJUSTE_ACTIVADO_APLICANDO, aplica: false, pct: pct0 || 0, llevanElAjuste: 0,
+      titulo: pct0 < 0
+        ? "Porcentaje registrado no positivo (" + pct0 + " %): sin efecto de reajuste"
+        : "0 % registrado: sin efecto de reajuste",
+      aviso: "Hay una activacion registrada con " + (pct0 || 0) + " %. No cambia ningun importe. El valor se " +
         "conserva tal como esta; no se le atribuye un respaldo que no consta, porque hasta " +
         "que se corrigio el campo un vacio o un valor invalido tambien se guardaba como 0. " +
         "Lo que no corresponde es sostener una activacion que no aplica nada.",
