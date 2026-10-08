@@ -46,6 +46,24 @@ test("Denise (sin_acceso a Liquidaciones): no se piden ni se guardan liquidacion
   await act(async () => {});
   expect(screen.getByTestId("aviso-sin-liq")).toBeTruthy();
   expect(document.body.textContent).not.toMatch(/99[.,]?999|777/);
+  // Resumen ejecutivo: los paneles de dinero dicen "restringido"; ningún KPI de dinero aparece en cero
+  expect(screen.getByTestId("restringido-resumen")).toBeTruthy();
+  expect(screen.queryByText(/Comisión Frisku por temporada/)).toBeNull();
+  expect(screen.queryByText("Venta destino (USD)")).toBeNull();
+  expect(screen.queryByText("Comisión Frisku (USD)")).toBeNull();
+  expect(document.body.textContent).not.toMatch(/\$0(?![\d.,])/);
+  // Reportes: los de dinero se omiten (nombrados como restringidos), quedan los de volumen
+  fireEvent.click(screen.getAllByRole("button").find(b => /📋 Reportes/.test(b.textContent)));
+  await act(async () => {});
+  expect(screen.getByTestId("reportes-restringidos")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Ingreso por temporada/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Cobranza \(aging\)/ })).toBeNull();
+  expect(screen.getByRole("button", { name: /Pipeline embarques/ })).toBeTruthy();
+  // Análisis: ninguna medida de dinero en cero
+  fireEvent.click(screen.getAllByRole("button").find(b => /🔬 Análisis/.test(b.textContent)));
+  await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+  expect(document.body.textContent).not.toMatch(/\$0(?![\d.,])/);
+  expect(document.body.textContent).not.toMatch(/Comisión Frisku \(USD\)/);
   // espera más que el debounce del auto-save: nada se escribe en esas filas
   await act(async () => { await new Promise(r => setTimeout(r, 1500)); });
   expect(guardados).not.toContain("frisku_liquidaciones");
@@ -57,6 +75,10 @@ test("Carolina (editar explícito): se cargan liquidaciones y PO y ve la pestañ
   expect(pedidos).toEqual(expect.arrayContaining(["frisku_liquidaciones", "frisku_po"]));
   expect(tabsDe().some(t => /Liquidaciones/.test(t))).toBe(true);
   expect(screen.queryByTestId("aviso-sin-liq")).toBeNull();
+  fireEvent.click(screen.getAllByRole("button").find(b => /Reportería BI/.test(b.textContent)));
+  await act(async () => {});
+  expect(screen.getByText(/Comisión Frisku por temporada/)).toBeTruthy();
+  expect(screen.queryByTestId("restringido-resumen")).toBeNull();
 }, 20000);
 
 test("admin: carga y ve Liquidaciones", async () => {

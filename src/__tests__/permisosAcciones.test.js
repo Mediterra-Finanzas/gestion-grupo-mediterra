@@ -22,30 +22,53 @@ describe("nivel explícito", () => {
   });
 });
 
-describe("Rendiciones · marcar pagada (facultad explícita rendPagar)", () => {
+// Modo "matriz": solo la facultad. Modo "transicion": la regla publicada (ve todas).
+const M = (u) => ({ ...u, _facultadesOk: true, _modoPermisos: "matriz" });
+const T = (u) => ({ ...u, _facultadesOk: true, _modoPermisos: "transicion" });
+
+describe("Rendiciones · marcar pagada · modo matriz (facultad rendPagar)", () => {
   test("permitido: Carol, Milagros y Angelo con la facultad, sobre una aprobada", () => {
-    expect(puedeMarcarPagada({ ...CAROL, rendPagar: true }, r("aprobada"))).toBe(true);
-    expect(puedeMarcarPagada({ ...TRABAJADOR, nombre: "Milagros Becerra", rendPagar: true }, r("aprobada"))).toBe(true);
-    expect(puedeMarcarPagada({ ...ANGELO, rendPagar: true }, r("aprobada"))).toBe(true);
+    expect(puedeMarcarPagada(M({ ...CAROL, rendPagar: true }), r("aprobada"))).toBe(true);
+    expect(puedeMarcarPagada(M({ ...TRABAJADOR, nombre: "Milagros Becerra", rendPagar: true }), r("aprobada"))).toBe(true);
+    expect(puedeMarcarPagada(M({ ...ANGELO, rendPagar: true }), r("aprobada"))).toBe(true);
   });
   test("denegado: admin y CFO SIN la facultad (admin no es autorización general)", () => {
-    expect(puedeMarcarPagada(ANGELO, r("aprobada"))).toBe(false);
-    expect(puedeMarcarPagada({ ...TRABAJADOR, esCFO: true }, r("aprobada"))).toBe(false);
+    expect(puedeMarcarPagada(M(ANGELO), r("aprobada"))).toBe(false);
+    expect(puedeMarcarPagada(M({ ...TRABAJADOR, esCFO: true }), r("aprobada"))).toBe(false);
   });
   test("denegado: rendVerTodas NO autoriza a pagar (Michelle, Pablo)", () => {
-    expect(puedeMarcarPagada(CAROL, r("aprobada"))).toBe(false);
+    expect(puedeMarcarPagada(M(CAROL), r("aprobada"))).toBe(false);
   });
   test("denegado: la facultad tiene que ser exactamente true", () => {
-    expect(puedeMarcarPagada({ ...CAROL, rendPagar: "true" }, r("aprobada"))).toBe(false);
-    expect(puedeMarcarPagada({ ...CAROL, rendPagar: 1 }, r("aprobada"))).toBe(false);
-  });
-  test("denegado: trabajador sin autorización", () => {
-    expect(puedeMarcarPagada(TRABAJADOR, r("aprobada"))).toBe(false);
+    expect(puedeMarcarPagada(M({ ...CAROL, rendPagar: "true" }), r("aprobada"))).toBe(false);
+    expect(puedeMarcarPagada(M({ ...CAROL, rendPagar: 1 }), r("aprobada"))).toBe(false);
   });
   test("intento directo: marcar pagada algo NO aprobado se rechaza, incluso con la facultad", () => {
-    const pagador = { ...ANGELO, rendPagar: true };
+    const pagador = M({ ...ANGELO, rendPagar: true });
     for (const e of ["borrador", "enviada", "rechazada", "pagada"]) expect(puedeMarcarPagada(pagador, r(e))).toBe(false);
     expect(puedeMarcarPagada(pagador, null)).toBe(false);
+  });
+});
+
+describe("Rendiciones · marcar pagada · modo transición (regla publicada)", () => {
+  test("pagan quienes ven todas (admin, CFO, rendVerTodas), como hoy en producción", () => {
+    expect(puedeMarcarPagada(T(ANGELO), r("aprobada"))).toBe(true);
+    expect(puedeMarcarPagada(T(CAROL), r("aprobada"))).toBe(true);
+  });
+  test("no amplía: un trabajador sin ver todas no paga aunque tenga la facultad", () => {
+    expect(puedeMarcarPagada(T({ ...TRABAJADOR, rendPagar: true }), r("aprobada"))).toBe(false);
+    expect(puedeMarcarPagada(T(TRABAJADOR), r("aprobada"))).toBe(false);
+  });
+  test("solo aprobadas", () => {
+    expect(puedeMarcarPagada(T(ANGELO), r("enviada"))).toBe(false);
+  });
+});
+
+describe("Rendiciones · marcar pagada · configuración sin leer (falla cerrada)", () => {
+  test("si la fila de facultades no se pudo leer, nadie paga", () => {
+    expect(puedeMarcarPagada({ ...ANGELO, rendPagar: true }, r("aprobada"))).toBe(false);
+    expect(puedeMarcarPagada({ ...ANGELO, rendPagar: true, _facultadesOk: false, _modoPermisos: null }, r("aprobada"))).toBe(false);
+    expect(puedeMarcarPagada({ ...ANGELO, _facultadesOk: true, _modoPermisos: "otro" }, r("aprobada"))).toBe(false);
   });
 });
 

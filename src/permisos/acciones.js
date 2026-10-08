@@ -45,12 +45,20 @@ export function puedeAprobarRendicion(u, r) {
   return meTocaAprobar(r, u.email, !!u.admin, !!u.esCFO);
 }
 
-// Marcar pagada: SOLO la facultad explícita "rendPagar" de la persona (matriz 08-10-2026:
-// Carol Machuca y Milagros Becerra; Angelo Huerta como reemplazo) y solo sobre una rendición
-// aprobada. No la da ser admin, CFO, ver todas las rendiciones ni editar Finanzas.
+// Marcar pagada, siempre sobre una rendición APROBADA. Depende del modo de la fila
+// `permisos_facultades` (src/permisos/facultades.js):
+//   · "matriz": SOLO la facultad explícita rendPagar (08-10-2026: Carol Machuca y Milagros
+//     Becerra; Angelo Huerta como reemplazo). No la da ser admin, CFO ni ver todas.
+//   · "transicion": la regla publicada hoy en producción (ve todas = admin, CFO o
+//     rendVerTodas). No amplía nada: evita que quede un periodo sin nadie que pague.
+//   · fila sin cargar (u._facultadesOk !== true): no se sabe el modo → no se paga.
+// u = usuario enriquecido con enriquecerUsuario (o el objeto `yo` de Rendiciones).
 export function puedeMarcarPagada(u, r) {
   if (!r || r.estado !== "aprobada" || !u) return false;
-  return u.rendPagar === true;
+  if (u._facultadesOk !== true) return false;
+  if (u._modoPermisos === "matriz") return u.rendPagar === true;
+  if (u._modoPermisos === "transicion") return !!(u.admin || u.esCFO || u.rendVerTodas);
+  return false;
 }
 
 // Devolver una rendición aprobada: quien la aprobó o un admin (regla existente).

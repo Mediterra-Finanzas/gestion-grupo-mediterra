@@ -864,8 +864,13 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   // Facultades explícitas (matriz 08-10-2026): aprobar lo asignado vale para cualquier rol;
   // marcar pagada solo con "rendPagar". El rol consulta carga sus propias rendiciones.
   const consulta = usuarioActual?.rol === "consulta" || (typeof esSoloConsulta === "function" ? !!esSoloConsulta(nombreUsuario) : !!esSoloConsulta);
-  const puedePagarFac = usuarioActual?.rendPagar === true;
-  const yo = { admin, esCFO, rendVerTodas: !!usuarioActual?.rendVerTodas, rendPagar: puedePagarFac, consulta, email: miEmail, nombre: nombreUsuario };
+  // Modo de la regla de pago (fila permisos_facultades): en "matriz" la pestaña Pagos se abre
+  // también a quien tiene la facultad sin ver todas; en "transicion" rige lo publicado.
+  const modoPago = usuarioActual?._facultadesOk === true ? usuarioActual?._modoPermisos : null;
+  const puedePagarFac = modoPago === "matriz" && usuarioActual?.rendPagar === true;
+  const yo = { admin, esCFO, rendVerTodas: !!usuarioActual?.rendVerTodas, rendPagar: usuarioActual?.rendPagar === true,
+    _facultadesOk: usuarioActual?._facultadesOk === true, _modoPermisos: usuarioActual?._modoPermisos ?? null,
+    consulta, email: miEmail, nombre: nombreUsuario };
   // Puede cargar rendiciones en nombre de otros: admin, flag rendPorOtros (Gestión
   // de Usuarios), o email en la lista legacy EMAILS_RINDEN_POR_OTROS (retrocompat).
   const puedeRendirPorOtros = admin || !!usuarioActual?.rendPorOtros || EMAILS_RINDEN_POR_OTROS.map(e => e.toLowerCase()).includes(miEmail);
@@ -1177,7 +1182,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   };
 
   const marcarPagada = (r) => {
-    if (!puedeMarcarPagada(yo, r)) { setAviso({ id: "permiso", tipo: "error", texto: `No se puede marcar pagada la rendición #${r?.folio ?? ""}: debe estar aprobada y tu perfil debe tener la facultad "marca rendiciones pagadas".` }); return; }
+    if (!puedeMarcarPagada(yo, r)) { setAviso({ id: "permiso", tipo: "error", texto: `No se puede marcar pagada la rendición #${r?.folio ?? ""}: debe estar aprobada y tu perfil debe estar autorizado a pagar (${yo._facultadesOk ? (yo._modoPermisos === "matriz" ? "facultad \"marca rendiciones pagadas\"" : "regla de transición: ver todas") : "no se pudo leer la configuración de permisos"}).` }); return; }
     upsert(pushHist({ ...r, estado: "pagada", pagadoEn: nowISO(), pagadoPor: nombreUsuario }, "pagada"));
   };
 

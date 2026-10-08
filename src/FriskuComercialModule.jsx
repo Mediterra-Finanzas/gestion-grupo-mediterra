@@ -31,7 +31,7 @@ import { clasificarReferenciaDoc, esUrlDocumentoValida, avisoRefBorrador, conser
 import { requisitosDeComex, esVinculoSharePoint, aplicarVinculoComex, quitarVinculoComex } from "./friskuComexVinculo.js";
 import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
 import FriskuSharePointBuscador from "./FriskuSharePointBuscador.jsx";
-import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric,
+import { FriskuBIProvider, useFriskuBI, FRISKU_DIMS, FRISKU_METRICS, fmtMetric, soloPermitidas, RESTRINGIDO,
          mComFriskuUSD, mVentaUSD, mFobUSD, mComClienteUSD, groupByDims, invertSelection } from "./friskuBI.js";
 import { normalizarNombre, buscarDuplicado } from "./nombreCanonico.js";
 import { configureFriskuPdf } from "./pdfText.js";
@@ -5445,7 +5445,7 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
   const bi = useFriskuBI();
   const { filtered, metric, sel, setOne, remove, associative, chips, clearAll } = bi;
   const [groupDim, setGroupDim] = useState(dimDefault);
-  const [orderKey, setOrderKey] = useState(orderDefault);
+  const [orderKey, setOrderKey] = useState(metric[orderDefault]?.restringida ? "containers" : orderDefault);
   const [topN, setTopN] = useState(dimDefault==="semanaETD"?"all":"20");
   const FLT = ["temporada","especie","exportadora","cliente","mercado","paisDestino","estado","via","semanaETD"];
   const FIN_KEYS = ["destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct"];
@@ -5458,7 +5458,7 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
     {k:"clientCommissionUSD",lab:"Com. cliente USD",fmt:"usd"},
     {k:"friskuCommissionUSD",lab:"Com. Frisku USD",fmt:"usd"},
     {k:"avgCommissionPct",lab:"% Frisku",fmt:"pct"},
-  ];
+  ].filter(c=>!metric[c.k]?.restringida);   // sin acceso a Liquidaciones: columnas de dinero omitidas
   const grupos = useMemo(()=>{ const m={}; filtered.forEach(r=>{ const v=r[groupDim]; (m[v]=m[v]||{key:v,lab:r[groupDim+"Lab"],rows:[]}).rows.push(r); });
     return Object.values(m).map(g=>{ const o={key:g.key,lab:g.lab,_fin:g.rows.filter(r=>r._nLiq>0).length}; COLS.forEach(c=>o[c.k]=metric[c.k].calc(g.rows)); o.ord=metric[orderKey].calc(g.rows); return o; })
       .sort((a,b)=>b.ord-a.ord); },[filtered,groupDim,orderKey]);
@@ -5530,7 +5530,7 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
           ⚠ Calidad de datos:{kgParcial && <span> Kilos <b>PARCIALES</b> — hay formatos sin peso neto en Maestros ({dq.formatosSinPeso.slice(0,6).join(", ")}); sus kilos cuentan 0.</span>}{dq.liqClienteSinConv>0 && <span> {dq.liqClienteSinConv} liquidación(es) con comisión cliente no convertible a USD de forma trazable.</span>}
         </div>
       )}
-      {cobFin.tot>0 && cobFin.n===0 && (
+      {cobFin.tot>0 && cobFin.n===0 && !bi.liqRestringida && (
         <div style={{marginBottom:10,fontSize:11.5,color:C.warning,background:`${C.warning}14`,border:`1px solid ${C.warning}44`,borderRadius:8,padding:"8px 11px",fontWeight:600}}>
           Sin datos financieros suficientes para esta selección — {cobFin.tot} contenedor{cobFin.tot>1?"es":""} sin liquidación. Venta y comisión aparecerán automáticamente al cargar las liquidaciones. (Los contadores logísticos sí son reales.)
         </div>
@@ -5588,7 +5588,7 @@ function HojaBIDim({ dimDefault, orderDefault="friskuCommissionUSD", onVerEmbarq
                 <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace"}}>{fmtN0(r._cajas)}</td>
                 <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:r._kgFalta?C.warning:undefined}}>{fmtN0(r._kilos)}{r._kgFalta?" ⚠":""}</td>
                 <td style={{padding:"6px 10px",whiteSpace:"nowrap"}}>{r.estado}</td>
-                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:sinFin?C.muted2:C.green,fontWeight:sinFin?400:700}}>{sinFin?"—":fmtUSD0(r._comF)}</td>
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:sinFin?C.muted2:C.green,fontWeight:sinFin?400:700}}>{r._nLiq===null?RESTRINGIDO:sinFin?"—":fmtUSD0(r._comF)}</td>
                 <td style={{padding:"6px 10px",textAlign:"right"}}>{onVerEmbarque && r._oe && <button onClick={()=>onVerEmbarque(r._oe)} title="Ir al embarque operacional" style={{...btnSt(C.blue,true),padding:"3px 8px",fontSize:10}}>→ Ver</button>}</td>
               </tr>; })}
             {detalle.length===0 && <tr><td colSpan={12} style={{padding:16,textAlign:"center",color:C.muted2}}>Sin contenedores en la selección.</td></tr>}
@@ -5739,7 +5739,7 @@ function HojaSemanal({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitFul
   const { filtered, metric, sel, toggle, chips } = bi;
   const [mk, setMk] = useState("containers");
   const FLT = ["temporada","especie","exportadora","cliente","mercado","via"];
-  const METS = ["containers","fcl","boxes","kilograms","destinationSalesUSD","friskuCommissionUSD"];
+  const METS = soloPermitidas(["containers","fcl","boxes","kilograms","destinationSalesUSD","friskuCommissionUSD"], metric);
   const MET_FIN = ["destinationSalesUSD","friskuCommissionUSD"];
   const weekNum = (s)=>{ const m=String(s).match(/(\d+)/); return m?parseInt(m[1]):0; };
   const semanas = useMemo(()=>{
@@ -5877,7 +5877,7 @@ function HojaComparativo({ chromeless, panelEl, fullscreen, onExitFull, exportRe
   const baseSel = ignoring("temporada");
   const rowsA = baseSel.filter(r=>r.temporada===actual);
   const rowsB = baseSel.filter(r=>r.temporada===anterior);
-  const KPIS = ["containers","fcl","boxes","kilograms","destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","activeClients","activeExporters"];
+  const KPIS = soloPermitidas(["containers","fcl","boxes","kilograms","destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","activeClients","activeExporters"], metric);
   const selSt={...inputSt, maxWidth:160};
   const filtrosTxt = chips.length ? chips.map(c=>`${c.dimLab}=${c.label}`).join(", ") : "sin filtros";
   const rowsExp = ()=>KPIS.map(k=>{ const m=metric[k]; const a=m.calc(rowsA), b=m.calc(rowsB); const va=a-b; const vp=b!==0?va/b*100:(a>0?100:0);
@@ -5980,7 +5980,7 @@ function ComparadorAB({ chromeless, panelEl, fullscreen, onExitFull, exportReq }
   const selChips  = (s)=> Object.keys(s||{}).filter(k=>s[k]&&s[k].size).map(k=>({dim:k, lab:dimLab(k), vals:[...s[k]].map(v=>labOf(k,v))}));
   const defTxt    = (s)=> isEmpty(s) ? "Todo el universo" : selChips(s).map(c=>`${c.lab}=${c.vals.join("/")}`).join(" · ");
 
-  const KPIS = ["containers","fcl","boxes","kilograms","destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct","activeClients","activeExporters"];
+  const KPIS = soloPermitidas(["containers","fcl","boxes","kilograms","destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct","activeClients","activeExporters"], metric);
   const mets = KPIS.map(k=>metric[k]).filter(Boolean);
   const rows = compararEstados(facts, selA, selB, mets);
 
@@ -6208,7 +6208,7 @@ function StraightTableBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExi
   // P2.1b: semilla desde bookmark (initialConfig). Sin initialConfig → defaults idénticos a hoy.
   const ic = initialConfig||{};
   const [dimSel, setDimSel] = useState(()=> Array.isArray(ic.dimSel)&&ic.dimSel.length ? ic.dimSel : ["cliente"]);
-  const [medSel, setMedSel] = useState(()=> Array.isArray(ic.medSel)&&ic.medSel.length ? ic.medSel : ["containers","fcl","boxes","friskuCommissionUSD"]);
+  const [medSel, setMedSel] = useState(()=> soloPermitidas(Array.isArray(ic.medSel)&&ic.medSel.length ? ic.medSel : ["containers","fcl","boxes","friskuCommissionUSD"], metric));
   const [sortCol, setSortCol] = useState(()=> typeof ic.sortCol==="string" ? ic.sortCol : "med:friskuCommissionUSD");
   const [sortDir, setSortDir] = useState(()=> (ic.sortDir==="asc"||ic.sortDir==="desc") ? ic.sortDir : "desc");
   // Reporta config vigente (canal lateral hacia el workspace; no re-renderiza → no hay loop).
@@ -6320,7 +6320,7 @@ function StraightTableBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExi
       <div style={{fontSize:11,color:C.warning,background:`${C.warning}14`,border:`1px solid ${C.warning}44`,borderRadius:8,padding:"7px 10px"}}>
         ⚠ Calidad de datos:{kgParcial && <span> Kilos <b>PARCIALES</b> — formatos sin peso neto en Maestros ({dq.formatosSinPeso.slice(0,6).join(", ")}); cuentan 0.</span>}{dq.liqClienteSinConv>0 && <span> {dq.liqClienteSinConv} liquidación(es) con comisión cliente no convertible a USD trazable.</span>}
       </div>)}
-    {cobFin.tot>0 && cobFin.n===0 && (
+    {cobFin.tot>0 && cobFin.n===0 && !bi.liqRestringida && (
       <div style={{fontSize:11.5,color:C.warning,background:`${C.warning}14`,border:`1px solid ${C.warning}44`,borderRadius:8,padding:"8px 11px",fontWeight:600}}>
         Sin datos financieros para esta selección — {cobFin.tot} contenedor{cobFin.tot>1?"es":""} sin liquidación. Los contadores logísticos sí son reales.
       </div>)}
@@ -6355,7 +6355,7 @@ function StraightTableBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExi
                 <td style={{padding:"4px 10px",textAlign:"right",fontFamily:"monospace"}}>{fmtN0(r._cajas)}</td>
                 <td style={{padding:"4px 10px",textAlign:"right",fontFamily:"monospace",color:r._kgFalta?C.warning:undefined}}>{fmtN0(r._kilos)}{r._kgFalta?" ⚠":""}</td>
                 <td style={{padding:"4px 10px",whiteSpace:"nowrap"}}>{r.estado}</td>
-                <td style={{padding:"4px 10px",textAlign:"right",fontFamily:"monospace",color:sinFin?C.muted2:C.green,fontWeight:sinFin?400:700}}>{sinFin?"—":fmtUSD0(r._comF)}</td>
+                <td style={{padding:"4px 10px",textAlign:"right",fontFamily:"monospace",color:sinFin?C.muted2:C.green,fontWeight:sinFin?400:700}}>{r._nLiq===null?RESTRINGIDO:sinFin?"—":fmtUSD0(r._comF)}</td>
                 <td style={{padding:"3px 10px",textAlign:"right"}}>{onVerEmbarque && r._oe && <button onClick={()=>onVerEmbarque(r._oe)} title="Ir al embarque operacional" style={{...btnSt(C.blue,true),padding:"2px 8px",fontSize:10}}>→ Ver</button>}</td>
               </tr>; })}
             {detalle.length===0 && <tr><td colSpan={12} style={{padding:16,textAlign:"center",color:C.muted2}}>Sin contenedores en la selección.</td></tr>}
@@ -6441,7 +6441,7 @@ function PivotTableBI(_pivotProps={}) {
   const [row1, setRow1] = useState(()=> typeof ic.row1==="string" ? ic.row1 : "cliente");
   const [row2, setRow2] = useState(()=> (ic.row2===null||typeof ic.row2==="string") ? ic.row2 : "especie");
   const [colDim, setColDim] = useState(()=> typeof ic.colDim==="string" ? ic.colDim : "temporada");
-  const [medKey, setMedKey] = useState(()=> typeof ic.medKey==="string" ? ic.medKey : "fcl");
+  const [medKey, setMedKey] = useState(()=> typeof ic.medKey==="string" && !metric[ic.medKey]?.restringida ? ic.medKey : "fcl");
   const [expanded, setExpanded] = useState(()=> new Set(Array.isArray(ic.expanded)?ic.expanded:[]));
   // Reporta config vigente (expanded serializado Set→array).
   useEffect(()=>{ onConfig && onConfig({ row1, row2, colDim, medKey, expanded:[...expanded] }); }, [row1, row2, colDim, medKey, expanded]);
@@ -6454,6 +6454,7 @@ function PivotTableBI(_pivotProps={}) {
   const FIN = new Set(["destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct"]);
   const isFin = FIN.has(medKey);
   const cellTxt = (rows, colValue)=>{ const sub = colValue==null ? rows : rows.filter(r=>r[colDim]===colValue);
+    if(isFin && bi.liqRestringida) return RESTRINGIDO;
     if(isFin && sub.filter(r=>r._nLiq>0).length===0) return "—"; return fmtMetric(M.fmt, M.calc(sub)); };
   // P2.4a: tooltip de celda de Pivot (mismo subconjunto que metric.calc; no suma subtotales).
   const cellTitle = (rows, colValue, rowLab, colLab, rowDimLab)=>{
@@ -6877,7 +6878,7 @@ function DrillGroupsBI({ onVerEmbarque, chromeless, panelEl, fullscreen, onExitF
   const ic = initialConfig||{};
   const g0 = (typeof ic.grpKey==="string" && DRILL_GROUPS[ic.grpKey]) ? ic.grpKey : "comercial";
   const [grpKey, setGrpKey] = useState(g0);
-  const [medKey, setMedKey] = useState(()=> typeof ic.medKey==="string" ? ic.medKey : "fcl");
+  const [medKey, setMedKey] = useState(()=> typeof ic.medKey==="string" && !metric[ic.medKey]?.restringida ? ic.medKey : "fcl");
   const [path, setPath] = useState(()=>{
     const estructural = sanitizeDrillPath(ic.path, DRILL_GROUPS[g0]?.dims||[]).path;
     const out=[];
@@ -7086,7 +7087,7 @@ function ResumenEjecutivo() {
   };
 
   // KPIs = métricas del registro único (sobre las filas filtradas).
-  const KPIS = ["containers","boxes","kilograms","destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct","activeClients","activeExporters"];
+  const KPIS = soloPermitidas(["containers","boxes","kilograms","destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct","activeClients","activeExporters"], metric);
   const kpiColor = { containers:C.teal, destinationSalesUSD:C.blue, friskuCommissionUSD:C.accent2, avgCommissionPct:C.green };
 
   // Gráficos (todos derivados de las mismas filas + métrica única).
@@ -7122,10 +7123,16 @@ function ResumenEjecutivo() {
       await fr_logoExcel(wb, wsR);
       const ws = wb.addWorksheet("Detalle por contenedor");
       fr_sheetTabla(ws, { titulo:"FRISKU FOODS — Detalle por contenedor", subtitulo:sub,
+        ...(bi.liqRestringida ? {
+          // Sin acceso a Liquidaciones: las columnas de dinero se OMITEN (no se escriben en cero).
+          headers:["Contenedor","Naviera/Aerolínea","Especie","Calibre/Formato","Exportador","Cliente","Origen","Destino","ETD","ETA","Kilos"],
+          colWidths:[16,20,10,18,22,22,14,14,12,12,12],
+          rows: detalle.map(d=>[d.contenedor,d.naviera,d.especie,d.calibre,d.exportador,d.cliente,d.origen,d.destino,d.etd,d.eta,Math.round(d.kilos)]),
+          moneyCols:[], intCols:[10] } : {
         headers:["Contenedor","Naviera/Aerolínea","Especie","Calibre/Formato","Exportador","Cliente","Origen","Destino","ETD","ETA","Kilos","Venta destino USD","Comisión cliente USD","Comisión Frisku USD","% comisión"],
         colWidths:[16,20,10,18,22,22,14,14,12,12,12,16,16,16,10],
         rows: detalle.map(d=>[d.contenedor,d.naviera,d.especie,d.calibre,d.exportador,d.cliente,d.origen,d.destino,d.etd,d.eta,Math.round(d.kilos),Math.round(d.venta),Math.round(d.comCli),Math.round(d.com),Number(d.pct.toFixed(1))]),
-        moneyCols:[11,12,13], intCols:[10] });
+        moneyCols:[11,12,13], intCols:[10] }) });
       await fr_logoExcel(wb, ws);
       await fr_descargarWB(wb, `Frisku_Resumen_${new Date().toISOString().slice(0,10)}.xlsx`);
     }catch(e){ console.error("[Resumen] Excel:",e); alert("No se pudo generar el Excel: "+e.message); }
@@ -7151,6 +7158,8 @@ function ResumenEjecutivo() {
       doc.autoTable({ startY:31, head:[["Estado (pipeline)","OE"]], theme:"grid", styles:{fontSize:8.5}, headStyles:{fillColor:[30,39,97]},
         body: PIPE.map(p=>[p.lab, fmtN0(pipe[p.id]||0)]), margin:{left:W/2+2,right:m} });
       let y=doc.lastAutoTable.finalY+6;
+      if(bi.liqRestringida){ doc.setTextColor(20,20,20); doc.setFontSize(9); doc.text("Venta y comisión: restringido (requiere acceso a Liquidaciones).",m,y); }
+      else {
       doc.setTextColor(20,20,20); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text("Top clientes por comisión Frisku",m,y); y+=2;
       doc.autoTable({ startY:y, head:[["Cliente","Comisión USD","% acum."]], theme:"striped", styles:{fontSize:8}, headStyles:{fillColor:[30,39,97]},
         body: porCli.slice(0,12).map(x=>[x.lab,fmtUSD0(x.v),x.pctAcum.toFixed(0)+"%"]), margin:{left:m,right:m} });
@@ -7158,6 +7167,7 @@ function ResumenEjecutivo() {
       doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text("Comisión por especie",m,y); y+=2;
       doc.autoTable({ startY:y, head:[["Especie","Comisión USD","%"]], theme:"striped", styles:{fontSize:8}, headStyles:{fillColor:[30,39,97]},
         body: porEsp.map(x=>[x.lab,fmtUSD0(x.v),(totEsp>0?x.v/totEsp*100:0).toFixed(0)+"%"]), margin:{left:m,right:m} });
+      }
       const ph=doc.internal.pageSize.getHeight();
       doc.setFontSize(7.5); doc.setTextColor(120,120,120);
       doc.text(`Grupo Mediterra · Frisku Foods · generado ${new Date().toLocaleString("es-CL")}`, m, ph-8);
@@ -7250,6 +7260,11 @@ function ResumenEjecutivo() {
 
       {/* Gráficos */}
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(320px,1fr))", gap:14}}>
+        {bi.liqRestringida ? (
+          <Panel titulo="Venta y comisión">
+            <div data-testid="restringido-resumen" style={{color:C.muted,fontSize:12,padding:12}}>Restringido: los montos de venta y comisión requieren acceso a Liquidaciones. No se calculan ni se muestran.</div>
+          </Panel>
+        ) : <>
         <Panel titulo="Comisión Frisku por temporada">
           {porTemp.length===0 ? <div style={{color:C.muted2,fontSize:12,textAlign:"center",padding:16}}>Sin datos</div> :
             porTemp.map(x=>(
@@ -7296,6 +7311,7 @@ function ResumenEjecutivo() {
             </div>}
         </Panel>
 
+        </>}
         <Panel titulo="Pipeline de embarques por estado">
           {PIPE.map(p=>(
             <div key={p.id} onClick={()=>toggle("estado", p.id)} title="Clic para filtrar por estado"
@@ -7315,12 +7331,13 @@ function ResumenEjecutivo() {
   );
 }
 
-function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, programa, contratos, pos, initialChart, chromeless, panelEl, vizChart, fullscreen, onExitFull, exportReq, initialConfig, onConfig }) {
+function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, programa, contratos, pos, liqRestringida, initialChart, chromeless, panelEl, vizChart, fullscreen, onExitFull, exportReq, initialConfig, onConfig }) {
   // P2.1b: semilla desde bookmark. fuenteId validado contra las fuentes conocidas; measureId/
   // dim1/dim2 los reajusta el clamp por-fuente existente al montar; sin initialConfig → defaults de hoy.
   const ic = initialConfig||{};
-  const FUENTE_IDS = ["liq","emb","prog","po"];
-  const [fuenteId, setFuenteId] = useState(()=> (typeof ic.fuenteId==="string"&&FUENTE_IDS.includes(ic.fuenteId)) ? ic.fuenteId : "liq");
+  // Sin acceso a Liquidaciones: las fuentes Liquidaciones y Cobranza (PO) no existen.
+  const FUENTE_IDS = liqRestringida ? ["emb","prog"] : ["liq","emb","prog","po"];
+  const [fuenteId, setFuenteId] = useState(()=> (typeof ic.fuenteId==="string"&&FUENTE_IDS.includes(ic.fuenteId)) ? ic.fuenteId : FUENTE_IDS[0]);
   const [measureId, setMeasureId] = useState(()=> typeof ic.measureId==="string" ? ic.measureId : "");
   const [dim1, setDim1] = useState(()=> typeof ic.dim1==="string" ? ic.dim1 : "");
   const [dim2, setDim2] = useState(()=> typeof ic.dim2==="string" ? ic.dim2 : "");
@@ -7475,7 +7492,8 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
     };
   },[liquidaciones, embarques, clientes, exportadoras, especies, mercados, programa, contratos, pos]);
 
-  const fuente = FUENTES[fuenteId] || FUENTES.liq;
+  const fuente = (FUENTE_IDS.includes(fuenteId) && FUENTES[fuenteId]) || FUENTES[FUENTE_IDS[0]];
+  const fuentesVisibles = FUENTE_IDS.map(id=>FUENTES[id]);
   const dims = fuente.dims;
   const measures = fuente.measures;
 
@@ -7850,7 +7868,7 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
   const pLbl = {fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.4,margin:"2px 0 5px"};
   const controls = (
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
-      <div><div style={pLbl}>Fuente de datos</div><select value={fuenteId} onChange={e=>setFuenteId(e.target.value)} style={{...inputSt,width:"100%",fontWeight:700}}>{Object.values(FUENTES).map(f=><option key={f.id} value={f.id}>{f.lab}</option>)}</select></div>
+      <div><div style={pLbl}>Fuente de datos</div><select value={fuenteId} onChange={e=>setFuenteId(e.target.value)} style={{...inputSt,width:"100%",fontWeight:700}}>{fuentesVisibles.map(f=><option key={f.id} value={f.id}>{f.lab}</option>)}</select></div>
       <div><div style={pLbl}>Medir</div><select value={measureId} onChange={e=>setMeasureId(e.target.value)} style={{...inputSt,width:"100%"}}>{measures.map(m=><option key={m.key} value={m.key}>{m.lab}</option>)}</select></div>
       <div><div style={pLbl}>Ver por</div><select value={dim1} onChange={e=>setDim1(e.target.value)} style={{...inputSt,width:"100%"}}>{dims.map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}</select></div>
       <div><div style={pLbl}>Desglosar por</div><select value={dim2} onChange={e=>setDim2(e.target.value)} style={{...inputSt,width:"100%"}}><option value="">— (ninguno)</option>{dims.filter(d=>d.key!==dim1).map(d=><option key={d.key} value={d.key}>{d.lab}</option>)}</select></div>
@@ -7888,7 +7906,7 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
           <div>
             <div style={lblSt}>Fuente de datos</div>
             <select value={fuenteId} onChange={e=>setFuenteId(e.target.value)} style={{...inputSt, minWidth:180, fontWeight:700}}>
-              {Object.values(FUENTES).map(f=><option key={f.id} value={f.id}>{f.lab}</option>)}
+              {fuentesVisibles.map(f=><option key={f.id} value={f.id}>{f.lab}</option>)}
             </select>
           </div>
           <div>
@@ -7991,8 +8009,11 @@ function TableroAsociativo({ liquidaciones, embarques, clientes, exportadoras, e
   );
 }
 
-function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas, programa, contratos, pos }) {
-  const [rep, setRep]       = useState("ingreso");   // "ingreso" | "rentabilidad" | "fcl"
+function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas, programa, contratos, pos, liqRestringida }) {
+  // Sin acceso a Liquidaciones solo quedan los reportes de volumen; los de dinero se OMITEN.
+  const REPS_TODOS = [{id:"ingreso",lab:"💰 Ingreso por temporada"},{id:"rentabilidad",lab:"📊 Rentabilidad"},{id:"fcl",lab:"🚢 Programa vs Real (FCL)"},{id:"pipeline",lab:"📦 Pipeline embarques"},{id:"exportadoras",lab:"🏭 Ranking exportadoras"},{id:"cobranza",lab:"🧾 Cobranza (aging)"}];
+  const REPS = liqRestringida ? REPS_TODOS.filter(r=>r.id==="fcl"||r.id==="pipeline") : REPS_TODOS;
+  const [rep, setRep]       = useState(REPS[0].id);   // "ingreso" | "rentabilidad" | "fcl"
   const [groupBy, setGroupBy] = useState("especie"); // especie | mercado | cliente (reporte #2)
   const [fclGroup, setFclGroup] = useState("ambos"); // especie | cliente | ambos (reporte #3)
   const [estado, setEstado] = useState("");   // estado de LIQUIDACIÓN (distinto del estado de OE) — local
@@ -8747,8 +8768,9 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
   };
 
   // Dispatchers según el reporte activo
-  const doExcel = () => rep==="ingreso" ? exportarExcel() : rep==="rentabilidad" ? exportarRentExcel() : rep==="fcl" ? exportarFclExcel() : rep==="pipeline" ? exportarPipeExcel() : rep==="exportadoras" ? exportarExpExcel() : exportarCobrExcel();
-  const doPDF   = () => rep==="ingreso" ? exportarPDF()   : rep==="rentabilidad" ? exportarRentPDF()   : rep==="fcl" ? exportarFclPDF()   : rep==="pipeline" ? exportarPipePDF()   : rep==="exportadoras" ? exportarExpPDF()   : exportarCobrPDF();
+  const repOk = REPS.some(r=>r.id===rep);
+  const doExcel = () => !repOk ? null : rep==="ingreso" ? exportarExcel() : rep==="rentabilidad" ? exportarRentExcel() : rep==="fcl" ? exportarFclExcel() : rep==="pipeline" ? exportarPipeExcel() : rep==="exportadoras" ? exportarExpExcel() : exportarCobrExcel();
+  const doPDF   = () => !repOk ? null : rep==="ingreso" ? exportarPDF()   : rep==="rentabilidad" ? exportarRentPDF()   : rep==="fcl" ? exportarFclPDF()   : rep==="pipeline" ? exportarPipePDF()   : rep==="exportadoras" ? exportarExpPDF()   : exportarCobrPDF();
 
   const kpiCard = (lab, val, color, sub) => (
     <div style={{background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px", boxShadow:C.shadowSm}}>
@@ -8777,7 +8799,8 @@ function ReportesTab({ liquidaciones, embarques, clientes, exportadoras, especie
     <div>
       {/* Selector de reporte */}
       <div style={{display:"flex", gap:6, marginBottom:14, flexWrap:"wrap"}}>
-        {[{id:"ingreso",lab:"💰 Ingreso por temporada"},{id:"rentabilidad",lab:"📊 Rentabilidad"},{id:"fcl",lab:"🚢 Programa vs Real (FCL)"},{id:"pipeline",lab:"📦 Pipeline embarques"},{id:"exportadoras",lab:"🏭 Ranking exportadoras"},{id:"cobranza",lab:"🧾 Cobranza (aging)"}].map(r=>(
+        {liqRestringida && <span data-testid="reportes-restringidos" style={{fontSize:11.5,color:C.muted,alignSelf:"center"}}>Ingreso, Rentabilidad, Ranking de exportadoras y Cobranza: restringidos (requieren acceso a Liquidaciones).</span>}
+        {REPS.map(r=>(
           <button key={r.id} onClick={()=>setRep(r.id)} style={{
             padding:"7px 14px", borderRadius:8, cursor:"pointer", fontSize:12, fontWeight:rep===r.id?700:500,
             border:`1px solid ${rep===r.id?C.blue:C.border}`,
@@ -10243,7 +10266,7 @@ export default function FriskuComercialModule({
   }
 
   return (
-   <FriskuBIProvider data={{ embarques, liquidaciones, clientes, exportadoras, especies, mercados, tiposEmbalaje, tcData }}>
+   <FriskuBIProvider data={{ embarques, liquidaciones, clientes, exportadoras, especies, mercados, tiposEmbalaje, tcData, liqRestringida: !puedeVerLiq }}>
     <div style={{background:C.bg, minHeight:"100vh", color:C.text}}>
       <AvisoPersistencia aviso={problemaGuardado} onCerrar={()=>setProblemaGuardado(null)}/>
       {/* Header */}
@@ -11022,12 +11045,12 @@ export default function FriskuComercialModule({
 
         {tab === "bi" && !puedeVerLiq && (
           <div data-testid="aviso-sin-liq" style={{marginBottom:12, padding:"10px 14px", borderRadius:10, background:"rgba(212,160,23,0.10)", border:"1px solid rgba(212,160,23,0.35)", fontSize:12.5, color:C.text}}>
-            Sin acceso a Liquidaciones: los montos de venta, FOB, comisión y cobranza no se cargan y aparecen en cero en estos reportes y en sus exportaciones.
+            Sin acceso a Liquidaciones: los montos de venta, FOB, comisión y cobranza no se cargan. En estos reportes y sus exportaciones aparecen como «restringido» o se omiten; nunca como cero.
           </div>
         )}
         {tab === "bi" && (
           <ReporteriaBI
-            data={{ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas, programa, contratos, pos }}
+            data={{ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas, programa, contratos, pos, liqRestringida: !puedeVerLiq }}
             permResumen={permResumen} permReportes={permReportes} permTablero={permTablero}
             onVerEmbarque={(oe)=>{ setVerOE(oe); setTab("embarques"); }}
             bmOwner={nombreUsuario}

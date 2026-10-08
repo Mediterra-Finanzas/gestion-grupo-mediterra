@@ -75,7 +75,8 @@ const usuarios = () => [
   { nombre: "Pablo Duran", email: "pduran@grupomediterra.cl", rol: "editor", rendVerTodas: true,
     tab_permisos: { tareas: { config: "editar" } } },
   { nombre: "Lucía Corbetto", email: "lucia@ficticio.cl", rol: "consulta",
-    tab_permisos: { finanzas: { flujo: "editar", params: "sin_acceso" } } },
+    tab_permisos: { finanzas: { flujo: "editar", params: "sin_acceso" }, frisku: { liquidaciones: "ver" } } },
+  { nombre: "Cristobal Ortiz", email: "cristobal@ficticio.cl", rol: "consulta" },
   { nombre: "Raimundo Valenzuela", email: "raimundo@ficticio.cl", rol: "editor",
     tab_permisos: { frisku: { clientes: "editar" } } },
   { nombre: "Carolina Lara", email: "carolina@ficticio.cl", rol: "editor" },
@@ -83,40 +84,46 @@ const usuarios = () => [
   { nombre: "José Tomás Silva", email: "jts@ficticio.cl", rol: "editor" },
   { nombre: "Jose Tomas Reyes Guevara", email: "jtr@ficticio.cl", rol: "editor", desactivado: true },
 ];
+const ANG = { nombre: "Angelo Huerta", email: "ahuerta@grupomediterra.cl" };
 
 describe("aplicador de la matriz", () => {
-  test("plan: 10 cambios, 12 ya cumplen, 0 sin identificar", () => {
-    const p = planMatriz(usuarios());
+  test("plan: 13 cambios, 14 ya cumplen, 0 sin identificar (mismo resultado que con el archivo real)", () => {
+    const p = planMatriz(usuarios(), null);
     expect(p.errores).toEqual([]);
-    expect(p.cambios.length).toBe(10);
-    expect(p.cumple.length).toBe(12);
+    expect(p.cambios.length).toBe(13);
+    expect(p.cumple.length).toBe(14);
     expect(p.cambios.map(c => `${c.nombre}:${c.que}=${c.despues}`).sort()).toEqual([
-      "Angelo Huerta:contabEditar=true", "Angelo Huerta:rendPagar=true",
-      "Carol Machuca:rendPagar=true", "Carolina Lara:frisku.liquidaciones=editar",
+      "Angelo Huerta:contabEditar=true", "Angelo Huerta:remPreparar=true", "Angelo Huerta:rendPagar=true",
+      "Carol Machuca:rendPagar=true", "Carolina Lara:frisku.liquidaciones=editar", "Cristobal Ortiz:remAprobar=true",
       "Denise Piaget:frisku.liquidaciones=sin_acceso", "José Tomás Silva:frisku.liquidaciones=sin_acceso",
-      "Michelle Garcia:contabEditar=true", "Milagros Becerra:rendPagar=true",
+      "Lucía Corbetto:remAprobar=true", "Michelle Garcia:contabEditar=true", "Milagros Becerra:rendPagar=true",
       "Pablo Duran:contabEditar=true", "Raimundo Valenzuela:frisku.liquidaciones=editar",
     ]);
   });
-  test("aplicar: cambia solo lo del plan, conserva lo demás y es idempotente", () => {
+  test("aplicar: las facultades van a la FILA por correo; la ficha no las lleva", () => {
     const us = usuarios();
-    const nuevos = aplicarPlan(us, planMatriz(us));
+    const { usuarios: nuevos, fila } = aplicarPlan(us, null, planMatriz(us, null), ANG);
+    expect(fila.porCorreo["cmachuca@grupomediterra.cl"]).toEqual({ rendPagar: true });
+    expect(fila.porCorreo["mbecerra@grupomediterra.cl"]).toEqual({ rendPagar: true });
+    expect(fila.porCorreo["ahuerta@grupomediterra.cl"]).toEqual({ rendPagar: true, contabEditar: true, remPreparar: true });
+    expect(fila.porCorreo["lucia@ficticio.cl"]).toEqual({ remAprobar: true });
+    expect(fila.porCorreo["cristobal@ficticio.cl"]).toEqual({ remAprobar: true });
+    expect(fila.porCorreo["mgarcia@grupomediterra.cl"]).toEqual({ contabEditar: true });   // ve todas, no paga
+    expect(fila.modo).toBe("transicion");     // aplicar NO activa la regla de pago
+    expect(nuevos.every(u => u.rendPagar === undefined && u.contabEditar === undefined)).toBe(true);
     const de = (n) => nuevos.find(u => u.nombre === n);
-    expect(de("Carol Machuca").rendPagar).toBe(true);
-    expect(de("Carol Machuca").tab_permisos.finanzas.nominas).toBe("editar");
-    expect(de("Michelle Garcia").rendPagar).toBeUndefined();          // ve todas, no paga
-    expect(de("Michelle Garcia").tab_permisos.frisku.liquidaciones).toBe("ver"); // conserva
     expect(de("Raimundo Valenzuela").tab_permisos.frisku).toEqual({ clientes: "editar", liquidaciones: "editar" });
     expect(de("Denise Piaget").tab_permisos.frisku).toEqual({ liquidaciones: "sin_acceso" });
+    expect(de("Michelle Garcia").tab_permisos.frisku.liquidaciones).toBe("ver");
     expect(de("Jose Tomas Reyes Guevara")).toEqual(us.find(u => u.nombre === "Jose Tomas Reyes Guevara"));
-    expect(de("Lucía Corbetto")).toEqual(us.find(u => u.nombre === "Lucía Corbetto"));
-    const otra = planMatriz(nuevos);
+    const otra = planMatriz(nuevos, fila);
     expect(otra.cambios).toEqual([]);
-    expect(otra.cumple.length).toBe(22);
+    expect(otra.cumple.length).toBe(27);
+    expect(fila.historial.length).toBe(9);
   });
   test("identidad: correo conocido con otro nombre → no se aplica", () => {
     const us = usuarios().map(u => u.nombre === "Pablo Duran" ? { ...u, nombre: "Otra Persona" } : u);
-    const p = planMatriz(us);
+    const p = planMatriz(us, null);
     expect(p.errores.some(e => e.nombre === "Pablo Duran" && /corresponde a "Otra Persona"/.test(e.motivo))).toBe(true);
   });
   test("identidad: nombre repetido o sin correo → no se aplica", () => {
@@ -131,7 +138,6 @@ describe("aplicador de la matriz", () => {
     expect(normNombre("José  Tomás SILVA")).toBe("jose tomas silva");
   });
   test("la matriz no lleva datos sensibles", () => {
-    const txt = JSON.stringify(MATRIZ);
-    expect(txt).not.toMatch(/pin|hash|token|salt/i);
+    expect(JSON.stringify(MATRIZ)).not.toMatch(/pin|hash|token|salt/i);
   });
 });

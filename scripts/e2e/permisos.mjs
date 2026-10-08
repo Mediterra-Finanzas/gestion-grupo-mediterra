@@ -8,7 +8,7 @@
      · Milagros con rol "consulta" y Finanzas sin pestañas configuradas.
    Matriz confirmada 08-10-2026 (agregado):
      · Lucía (consulta) con Flujo "editar" EXPLÍCITO y Parámetros "sin_acceso".
-     · Michelle con la facultad contabEditar; Carol sin ella (Contabilidad de consulta).
+     · Michelle con la facultad contabEditar (fila permisos_facultades, por correo); Carol sin ella.
      · Angelo aplica la matriz desde el panel: vista previa, aplicación y guardado.
        Raimundo, Carolina, Denise y José Tomás Silva llevan correos FICTICIOS.
    Antes de la corrección: Carol editaba Parámetros y Clientes, veía Cobranza, y el
@@ -17,7 +17,7 @@
    ───────────────────────────────────────────────────────────────────────── */
 import fs from 'fs';
 import path from 'path';
-import { nuevoStore, instalarFake, PIN } from './fake.mjs';
+import { nuevoStore, instalarFake, leerFila, PIN } from './fake.mjs';
 import { chromium } from '/home/user/gestion-grupo-mediterra/node_modules/playwright/index.mjs';
 
 const OUT = process.env.OUT_DIR || '.';
@@ -36,17 +36,21 @@ function store() {
     { nombre: 'Milagros Becerra', rol: 'consulta', modulos: ['tareas', 'finanzas'] },
     { nombre: 'Carol Machuca', rol: 'editor', modulos: ['tareas', 'finanzas', 'allegria', 'contabilidad'],
       tab_permisos: { finanzas: { params: 'ver' }, allegria: { clientes: 'ver', cobranza: 'sin_acceso' } } },
-    { nombre: 'Michelle Garcia', rol: 'editor', modulos: ['tareas', 'contabilidad'], contabEditar: true },
+    { nombre: 'Michelle Garcia', rol: 'editor', modulos: ['tareas', 'contabilidad'], contabEditar: true /* en la ficha NO cuenta */ },
     { nombre: 'Pablo Duran', rol: 'editor', modulos: ['tareas', 'contabilidad'] },
     { nombre: 'Angelo Huerta', rol: 'admin', modulos: ['tareas', 'osiris', 'finanzas', 'contabilidad', 'allegria'] },
     { nombre: 'Nicolás Fuenzalida', rol: 'gerente_tecnico', modulos: ['osiris'] },
     { nombre: 'Lucía Corbetto', email: 'lucia@ficticio.cl', rol: 'consulta', modulos: ['tareas', 'finanzas'],
       tab_permisos: { finanzas: { flujo: 'editar', params: 'sin_acceso' } } },
+    { nombre: 'Cristobal Ortiz', email: 'cristobal@ficticio.cl', rol: 'consulta', modulos: ['finanzas'] },
     { nombre: 'Raimundo Valenzuela', email: 'raimundo@ficticio.cl', rol: 'editor', modulos: ['frisku'] },
     { nombre: 'Carolina Lara', email: 'carolina@ficticio.cl', rol: 'editor', modulos: ['frisku'] },
     { nombre: 'Denise Piaget', email: 'denise@ficticio.cl', rol: 'editor', modulos: ['frisku'] },
     { nombre: 'José Tomás Silva', email: 'jts@ficticio.cl', rol: 'editor', modulos: ['frisku'] },
   ] };
+  // Facultades en su fila propia (por correo). La de la ficha de Michelle se ignora a propósito.
+  s.permisos_facultades = { updated_at: new Date(Date.now() - 42000).toISOString(), value: JSON.stringify({ v: 1, modo: 'transicion',
+    porCorreo: { 'mgarcia@grupomediterra.cl': { contabEditar: true } }, historial: [] }) };
   s.allegria = { updated_at: new Date(Date.now() - 43000).toISOString(), value: { clientes: [{ id: 'c1', nombre: 'Cliente Prueba' }], cobranza: [] } };
   return s;
 }
@@ -168,10 +172,13 @@ check('Panel: la vista previa muestra el correo usado como identidad', /raimundo
 await s.page.getByTestId('matriz-aplicar').click();
 await s.page.waitForTimeout(4000);
 const guardados = s.st.usuarios.value;
+const fac = leerFila(s.st, 'permisos_facultades');
+const facDe = (correo) => fac?.porCorreo?.[correo] || {};
 const de = (n) => guardados.find(u => u.nombre === n) || {};
-check('Guardado: rendPagar para Carol, Milagros y Angelo', [de('Carol Machuca'), de('Milagros Becerra'), de('Angelo Huerta')].every(u => u.rendPagar === true));
-check('Guardado: Michelle NO paga (ve todas, no paga)', de('Michelle Garcia').rendPagar !== true);
-check('Guardado: contabEditar para Angelo, Michelle y Pablo; Carol no', [de('Angelo Huerta'), de('Michelle Garcia'), de('Pablo Duran')].every(u => u.contabEditar === true) && de('Carol Machuca').contabEditar !== true);
+check('Guardado (fila de facultades): rendPagar para Carol, Milagros y Angelo', ['cmachuca@grupomediterra.cl', 'mbecerra@grupomediterra.cl', 'ahuerta@grupomediterra.cl'].every(c => facDe(c).rendPagar === true));
+check('Guardado: Michelle NO paga (ve todas, no paga)', facDe('mgarcia@grupomediterra.cl').rendPagar !== true);
+check('Guardado: contabEditar para Angelo, Michelle y Pablo; Carol no', ['ahuerta@grupomediterra.cl', 'mgarcia@grupomediterra.cl', 'pduran@grupomediterra.cl'].every(c => facDe(c).contabEditar === true) && facDe('cmachuca@grupomediterra.cl').contabEditar !== true);
+check('Guardado: aplicar no activa la regla de pago', fac?.modo === 'transicion');
 check('Guardado: Frisku Liquidaciones según la matriz',
   de('Raimundo Valenzuela').tab_permisos?.frisku?.liquidaciones === 'editar' && de('Carolina Lara').tab_permisos?.frisku?.liquidaciones === 'editar'
   && de('Denise Piaget').tab_permisos?.frisku?.liquidaciones === 'sin_acceso' && de('José Tomás Silva').tab_permisos?.frisku?.liquidaciones === 'sin_acceso');

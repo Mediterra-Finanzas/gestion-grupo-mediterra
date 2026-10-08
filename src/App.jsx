@@ -14,6 +14,8 @@ import { crearUsuariosStore } from "./permisos/permisosUsuariosStore.js";
 import { crearAplicadorUsuarios } from "./permisos/usuariosGlue.js";
 import { getTabPerm as getTabPermCore, nivelInicialPestana, tabRegistrada } from "./permisos/permisosCore.js";
 import { planMatriz, aplicarPlan, MATRIZ_ID } from "./permisos/matrizConfirmada.js";
+import { FACULTADES, ETIQUETA_FACULTAD, facultadesDe, enriquecerUsuario, normalizarFila, conFacultad,
+  cambiarModo, puedeActivarMatriz, cargarFacultades, guardarFacultades } from "./permisos/facultades.js";
 import AvisoPersistencia from "./AvisoPersistencia.jsx";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
@@ -814,7 +816,7 @@ function CadenaAprobEditor({ u, usuarios, onChange }) {
   );
 }
 
-function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}, setPinsPersonalizados }) {
+function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}, setPinsPersonalizados, usuarioAdmin, filaFac, filaFacOk, onGuardarFilaFac }) {
   const [expandedTabUser, setExpandedTabUser] = useState(null); // nombre del usuario expandido
 
   // Admin RESETEA el PIN de un usuario: emite un CÓDIGO PROVISORIO (hasheado +
@@ -947,32 +949,55 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
     }));
   }
 
-  // Facultades explícitas por persona (matriz confirmada oct-2026). No dependen del rol:
-  // el admin las marca una a una y quedan en el registro de auditoría.
-  //   rendPagar    → marca rendiciones aprobadas como pagadas (y ve la pestaña Pagos)
-  //   contabEditar → edita en Contabilidad (sin la marca, Contabilidad es solo consulta)
-  function setFacultad(nombreU, campo, etiqueta, val) {
-    setUsuarios(prev => prev.map(u => {
-      if(u.nombre !== nombreU) return u;
-      window.auditLog("cambio_permiso", {modulo:"sistema", seccion:"permisos",
-        descripcion:`${val?"Activó":"Desactivó"} "${etiqueta}" para ${nombreU}`,
-        registroId:nombreU, campo,
-        valorAnterior:String(u[campo] === true), valorNuevo:String(!!val)});
-      return { ...u, [campo]: !!val };
-    }));
+  // Facultades explícitas por persona (matriz 08-10-2026). Viven en la fila propia
+  // `permisos_facultades` (por correo), NO en la ficha: ver src/permisos/facultades.js.
+  // Cada cambio se guarda con confirmación del servidor; si falla, no se da por hecho.
+  const [estadoFac, setEstadoFac] = useState(null);   // {tipo:"ok"|"error", texto}
+  async function guardarFila(nueva, descripcion) {
+    setEstadoFac({ tipo:"guardando", texto:"Guardando…" });
+    const r = await onGuardarFilaFac(nueva);
+    if (r && r.ok) {
+      window.auditLog("cambio_permiso", {modulo:"sistema", seccion:"permisos", descripcion, registroId:"permisos_facultades"});
+      setEstadoFac({ tipo:"ok", texto:"Guardado" });
+      return true;
+    }
+    setEstadoFac({ tipo:"error", texto:`No se guardó (${r?.motivo || "sin confirmación"}). Nada cambió.` });
+    return false;
+  }
+  function setFacultad(u, campo, val) {
+    if (!filaFacOk) return;
+    let nueva;
+    try { nueva = conFacultad(filaFac, u.email, campo, val, usuarioAdmin); }
+    catch(e) { setEstadoFac({ tipo:"error", texto:e.message }); return; }
+    guardarFila(nueva, `${val?"Activó":"Desactivó"} "${ETIQUETA_FACULTAD[campo]}" para ${u.nombre} (${(u.email||"").toLowerCase()})`);
+  }
+  async function setModo(modo) {
+    let motivo = "";
+    if (modo === "transicion") { motivo = window.prompt("Motivo para volver a la regla de pago de transición:") || ""; if (!motivo.trim()) return; }
+    let nueva;
+    try { nueva = cambiarModo(filaFac, modo, usuarioAdmin, motivo, usuarios); }
+    catch(e) { setEstadoFac({ tipo:"error", texto:e.message }); return; }
+    await guardarFila(nueva, `Regla de pago de rendiciones: ${filaFac?.modo} → ${modo}${motivo?` (motivo: ${motivo})`:""}`);
   }
 
   // Matriz confirmada 08-10-2026: vista previa (qué cambia, qué ya cumple, qué no se
   // puede identificar) y aplicación explícita con auditoría. Nunca se aplica sola.
+  // Orden: primero la fila de facultades (confirmada), después la lista de usuarios.
   const [planMz, setPlanMz] = useState(null);
-  function confirmarMatriz() {
-    if(!planMz || planMz.errores.length) return;
+  async function confirmarMatriz() {
+    if(!planMz || planMz.errores.length || !filaFacOk) return;
+    const { usuarios: nuevos, fila } = aplicarPlan(usuarios, filaFac, planMz, usuarioAdmin);
+    if (planMz.cambios.some(c => c.tipo === "facultad")) {
+      const ok = await guardarFila(fila, `${MATRIZ_ID}: facultades aplicadas`);
+      if (!ok) return;   // no se toca la lista de usuarios si la fila no se confirmó
+    }
     planMz.cambios.forEach(c => window.auditLog("cambio_permiso", {modulo:"sistema", seccion:"permisos",
       descripcion:`${MATRIZ_ID}: ${c.que} de ${c.nombre} (${c.email})`, registroId:c.nombre, campo:c.que,
       valorAnterior:String(c.antes), valorNuevo:String(c.despues)}));
-    setUsuarios(prev => aplicarPlan(prev, planMz));
+    if (planMz.cambios.some(c => c.tipo !== "facultad")) setUsuarios(nuevos);
     setPlanMz(null);
   }
+  const activacion = filaFacOk ? puedeActivarMatriz(filaFac, usuarios) : { ok:false, motivo:"No se pudo leer la configuración de permisos." };
 
   const activos = usuarios.filter(u => !u.desactivado);
   const inactivos = usuarios.filter(u => u.desactivado);
@@ -1002,7 +1027,7 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
               <div style={{fontSize:12.5,color:C.text}}><b>Matriz de permisos confirmada (08-10-2026)</b>
                 <div style={{fontSize:10.5,color:C.muted}}>Revisa la vista previa antes de aplicar. Identifica a cada persona por su correo.</div></div>
-              <button data-testid="matriz-previa" onClick={()=>setPlanMz(planMatriz(usuarios))}
+              <button data-testid="matriz-previa" disabled={!filaFacOk} onClick={()=>setPlanMz(planMatriz(usuarios, filaFac))}
                 style={{border:`1px solid ${C.border}`,background:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>Ver vista previa</button>
             </div>
             {planMz && (
@@ -1018,6 +1043,27 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
                 {!!planMz.errores.length && <div style={{color:C.danger,marginTop:4}}>No se aplica nada mientras haya personas sin identificar.</div>}
               </div>
             )}
+            {!filaFacOk && <div style={{marginTop:8,fontSize:11.5,color:C.danger}}>No se pudo leer la fila de facultades: no se puede aplicar ni activar nada (y nadie puede marcar rendiciones pagadas) hasta recargar.</div>}
+            {filaFacOk && (
+              <div data-testid="modo-pago" style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`,fontSize:11.5,color:C.text}}>
+                <b>Regla de pago de rendiciones:</b> {filaFac.modo === "matriz"
+                  ? <span data-testid="modo-actual">matriz (solo quien tiene la facultad "marca rendiciones pagadas")</span>
+                  : <span data-testid="modo-actual">transición (paga quien ve todas, como hoy en producción)</span>}
+                <div style={{display:"flex",gap:8,marginTop:6,flexWrap:"wrap",alignItems:"center"}}>
+                  {filaFac.modo !== "matriz" && (
+                    <button data-testid="modo-activar" disabled={!activacion.ok} onClick={()=>setModo("matriz")}
+                      style={{border:"none",background:activacion.ok?C.primary:C.border,color:"#fff",borderRadius:8,padding:"6px 12px",cursor:activacion.ok?"pointer":"default",fontSize:12,fontWeight:700}}>
+                      Activar regla de la matriz{activacion.ok?` (${activacion.pagadores} con facultad de pagar)`:""}</button>
+                  )}
+                  {filaFac.modo === "matriz" && (
+                    <button data-testid="modo-revertir" onClick={()=>setModo("transicion")}
+                      style={{border:`1px solid ${C.border}`,background:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12}}>Volver a la regla de transición</button>
+                  )}
+                  {!activacion.ok && filaFac.modo !== "matriz" && <span style={{color:C.muted}}>{activacion.motivo} Aplica primero la matriz.</span>}
+                </div>
+              </div>
+            )}
+            {estadoFac && <div data-testid="estado-fac" style={{marginTop:6,fontSize:11.5,color:estadoFac.tipo==="error"?C.danger:C.muted}}>{estadoFac.texto}</div>}
           </div>
 
           <div style={{fontSize:12,color:C.muted2,fontWeight:700,marginBottom:8,letterSpacing:1}}>USUARIOS ACTIVOS</div>
@@ -1217,37 +1263,22 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
                         </label>
                       )}
 
-                      {/* ── Facultad explícita: marca rendiciones pagadas ── */}
-                      {mods.includes("finanzas")&&(
-                        <label style={{marginTop:10,display:"flex",alignItems:"flex-start",gap:8,
-                          background:C.cardAlt,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`,cursor:"pointer"}}>
-                          <input type="checkbox" checked={u.rendPagar === true}
-                            onChange={e=>setFacultad(u.nombre,"rendPagar","marca rendiciones pagadas",e.target.checked)}
-                            style={{marginTop:2,cursor:"pointer"}}/>
-                          <span style={{fontSize:11.5,color:C.text}}>
-                            <b>Marca rendiciones pagadas</b> (facultad explícita)
-                            <div style={{fontSize:10,color:C.muted,marginTop:2}}>
-                              Ve la pestaña Pagos y marca como pagadas las rendiciones ya aprobadas. Ni admin ni CFO la tienen por defecto.
-                            </div>
-                          </span>
-                        </label>
-                      )}
-
-                      {/* ── Facultad explícita: edita en Contabilidad ── */}
-                      {mods.includes("contabilidad")&&(
-                        <label style={{marginTop:10,display:"flex",alignItems:"flex-start",gap:8,
-                          background:C.cardAlt,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`,cursor:"pointer"}}>
-                          <input type="checkbox" checked={u.contabEditar === true}
-                            onChange={e=>setFacultad(u.nombre,"contabEditar","edita en Contabilidad",e.target.checked)}
-                            style={{marginTop:2,cursor:"pointer"}}/>
-                          <span style={{fontSize:11.5,color:C.text}}>
-                            <b>Edita en Contabilidad</b> (facultad explícita)
-                            <div style={{fontSize:10,color:C.muted,marginTop:2}}>
-                              Sin esta marca, Contabilidad es de consulta. El CFO edita siempre (comportamiento anterior).
-                            </div>
-                          </span>
-                        </label>
-                      )}
+                      {/* ── Facultades explícitas (fila permisos_facultades, por correo) ── */}
+                      <div style={{marginTop:10,background:C.cardAlt,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`}}>
+                        <div style={{fontSize:11.5,fontWeight:700,color:C.text,marginBottom:4}}>Facultades explícitas <span style={{fontWeight:400,color:C.muted}}>(no las da el rol; identidad: {(u.email||"").toLowerCase() || "sin correo"})</span></div>
+                        {!(u.email||"").trim() && <div style={{fontSize:10.5,color:C.danger}}>Sin correo no se puede asignar ninguna facultad.</div>}
+                        {FACULTADES.map(f => {
+                          const val = filaFacOk && facultadesDe(u, filaFac)[f];
+                          const deshab = !filaFacOk || !(u.email||"").trim();
+                          return (
+                            <label key={f} style={{display:"flex",alignItems:"center",gap:8,fontSize:11.5,color:C.text,cursor:deshab?"default":"pointer",marginTop:3}}>
+                              <input type="checkbox" data-testid={`fac-${f}-${u.nombre}`} checked={!!val} disabled={deshab}
+                                onChange={e=>setFacultad(u,f,e.target.checked)}/>
+                              {ETIQUETA_FACULTAD[f]}
+                            </label>
+                          );
+                        })}
+                      </div>
 
                       {/* ── Puede rendir en nombre de otros (delegación) ── */}
                       {mods.includes("finanzas")&&(
@@ -1527,7 +1558,7 @@ function CargaMasivaUsuariosForm({ usuarios, setUsuarios, pinsPersonalizados={},
 // ══════════════════════════════════════════════════════════════════════
 // PANTALLA HUB
 // ══════════════════════════════════════════════════════════════════════
-function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCambiarPin, esSoloConsulta, usuarios, setUsuarios, pinsPersonalizados, setPinsPersonalizados }) {
+function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCambiarPin, esSoloConsulta, usuarios, setUsuarios, pinsPersonalizados, setPinsPersonalizados, filaFac, filaFacOk, onGuardarFilaFac }) {
   const hoy = new Date();
   const fechaStr = hoy.toLocaleDateString("es-CL", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const [mostrarPermisos, setMostrarPermisos] = useState(false);
@@ -1553,7 +1584,8 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
       <div style={{position:"relative",zIndex:1}}>
 
       {mostrarPermisos && (
-        <PanelPermisos usuarios={usuarios} setUsuarios={setUsuarios} onClose={()=>setMostrarPermisos(false)} pinsPersonalizados={pinsPersonalizados} setPinsPersonalizados={setPinsPersonalizados}/>
+        <PanelPermisos usuarios={usuarios} setUsuarios={setUsuarios} onClose={()=>setMostrarPermisos(false)} pinsPersonalizados={pinsPersonalizados} setPinsPersonalizados={setPinsPersonalizados}
+          usuarioAdmin={usuario} filaFac={filaFac} filaFacOk={filaFacOk} onGuardarFilaFac={onGuardarFilaFac}/>
       )}
       {mostrarRestaurar && usuario.rol === "admin" && (
         <RestaurarRespaldo supaUrl={SUPA_URL} supaKey={SUPA_KEY} usuario={usuario.nombre} onCerrar={()=>setMostrarRestaurar(false)}/>
@@ -2037,9 +2069,30 @@ export default function App(){
   const [formUsuario,setFormUsuario]=useState({nombre:"",cargo:"",email:"",pin:"",rol:"editor",modulos:["tareas"]});
   const [copiarDe,setCopiarDe]=useState("");
 
-  // Usuario activo — siempre usar el más fresco del array, con fallback
+  // Facultades explícitas (fila propia `permisos_facultades`). Se leen al iniciar sesión con
+  // el contrato de persistencia: la carga lanza ante fallo de red (Regla 9) y, si falla, la
+  // sesión queda sin facultades (falla cerrada) y el panel no permite guardar.
+  const [filaFac, setFilaFac] = useState(null);
+  const [filaFacOk, setFilaFacOk] = useState(false);
+  useEffect(()=>{
+    if(!usuarioActual) return;
+    let vivo = true;
+    cargarFacultades(persist)
+      .then(f=>{ if(vivo){ setFilaFac(f); setFilaFacOk(true); } })
+      .catch(e=>{ console.error("[facultades] carga falló — sin facultades esta sesión:", e); if(vivo) setFilaFacOk(false); });
+    return ()=>{ vivo=false; };
+  // eslint-disable-next-line
+  },[usuarioActual?.nombre]);
+  const guardarFilaFac = async (nueva) => {
+    const r = await guardarFacultades(persist, nueva);
+    if(r && r.ok) setFilaFac(normalizarFila(r.value !== undefined ? r.value : nueva));
+    return r;
+  };
+
+  // Usuario activo — siempre usar el más fresco del array, con fallback; las facultades
+  // salen SOLO de la fila (lo que diga la ficha en esos campos se ignora).
   const usuarioFresco = usuarioActual
-    ? (usuarios.find(u=>u.nombre===usuarioActual.nombre) || usuarioActual)
+    ? enriquecerUsuario(usuarios.find(u=>u.nombre===usuarioActual.nombre) || usuarioActual, filaFac, filaFacOk)
     : null;
 
   // Módulos permitidos — admin tiene todo, resto usa su array
@@ -2175,9 +2228,6 @@ export default function App(){
                 rendPorOtros: typeof saved.rendPorOtros === "boolean"
                   ? saved.rendPorOtros
                   : !!wb.rendPorOtros,
-                // facultades explícitas (oct-2026): solo cuentan si están guardadas como true
-                rendPagar: saved.rendPagar === true,
-                contabEditar: saved.contabEditar === true,
               };
               merged_u = garantizarAccesoRendiciones(merged_u);
               // Asegurar que tab_permisos tenga todos los tabs definidos en TABS_PERMISOS_CONFIG
@@ -4473,6 +4523,7 @@ Equipo Mediterra`);
         setUsuarios={setUsuarios}
         pinsPersonalizados={pinsPersonalizados}
         setPinsPersonalizados={setPinsPersonalizados}
+        filaFac={filaFac} filaFacOk={filaFacOk} onGuardarFilaFac={guardarFilaFac}
       />
       {/* Modal Cambiar PIN para usuario ya logueado (botón 🔑 PIN del Hub) */}
       {modalPin==="cambiar" && !workerPendiente && (

@@ -51,9 +51,12 @@ const ir = async (re) => { fireEvent.click(screen.getAllByRole("button", { name:
 
 beforeEach(preparar);
 
-// Matriz confirmada 08-10-2026: paga quien tiene la facultad explícita rendPagar.
+// Matriz confirmada 08-10-2026: en modo "matriz" paga quien tiene la facultad explícita rendPagar;
+// en modo "transición" rige la regla publicada (ve todas). Los usuarios llegan enriquecidos.
+const M = (u) => ({ ...u, _facultadesOk: true, _modoPermisos: "matriz" });
+const T = (u) => ({ ...u, _facultadesOk: true, _modoPermisos: "transicion" });
 test("Angelo con rendPagar: ve y usa 'Marcar pagada' en una aprobada; se guarda como pagada", async () => {
-  await abrir({ nombre: "Angelo Huerta", email: "ahuerta@x.cl", rol: "admin", esCFO: true, rendPagar: true });
+  await abrir(M({ nombre: "Angelo Huerta", email: "ahuerta@x.cl", rol: "admin", esCFO: true, rendPagar: true }));
   await ir(/Pagos/);
   fireEvent.click(screen.getByRole("button", { name: "Marcar pagada" }));
   // guardado diferido real (debounce del módulo)
@@ -64,14 +67,14 @@ test("Angelo con rendPagar: ve y usa 'Marcar pagada' en una aprobada; se guarda 
 }, 15000);
 
 test("Angelo admin/CFO SIN rendPagar: ve Pagos pero SIN 'Marcar pagada'", async () => {
-  await abrir({ nombre: "Angelo Huerta", email: "ahuerta@x.cl", rol: "admin", esCFO: true });
+  await abrir(M({ nombre: "Angelo Huerta", email: "ahuerta@x.cl", rol: "admin", esCFO: true }));
   await ir(/Pagos/);
   expect(screen.getByText(/Rend 1/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Marcar pagada" })).toBeNull();
 });
 
 test("Carol con rendPagar: paga una aprobada", async () => {
-  await abrir({ nombre: "Carol Machuca", email: "cmachuca@x.cl", rol: "editor", rendVerTodas: true, rendPagar: true });
+  await abrir(M({ nombre: "Carol Machuca", email: "cmachuca@x.cl", rol: "editor", rendVerTodas: true, rendPagar: true }));
   await ir(/Pagos/);
   fireEvent.click(screen.getByRole("button", { name: "Marcar pagada" }));
   await waitFor(() => expect(mockSaves.length).toBeGreaterThan(0), { timeout: 8000 });
@@ -79,14 +82,14 @@ test("Carol con rendPagar: paga una aprobada", async () => {
 }, 15000);
 
 test("pagadora SIN 've todas' (solo rendPagar): igual ve la pestaña Pagos y paga", async () => {
-  await abrir({ nombre: "Milagros Becerra", email: "mb@x.cl", rol: "editor", rendPagar: true });
+  await abrir(M({ nombre: "Milagros Becerra", email: "mb@x.cl", rol: "editor", rendPagar: true }));
   await ir(/Pagos/);
   expect(screen.getByRole("button", { name: "Marcar pagada" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Reportes/ })).toBeNull();
 });
 
 test("Michelle (rendVerTodas, sin rendPagar): ve Pagos pero SIN 'Marcar pagada', y no escribe nada", async () => {
-  await abrir({ nombre: "Michelle Garcia", email: "mg@x.cl", rol: "editor", rendVerTodas: true });
+  await abrir(M({ nombre: "Michelle Garcia", email: "mg@x.cl", rol: "editor", rendVerTodas: true }));
   await ir(/Pagos/);
   expect(screen.getByText(/Rend 1/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Marcar pagada" })).toBeNull();
@@ -115,4 +118,18 @@ test("aprobar: consulta NO asignada no ve 'Aprobar'", async () => {
   await abrir({ nombre: "Consulta Dos", email: "otra@x.cl", rol: "consulta", rendVerTodas: true });
   await ir(/Por Aprobar/);
   expect(screen.queryByRole("button", { name: "Aprobar" })).toBeNull();
+});
+
+test("transición: Michelle (ve todas, sin facultad) sigue pagando como hoy en producción", async () => {
+  await abrir(T({ nombre: "Michelle Garcia", email: "mg@x.cl", rol: "editor", rendVerTodas: true }));
+  await ir(/Pagos/);
+  fireEvent.click(screen.getByRole("button", { name: "Marcar pagada" }));
+  await waitFor(() => expect(mockSaves.length).toBeGreaterThan(0), { timeout: 8000 });
+  expect(mockSaves[mockSaves.length - 1].v.find(x => x.id === "a").pagadoPor).toBe("Michelle Garcia");
+}, 15000);
+
+test("configuración de permisos sin leer: nadie ve 'Marcar pagada'", async () => {
+  await abrir({ nombre: "Angelo Huerta", email: "ahuerta@x.cl", rol: "admin", esCFO: true, rendPagar: true, _facultadesOk: false });
+  await ir(/Pagos/);
+  expect(screen.queryByRole("button", { name: "Marcar pagada" })).toBeNull();
 });

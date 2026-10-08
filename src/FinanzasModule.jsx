@@ -32,6 +32,8 @@ import {
   MODELO_VERSION, normalizarIdentidades,
 } from './programas.js';
 import ProgramasPanel, { ResumenLado } from './ProgramasComerciales.jsx';
+import { puedeVerRem, vistaNominas, reinsertarRestringidas } from './remuneraciones/modelo.js';
+import RemuneracionesNomina from './RemuneracionesNomina.jsx';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Apr-26 → Jun-31 (63 meses; ver src/horizonte.js — el nombre MESES_65 es histórico)
@@ -13953,6 +13955,9 @@ function itemVacio(seccion) {
     historial:[],         // [{accion, usuario, fecha, detalle?}]
     // Expediente Digital (Fase 1): respaldo documental por línea.
     documentos:[],        // [{id,nombre,path,principal,mime,sizeKB,hash,subidoPor,fechaSubida,estado,interno,voucher}]
+    // Remuneraciones separadas (08-10-2026): las líneas nuevas de la nómina general no
+    // pueden ser remuneraciones (van en la nómina de remuneraciones, fila propia).
+    creadaV: 2,
   };
 }
 
@@ -14341,6 +14346,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
     onChange(items.map(it=>it.id===id?updated:it));
   }
   function addItem() {
+    if(seccion==="anticipos"){ alert("Los anticipos de sueldo son remuneraciones: se cargan en la nómina de remuneraciones, no en la nómina general."); return; }
     onChange([...items, itemVacio(seccion)]);
   }
   // Soft-delete (Fase 0): nunca se borra físicamente. Se marca inactiva,
@@ -14416,6 +14422,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                         <select value={it.tipoDoc||""} onChange={e=>{
                           if(e.target.value==="__nuevo__"){
                             const nuevo=prompt("Ingrese el nuevo tipo de documento:");
+                            if(nuevo&&/remuneraci|sueldo|finiquito/i.test(nuevo.normalize("NFD").replace(/[\u0300-\u036f]/g,""))){ alert("Las remuneraciones van en la nómina de remuneraciones, no en la nómina general."); return; }
                             if(nuevo&&nuevo.trim()){
                               const n=nuevo.trim();
                               if(!TIPOS_DOCUMENTO.includes(n)) TIPOS_DOCUMENTO.push(n);
@@ -14432,7 +14439,8 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                           {(()=>{
                             // Restaurar tipos doc extra
                             (tiposDocExtra||[]).forEach(t=>{ if(!TIPOS_DOCUMENTO.includes(t)) TIPOS_DOCUMENTO.push(t); });
-                            return TIPOS_DOCUMENTO.map(t=><option key={t} value={t}>{t}</option>);
+                            // "Remuneraciones" ya no se ofrece en la nómina general (va en su nómina propia).
+                            return TIPOS_DOCUMENTO.filter(t=>t!=="Remuneraciones" || it.tipoDoc===t).map(t=><option key={t} value={t}>{t}</option>);
                           })()}
                           <option value="__nuevo__">+ Agregar nuevo...</option>
                         </select>
@@ -16628,8 +16636,29 @@ function MigracionNominasPanel({usuario}) {
   );
 }
 
+// Aviso para quien no puede ver remuneraciones: hay líneas que podrían serlo y están
+// pendientes de clasificación. No se muestran montos ni nombres, ni entran a totales,
+// búsquedas, impresiones o exportaciones de esta sesión.
+function AvisoRestringidas({ n, global }) {
+  if (!n) return null;
+  return (
+    <div data-testid="aviso-rem-restringidas" style={{margin:global?"0 0 12px":"12px 24px 0",padding:"10px 14px",borderRadius:10,
+      background:"#fef3c7",border:"1px solid #f59e0b55",fontSize:12,color:"#78350f"}}>
+      {n} línea{n===1?"":"s"} {global?"en estas nóminas ":""}podría{n===1?"":"n"} ser remuneraciones y está{n===1?"":"n"} pendiente{n===1?"":"s"} de clasificación:
+      no se muestra{n===1?"":"n"} ni se incluye{n===1?"":"n"} en totales, búsquedas, impresiones ni exportaciones. Las clasifica quien prepara remuneraciones.
+    </div>
+  );
+}
+
 function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermitidas}) {
-  const [nominas, setNominas] = useState([]);
+  // `nominasTodas` = lo que vino del servidor y lo que se guarda. `nominas` = la VISTA del
+  // usuario: sin las líneas que podrían ser remuneraciones pendientes de clasificar si no
+  // tiene la facultad (src/remuneraciones/modelo.js). Todo lo que se dibuja, suma, busca,
+  // imprime o exporta parte de `nominas`; todo lo que se guarda, de `nominasTodas`.
+  const [nominasTodas, setNominas] = useState([]);
+  const verRem = puedeVerRem(usuario);
+  const nominas = useMemo(()=>vistaNominas(nominasTodas, verRem), [nominasTodas, verRem]);
+  const [verRemPanel, setVerRemPanel] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [selNomina, setSelNomina] = useState(null); // id nomina abierta
   const [filtroAño, setFiltroAño]       = useState(añoActualNom());
@@ -16639,8 +16668,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   const [vistaResumen, setVistaResumen] = useState(false);
   const [busqGlobal, setBusqGlobal] = useState("");
   const [vistaBusqueda, setVistaBusqueda] = useState(false);
-  const nominasRef = useRef(nominas);
-  useEffect(()=>{nominasRef.current=nominas;},[nominas]);
+  const nominasRef = useRef(nominasTodas);
+  useEffect(()=>{nominasRef.current=nominasTodas;},[nominasTodas]);
   // GUARD anti-borrado: solo se guarda tras una carga EXITOSA. Si la carga
   // inicial falla, no se escribe nada (evita sobrescribir nóminas con []).
   const cargaOkRef = useRef(false);
@@ -16735,9 +16764,13 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   // eslint-disable-next-line
   },[]);
 
-  function updNomina(nom) {
+  // opts.sinDetalleItems: no registra en la auditoría el detalle por línea (nombres y
+  // montos). Lo usa el traslado a remuneraciones, para no copiar sueldos al audit_log.
+  function updNomina(nomVista, opts={}) {
     setNominas(prev=>{
-      const anterior = prev.find(n=>n.id===nom.id);
+      const anterior = prev.find(n=>n.id===nomVista.id);
+      // Repone las líneas que este usuario no ve (no se pierden al guardar).
+      const nom = anterior ? reinsertarRestringidas(anterior, nomVista) : nomVista;
       const next = prev.some(n=>n.id===nom.id)
         ? prev.map(n=>n.id===nom.id?nom:n)
         : [...prev, nom];
@@ -16767,6 +16800,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
           }
         });
         // Detectar cambios en items (granular: agregar, quitar, editar)
+        if(opts.sinDetalleItems) return next;
         const itemsAntes = anterior.items || [];
         const itemsDespues = nom.items || [];
         const idsAntes = new Set(itemsAntes.map(it=>it.id));
@@ -16890,7 +16924,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
     ? nominas.filter(n=>n.semana===nominaAbierta.semana && n.año===nominaAbierta.año)
         .sort((a,b)=>EMPRESAS_NOM.indexOf(a.empresa)-EMPRESAS_NOM.indexOf(b.empresa))
     : [];
-  if(nominaAbierta) return (
+  if(nominaAbierta) return (<>
+    <AvisoRestringidas n={nominaAbierta._restringidasPendientes}/>
     <NominaDetalle
       nomina={nominaAbierta}
       onUpdate={updNomina}
@@ -16909,8 +16944,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
             if(itemAplazado) nomDest.items.push(itemAplazado);
             setNominas(prev=>{const next=[...prev,nomDest];saveNominas(next);return next;});
           } else if(itemAplazado) {
-            const updated = {...nomDest, items:[...nomDest.items, itemAplazado]};
-            setNominas(prev=>{const next=prev.map(n=>n.id===nomDest.id?updated:n);saveNominas(next);return next;});
+            // Sobre la versión COMPLETA de la nómina destino (no la vista), para no perder líneas ocultas.
+            setNominas(prev=>{const next=prev.map(n=>n.id===nomDest.id?{...n, items:[...(n.items||[]), itemAplazado]}:n);saveNominas(next);return next;});
           }
         } else {
           crearNomina(empresa, nominaAbierta.semana, nominaAbierta.año);
@@ -16923,7 +16958,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
         // Mueve el item (quita de origen + agrega a destino) y persiste con await + verificación.
         // Usa nominasRef.current (estado más reciente) para evitar lecturas obsoletas.
         const prevList = nominasRef.current;
-        let base = prevList.map(n=> n.id===nomOrigen.id ? {...n, items: itemsSinAplazado} : n);
+        // itemsSinAplazado viene de la vista: se reponen las líneas ocultas de la nómina origen.
+        let base = prevList.map(n=> n.id===nomOrigen.id ? reinsertarRestringidas(n, {...n, items: itemsSinAplazado}) : n);
         const dest = base.find(n=>n.empresa===empresa && n.semana===semDest && n.año===añoDest);
         // PARTE B — Anti-huérfano de sección custom.
         // Si el item pertenece a una sección personalizada (extra_XXX), su
@@ -16964,7 +17000,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
         return true;
       }}
     />
-  );
+  </>);
+
 
   // Filtrar
   const nominasFiltradas = nominas.filter(n=>{
@@ -16993,6 +17030,22 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
 
       {/* Panel de migración v2 — solo admin */}
       {usuario?.rol==='admin' && <MigracionNominasPanel usuario={usuario}/>}
+
+      {/* Remuneraciones (fila propia): solo con la facultad de preparar o aprobar */}
+      {verRem && (
+        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12,flexWrap:"wrap"}}>
+          <button data-testid="rem-abrir" onClick={()=>setVerRemPanel(v=>!v)}
+            style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:verRemPanel?C.accent:"transparent",color:verRemPanel?"#fff":C.text,cursor:"pointer",fontSize:12,fontWeight:700}}>
+            {verRemPanel ? "← Volver a nóminas de pago" : "Nómina de remuneraciones"}
+          </button>
+          <span style={{fontSize:11,color:C.muted}}>Acceso restringido: Angelo prepara; Lucía o Cristobal aprueban.</span>
+        </div>
+      )}
+      {verRem && verRemPanel && (
+        <RemuneracionesNomina usuario={usuario} nominasGenerales={nominasTodas} onActualizarGeneral={(n)=>updNomina(n,{sinDetalleItems:true})}
+          empresas={EMPRESAS_NOM}/>
+      )}
+      {!(verRem && verRemPanel) && <AvisoRestringidas n={nominas.reduce((s,n)=>s+(n._restringidasPendientes||0),0)} global/>}
 
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20,flexWrap:"wrap"}}>

@@ -128,7 +128,7 @@ function isoWeek(fechaISO){
 // ── MODELO ANALÍTICO: construye la tabla de hechos a nivel contenedor ──
 // Una fila = una OE, con dimensiones resueltas y las medidas ya sumadas desde
 // sus liquidaciones. Se calcula UNA vez (memoizado en el provider).
-export function buildFriskuFacts({ embarques, liquidaciones, clientes, exportadoras, especies, mercados, tiposEmbalaje, tcData }){
+export function buildFriskuFacts({ embarques, liquidaciones, clientes, exportadoras, especies, mercados, tiposEmbalaje, tcData, liqRestringida }){
   const cliOf = (id)=>(clientes||[]).find(c=>c.id===id);
   const expOf = (id)=>(exportadoras||[]).find(e=>e.id===id);
   const espOf = (c)=>(especies||[]).find(e=>e.codigo===c);
@@ -147,7 +147,8 @@ export function buildFriskuFacts({ embarques, liquidaciones, clientes, exportado
     const cajas=Object.entries(o.cajasPorFormato||{}).reduce((s,[,v])=>s+Number(v||0),0);
     const kilos=Object.entries(o.cajasPorFormato||{}).reduce((s,[fmt,v])=>s+Number(v||0)*kgCaja(fmt),0);
     const kgFalta=Object.entries(o.cajasPorFormato||{}).some(([fmt,v])=>Number(v||0)>0 && kgCaja(fmt)===0); // algún formato sin peso neto
-    const d=dinero[o.id]||{venta:0,fob:0,comF:0,comC:0,nLiq:0};
+    // Sin acceso a Liquidaciones el dinero es DESCONOCIDO (null), no cero.
+    const d=liqRestringida ? {venta:null,fob:null,comF:null,comC:null,nLiq:null} : (dinero[o.id]||{venta:0,fob:0,comF:0,comC:0,nLiq:0});
     const {anio,semana}=isoWeek(o.fechaDespacho);
     return {
       _id:o.id, _oe:o, _cancel: est==="cancelado", _nLiq:d.nLiq,
@@ -197,7 +198,19 @@ export const FRISKU_METRICS = [
   { key:"activeExporters",     label:"Exportadores activos",  fmt:"int",   calc:rs=>distinct(rs.filter(r=>!r._cancel),"exportadora") },
 ];
 export const FRISKU_METRIC = Object.fromEntries(FRISKU_METRICS.map(m=>[m.key,m]));
+// Métricas que salen de las liquidaciones (dinero). Sin acceso a Liquidaciones NO se
+// calculan: valen null y se muestran "restringido" (u omitidas), NUNCA como cero.
+export const METRICAS_FIN = new Set(["destinationSalesUSD","clientCommissionUSD","friskuCommissionUSD","avgCommissionPct"]);
+export const RESTRINGIDO = "restringido";
+export function metricasSegunAcceso(liqRestringida){
+  if(!liqRestringida) return { metrics:FRISKU_METRICS, metric:FRISKU_METRIC };
+  const metric = Object.fromEntries(FRISKU_METRICS.map(m=>[m.key, METRICAS_FIN.has(m.key) ? { ...m, restringida:true, calc:()=>null } : m]));
+  return { metrics:FRISKU_METRICS.filter(m=>!METRICAS_FIN.has(m.key)), metric };
+}
+// Filtra una lista de claves de métricas dejando solo las permitidas.
+export const soloPermitidas = (keys, metric)=>keys.filter(k=>metric[k] && !metric[k].restringida);
 export const fmtMetric = (fmt, v)=>{
+  if(v===null) return RESTRINGIDO;
   const n=Number(v)||0;
   if(fmt==="usd") return "$"+new Intl.NumberFormat("es-CL",{maximumFractionDigits:0}).format(n);
   if(fmt==="pct") return pct(n);
@@ -287,7 +300,7 @@ export function FriskuBIProvider({ data, children }){
   const canRedo = nav.idx < nav.stack.length-1;
 
   const facts = useMemo(()=>buildFriskuFacts(data||{}), [
-    data?.embarques, data?.liquidaciones, data?.clientes, data?.exportadoras, data?.especies, data?.mercados, data?.tiposEmbalaje, data?.tcData
+    data?.embarques, data?.liquidaciones, data?.clientes, data?.exportadoras, data?.especies, data?.mercados, data?.tiposEmbalaje, data?.tcData, data?.liqRestringida
   ]);
   const dataQuality = useMemo(()=>dataQualityFrisku(data||{}), [data?.embarques, data?.liquidaciones, data?.tiposEmbalaje]);
 
@@ -313,7 +326,9 @@ export function FriskuBIProvider({ data, children }){
     const h=facts.find(r=>r[d.key]===v); return { dim:d.key, dimLab:d.lab, value:v, label:h?h[d.key+"Lab"]:v };
   })), [sel, facts]);
 
-  const value = { facts, filtered, dims:FRISKU_DIMS, metrics:FRISKU_METRICS, metric:FRISKU_METRIC, fmtMetric,
+  const liqRestringida = !!data?.liqRestringida;
+  const { metrics, metric } = useMemo(()=>metricasSegunAcceso(liqRestringida), [liqRestringida]);
+  const value = { facts, filtered, dims:FRISKU_DIMS, metrics, metric, fmtMetric, liqRestringida,
                   sel, toggle, setOne, setMany, remove, clearDim, clearAll, associative, ignoring, chips, dataQuality,
                   undo, redo, canUndo, canRedo, applySel, locked, toggleLock };
   return <FriskuBIContext.Provider value={value}>{children}</FriskuBIContext.Provider>;
