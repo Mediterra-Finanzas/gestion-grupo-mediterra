@@ -1275,3 +1275,159 @@ describe("Una marca de activación no booleana no habilita cálculo", () => {
     expect(screen.getByText("Desactivar")).toBeTruthy();
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+// Las guardas se aplican mientras EXISTA un registro, no solo mientras esté
+// vigente. Mirar la vigencia dejaba abierto desactivar → editar → reactivar
+// como vía de modificación económica, que no está autorizada: cada paso lo
+// está por separado, la secuencia no.
+//
+// Describes planos: corren en candidato y en recuperación.
+describe("Las guardas sobreviven al retiro del registro", () => {
+  const { hayRegistroDeActivacion, desactivar, estadoActivacion } = require("./reajusteAplicado");
+
+  // Un registro RETIRADO: la marca en false, pero sello e historial quedan.
+  const RETIRADO = () => {
+    const vivo = CONTRATO({
+      reajusteActivacion: Object.assign({}, ACTIVACION, { reglaFechaRespaldo: "Clausula 1.2.5" }),
+    });
+    const res = desactivar(vivo, {
+      motivo: "Se anulo el respaldo", confirmado: true, usuarioActual: USUARIO,
+    });
+    expect(res.ok).toBe(true);
+    return res.contrato;
+  };
+
+  test("el registro retirado sigue existiendo, con sus términos y su historial", () => {
+    const ct = RETIRADO();
+    expect(ct.reajusteActivacion.activado).toBe(false);
+    expect(hayRegistroDeActivacion(ct)).toBe(true);
+    expect(ct.reajusteActivacion.sello).toEqual({
+      pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio",
+    });
+    expect(ct.reajusteActivacion.historial.length).toBeGreaterThan(0);
+    expect(estadoActivacion(ct).activo).toBe(false);
+  });
+
+  const noEscribe = (ct, buscar, accion) => {
+    let guardado = null;
+    const { container } = abrirFacturacion(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const el = buscar(container);
+    expect(el).toBeTruthy();
+    expect(el.disabled).toBe(true);
+    silenciarAlert(() => accion(el));
+    expect(guardado).toBe(null);
+  };
+
+  test("tras retirar, el Tipo sigue bloqueado", () => {
+    noEscribe(RETIRADO(),
+      (c) => [...c.ownerDocument.querySelectorAll("select")]
+        .find((x) => [...x.options].some((o) => o.value === "sin_reajuste")),
+      (el) => fireEvent.change(el, { target: { value: "sin_reajuste" } }));
+  });
+
+  test("tras retirar, Confirmado sigue bloqueado", () => {
+    noEscribe(RETIRADO(),
+      (c) => porRotulo(c, "input[type=checkbox]", "Confirmado"),
+      (el) => fireEvent.click(el));
+  });
+
+  test("tras retirar, el porcentaje sigue bloqueado", () => {
+    noEscribe(RETIRADO(),
+      (c) => c.ownerDocument.querySelector('input[type="number"][placeholder="sin definir"]'),
+      (el) => fireEvent.change(el, { target: { value: "9" } }));
+  });
+
+  test("tras retirar, la configuración antigua sigue bloqueada", () => {
+    const ct = RETIRADO();
+    ct.royaltyInflacion = true; ct.rcInflacionPct = 5;
+    noEscribe(ct,
+      (c) => porRotulo(c, "input[type=checkbox]", "Sujeto a Inflación"),
+      (el) => fireEvent.click(el));
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// La BASE del cálculo. Cambiarla mueve el resultado económico igual que
+// cambiar el porcentaje: 3.000 → 3.500 llevaba el total de 655.240,69 a
+// 764.447,48, +109.206,79 sin confirmación.
+
+// ══════════════════════════════════════════════════════════════════
+// La BASE del cálculo. Cambiarla mueve el resultado económico igual que
+// cambiar el porcentaje: 3.000 → 3.500 llevaba el total de 655.240,69 a
+// 764.447,48, +109.206,79 sin confirmación.
+//
+// Ojo con la forma del bloqueo: `Cell` con `can` en false NO renderiza un
+// input deshabilitado, renderiza texto. Es más fuerte que un `disabled`, y
+// por eso la prueba comprueba que no hay campo editable, no que lo haya y
+// esté deshabilitado. La guarda dentro de `upProtegido` es la segunda capa.
+describe("La base por hectárea está bloqueada mientras exista un registro", () => {
+  const { desactivar } = require("./reajusteAplicado");
+  const VIGENTE = () => CONTRATO({
+    reajusteActivacion: Object.assign({}, ACTIVACION, { reglaFechaRespaldo: "Clausula 1.2.5" }),
+  });
+  const zonaBase = (c) => {
+    const et = [...c.ownerDocument.querySelectorAll("div")]
+      .filter((d) => (d.textContent || "").trim().startsWith("Valor Royalty Comercial"))
+      .pop();
+    expect(et).toBeTruthy();
+    return et.parentElement || et;
+  };
+
+  test("con registro vigente no hay campo editable, y el valor no se altera", () => {
+    let guardado = null;
+    const ct = VIGENTE();
+    expect(totalDe(ct)).toBeCloseTo(655240.69, 2);
+    const { container } = abrirFacturacion(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const zona = zonaBase(container);
+    const editable = [...zona.querySelectorAll("span")].find((x) => (x.style || {}).cursor === "pointer");
+    expect(editable).toBe(undefined);                 // no se puede entrar a editar
+    expect(zona.textContent).toMatch(/3000/);         // el valor sigue visible
+    expect(guardado).toBe(null);
+    expect(ct.valorRoyaltyComercial).toBe(3000);
+    expect(totalDe(ct)).toBeCloseTo(655240.69, 2);
+  });
+
+  test("tras retirar el registro, sigue bloqueada", () => {
+    const res = desactivar(VIGENTE(), {
+      motivo: "Se anulo el respaldo", confirmado: true, usuarioActual: USUARIO,
+    });
+    let guardado = null;
+    const { container } = abrirFacturacion(res.contrato, (f) => {
+      guardado = typeof f === "function" ? f([res.contrato]) : f;
+    });
+    const zona = zonaBase(container);
+    const editable = [...zona.querySelectorAll("span")].find((x) => (x.style || {}).cursor === "pointer");
+    expect(editable).toBe(undefined);
+    expect(guardado).toBe(null);
+    expect(res.contrato.valorRoyaltyComercial).toBe(3000);
+  });
+
+  test("sin registro, se edita como siempre", () => {
+    let guardado = null;
+    const ct = CONTRATO();
+    const { container } = abrirFacturacion(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const zona = zonaBase(container);
+    const editable = [...zona.querySelectorAll("span")].find((x) => (x.style || {}).cursor === "pointer");
+    expect(editable).toBeTruthy();                    // el comportamiento de siempre
+    fireEvent.click(editable);
+    const campo = zona.querySelector('input[type="number"]');
+    expect(campo).toBeTruthy();
+    fireEvent.change(campo, { target: { value: "3500" } });
+    fireEvent.blur(campo);
+    expect(guardado).not.toBe(null);
+    expect(guardado[0].valorRoyaltyComercial).toBe(3500);
+  });
+
+  test("no se bloquean los datos operativos: el alcance son los tres campos económicos", () => {
+    // Si alguien extiende las guardas a hectáreas, despachos u otros datos
+    // operativos, esta prueba tiene que caer.
+    const { hayRegistroDeActivacion } = require("./reajusteAplicado");
+    const ct = VIGENTE();
+    expect(hayRegistroDeActivacion(ct)).toBe(true);
+    const { container } = abrirFacturacion(ct, () => {});
+    const editables = [...container.ownerDocument.querySelectorAll("span")]
+      .filter((x) => (x.style || {}).cursor === "pointer").length;
+    expect(editables).toBeGreaterThan(0);             // queda mucho editable
+  });
+});
