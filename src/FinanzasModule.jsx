@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import InputNumero from "./InputNumero.jsx";
 import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
@@ -16194,7 +16195,9 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
           </div>
         </div>
       )}
-      {modo==="vincular"&&(
+      {/* Portal: fuera de la tabla, así ni la opacidad de una fila pagada ni la columna
+          fija de Respaldo lo tapan. */}
+      {modo==="vincular"&&createPortal(
         <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center"}}>
         <div style={{background:C.bg2,border:`1px solid ${C.blue}`,borderRadius:10,padding:14,width:380,maxWidth:"94vw",boxShadow:"0 12px 32px rgba(0,0,0,0.3)",fontSize:11}}>
           <div style={{fontWeight:700,marginBottom:6}}>Vincular a vencimiento de crédito ({empresa})</div>
@@ -16209,9 +16212,9 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
             <button disabled={!sel} onClick={()=>{ const o=opciones.find(x=>x.key===sel); onVincular(it.id,{uid:uidCredito(o.c), vencKey:o.v.key, acreedor:o.c.acreedor, fecha:o.v.fecha, vinculadoPor:usuario?.nombre||"", ts:new Date().toISOString()}); setModo(null); }} style={btn(C.blue)}>Vincular</button>
           </div>
         </div>
-        </div>
+        </div>, document.body
       )}
-      {modo==="pagar"&&f&&(
+      {modo==="pagar"&&f&&createPortal(
         <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center"}}>
         <div style={{background:C.bg2,border:`1px solid ${C.green}`,borderRadius:10,padding:14,width:420,maxWidth:"94vw",boxShadow:"0 12px 32px rgba(0,0,0,0.3)",fontSize:11}}>
           <div style={{fontWeight:700,marginBottom:4}}>Confirmar pago efectivo · {vin.acreedor} cuota {fmtDate(vin.fecha)}</div>
@@ -16230,7 +16233,7 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
             <button disabled={enviando} onClick={confirmarPago} style={btn(C.green)}>{enviando?"Guardando…":"Registrar en Créditos"}</button>
           </div>
         </div>
-        </div>
+        </div>, document.body
       )}
     </div>
   );
@@ -16318,7 +16321,12 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
   const montoLabel = soloUSD ? "Monto USD" : soloPEN ? "Monto PEN" : soloCLP ? "Monto CLP" : null;
   const headers = ["Tipo Doc","Proveedor / Nombre","RUT","N° Doc","F. Doc","F. Venc","Sem","Concepto",
     ...(soloUSD ? ["Monto USD"] : soloPEN ? ["Monto PEN"] : soloCLP ? ["Monto CLP"] : ["Monto CLP","Monto USD"]),
-    "Anticipo","Saldo a Pagar","Comentario","Crédito",""];
+    "Anticipo","Saldo a Pagar","Comentario","","Crédito","Respaldo"];
+  // La columna de respaldo documental queda FIJA al borde derecho: con la columna
+  // Crédito la tabla es más ancha que la pantalla y el botón 📎 quedaba fuera de la
+  // vista (había que desplazar la tabla). Vincular un crédito es opcional e
+  // independiente: nunca reemplaza ni condiciona el respaldo.
+  const stickyRespaldo = { position:"sticky", right:0, zIndex:1, boxShadow:`-4px 0 6px -4px ${C.border}` };
   const colSpanTotal = 8;
   const colSpanEnd = soloUSD||soloCLP ? 2 : 2;
 
@@ -16338,8 +16346,9 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
             <tr style={{background:C.primary}}>
               {headers.map(h=>(
                 <th key={h} style={{padding:"6px 8px",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:10,
-                  textAlign:h==="Monto CLP"||h==="Monto USD"||h==="Monto PEN"?"right":"left",
-                  whiteSpace:"nowrap",borderBottom:`1px solid rgba(255,255,255,0.12)`}}>{h}</th>
+                  textAlign:h==="Monto CLP"||h==="Monto USD"||h==="Monto PEN"?"right":h==="Respaldo"?"center":"left",
+                  whiteSpace:"nowrap",borderBottom:`1px solid rgba(255,255,255,0.12)`,
+                  ...(h==="Respaldo"?{...stickyRespaldo,background:C.primary}:{})}}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -16514,21 +16523,8 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                         style={inputSt} placeholder="Obs."/>
                     : <span style={{color:C.muted,fontSize:10}}>{it.comentario||""}</span>}
                 </td>
-                <td style={{padding:"3px 6px"}}>
-                  <CeldaCreditoNomina it={it} creditosData={creditosData} empresa={empresa} nominaId={nominaId} nombreNomina={nombreNomina}
-                    estadoNomina={estadoNomina} canEdit={canEdit} puedePagar={puedePagarCredito} moneda={moneda} usuario={usuario}
-                    onPagoCredito={onPagoCredito}
-                    onVincular={(id,vinc)=>onChange(items.map(x=>x.id===id?{...x, creditoVinculo:vinc||undefined,
-                      historial:[...(x.historial||[]),{accion:vinc?"credito_vinculado":"credito_desvinculado",usuario:usuario?.nombre||"—",fecha:new Date().toISOString(),
-                        detalle:vinc?`${vinc.acreedor} cuota ${vinc.fecha}`:`${x.creditoVinculo?.acreedor||""} cuota ${x.creditoVinculo?.fecha||""}`}]}:x))}/>
-                </td>
+                {/* ✓ pagado / × inactivar: columna propia, fuera de la columna fija de Respaldo */}
                 <td style={{padding:"3px 6px",textAlign:"center",whiteSpace:"nowrap"}}>
-                  <button onClick={()=>setDocsItemId(it.id)}
-                    title={tieneRespaldo(it)?`${docsActivos(it).length} documento(s) de respaldo`:"Sin respaldo — adjuntar documento"}
-                    style={{background:`${C.border}33`,border:"none",borderRadius:5,
-                      padding:"3px 7px",cursor:"pointer",fontSize:11,color:C.text,marginRight:3}}>
-                    {tieneRespaldo(it)?"🟢":"🔴"} 📎{docsActivos(it).length||""}
-                  </button>
                   {canEdit&&(
                     <>
                       <button onClick={()=>updItem(it.id,"pagado",!it.pagado)}
@@ -16542,6 +16538,23 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                           padding:"3px 7px",cursor:"pointer",fontSize:11,color:"#ef4444"}}>×</button>
                     </>
                   )}
+                </td>
+                <td style={{padding:"3px 6px"}}>
+                  <CeldaCreditoNomina it={it} creditosData={creditosData} empresa={empresa} nominaId={nominaId} nombreNomina={nombreNomina}
+                    estadoNomina={estadoNomina} canEdit={canEdit} puedePagar={puedePagarCredito} moneda={moneda} usuario={usuario}
+                    onPagoCredito={onPagoCredito}
+                    onVincular={(id,vinc)=>onChange(items.map(x=>x.id===id?{...x, creditoVinculo:vinc||undefined,
+                      historial:[...(x.historial||[]),{accion:vinc?"credito_vinculado":"credito_desvinculado",usuario:usuario?.nombre||"—",fecha:new Date().toISOString(),
+                        detalle:vinc?`${vinc.acreedor} cuota ${vinc.fecha}`:`${x.creditoVinculo?.acreedor||""} cuota ${x.creditoVinculo?.fecha||""}`}]}:x))}/>
+                </td>
+                <td data-col-respaldo style={{padding:"3px 6px",textAlign:"center",whiteSpace:"nowrap",
+                  ...stickyRespaldo,background:it.pagado?"#f2f9f4":i%2===0?C.card:C.rowAlt}}>
+                  <button onClick={()=>setDocsItemId(it.id)} data-boton-respaldo
+                    title={tieneRespaldo(it)?`${docsActivos(it).length} documento(s) de respaldo — ver, descargar o adjuntar otro`:"Sin respaldo — adjuntar documento"}
+                    style={{background:`${C.border}33`,border:"none",borderRadius:5,
+                      padding:"3px 7px",cursor:"pointer",fontSize:11,color:C.text}}>
+                    {tieneRespaldo(it)?`🟢 📎 Ver (${docsActivos(it).length})`:"🔴 📎 Adjuntar"}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -16586,6 +16599,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                   ):(!soloPEN&&!totalSaldoCLP&&!totalSaldoUSD?"—":null)}
                 </td>
                 <td colSpan={3}/>
+                <td style={{...stickyRespaldo,background:C.bg2}}/>
               </tr>
             </tfoot>
           )}
