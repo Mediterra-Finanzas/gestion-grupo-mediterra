@@ -12,6 +12,8 @@ import { installGuard, USE_GUARD, pollRow } from "./guardClient";
 import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
 import { crearUsuariosStore } from "./permisos/permisosUsuariosStore.js";
 import { crearAplicadorUsuarios } from "./permisos/usuariosGlue.js";
+import { getTabPerm as getTabPermCore, nivelInicialPestana, tabRegistrada } from "./permisos/permisosCore.js";
+import { planMatriz, aplicarPlan, MATRIZ_ID } from "./permisos/matrizConfirmada.js";
 import AvisoPersistencia from "./AvisoPersistencia.jsx";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
@@ -740,28 +742,16 @@ const NIVEL_BG     = {editar:C.successBg, ver:C.infoBg,  sin_acceso:C.dangerBg};
 // Obtiene el permiso de un usuario sobre una pestaña específica de un módulo
 // Admin siempre tiene "editar". Si no hay config, default = "editar"
 function getTabPerm(usuario, modulo, tabId) {
-  if(!usuario) return "sin_acceso";
-  if(usuario.rol === "admin") return "editar";
-  // gerente_tecnico: acceso completo a osiris
-  if(usuario.rol === "gerente_tecnico" && modulo === "osiris") return "editar";
-  // config es solo para admin — no-admins no tienen acceso por defecto
-  if(tabId === "config") return usuario.tab_permisos?.[modulo]?.[tabId] ?? "sin_acceso";
-  return usuario.tab_permisos?.[modulo]?.[tabId] ?? "editar";
+  // Regla única en src/permisos/permisosCore.js (pestañas registradas, consulta, nuevas sin acceso).
+  return getTabPermCore(usuario, modulo, tabId);
 }
 
 // Devuelve objeto {tabId: nivel} para un usuario+modulo
 function getTabPermisosModulo(usuario, modulo) {
   if(!usuario) return {};
-  if(usuario.rol === "admin") {
-    const obj = {};
-    (TABS_PERMISOS_CONFIG[modulo]||[]).forEach(t=>{ obj[t.id]="editar"; });
-    return obj;
-  }
-  const base = {};
-  (TABS_PERMISOS_CONFIG[modulo]||[]).forEach(t=>{
-    base[t.id] = usuario.tab_permisos?.[modulo]?.[t.id] ?? "editar";
-  });
-  return base;
+  const obj = {};
+  (TABS_PERMISOS_CONFIG[modulo]||[]).forEach(t=>{ obj[t.id] = getTabPerm(usuario, modulo, t.id); });
+  return obj;
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -957,6 +947,33 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
     }));
   }
 
+  // Facultades explícitas por persona (matriz confirmada oct-2026). No dependen del rol:
+  // el admin las marca una a una y quedan en el registro de auditoría.
+  //   rendPagar    → marca rendiciones aprobadas como pagadas (y ve la pestaña Pagos)
+  //   contabEditar → edita en Contabilidad (sin la marca, Contabilidad es solo consulta)
+  function setFacultad(nombreU, campo, etiqueta, val) {
+    setUsuarios(prev => prev.map(u => {
+      if(u.nombre !== nombreU) return u;
+      window.auditLog("cambio_permiso", {modulo:"sistema", seccion:"permisos",
+        descripcion:`${val?"Activó":"Desactivó"} "${etiqueta}" para ${nombreU}`,
+        registroId:nombreU, campo,
+        valorAnterior:String(u[campo] === true), valorNuevo:String(!!val)});
+      return { ...u, [campo]: !!val };
+    }));
+  }
+
+  // Matriz confirmada 08-10-2026: vista previa (qué cambia, qué ya cumple, qué no se
+  // puede identificar) y aplicación explícita con auditoría. Nunca se aplica sola.
+  const [planMz, setPlanMz] = useState(null);
+  function confirmarMatriz() {
+    if(!planMz || planMz.errores.length) return;
+    planMz.cambios.forEach(c => window.auditLog("cambio_permiso", {modulo:"sistema", seccion:"permisos",
+      descripcion:`${MATRIZ_ID}: ${c.que} de ${c.nombre} (${c.email})`, registroId:c.nombre, campo:c.que,
+      valorAnterior:String(c.antes), valorNuevo:String(c.despues)}));
+    setUsuarios(prev => aplicarPlan(prev, planMz));
+    setPlanMz(null);
+  }
+
   const activos = usuarios.filter(u => !u.desactivado);
   const inactivos = usuarios.filter(u => u.desactivado);
 
@@ -979,6 +996,28 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
                 {m.icon} {m.label}
               </span>
             ))}
+          </div>
+
+          <div style={{background:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 16px",marginBottom:20}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <div style={{fontSize:12.5,color:C.text}}><b>Matriz de permisos confirmada (08-10-2026)</b>
+                <div style={{fontSize:10.5,color:C.muted}}>Revisa la vista previa antes de aplicar. Identifica a cada persona por su correo.</div></div>
+              <button data-testid="matriz-previa" onClick={()=>setPlanMz(planMatriz(usuarios))}
+                style={{border:`1px solid ${C.border}`,background:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>Ver vista previa</button>
+            </div>
+            {planMz && (
+              <div data-testid="matriz-plan" style={{marginTop:10,fontSize:11.5,color:C.text}}>
+                <div><b>{planMz.cambios.length}</b> cambios · <b>{planMz.cumple.length}</b> ya se cumplen · <b style={{color:planMz.errores.length?C.danger:C.text}}>{planMz.errores.length}</b> sin identificar</div>
+                {planMz.cambios.map((c,i)=>(<div key={"c"+i}>• {c.nombre} &lt;{c.email}&gt; · {c.que}: {String(c.antes)} → {String(c.despues)}</div>))}
+                {planMz.errores.map((e,i)=>(<div key={"e"+i} style={{color:C.danger}}>• {e.nombre} · {e.que}: {e.motivo}</div>))}
+                <div style={{display:"flex",gap:8,marginTop:8}}>
+                  <button data-testid="matriz-aplicar" disabled={!!planMz.errores.length || !planMz.cambios.length} onClick={confirmarMatriz}
+                    style={{border:"none",background:planMz.errores.length?C.border:C.success,color:"#fff",borderRadius:8,padding:"6px 12px",cursor:planMz.errores.length?"default":"pointer",fontSize:12,fontWeight:700}}>Aplicar {planMz.cambios.length} cambios</button>
+                  <button onClick={()=>setPlanMz(null)} style={{border:`1px solid ${C.border}`,background:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12}}>Cancelar</button>
+                </div>
+                {!!planMz.errores.length && <div style={{color:C.danger,marginTop:4}}>No se aplica nada mientras haya personas sin identificar.</div>}
+              </div>
+            )}
           </div>
 
           <div style={{fontSize:12,color:C.muted2,fontWeight:700,marginBottom:8,letterSpacing:1}}>USUARIOS ACTIVOS</div>
@@ -1173,6 +1212,38 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
                             <div style={{fontSize:10,color:C.muted,marginTop:2}}>
                               Visualiza TODAS las rendiciones del grupo (solo lectura; solo el dueño puede modificarlas) y accede a Reportes y Pagos.
                               {(u.rol==="admin"||u.esCFO) && <span style={{color:C.muted2}}> Admin/CFO siempre lo tienen.</span>}
+                            </div>
+                          </span>
+                        </label>
+                      )}
+
+                      {/* ── Facultad explícita: marca rendiciones pagadas ── */}
+                      {mods.includes("finanzas")&&(
+                        <label style={{marginTop:10,display:"flex",alignItems:"flex-start",gap:8,
+                          background:C.cardAlt,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`,cursor:"pointer"}}>
+                          <input type="checkbox" checked={u.rendPagar === true}
+                            onChange={e=>setFacultad(u.nombre,"rendPagar","marca rendiciones pagadas",e.target.checked)}
+                            style={{marginTop:2,cursor:"pointer"}}/>
+                          <span style={{fontSize:11.5,color:C.text}}>
+                            <b>Marca rendiciones pagadas</b> (facultad explícita)
+                            <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+                              Ve la pestaña Pagos y marca como pagadas las rendiciones ya aprobadas. Ni admin ni CFO la tienen por defecto.
+                            </div>
+                          </span>
+                        </label>
+                      )}
+
+                      {/* ── Facultad explícita: edita en Contabilidad ── */}
+                      {mods.includes("contabilidad")&&(
+                        <label style={{marginTop:10,display:"flex",alignItems:"flex-start",gap:8,
+                          background:C.cardAlt,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}`,cursor:"pointer"}}>
+                          <input type="checkbox" checked={u.contabEditar === true}
+                            onChange={e=>setFacultad(u.nombre,"contabEditar","edita en Contabilidad",e.target.checked)}
+                            style={{marginTop:2,cursor:"pointer"}}/>
+                          <span style={{fontSize:11.5,color:C.text}}>
+                            <b>Edita en Contabilidad</b> (facultad explícita)
+                            <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+                              Sin esta marca, Contabilidad es de consulta. El CFO edita siempre (comportamiento anterior).
                             </div>
                           </span>
                         </label>
@@ -2104,6 +2175,9 @@ export default function App(){
                 rendPorOtros: typeof saved.rendPorOtros === "boolean"
                   ? saved.rendPorOtros
                   : !!wb.rendPorOtros,
+                // facultades explícitas (oct-2026): solo cuentan si están guardadas como true
+                rendPagar: saved.rendPagar === true,
+                contabEditar: saved.contabEditar === true,
               };
               merged_u = garantizarAccesoRendiciones(merged_u);
               // Asegurar que tab_permisos tenga todos los tabs definidos en TABS_PERMISOS_CONFIG
@@ -2125,7 +2199,8 @@ export default function App(){
                 }
                 tabsDef.forEach(t=>{
                   if(merged_u.tab_permisos[mod] && merged_u.tab_permisos[mod][t.id] === undefined) {
-                    merged_u.tab_permisos[mod][t.id] = defNivel;
+                    // Pestaña nueva → sin acceso (incluido admin); consulta → "ver".
+                    merged_u.tab_permisos[mod][t.id] = nivelInicialPestana(merged_u, mod, t.id, defNivel);
                   }
                 });
               });
@@ -3742,10 +3817,9 @@ Equipo Mediterra`);
       <div style={{fontFamily:"sans-serif",background:"#0f1117",minHeight:"100vh"}}>
         <ContabilidadModule
           usuario={usuarioFresco}
-          // Antes: canEdit={!esSoloConsulta} — negaba una FUNCIÓN y daba siempre false, así que
-          // solo edita quien tiene esCFO. Se deja explícito SIN cambiar el comportamiento:
-          // dar edición a los contadores es una decisión pendiente (docs/estado-rama-2026-10.md).
-          canEdit={false}
+          // Edita quien tiene la facultad explícita "contabEditar" (matriz oct-2026:
+          // Angelo, Michelle y Pablo); el CFO sigue editando por esCFO dentro del módulo.
+          canEdit={usuarioFresco?.contabEditar === true}
           esCFO={usuarioFresco?.esCFO}
           onBack={()=>setModuloActivo(null)}
         />

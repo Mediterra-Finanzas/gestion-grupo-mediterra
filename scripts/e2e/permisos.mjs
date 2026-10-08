@@ -6,6 +6,11 @@
      · Carol (editor) con permisos EXPLÍCITOS: finanzas.params = "ver",
        allegria.clientes = "ver", allegria.cobranza = "sin_acceso".
      · Milagros con rol "consulta" y Finanzas sin pestañas configuradas.
+   Matriz confirmada 08-10-2026 (agregado):
+     · Lucía (consulta) con Flujo "editar" EXPLÍCITO y Parámetros "sin_acceso".
+     · Michelle con la facultad contabEditar; Carol sin ella (Contabilidad de consulta).
+     · Angelo aplica la matriz desde el panel: vista previa, aplicación y guardado.
+       Raimundo, Carolina, Denise y José Tomás Silva llevan correos FICTICIOS.
    Antes de la corrección: Carol editaba Parámetros y Clientes, veía Cobranza, y el
    rol consulta podía cargar saldos. Correr contra el build anterior muestra el defecto.
    Uso: APP_URL=http://127.0.0.1:4195 OUT_DIR=/tmp/perm node scripts/e2e/permisos.mjs
@@ -25,14 +30,22 @@ function store() {
   const cred = s.pins.value['Angelo Huerta_h'];
   s.pins.value['Carol Machuca_h'] = cred;          // misma credencial de PRUEBA (no se usa en producción)
   s.pins.value['Milagros Becerra_h'] = cred;
+  s.pins.value['Lucía Corbetto_h'] = cred;
+  s.pins.value['Michelle Garcia_h'] = cred;
   s.usuarios = { updated_at: new Date(Date.now() - 44000).toISOString(), value: [
     { nombre: 'Milagros Becerra', rol: 'consulta', modulos: ['tareas', 'finanzas'] },
-    { nombre: 'Carol Machuca', rol: 'editor', modulos: ['tareas', 'finanzas', 'allegria'],
+    { nombre: 'Carol Machuca', rol: 'editor', modulos: ['tareas', 'finanzas', 'allegria', 'contabilidad'],
       tab_permisos: { finanzas: { params: 'ver' }, allegria: { clientes: 'ver', cobranza: 'sin_acceso' } } },
-    { nombre: 'Michelle Garcia', rol: 'editor', modulos: ['tareas', 'contabilidad'] },
+    { nombre: 'Michelle Garcia', rol: 'editor', modulos: ['tareas', 'contabilidad'], contabEditar: true },
     { nombre: 'Pablo Duran', rol: 'editor', modulos: ['tareas', 'contabilidad'] },
     { nombre: 'Angelo Huerta', rol: 'admin', modulos: ['tareas', 'osiris', 'finanzas', 'contabilidad', 'allegria'] },
     { nombre: 'Nicolás Fuenzalida', rol: 'gerente_tecnico', modulos: ['osiris'] },
+    { nombre: 'Lucía Corbetto', email: 'lucia@ficticio.cl', rol: 'consulta', modulos: ['tareas', 'finanzas'],
+      tab_permisos: { finanzas: { flujo: 'editar', params: 'sin_acceso' } } },
+    { nombre: 'Raimundo Valenzuela', email: 'raimundo@ficticio.cl', rol: 'editor', modulos: ['frisku'] },
+    { nombre: 'Carolina Lara', email: 'carolina@ficticio.cl', rol: 'editor', modulos: ['frisku'] },
+    { nombre: 'Denise Piaget', email: 'denise@ficticio.cl', rol: 'editor', modulos: ['frisku'] },
+    { nombre: 'José Tomás Silva', email: 'jts@ficticio.cl', rol: 'editor', modulos: ['frisku'] },
   ] };
   s.allegria = { updated_at: new Date(Date.now() - 43000).toISOString(), value: { clientes: [{ id: 'c1', nombre: 'Cliente Prueba' }], cobranza: [] } };
   return s;
@@ -44,6 +57,10 @@ async function sesion(email) {
   const st = store();
   await instalarFake(ctx, st);
   await ctx.route(/open\.er-api\.com|mindicador\.cl|frankfurter\.app/, r => r.abort());
+  // Contabilidad lee tablas propias (empresas, auxiliares, …) que el Supabase falso no modela:
+  // lectura vacía. Una escritura a esas tablas se aborta (la prueba no debe escribir).
+  await ctx.route(/\/rest\/v1\/(?!calendario_data)[a-z_]+/, r => r.request().method() === 'GET'
+    ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.abort());
   await ctx.route(/\/api\/send-email|emailjs/, r => r.fulfill({ status: 200, body: '{}' }));
   const page = await ctx.newPage();
   const errores = []; page.on('pageerror', e => errores.push(String(e).slice(0, 160)));
@@ -112,6 +129,55 @@ check('Consulta: Saldos Bancos visible', /Saldos/.test(t));
 check('Consulta: Saldos Bancos SIN edición (no aparece "Fecha del saldo")', !/Fecha del saldo/.test(t));
 check('Consulta: Parámetros en solo lectura', (await parametrosAllegria(s.page)) === true);
 check('Consulta: sin errores de página', s.errores.length === 0, s.errores.join(' | '));
+await s.browser.close();
+
+// ── Lucía (consulta) con Flujo "editar" explícito y Parámetros "sin_acceso" ──
+s = await sesion('lucia@ficticio.cl');
+await finanzas(s.page);
+await clic(s.page, /Saldos Bancos/);
+check('Lucía: Saldos Bancos sin edición (no configurado → ver)', !/Fecha del saldo/.test(await txt(s.page)));
+check('Lucía: Parámetros NO aparece (sin_acceso)', (await parametrosAllegria(s.page)) === null);
+t = await txt(s.page);
+check('Lucía: Flujo Empresas sin aviso de solo lectura (editar explícito)', !/modo solo lectura/.test(t));
+check('Lucía: sin errores de página', s.errores.length === 0, s.errores.join(' | '));
+await s.browser.close();
+
+// ── Contabilidad: Michelle con contabEditar, Carol sin la facultad ──
+async function auxiliares(page) {
+  await page.getByText('Sistema Contable Grupo Mediterra').first().click(); await page.waitForTimeout(2500);
+  await page.screenshot({ path: path.join(OUT, 'contabilidad.png') });
+  await page.getByText('Auxiliares', { exact: true }).first().click(); await page.waitForTimeout(2000);
+  return /\+ Agregar auxiliar/.test(await txt(page));
+}
+s = await sesion('mgarcia@grupomediterra.cl');
+check('Michelle (contabEditar): Contabilidad editable ("+ Agregar auxiliar")', (await auxiliares(s.page)) === true);
+await s.browser.close();
+s = await sesion('cmachuca@grupomediterra.cl');
+check('Carol (sin contabEditar): Contabilidad de consulta (sin "+ Agregar auxiliar")', (await auxiliares(s.page)) === false);
+await s.browser.close();
+
+// ── Angelo aplica la matriz desde el panel ──
+s = await sesion('ahuerta@grupomediterra.cl');
+await clic(s.page, /Permisos/, 1500);
+await s.page.getByTestId('matriz-previa').click(); await s.page.waitForTimeout(500);
+const plan = await s.page.getByTestId('matriz-plan').innerText();
+// El número de cambios depende de este store ficticio (con los datos reales son 10: ver matrizPermisos.test.js)
+check('Panel: vista previa con cambios y 0 sin identificar', /\b[1-9]\d* cambios/.test(plan) && /\b0\b sin identificar/.test(plan), plan.split('\n')[0]);
+check('Panel: la vista previa muestra el correo usado como identidad', /raimundo@ficticio\.cl/.test(plan) && /cmachuca@grupomediterra\.cl/.test(plan));
+await s.page.getByTestId('matriz-aplicar').click();
+await s.page.waitForTimeout(4000);
+const guardados = s.st.usuarios.value;
+const de = (n) => guardados.find(u => u.nombre === n) || {};
+check('Guardado: rendPagar para Carol, Milagros y Angelo', [de('Carol Machuca'), de('Milagros Becerra'), de('Angelo Huerta')].every(u => u.rendPagar === true));
+check('Guardado: Michelle NO paga (ve todas, no paga)', de('Michelle Garcia').rendPagar !== true);
+check('Guardado: contabEditar para Angelo, Michelle y Pablo; Carol no', [de('Angelo Huerta'), de('Michelle Garcia'), de('Pablo Duran')].every(u => u.contabEditar === true) && de('Carol Machuca').contabEditar !== true);
+check('Guardado: Frisku Liquidaciones según la matriz',
+  de('Raimundo Valenzuela').tab_permisos?.frisku?.liquidaciones === 'editar' && de('Carolina Lara').tab_permisos?.frisku?.liquidaciones === 'editar'
+  && de('Denise Piaget').tab_permisos?.frisku?.liquidaciones === 'sin_acceso' && de('José Tomás Silva').tab_permisos?.frisku?.liquidaciones === 'sin_acceso');
+check('Guardado: Lucía conserva Flujo editar y Parámetros sin acceso', de('Lucía Corbetto').tab_permisos?.finanzas?.flujo === 'editar' && de('Lucía Corbetto').tab_permisos?.finanzas?.params === 'sin_acceso');
+await s.page.getByTestId('matriz-previa').click(); await s.page.waitForTimeout(500);
+check('Panel: segunda vista previa → 0 cambios (idempotente)', /\b0\b cambios/.test(await s.page.getByTestId('matriz-plan').innerText()));
+check('Panel: sin errores de página', s.errores.length === 0, s.errores.join(' | '));
 await s.browser.close();
 
 console.log(`\n${ok} correctas, ${fallos} fallas`);

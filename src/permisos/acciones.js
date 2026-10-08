@@ -3,8 +3,10 @@
 // Autorización de ACCIONES en el navegador (oct-2026).
 //
 // Regla: una acción no puede contradecir un permiso explícito existente.
-//   · rol "consulta" = "Consulta – solo visualiza" (App.jsx ROLES): nunca edita,
-//     aprueba, paga ni devuelve. Tope "ver" en todas las pestañas.
+//   · Perfil (rol + nivel por pestaña) = permisos generales; los niveles efectivos salen de
+//     permisosCore.getTabPerm (consulta sin configurar = "ver"; "editar" guardado = excepción).
+//   · Facultades explícitas por persona (aprobar lo asignado, marcar pagada) no dependen
+//     de la edición del módulo ni la conceden.
 //   · Un nivel de pestaña explícito "ver" / "sin_acceso" se respeta.
 //   · Lo NO configurado conserva el comportamiento anterior: acá no se concede
 //     ni se quita nada por inferencia (decisiones pendientes en
@@ -23,11 +25,6 @@ export function nivelExplicito(tabPermisos, clave) {
   return NIVELES.includes(v) ? v : undefined;
 }
 
-// El rol consulta nunca supera "ver".
-export function topeConsulta(rol, nivel) {
-  return rol === "consulta" && nivel === "editar" ? "ver" : nivel;
-}
-
 // ── Rendiciones ──────────────────────────────────────────────────────────
 // ¿Le toca a este usuario aprobar la rendición ahora? (misma regla de siempre)
 // Sin aprobador asignado (cadena vacía) → solo admin/CFO.
@@ -39,27 +36,26 @@ export function meTocaAprobar(r, miEmail, admin, esCFO) {
   return (paso.email || "").toLowerCase() === (miEmail || "").toLowerCase();
 }
 
-// u = { admin, esCFO, rendVerTodas, consulta, email, nombre }
+// u = { admin, esCFO, rendVerTodas, rendPagar, consulta, email, nombre }
+// Aprobar: la ASIGNACIÓN (maestro de Rendiciones) es la facultad. Vale para cualquier rol,
+// incluido consulta (caso Lucía Corbetto, matriz 08-10-2026), y no da ninguna otra facultad.
+// Override existente: el admin puede aprobar cualquier paso (queda registrado como override).
 export function puedeAprobarRendicion(u, r) {
-  if (!r || r.estado !== "enviada" || u?.consulta) return false;
+  if (!r || r.estado !== "enviada" || !u) return false;
   return meTocaAprobar(r, u.email, !!u.admin, !!u.esCFO);
 }
 
-// Marcar pagada: solo con autorización EXPLÍCITA para pagar.
-//   · admin (rol "Administrador – acceso total") y esCFO (CLAUDE.md: Pagos = admin o esCFO).
-//   · rendVerTodas NO autoriza a pagar: su definición en RendicionesModule es "ve TODAS
-//     (solo lectura; solo el dueño modifica)". Antes bastaba para ver el botón.
-// Si alguien más debe pagar, se decide y se configura de forma explícita (decisión D1);
-// acá no se infiere de otros flags ni de la lista de avisos EMAILS_PAGO.
-// Condiciones necesarias además: la rendición está aprobada y el usuario no es de consulta.
+// Marcar pagada: SOLO la facultad explícita "rendPagar" de la persona (matriz 08-10-2026:
+// Carol Machuca y Milagros Becerra; Angelo Huerta como reemplazo) y solo sobre una rendición
+// aprobada. No la da ser admin, CFO, ver todas las rendiciones ni editar Finanzas.
 export function puedeMarcarPagada(u, r) {
-  if (!r || r.estado !== "aprobada" || u?.consulta) return false;
-  return !!(u.admin || u.esCFO);
+  if (!r || r.estado !== "aprobada" || !u) return false;
+  return u.rendPagar === true;
 }
 
 // Devolver una rendición aprobada: quien la aprobó o un admin (regla existente).
 export function puedeDevolverAprobada(u, r) {
-  if (!r || r.estado !== "aprobada" || u?.consulta) return false;
+  if (!r || r.estado !== "aprobada" || !u) return false;
   return !!(u.admin || (r.revisadoPor && r.revisadoPor === u.nombre));
 }
 

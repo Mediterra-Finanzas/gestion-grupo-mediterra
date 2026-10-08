@@ -861,9 +861,11 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   // Puede aprobar (supervisor, editor, o fallback legacy para rendiciones sin cadena).
   const esAprobador = verTodas || nivelRendiciones === "editar";
   const miEmail = (usuarioActual?.email || "").toLowerCase();
-  // Rol "consulta" = solo visualiza: no aprueba, no paga ni devuelve (sí carga lo suyo: decisión pendiente).
+  // Facultades explícitas (matriz 08-10-2026): aprobar lo asignado vale para cualquier rol;
+  // marcar pagada solo con "rendPagar". El rol consulta carga sus propias rendiciones.
   const consulta = usuarioActual?.rol === "consulta" || (typeof esSoloConsulta === "function" ? !!esSoloConsulta(nombreUsuario) : !!esSoloConsulta);
-  const yo = { admin, esCFO, rendVerTodas: !!usuarioActual?.rendVerTodas, consulta, email: miEmail, nombre: nombreUsuario };
+  const puedePagarFac = usuarioActual?.rendPagar === true;
+  const yo = { admin, esCFO, rendVerTodas: !!usuarioActual?.rendVerTodas, rendPagar: puedePagarFac, consulta, email: miEmail, nombre: nombreUsuario };
   // Puede cargar rendiciones en nombre de otros: admin, flag rendPorOtros (Gestión
   // de Usuarios), o email en la lista legacy EMAILS_RINDEN_POR_OTROS (retrocompat).
   const puedeRendirPorOtros = admin || !!usuarioActual?.rendPorOtros || EMAILS_RINDEN_POR_OTROS.map(e => e.toLowerCase()).includes(miEmail);
@@ -1080,9 +1082,9 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     enviarEmail({ to: [...new Set(dest)].join(","), subject, message, modulo: "mediterra" })
       .catch(e => console.warn("[Rendiciones] notif falló:", e?.message || e));
   };
-  // Pagadores = quienes ven todas y cargan a pago (CFO / supervisores con rendVerTodas).
+  // Avisos de pago: quienes ven todas (CFO / supervisores) y quienes tienen la facultad de pagar.
   const emailsPagadores = () => (usuarios || [])
-    .filter(u => u.esCFO || u.rendVerTodas)
+    .filter(u => u.esCFO || u.rendVerTodas || u.rendPagar === true)
     .map(u => u.email).filter(Boolean);
 
   const enviar = (r) => {
@@ -1175,7 +1177,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   };
 
   const marcarPagada = (r) => {
-    if (!puedeMarcarPagada(yo, r)) { setAviso({ id: "permiso", tipo: "error", texto: `No se puede marcar pagada la rendición #${r?.folio ?? ""}: debe estar aprobada y solo la marca un perfil autorizado a pagar (administrador o CFO).` }); return; }
+    if (!puedeMarcarPagada(yo, r)) { setAviso({ id: "permiso", tipo: "error", texto: `No se puede marcar pagada la rendición #${r?.folio ?? ""}: debe estar aprobada y tu perfil debe tener la facultad "marca rendiciones pagadas".` }); return; }
     upsert(pushHist({ ...r, estado: "pagada", pagadoEn: nowISO(), pagadoPor: nombreUsuario }, "pagada"));
   };
 
@@ -1232,7 +1234,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   const TABS = [
     { id: "mis", label: "🧾 Mis Rendiciones", show: true },
     { id: "aprobar", label: `✅ Por Aprobar${porAprobar.length ? ` (${porAprobar.length})` : ""}`, show: muestraAprobar },
-    { id: "pagos", label: `💵 Pagos${paraPago.length ? ` (${paraPago.length})` : ""}`, show: verTodas },
+    { id: "pagos", label: `💵 Pagos${paraPago.length ? ` (${paraPago.length})` : ""}`, show: verTodas || puedePagarFac },
     { id: "reportes", label: "📊 Reportes", show: verTodas },
     { id: "maestros", label: "⚙️ Maestros", show: admin },
   ].filter(t => t.show);
@@ -1280,14 +1282,14 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
       )}
       {tab === "aprobar" && muestraAprobar && (
         <BandejaAprobar rends={porAprobar} onAbrir={setEditId} tcData={tcData}
-          miEmail={miEmail} esAprobador={esAprobador} admin={admin} esCFO={esCFO} consulta={consulta}
+          miEmail={miEmail} esAprobador={esAprobador} admin={admin} esCFO={esCFO}
           aprobadasMias={aprobadasMias} onDevolver={devolverParaCorreccion}
           onAprobar={r => { setRevisar({ id: r.id, accion: "aprobar" }); setComentario(""); }}
           onRechazar={r => { setRevisar({ id: r.id, accion: "rechazar" }); setComentario(""); }}
           onReasignar={r => { setReasignar({ id: r.id }); setNuevoAprob(""); }}
         />
       )}
-      {tab === "pagos" && verTodas && (
+      {tab === "pagos" && (verTodas || puedePagarFac) && (
         <BandejaPagos rends={paraPago} onAbrir={setEditId} onPagar={marcarPagada} tcData={tcData}
           puedeDevolver={r => puedeDevolverAprobada(yo, r)} puedePagar={r => puedeMarcarPagada(yo, r)}
           onDevolver={devolverParaCorreccion} />
@@ -1506,7 +1508,7 @@ function MisRendiciones({ rends, onCrear, onAbrir, onEliminar, tcData, admin, va
 // ───────────────────────────────────────────────────────────────────
 // Tab: Por Aprobar
 // ───────────────────────────────────────────────────────────────────
-function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tcData, miEmail, esAprobador, admin, esCFO, consulta = false, aprobadasMias = [], onDevolver }) {
+function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tcData, miEmail, esAprobador, admin, esCFO, aprobadasMias = [], onDevolver }) {
   return (
     <div>
       <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>{rends.length} rendición(es) esperando revisión</div>
@@ -1539,7 +1541,7 @@ function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tc
           const cad = Array.isArray(r.cadena) ? r.cadena : [];
           const idx = r.nivelActual || 0;
           const actual = cad[idx];
-          const miTurno = !consulta && meTocaAprobar(r, miEmail, admin, esCFO);
+          const miTurno = meTocaAprobar(r, miEmail, admin, esCFO);
           return (
             <RendCard key={r.id} r={r} onClick={() => onAbrir(r.id)} mostrarTrabajador tcData={tcData}>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>

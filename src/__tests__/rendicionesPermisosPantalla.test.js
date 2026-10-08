@@ -51,8 +51,9 @@ const ir = async (re) => { fireEvent.click(screen.getAllByRole("button", { name:
 
 beforeEach(preparar);
 
-test("Angelo (admin): ve y usa 'Marcar pagada' en una aprobada; se guarda como pagada", async () => {
-  await abrir({ nombre: "Angelo Huerta", email: "ahuerta@x.cl", rol: "admin", esCFO: true });
+// Matriz confirmada 08-10-2026: paga quien tiene la facultad explícita rendPagar.
+test("Angelo con rendPagar: ve y usa 'Marcar pagada' en una aprobada; se guarda como pagada", async () => {
+  await abrir({ nombre: "Angelo Huerta", email: "ahuerta@x.cl", rol: "admin", esCFO: true, rendPagar: true });
   await ir(/Pagos/);
   fireEvent.click(screen.getByRole("button", { name: "Marcar pagada" }));
   // guardado diferido real (debounce del módulo)
@@ -62,8 +63,30 @@ test("Angelo (admin): ve y usa 'Marcar pagada' en una aprobada; se guarda como p
   expect(ultima.pagadoPor).toBe("Angelo Huerta");
 }, 15000);
 
-test("Carol (rendVerTodas, sin CFO): ve Pagos pero SIN 'Marcar pagada', y no escribe nada", async () => {
-  await abrir({ nombre: "Carol Machuca", email: "cmachuca@x.cl", rol: "editor", rendVerTodas: true });
+test("Angelo admin/CFO SIN rendPagar: ve Pagos pero SIN 'Marcar pagada'", async () => {
+  await abrir({ nombre: "Angelo Huerta", email: "ahuerta@x.cl", rol: "admin", esCFO: true });
+  await ir(/Pagos/);
+  expect(screen.getByText(/Rend 1/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Marcar pagada" })).toBeNull();
+});
+
+test("Carol con rendPagar: paga una aprobada", async () => {
+  await abrir({ nombre: "Carol Machuca", email: "cmachuca@x.cl", rol: "editor", rendVerTodas: true, rendPagar: true });
+  await ir(/Pagos/);
+  fireEvent.click(screen.getByRole("button", { name: "Marcar pagada" }));
+  await waitFor(() => expect(mockSaves.length).toBeGreaterThan(0), { timeout: 8000 });
+  expect(mockSaves[mockSaves.length - 1].v.find(x => x.id === "a").pagadoPor).toBe("Carol Machuca");
+}, 15000);
+
+test("pagadora SIN 've todas' (solo rendPagar): igual ve la pestaña Pagos y paga", async () => {
+  await abrir({ nombre: "Milagros Becerra", email: "mb@x.cl", rol: "editor", rendPagar: true });
+  await ir(/Pagos/);
+  expect(screen.getByRole("button", { name: "Marcar pagada" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Reportes/ })).toBeNull();
+});
+
+test("Michelle (rendVerTodas, sin rendPagar): ve Pagos pero SIN 'Marcar pagada', y no escribe nada", async () => {
+  await abrir({ nombre: "Michelle Garcia", email: "mg@x.cl", rol: "editor", rendVerTodas: true });
   await ir(/Pagos/);
   expect(screen.getByText(/Rend 1/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Marcar pagada" })).toBeNull();
@@ -71,15 +94,10 @@ test("Carol (rendVerTodas, sin CFO): ve Pagos pero SIN 'Marcar pagada', y no esc
   expect(mockSaves.length).toBe(0);
 }, 10000);
 
-test("rol consulta con rendVerTodas: ve Pagos pero SIN 'Marcar pagada', y no escribe nada", async () => {
-  await abrir({ nombre: "Consulta Uno", email: "cmachuca@x.cl", rol: "consulta", rendVerTodas: true });
-  await ir(/Pagos/);
-  expect(screen.getByText(/Rend 1/)).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Marcar pagada" })).toBeNull();
-  // espera más que el debounce del guardado: nada se escribe
-  await act(async () => { await new Promise(r => setTimeout(r, 2500)); });
-  expect(mockSaves.length).toBe(0);
-}, 10000);
+test("trabajador sin facultades: no ve la pestaña Pagos", async () => {
+  await abrir({ nombre: "Pedro Pérez", email: "pedro@x.cl", rol: "editor" });
+  expect(screen.queryByRole("button", { name: /Pagos/ })).toBeNull();
+});
 
 test("aprobar: la aprobadora asignada (Carol) ve 'Aprobar'", async () => {
   await abrir({ nombre: "Carol Machuca", email: "cmachuca@x.cl", rol: "editor", rendVerTodas: true });
@@ -87,9 +105,14 @@ test("aprobar: la aprobadora asignada (Carol) ve 'Aprobar'", async () => {
   expect(screen.getAllByRole("button", { name: "Aprobar" }).length).toBeGreaterThan(0);
 });
 
-test("aprobar: consulta asignada no ve el botón", async () => {
-  await abrir({ nombre: "Consulta Uno", email: "cmachuca@x.cl", rol: "consulta", rendVerTodas: true });
+test("aprobar: perfil consulta con aprobación ASIGNADA (caso Lucía) ve 'Aprobar'", async () => {
+  await abrir({ nombre: "Consulta Uno", email: "cmachuca@x.cl", rol: "consulta" });
+  await ir(/Por Aprobar/);
+  expect(screen.getAllByRole("button", { name: "Aprobar" }).length).toBeGreaterThan(0);
+});
+
+test("aprobar: consulta NO asignada no ve 'Aprobar'", async () => {
+  await abrir({ nombre: "Consulta Dos", email: "otra@x.cl", rol: "consulta", rendVerTodas: true });
   await ir(/Por Aprobar/);
   expect(screen.queryByRole("button", { name: "Aprobar" })).toBeNull();
-  expect(screen.getAllByText(/No es tu turno/).length).toBeGreaterThan(0);
 });

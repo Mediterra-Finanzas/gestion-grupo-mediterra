@@ -134,13 +134,53 @@ export function mergeUsuariosThreeWay(base, local, fresh) {
   return { merged: out, conflicts };
 }
 
-// Lectura efectiva de permiso de pestaña (fiel a getTabPerm, App.jsx:740).
+// ── Pestañas existentes al 08-10-2026 (matriz confirmada por Angelo) ──────────
+// Lista EXPLÍCITA de las pestañas que ya existían. Para ellas, una pestaña sin
+// valor guardado conserva el acceso que tenía ("editar"; "config" = sin acceso;
+// rol consulta = "ver"), así que nadie pierde acceso por falta de configuración.
+// Una pestaña que NO esté en esta lista es NUEVA: nace "sin_acceso" para todos,
+// incluido el admin, hasta que se le asigne un nivel en Gestión de Usuarios.
+// Incluye las claves que Frisku evalúa aunque no se configuren en el panel.
+export const TABS_REGISTRADAS = Object.freeze({
+  tareas: ["diaria","semanal","quincenal","mensual","anual","config"],
+  osiris: ["contratos","obtentores","viveros","opTecnica","royalties"],
+  finanzas: ["dashboard","flujo","bancos","creditos","nominas","reporte","params","auditoria","eeff","rendiciones"],
+  allegria: ["clientes","productores","embarques","liquidaciones","liq_cliente","anticipos","cobranza"],
+  frisku: ["dashboard","clientes","exportadoras","contratos","programa","embarques","liquidaciones","maestros",
+           "resumen","documentos","bi","reportes","tablero"],
+  allegria_service: ["centro","recepciones","lotes","programa","ordenes","pt","pallets","despachos","informes","config"],
+});
+export function tabRegistrada(modulo, tabId) {
+  return !!(TABS_REGISTRADAS[modulo] && TABS_REGISTRADAS[modulo].includes(tabId));
+}
+const NIVELES_VALIDOS = ["editar", "ver", "sin_acceso"];
+
+// Lectura efectiva de permiso de pestaña. Única implementación: App.jsx la usa.
+//  · Configurado (valor guardado válido) → se respeta. Para el rol consulta, un
+//    "editar" guardado es una EXCEPCIÓN EXPLÍCITA (caso: Flujo de Caja de Lucía
+//    Corbetto) y solo vale para esa pestaña.
+//  · Pestaña nueva (no registrada) sin valor → "sin_acceso" para todos, incluido admin.
+//  · Pestaña registrada sin valor → comportamiento anterior: admin "editar",
+//    gerente técnico "editar" en Osiris, "config" sin acceso, consulta "ver",
+//    resto "editar".
 export function getTabPerm(usuario, modulo, tabId) {
   if (!usuario) return "sin_acceso";
+  const conf = usuario.tab_permisos?.[modulo]?.[tabId];
+  const valido = NIVELES_VALIDOS.includes(conf) ? conf : undefined;
+  if (!tabRegistrada(modulo, tabId)) return valido ?? "sin_acceso";
   if (usuario.rol === "admin") return "editar";
   if (usuario.rol === "gerente_tecnico" && modulo === "osiris") return "editar";
-  if (tabId === "config") return (usuario.tab_permisos?.[modulo]?.[tabId]) ?? "sin_acceso";
-  return (usuario.tab_permisos?.[modulo]?.[tabId]) ?? "editar";
+  if (valido) return valido;
+  if (tabId === "config") return "sin_acceso";
+  return usuario.rol === "consulta" ? "ver" : "editar";
+}
+
+// Nivel con que se COMPLETA (en memoria, al cargar) una pestaña sin valor de un
+// usuario base. Misma regla que getTabPerm para lo no configurado.
+export function nivelInicialPestana(usuario, modulo, tabId, nivelLegado) {
+  if (!tabRegistrada(modulo, tabId)) return "sin_acceso";
+  if (usuario?.rol === "consulta") return nivelLegado === "sin_acceso" ? "sin_acceso" : "ver";
+  return nivelLegado;
 }
 
 export const _internal = { _eq, _clone, cambioAlgo };

@@ -1,6 +1,7 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { topeConsulta, permisoParametros } from "./permisos/acciones";
+import { permisoParametros } from "./permisos/acciones";
+import { tabRegistrada } from "./permisos/permisosCore.js";
 import InputNumero from "./InputNumero.jsx";
 import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
@@ -12220,11 +12221,16 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const esAdmin = usuarioActual?.rol==="admin";
   const canEdit = esAdmin || ["Angelo Huerta","Carol Machuca"].includes(usuarioActual?.nombre||"");
 
-  // Rol "consulta" (solo visualiza): tope "ver" en todas las pestañas. Antes FinanzasModule
-  // recibía esSoloConsulta y no lo usaba, así que un usuario consulta editaba por el default.
-  const perm     = (tabId) => topeConsulta(usuarioActual?.rol, tabPermisos?.[tabId] ?? "editar");
-  const puedoVer = (tabId) => esAdmin || perm(tabId) !== "sin_acceso";
-  const puedoEdit= (tabId) => esAdmin || (perm(tabId) !== "ver" && perm(tabId) !== "sin_acceso");
+  // Nivel por pestaña (matriz confirmada 08-10-2026). App.jsx ya entrega el nivel efectivo de
+  // las pestañas configurables (permisosCore.getTabPerm): lo configurado se respeta (para el
+  // rol consulta, un "editar" guardado es una excepción explícita de ESA pestaña) y lo no
+  // configurado queda en "ver" para consulta. Una pestaña que no esté registrada es nueva y
+  // no da acceso a nadie —tampoco al admin— hasta que se le asigne un nivel.
+  const perm     = (tabId) => tabPermisos?.[tabId]
+    ?? (tabRegistrada("finanzas", tabId) ? (usuarioActual?.rol === "consulta" ? "ver" : "editar") : "sin_acceso");
+  const adminEn  = (tabId) => esAdmin && tabRegistrada("finanzas", tabId);
+  const puedoVer = (tabId) => adminEn(tabId) || perm(tabId) !== "sin_acceso";
+  const puedoEdit= (tabId) => adminEn(tabId) || (perm(tabId) !== "ver" && perm(tabId) !== "sin_acceso");
   // Sub-vista Parámetros: respeta la pestaña "params" configurada (antes no tenía efecto).
   const permParams = permisoParametros({ esAdmin, nivelFlujo: perm("flujo"), nivelParams: perm("params") });
 

@@ -26,6 +26,7 @@ import {
   liqsActivasOE, upsertPorId, identidadUsuario, evaluarConfirmacion, clavesBorradorDeOp,
   entityBaseDe, draftEntityKey, clavesRecuperablesDeEntidad, validarUnicidadOE,
 } from "./friskuLiquidacionesLogic.js";
+import { tabRegistrada } from "./permisos/permisosCore.js";
 import { clasificarReferenciaDoc, esUrlDocumentoValida, avisoRefBorrador, conservarDocsComex } from "./friskuDocumentRefs.js";
 import { requisitosDeComex, esVinculoSharePoint, aplicarVinculoComex, quitarVinculoComex } from "./friskuComexVinculo.js";
 import AvisoPersistencia, { construirAviso } from "./AvisoPersistencia";
@@ -3720,7 +3721,8 @@ function OEDetalle({ oe, exportadoras, clientes, especies, tiposEmbalaje, contra
     {k:"general",  l:"General"},
     {k:"pl",       l:`📋 Packing List${nPallets?` (${nPallets})`:""}`},
     {k:"comex",    l:`📁 Documentos / QC ${cx.completo?"✓":`⚠ ${cx.ok}/${cx.total}`}`},
-    {k:"liq",      l:`💰 Liquidación${liqs.length?` (${liqs.length})`:""}`},
+    // Sin acceso a Liquidaciones (liquidaciones === null): la sección no existe.
+    ...(liquidaciones === null ? [] : [{k:"liq", l:`💰 Liquidación${liqs.length?` (${liqs.length})`:""}`}]),
   ];
   const Campo = ({lab,val})=>(
     <div><div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.3}}>{lab}</div><div style={{fontSize:12,color:C.text,fontWeight:600}}>{val||"—"}</div></div>
@@ -9334,14 +9336,23 @@ export default function FriskuComercialModule({
 
   // Permisos finos por tab. tabPermisos = {tabId: "editar"|"ver"|"sin_acceso"}
   // Admin siempre puede editar todo. Si no hay info para un tab, default = "editar".
+  // Una pestaña NO registrada (nueva) nace sin acceso para todos, incluido admin, hasta
+  // que se le asignen permisos (matriz oct-2026, src/permisos/permisosCore.js).
   const permTab = (tabId) => {
+    const conf = tabPermisos?.[tabId];
+    if (!tabRegistrada("frisku", tabId) && !conf) return { visible: false, canEdit: false };
     if (admin) return { visible: true, canEdit: canEditGlobal };
-    const nivel = tabPermisos?.[tabId] || "editar";
+    const nivel = conf || "editar";
     return {
       visible: nivel !== "sin_acceso",
       canEdit: canEditGlobal && nivel === "editar",
     };
   };
+  // Liquidaciones y PO (montos de venta, FOB y comisión): sin acceso a la pestaña, estas
+  // filas NO se cargan ni se guardan, así ninguna otra vista (detalle de embarque,
+  // Resumen, Reportería BI, exportaciones) puede mostrarlas. Es control de la aplicación:
+  // la base sigue respondiendo a la llave pública hasta que exista autorización en el servidor.
+  const puedeVerLiq = permTab("liquidaciones").visible;
 
   // Datos comerciales
   const [clientes,       setClientes]       = useState([]);
@@ -9451,8 +9462,8 @@ export default function FriskuComercialModule({
         dbLoadGeneric("frisku_contratos"),
         dbLoadGeneric("frisku_programa"),
         dbLoadGeneric("frisku_embarques"),
-        dbLoadGeneric("frisku_liquidaciones"),
-        dbLoadGeneric("frisku_po"),
+        puedeVerLiq ? dbLoadGeneric("frisku_liquidaciones") : Promise.resolve([]),
+        puedeVerLiq ? dbLoadGeneric("frisku_po") : Promise.resolve([]),
         dbLoadGeneric("maestro_especies"),
         dbLoadGeneric("maestro_paises"),
         dbLoadGeneric("maestro_monedas"),
@@ -9594,7 +9605,7 @@ export default function FriskuComercialModule({
   // Ref espejo de la operación pendiente: el callback async la lee sin cerrar sobre un valor viejo.
   const liqOpRef = useRef(null);
   useEffect(()=>{ liqOpRef.current = liqOpPend; },[liqOpPend]);
-  useAutoSave("frisku_liquidaciones", liquidaciones, setLiquidaciones, true, (r, enviado)=>{
+  useAutoSave("frisku_liquidaciones", liquidaciones, setLiquidaciones, puedeVerLiq, (r, enviado)=>{
     // Contrato de confirmación Frisku-local: interpreta el resultado del guardado contra la
     // operación pendiente y fija el estado del formulario. NO asume confirmación por temporizadores;
     // reutiliza r.ok/valor/fusionado/motivo/conflictos/duplicado_oe/fila_ausente.
@@ -9610,7 +9621,7 @@ export default function FriskuComercialModule({
     }
     setLiqOpPend({ ...op, estado:res.estado, motivo:res.motivo, idExistente:res.idExistente, oeId:res.oeId });
   }, { requiereFilaExistente:true, validarCandidato: validarUnicidadOE });
-  useAutoSave("frisku_po", pos, setPos);
+  useAutoSave("frisku_po", pos, setPos, puedeVerLiq);
 
   // Limpieza de borrador ACOTADA a la mutación confirmada: cuando (y sólo cuando) la operación
   // pendiente llega a "guardado", se borran EXCLUSIVAMENTE sus claves (id de la liquidación +
@@ -10317,7 +10328,7 @@ export default function FriskuComercialModule({
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(270px,1fr))",gap:10,marginBottom:20}}>
                 {alerta("📁","Clientes sin documentos obligatorios","Ir a Documentos →",clientesConDocsFaltantes,clientesConDocsFaltantes>0?C.accent:C.green,()=>setTab("documentos"))}
                 {alerta("⚠","Embarques con docs COMEX incompletos","Ver pendientes →",embarquesDocsIncompletos,embarquesDocsIncompletos>0?C.warning:C.green,()=>{ setSoloDocsIncompletos(true); setTab("embarques"); })}
-                {alerta("💰","Liquidaciones no pagadas","Ir a Liquidaciones →",liqPend,liqPend>0?C.blue:C.green,()=>setTab("liquidaciones"))}
+                {puedeVerLiq && alerta("💰","Liquidaciones no pagadas","Ir a Liquidaciones →",liqPend,liqPend>0?C.blue:C.green,()=>setTab("liquidaciones"))}
               </div>
 
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",margin:"4px 0 10px"}}>
@@ -10592,7 +10603,7 @@ export default function FriskuComercialModule({
             {/* Detalle de embarque (Ver) — conserva filtros/búsqueda del listado */}
             {!creandoOE && !editandoOE && verOE && (
               <OEDetalle oe={verOE} exportadoras={exportadoras} clientes={clientes} especies={especies} tiposEmbalaje={tiposEmbalaje}
-                contratos={contratos} liquidaciones={liquidaciones}
+                contratos={contratos} liquidaciones={puedeVerLiq ? liquidaciones : null}
                 onBack={()=>setVerOE(null)}
                 onEditar={(o)=>{ setVerOE(null); handleEditarOE(o); }}
                 onGuardarPL={(pl)=>{ setEmbarques(prev=>prev.map(e=>e.id===verOE.id?{...e,packingList:pl,estado:pl.pallets?.length>0&&e.estado==="confirmado"?"despachado":e.estado}:e)); setVerOE(v=>v&&({...v,packingList:pl})); }}
@@ -11009,6 +11020,11 @@ export default function FriskuComercialModule({
           </div>
         )}
 
+        {tab === "bi" && !puedeVerLiq && (
+          <div data-testid="aviso-sin-liq" style={{marginBottom:12, padding:"10px 14px", borderRadius:10, background:"rgba(212,160,23,0.10)", border:"1px solid rgba(212,160,23,0.35)", fontSize:12.5, color:C.text}}>
+            Sin acceso a Liquidaciones: los montos de venta, FOB, comisión y cobranza no se cargan y aparecen en cero en estos reportes y en sus exportaciones.
+          </div>
+        )}
         {tab === "bi" && (
           <ReporteriaBI
             data={{ liquidaciones, embarques, clientes, exportadoras, especies, mercados, paises, temporadas, programa, contratos, pos }}

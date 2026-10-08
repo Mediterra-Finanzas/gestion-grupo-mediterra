@@ -1,8 +1,10 @@
 /* eslint-disable */
 // Permisos de ACCIONES (oct-2026): cada guarda se prueba permitida y denegada, y
 // llamándola de forma directa con un estado que la pantalla no ofrecería.
+// Matriz confirmada 08-10-2026: pagar exige la facultad explícita `rendPagar` (ni admin
+// ni CFO la tienen por defecto) y el aprobador ASIGNADO aprueba aunque su perfil sea consulta.
 import {
-  nivelExplicito, topeConsulta, meTocaAprobar, puedeAprobarRendicion, puedeMarcarPagada,
+  nivelExplicito, meTocaAprobar, puedeAprobarRendicion, puedeMarcarPagada,
   puedeDevolverAprobada, permisoTabAllegria, permisoParametros,
 } from "../permisos/acciones";
 
@@ -12,38 +14,38 @@ const CONSULTA = { admin: false, esCFO: false, rendVerTodas: true, consulta: tru
 const TRABAJADOR = { admin: false, esCFO: false, rendVerTodas: false, consulta: false, email: "t@x.cl", nombre: "Trabajador" };
 const r = (estado, extra = {}) => ({ id: "r1", folio: 7, estado, ...extra });
 
-describe("nivel explícito y tope de consulta", () => {
+describe("nivel explícito", () => {
   test("solo los tres niveles válidos cuentan como explícitos", () => {
     expect(nivelExplicito({ a: "ver" }, "a")).toBe("ver");
     expect(nivelExplicito({ a: "otro" }, "a")).toBeUndefined();
     expect(nivelExplicito({}, "a")).toBeUndefined();
   });
-  test("consulta nunca supera ver; los demás roles no cambian", () => {
-    expect(topeConsulta("consulta", "editar")).toBe("ver");
-    expect(topeConsulta("consulta", "sin_acceso")).toBe("sin_acceso");
-    expect(topeConsulta("editor", "editar")).toBe("editar");
-    expect(topeConsulta("admin", "editar")).toBe("editar");
-  });
 });
 
-describe("Rendiciones · marcar pagada (solo autorización explícita)", () => {
-  test("permitido: admin o esCFO con la rendición aprobada", () => {
-    expect(puedeMarcarPagada(ANGELO, r("aprobada"))).toBe(true);
-    expect(puedeMarcarPagada({ ...TRABAJADOR, esCFO: true }, r("aprobada"))).toBe(true);
+describe("Rendiciones · marcar pagada (facultad explícita rendPagar)", () => {
+  test("permitido: Carol, Milagros y Angelo con la facultad, sobre una aprobada", () => {
+    expect(puedeMarcarPagada({ ...CAROL, rendPagar: true }, r("aprobada"))).toBe(true);
+    expect(puedeMarcarPagada({ ...TRABAJADOR, nombre: "Milagros Becerra", rendPagar: true }, r("aprobada"))).toBe(true);
+    expect(puedeMarcarPagada({ ...ANGELO, rendPagar: true }, r("aprobada"))).toBe(true);
   });
-  test("denegado: rendVerTodas NO autoriza a pagar (es un permiso de ver)", () => {
+  test("denegado: admin y CFO SIN la facultad (admin no es autorización general)", () => {
+    expect(puedeMarcarPagada(ANGELO, r("aprobada"))).toBe(false);
+    expect(puedeMarcarPagada({ ...TRABAJADOR, esCFO: true }, r("aprobada"))).toBe(false);
+  });
+  test("denegado: rendVerTodas NO autoriza a pagar (Michelle, Pablo)", () => {
     expect(puedeMarcarPagada(CAROL, r("aprobada"))).toBe(false);
   });
-  test("denegado: rol consulta, incluso con rendVerTodas", () => {
-    expect(puedeMarcarPagada(CONSULTA, r("aprobada"))).toBe(false);
-    expect(puedeMarcarPagada({ ...CONSULTA, esCFO: true }, r("aprobada"))).toBe(false);
+  test("denegado: la facultad tiene que ser exactamente true", () => {
+    expect(puedeMarcarPagada({ ...CAROL, rendPagar: "true" }, r("aprobada"))).toBe(false);
+    expect(puedeMarcarPagada({ ...CAROL, rendPagar: 1 }, r("aprobada"))).toBe(false);
   });
   test("denegado: trabajador sin autorización", () => {
     expect(puedeMarcarPagada(TRABAJADOR, r("aprobada"))).toBe(false);
   });
-  test("intento directo: marcar pagada algo NO aprobado se rechaza, incluso al admin", () => {
-    for (const e of ["borrador", "enviada", "rechazada", "pagada"]) expect(puedeMarcarPagada(ANGELO, r(e))).toBe(false);
-    expect(puedeMarcarPagada(ANGELO, null)).toBe(false);
+  test("intento directo: marcar pagada algo NO aprobado se rechaza, incluso con la facultad", () => {
+    const pagador = { ...ANGELO, rendPagar: true };
+    for (const e of ["borrador", "enviada", "rechazada", "pagada"]) expect(puedeMarcarPagada(pagador, r(e))).toBe(false);
+    expect(puedeMarcarPagada(pagador, null)).toBe(false);
   });
 });
 
@@ -58,8 +60,11 @@ describe("Rendiciones · aprobar / rechazar", () => {
   test("denegado: aprobador de OTRO nivel", () => {
     expect(puedeAprobarRendicion(CAROL, { ...conCadena, nivelActual: 1 })).toBe(false);
   });
-  test("denegado: consulta aunque esté asignado", () => {
-    expect(puedeAprobarRendicion({ ...CONSULTA, email: "cmachuca@x.cl" }, conCadena)).toBe(false);
+  test("permitido: perfil consulta con aprobación ASIGNADA (caso Lucía)", () => {
+    expect(puedeAprobarRendicion({ ...CONSULTA, email: "cmachuca@x.cl" }, conCadena)).toBe(true);
+  });
+  test("denegado: consulta NO asignada", () => {
+    expect(puedeAprobarRendicion(CONSULTA, conCadena)).toBe(false);
   });
   test("sin aprobador asignado: solo CFO/admin", () => {
     expect(puedeAprobarRendicion(CAROL, r("enviada"))).toBe(false);
@@ -78,9 +83,9 @@ describe("Rendiciones · devolver una aprobada", () => {
     expect(puedeDevolverAprobada(CAROL, r("aprobada", { revisadoPor: "Carol Machuca" }))).toBe(true);
     expect(puedeDevolverAprobada(ANGELO, r("aprobada", { revisadoPor: "Otro" }))).toBe(true);
   });
-  test("denegado: otro aprobador, consulta, o una que no está aprobada", () => {
+  test("denegado: otro aprobador, consulta que no la aprobó, o una que no está aprobada", () => {
     expect(puedeDevolverAprobada(CAROL, r("aprobada", { revisadoPor: "Otro" }))).toBe(false);
-    expect(puedeDevolverAprobada({ ...CONSULTA, nombre: "Carol Machuca" }, r("aprobada", { revisadoPor: "Carol Machuca" }))).toBe(false);
+    expect(puedeDevolverAprobada(CONSULTA, r("aprobada", { revisadoPor: "Carol Machuca" }))).toBe(false);
     expect(puedeDevolverAprobada(ANGELO, r("pagada"))).toBe(false);
   });
 });
