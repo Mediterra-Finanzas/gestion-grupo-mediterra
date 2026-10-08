@@ -8,12 +8,28 @@ import { exportarFlujoConsolidado, exportarFlujoEmpresa } from './flujoExportExc
 import { saldoBancoEmpresaUSD, usdAParidadVivo, usdDeSaldo, motivoExclusion, notasSaldoInicial, avisoSaldoIncompleto } from './saldosBancosUSD.js';
 import { buildAllpaPeruLineas, ALLPA_PERU_KG_2026, ALLPA_PERU_PRECIO_2026, ALLPA_PERU_RATES_2026 } from './allpaPeruPpto.js';
 import { calcularAmortizacionSocio, generarInteresPeriodico } from './creditoSocio.js';
+import {
+  hoyISO, partesISO, flujoCreditosEmpresa, getRenovaciones, calcCuotasRenovacion, calcMontoRealCuota,
+  asegurarUids, uidCredito, estadoCredito, vencimientosCredito, aplicarPagos, registrarPago, anularPago,
+  puedeAnularCredito, analisisCartera, servicioDeudaPorMes, saldoCapitalAl, simularPrepago, aplicarPrepago,
+  calendarioContrato, datosFaltantesContrato, tasaCredito, factorUSD, totalPago, pagosVigentes,
+  confirmarImpaga, anularConciliacion, conciliacionesVigentes, porConciliarCartera, registrarPagoIdempotente, pagoPorOrigen,
+  valorizarCreditos, sinValorizacion, infoTC, conciliacionAcreedores, claveAcreedor, anotarPago,
+  movimientosCapitalAlCorte, saldosAlCorte, TOLERANCIAS_DEFAULT, toleranciaDe, TC_ANTIGUEDAD_AVISO_DIAS, decimalesMoneda,
+  TIPOS_ACREEDOR, TIPOS_CREDITO, MONEDAS as MONEDAS_CREDITO, MODALIDADES, BASES,
+} from './creditos.js';
 import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
-import { uploadDocNomina, urlFirmadaNomina } from './friskuHelpers';
+import { uploadDocNomina, urlFirmadaNomina, dbLoadGeneric } from './friskuHelpers';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
 import { USE_GUARD, pollRow } from './guardClient';
 import { persist, construirAvisoDesde } from './persistencia/instancia.js';
+import { planGuardado, guardarFila, fusionarNominas, resumirGuardado, iguales as igualesNom } from './nominasPersistencia.js';
 import AvisoPersistencia from './AvisoPersistencia.jsx';
+import AvisoCreditosPendientes, { useCreditosPendientes } from './AvisoCreditosPendientes.jsx';
+import { pendientesCreditos, diffCreditos, clasificar as clasificarPendiente, pagosNuevos, pagosSinConfirmar } from './creditosPendientes.js';
+// Ids de las anotaciones de Créditos cuyo guardado sigue vivo en ESTA página
+// (sobreviven a desmontar el módulo: la petición sigue en vuelo).
+const pendVivosCreditos = new Set();
 import { computeOverlay, applyOverlay } from './escenarioOverlay';
 import {
   antAcordado, antRealizado, antPendiente, antDescuentoLiq, realizacionesVigentes,
@@ -252,6 +268,12 @@ async function dbLoad(rowId="finanzas") {
   // propagar para que el caller NO habilite el guardado (que sobrescribiría
   // los 4.6 MB de Finanzas con los defaults vacíos en memoria). Solo se
   // devuelve {} cuando la fila existe pero está vacía (instalación nueva).
+  // Antes de leer se espera a que termine cualquier guardado en curso de esta fila
+  // (p. ej. un pago registrado justo antes de salir del módulo y volver a entrar).
+  // Si no, la lectura traía el estado anterior, la respuesta del guardado viejo
+  // adelantaba la versión del contrato y el guardado siguiente borraba el pago sin
+  // aviso. flush nunca rechaza ni escribe: solo espera la cola.
+  try { await persist.flush(rowId); } catch(_) {}
   const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${rowId}&select=value,updated_at`,
     { headers:{ apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}` }});
   if(!r.ok) throw new Error(`dbLoad ${rowId} HTTP ${r.status}`);
@@ -312,7 +334,7 @@ export const CAMPO_PESTANA = {
   allegria_params:"flujo", allegria_comision_arandanos:"flujo", params_emp:"flujo",
   params_as:"flujo", params_if:"flujo", params_af:"flujo", params_ap:"flujo",
   params_osiris:"flujo", params_participacion:"flujo", params_frisku:"flujo",
-  creditos_data:"creditos",
+  creditos_data:"creditos", creditos_saldos_informados:"creditos", creditos_config:"creditos",
 };
 
 // Decide si este guardado está autorizado. `puedoEdit(pestaña) -> boolean`.
@@ -720,220 +742,115 @@ const CREDITOS_DEFAULT = [
   {n:40,empresa:"Mediterra",acreedor:"Privado Particular",tipo_inst:"Privado",monto:17325,f_venc:"2027-12-01",tipo_cr:"Inversión",tasa:"12.6%",cuota:17325,pagado:false},
   {n:41,empresa:"Mediterra",acreedor:"Privado Particular",tipo_inst:"Privado",monto:550000,f_venc:"2028-01-01",tipo_cr:"Inversión",tasa:"12.6%",cuota:550000,pagado:false},
 ];
-const CREDITOS_TRIM = {
-  quarters:["Q1 2026","Q2 2026","Q3 2026","Q4 2026","Q1 2027","Q2 2027","Q3 2027","Q4 2027","Q1 2028","Q2 2028","Q3 2028","Q4 2028"],
-  pagos:   [21815,1064994,983763,1517473,922750,1348929,677657,972750,1016426,800196,0,0],
-  saldos:  [8355763,7761667,7667292,6513894,5946569,5287401,5270076,4652751,4102751,3881315,3881315,3881315],
-};
 
-// Calcula array proy[64] de pagos de préstamos desde CREDITOS para una empresa
-// Coloca cada cuota en el índice del mes de vencimiento (semana más aproximada)
-function calcPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
-  const arr = Z65();
-  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
-    // Crédito de socio: cada cuota_total (interés + amortización) en su mes.
-    if(c.tipo_credito === "socio") {
-      const { filas } = calcularAmortizacionSocio(c.monto, c.tasa_efectiva_anual, c.fecha_desembolso, c.cuotas_socio);
-      filas.forEach(f => {
-        const mes = mesDeDate(f.fecha);
-        if(!mes || mes.includes("NaN")) return;
-        const i = mIdx(mes);
-        if(i >= 0 && f.cuota_total > 0) arr[i] += f.cuota_total;
-      });
-      return;
-    }
-    if(!c.f_venc || !c.cuota) return;
-    const cuota = Number(c.cuota)||0;
-    if(cuota === 0) return;
-
-    if(c.tipo_cr === "Cuotas Mensuales" && c.f_inicio) {
-      // Distribuir cuotas mensuales desde f_inicio hasta f_venc
-      const inicio = new Date(c.f_inicio);
-      const fin = new Date(c.f_venc);
-      if(isNaN(inicio) || isNaN(fin)) return;
-      let fecha = new Date(inicio);
-      // Primera cuota en el mes siguiente al desembolso
-      fecha.setMonth(fecha.getMonth() + 1);
-      while(fecha <= fin) {
-        const mes = `${MN[fecha.getMonth()]}-${String(fecha.getFullYear()).slice(2)}`;
-        const i = mIdx(mes);
-        if(i >= 0) arr[i] += cuota;
-        fecha.setMonth(fecha.getMonth() + 1);
-      }
-    } else {
-      // Bullet y otros: una cuota al vencimiento
-      const mes = mesDeDate(c.f_venc);
-      if(!mes || mes.includes("NaN")) return;
-      const i = mIdx(mes);
-      if(i >= 0) arr[i] += cuota;
-    }
-  });
-  return arr;
-}
-
-// Calcula ingreso del préstamo (desembolso) en Ingresos No Operacionales
-function calcIngresosPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
-  const arr = Z65();
-  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
-    // Socio: el desembolso (capital) entra como ingreso en su fecha.
-    const fechaIng = c.tipo_credito === "socio" ? c.fecha_desembolso : c.f_inicio;
-    if(!fechaIng) return;
-    const monto = Number(c.monto)||0;
-    if(monto === 0) return;
-    const mes = mesDeDate(fechaIng);
-    if(!mes || mes.includes("NaN")) return;
-    const i = mIdx(mes);
-    if(i >= 0) arr[i] += monto;
-  });
-  return arr;
-}
-
-// Retorna { mes: { semana: monto } } para posicionar en semana exacta de vencimiento
-// Si la semana calculada no está en SEMANAS_MES del mes, usa la última semana del mes
-function semanaVencimientoEnMes(f_venc) {
-  const mes = mesDeDate(f_venc);
-  const sem = semanaDeDate(f_venc);
-  const semsDelMes = SEMANAS_MES[mes] || [];
-  // Si la semana está en el mes → usarla; si no → usar la última semana del mes
-  return { mes, sem: semsDelMes.includes(sem) ? sem : (semsDelMes[semsDelMes.length-1] || sem) };
-}
-
-// ── Genera cuotas de renovación para créditos renovables ya pagados ──────────
-// Usa cuotas_renovacion:[{mes,anio,monto}] para fechas exactas
+// ── Créditos → Flujo de Caja ─────────────────────────────────────────
+// Una sola fuente de verdad: src/creditos.js calcula, por empresa, lo
+// PENDIENTE de cada vencimiento (ya descontados los pagos registrados), con
+// capital / intereses / otros cargos separados, en su mes y semana. Un
+// vencimiento impago con fecha pasada se arrastra al mes y semana en curso
+// (no desaparece de la proyección). Pantalla, consolidado y Excel leen de aquí.
 const MES_ABR_TO_EN = {
   "Ene":"Jan","Feb":"Feb","Mar":"Mar","Abr":"Apr","May":"May","Jun":"Jun",
   "Jul":"Jul","Ago":"Aug","Sep":"Sep","Oct":"Oct","Nov":"Nov","Dic":"Dec"
 };
-
-// Calcula monto real de cada cuota:
-// "Solo Interés"    → interés sobre saldo (capital NO disminuye)
-// "Capital+Interés" → amortización equitativa + interés sobre saldo (capital disminuye)
-// El interés SIEMPRE se agrega automáticamente según tasa anual
-// Mapa abreviatura mes español → número
 const MES_ABR_NUM = {Ene:1,Feb:2,Mar:3,Abr:4,May:5,Jun:6,Jul:7,Ago:8,Sep:9,Oct:10,Nov:11,Dic:12};
 
-function calcMontoRealCuota(cuotas, capital, tasaAnual, mesIngresoAnio) {
-  const cuotasArr = cuotas||[];
-  const n = cuotasArr.length;
-  if(n===0) return [];
-  const tasaMensual = (Number(tasaAnual)||0)/100/12;
-  const nCapital = cuotasArr.filter(cq=>(cq.tipo||"Solo Interés")==="Capital+Interés").length;
-  const amortPorCuota = nCapital>0 ? (Number(capital)||0)/nCapital : 0;
-  let saldo = Number(capital)||0;
-
-  // Fecha base: mes de ingreso del préstamo (para calcular meses exactos)
-  // mesIngresoAnio: "May-26" o similar, o usar primer mes de cuotas
-  let fechaBase = null;
-  if(mesIngresoAnio) {
-    const parts = String(mesIngresoAnio).split("-");
-    if(parts.length===2) {
-      const mesAbr = parts[0]; const anioS = parts[1];
-      const mesN = MES_ABR_NUM[mesAbr]||1;
-      const anioN = anioS.length===2 ? 2000+parseInt(anioS) : parseInt(anioS);
-      fechaBase = {y:anioN, m:mesN};
-    }
-  }
-
-  return cuotasArr.map((cq,i) => {
-    const tipo = cq.tipo||"Solo Interés";
-    // Calcular meses desde fecha base hasta esta cuota
-    let interes = 0;
-    if(tasaMensual > 0 && cq.mes && cq.anio) {
-      const mesN = MES_ABR_NUM[cq.mes]||1;
-      const anioN = parseInt(cq.anio)||2026;
-      let mesesTransc = 0;
-      if(fechaBase) {
-        // Meses desde el ingreso (o última cuota) hasta esta cuota
-        const prevCuota = i===0 ? fechaBase : (() => {
-          const pc = cuotasArr[i-1];
-          return pc?.mes && pc?.anio
-            ? {y:parseInt(pc.anio)||2026, m:MES_ABR_NUM[pc.mes]||1}
-            : fechaBase;
-        })();
-        mesesTransc = (anioN - prevCuota.y)*12 + (mesN - prevCuota.m);
-      } else {
-        // Sin fecha base, asumir período mensual
-        mesesTransc = 1;
-      }
-      mesesTransc = Math.max(1, mesesTransc);
-      interes = Math.round(saldo * tasaMensual * mesesTransc);
-    }
-    let montoReal, amort=0;
-    if(tipo==="Capital+Interés") {
-      amort = Math.round(amortPorCuota);
-      montoReal = amort + interes;
-      saldo = Math.max(0, saldo - amort);
+// Semana (misma numeración que semanaDeDate) de una fecha ISO leída como
+// texto, sin zona horaria.
+function semanaDeISO(p) {
+  const t = Date.UTC(p.y, p.m-1, p.d), j1 = Date.UTC(p.y, 0, 1);
+  const week = Math.ceil(((t-j1)/86400000 + new Date(j1).getUTCDay() + 1)/7);
+  return `S${String(week).padStart(2,"0")}`;
+}
+// Posición "hoy" en el flujo: misma regla que FlujoEmpresa (mes actual y
+// semana en curso), para que un vencido arrastrado caiga en la semana desde
+// la que arranca el saldo semanal.
+function posicionHoyFlujo() {
+  const hoy = new Date();
+  const mes = `${MN[hoy.getMonth()]}-${String(hoy.getFullYear()).slice(2)}`;
+  const jan1 = new Date(hoy.getFullYear(),0,4);
+  const week = 1+Math.round(((hoy-jan1)/86400000-3+((jan1.getDay()+6)%7))/7);
+  const sems = SEMANAS_MES[mes] || [];
+  const si = sems.indexOf(`S${String(week).padStart(2,"0")}`);
+  return { idx: mIdx(mes), semIdx: si >= 0 ? si : 0 };
+}
+// {idx, semIdx} de una fecha ISO en el horizonte del flujo (idx −1 = fuera).
+// Si la semana no está en SEMANAS_MES del mes, usa la última (regla histórica).
+function ubicarFechaFlujo(iso) {
+  if (iso === hoyISO()) return posicionHoyFlujo();
+  const p = partesISO(iso);
+  if (!p) return { idx:-1, semIdx:0 };
+  const mes = `${MN[p.m-1]}-${String(p.y).slice(2)}`;
+  const sems = SEMANAS_MES[mes] || [];
+  let semIdx = 0;
+  if (sems.length) { const i = sems.indexOf(semanaDeISO(p)); semIdx = i >= 0 ? i : sems.length-1; }
+  return { idx: mIdx(mes), semIdx };
+}
+// Cache por (lista de créditos, empresa, día): la misma lista se consulta
+// muchas veces por render (fila, sub-filas, semanas).
+const _cacheFlujoCred = new WeakMap();
+export function flujoCredEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
+  const lista = Array.isArray(creditos) ? creditos : [];
+  const hoy = hoyISO();
+  let m = _cacheFlujoCred.get(lista);
+  if (!m) { m = new Map(); _cacheFlujoCred.set(lista, m); }
+  const k = `${empresa}|${hoy}`;
+  if (!m.has(k)) m.set(k, flujoCreditosEmpresa(empresa, lista, { hoy, ubicar: ubicarFechaFlujo, nMeses: MESES_65.length }));
+  return m.get(k);
+}
+// Escenario "incluyendo cuotas potencialmente impagas" (por conciliar).
+// Caerían en el mes en curso. Si ese mes tiene un VALOR MANUAL vigente en la
+// misma línea (Pago Préstamos / Renovaciones):
+//   · cobertura definida (_coberturasManual): se excluyen SOLO las cuotas
+//     vinculadas explícitamente a ese valor manual; las demás se suman;
+//   · cobertura sin definir: se suman, pero el escenario queda PROVISIONAL
+//     (puede haber superposición con el valor manual) y no es un saldo definitivo.
+export function escenarioPorConciliar(empNombre, empObj, creditos, realDataEmp) {
+  const fc = flujoCredEmpresa(empNombre, creditos);
+  const idxHoy = posicionHoyFlujo().idx;
+  const ov = realDataEmp?._proyOverrides || {};
+  const res = realDataEmp?._resolucionesOverride;
+  const cobs = (realDataEmp?._coberturasManual || []).filter(x => x && !x.anulado);
+  const manualDe = (label) => {
+    if(!empObj || idxHoy < 0) return undefined;
+    const o = overridesDeLinea(ov, empObj, "egr_nop", label, res) || {};
+    return o[idxHoy] !== undefined ? o[idxHoy] : o[String(idxHoy)];
+  };
+  const incluidas = [], excluidas = [], pendientesCobertura = [];
+  fc.porConciliar.forEach(v => {
+    const linea = v.origen === "renovacion" ? "Renovaciones" : "Pago Préstamos - Total";
+    const manual = manualDe(linea);
+    if(manual === undefined){ incluidas.push({ ...v, linea }); return; }
+    const cob = cobs.find(x => x.linea === linea && x.idx === idxHoy);
+    if(cob && (cob.vencKeys || []).includes(v.key)){
+      excluidas.push({ ...v, linea, motivo:`vinculada explícitamente al valor manual de ${linea} (${cob.usuario}: ${cob.nota})` });
+    } else if(cob){
+      incluidas.push({ ...v, linea });               // cobertura definida y no la incluye
     } else {
-      montoReal = interes;
+      incluidas.push({ ...v, linea, superposicion:true });
+      pendientesCobertura.push({ ...v, linea });
     }
-    return {...cq, montoReal, interes, amort};
   });
+  const sinTC = fc.sinTC.filter(c => (c._porConciliarOriginal||0) > 0);
+  const suma = (arr) => arr.reduce((a,v)=>a+v.usd,0);
+  return { impacto: suma(incluidas), incluidas, excluidas, excluidoUSD: suma(excluidas),
+    pendientesCobertura, superposicionUSD: suma(pendientesCobertura), provisional: pendientesCobertura.length > 0 || sinTC.length > 0,
+    sinTC, idxHoy };
 }
 
-// Normaliza las renovaciones de un crédito a un array. Soporta el formato
-// nuevo (c.renovaciones:[{monto,mes_ingreso,anio_ingreso,tasa_anual,cuotas}])
-// y el legacy (campos monto_renovacion/…/cuotas_renovacion como 1 renovación).
-function getRenovaciones(c) {
-  if (Array.isArray(c.renovaciones) && c.renovaciones.length) {
-    return c.renovaciones.map(r => ({
-      monto: r.monto,
-      mes_ingreso: r.mes_ingreso,
-      anio_ingreso: r.anio_ingreso,
-      tasa_anual: (r.tasa_anual != null && r.tasa_anual !== "") ? r.tasa_anual : c.tasa_anual,
-      cuotas: r.cuotas || [],
-    }));
-  }
-  if (c.monto_renovacion || (c.cuotas_renovacion||[]).length) {
-    return [{
-      monto: c.monto_renovacion,
-      mes_ingreso: c.mes_ingreso_renovacion,
-      anio_ingreso: c.anio_ingreso_renovacion,
-      tasa_anual: c.tasa_anual,
-      cuotas: c.cuotas_renovacion || [],
-    }];
-  }
-  return [];
+function calcPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
+  return [...flujoCredEmpresa(empresa, creditos).prestamos.total];
 }
-// Cuotas calculadas (con interés/amort) de una renovación normalizada.
-function calcCuotasRenovacion(ren) {
-  return calcMontoRealCuota(ren.cuotas, ren.monto, ren.tasa_anual,
-    ren.mes_ingreso && ren.anio_ingreso ? `${ren.mes_ingreso}-${String(ren.anio_ingreso).slice(-2)}` : '');
+function calcIngresosPrestamosEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
+  return [...flujoCredEmpresa(empresa, creditos).ingresos.total];
 }
-
 function calcRenovacionesEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
-  const arr = Z65();
-  creditos.filter(c => c.empresa === empresa && c.renovable).forEach(c => {
-    getRenovaciones(c).forEach(ren => {
-      calcCuotasRenovacion(ren).forEach(cq => {
-        if(!cq.mes || !cq.anio) return;
-        const monto = cq.montoReal || Number(cq.monto) || 0;
-        const mesEn = MES_ABR_TO_EN[cq.mes] || cq.mes;
-        const label = `${mesEn}-${String(cq.anio).slice(2)}`;
-        const i = mIdx(label);
-        if(i >= 0) arr[i] += monto;
-      });
-    });
-  });
-  return arr;
+  return [...flujoCredEmpresa(empresa, creditos).renovaciones.total];
 }
-
 function calcRenovacionesDesglose(empresa, creditos=CREDITOS_DEFAULT) {
-  const byAcreedor = {};
-  creditos.filter(c => c.empresa === empresa && c.renovable).forEach(c => {
-    const key = c.acreedor + " (Ren.)";
-    if(!byAcreedor[key]) byAcreedor[key] = Z65();
-    getRenovaciones(c).forEach(ren => {
-      calcCuotasRenovacion(ren).forEach(cq => {
-        if(!cq.mes || !cq.anio) return;
-        const monto = cq.montoReal || Number(cq.monto) || 0;
-        const mesEn = MES_ABR_TO_EN[cq.mes] || cq.mes;
-        const label = `${mesEn}-${String(cq.anio).slice(2)}`;
-        const i = mIdx(label);
-        if(i >= 0) byAcreedor[key][i] += monto;
-      });
-    });
-  });
-  return byAcreedor;
+  const out = {};
+  Object.entries(flujoCredEmpresa(empresa, creditos).renovaciones.porAcreedor).forEach(([a,x])=>{ out[a] = x.mes; });
+  return out;
 }
 
 // Genera array de ingresos por renovación (nuevo préstamo recibido)
@@ -968,46 +885,6 @@ function calcIngresoRenovacionDesglose(empresa, creditos=CREDITOS_DEFAULT) {
   });
   return byAcreedor;
 }
-function calcPrestamosSemanasEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
-  const bySemana = {}; // { "Nov-26": { "S47": 120000 } }
-  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
-    if(!c.f_venc || !c.cuota) return;
-    const { mes, sem } = semanaVencimientoEnMes(c.f_venc);
-    const monto = Number(c.cuota)||0;
-    if(!bySemana[mes]) bySemana[mes] = {};
-    bySemana[mes][sem] = (bySemana[mes][sem]||0) + monto;
-  });
-  return bySemana;
-}
-
-// Retorna { acreedor: proy[64] } desglosado por institución
-function calcPrestamosDesglose(empresa, creditos=CREDITOS_DEFAULT) {
-  const byAcreedor = {};
-  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
-    if(!c.f_venc || !c.cuota) return;
-    const mes = mesDeDate(c.f_venc);
-    const i   = mIdx(mes);
-    if(i < 0) return;
-    if(!byAcreedor[c.acreedor]) byAcreedor[c.acreedor] = Z65();
-    byAcreedor[c.acreedor][i] += Number(c.cuota)||0;
-  });
-  return byAcreedor;
-}
-
-// Retorna { acreedor: { mes: { semana: monto } } } para vista semanal exacta
-function calcPrestamosDesgloseSemanasEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
-  const bySemana = {}; // { "Zelun": { "Nov-26": { "S47": 120000 } } }
-  creditos.filter(c => c.empresa === empresa && !c.pagado).forEach(c => {
-    if(!c.f_venc || !c.cuota) return;
-    const { mes, sem } = semanaVencimientoEnMes(c.f_venc);
-    const monto = Number(c.cuota)||0;
-    if(!bySemana[c.acreedor]) bySemana[c.acreedor] = {};
-    if(!bySemana[c.acreedor][mes]) bySemana[c.acreedor][mes] = {};
-    bySemana[c.acreedor][mes][sem] = (bySemana[c.acreedor][mes][sem]||0) + monto;
-  });
-  return bySemana;
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // EMPRESAS ESTÁTICAS
 // ═══════════════════════════════════════════════════════════════════
@@ -1730,6 +1607,61 @@ export function buildAllegria(params, allegraComisionArandanos) {
     ],
   };
 }
+// Inyecta en `base` (salida de buildEmpresas) las líneas que alimenta
+// Créditos. Muta y devuelve `base`. Lo usan FinanzasModule y los tests.
+export function aplicarCreditosAEmpresas(base, creditosData) {
+  Object.keys(base).forEach(empNombre=>{
+    const emp = base[empNombre];
+    base[empNombre] = {
+      ...emp,
+      sections: emp.sections.map(sec=>{
+        // egr_nop: Pago Préstamos + Renovaciones (egresos)
+        if(sec.cat==="egr_nop") {
+          return {
+            ...sec,
+            lines: sec.lines.map(l=>{
+              // Líneas alimentadas por Créditos: no se editan en el flujo. Un valor
+              // manual ANTIGUO sigue aplicando hasta que se concilie mes a mes en
+              // Créditos → Conciliación (no se retira en silencio). La vista
+              // semanal usa la semana exacta de cada vencimiento (_semProy),
+              // igual en la celda, el subtotal, el flujo neto y el saldo.
+              // _compCred: capital / intereses / otros cargos / sin desglosar por mes
+              // (los usa la hoja "Servicio deuda" del Excel; suman el total una vez).
+              const comp = (b)=>({capital:[...b.capital], interes:[...b.interes], cargos:[...b.cargos], sinDesglose:[...b.sinDesglose]});
+              if(l.label==="Pago Préstamos - Total"){
+                const fca = flujoCredEmpresa(empNombre, creditosData);
+                const fc = fca.prestamos;
+                return {...l, proy: [...fc.total], _semProy: fc.sem, _fuenteCreditos:true, _compCred: comp(fc),
+                  _porConciliarUSD: fca.porConciliar.reduce((a,v)=>a+v.usd,0), _porConciliarIdx: posicionHoyFlujo().idx};
+              }
+              if(l.label==="Renovaciones"){
+                const fc = flujoCredEmpresa(empNombre, creditosData).renovaciones;
+                return {...l, proy: [...fc.total], _semProy: fc.sem, _fuenteCreditos:true, _compCred: comp(fc)};
+              }
+              return l;
+            })
+          };
+        }
+        // ing_nop: Ingreso Renovación + Ingresos Financiamiento (ingresos)
+        if(sec.cat==="ing_nop") {
+          return {
+            ...sec,
+            lines: sec.lines.map(l=>{
+              if(l.label==="Ingreso Renovación")
+                return {...l, proy: calcIngresoRenovacionEmpresa(empNombre, creditosData)};
+              if(l.label==="Ingresos Financiamiento")
+                return {...l, proy: calcIngresosPrestamosEmpresa(empNombre, creditosData)};
+              return l;
+            })
+          };
+        }
+        return sec;
+      })
+    };
+  });
+  return base;
+}
+
 export function buildEmpresas(params, allegraComisionArandanos) {
   return { ...EMPRESAS_STATIC, "Allegria Foods": buildAllegria(params, allegraComisionArandanos) };
 }
@@ -6196,13 +6128,16 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     const ov = overridesDeLinea(proyOverrides, emp, cat, lineLabel, resoluciones)?.[idx];
     let base = 0;
     let lockFrom = null;
+    let semProy = null;
     {
       const sec = emp.sections.find(x=>x.cat===cat);
       const l = sec && sec.lines.find(x=>x.label===lineLabel);
-      if(l){ base = l.proy[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; }
+      if(l){ base = l.proy[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; if(l._semProy) semProy=l._semProy; }
     }
     // Celda controlada por parámetros: ignora override, muestra base en la 1ª semana.
     if(ov === undefined || (lockFrom !== null && idx >= lockFrom)) {
+      // Línea con reparto semanal propio (Créditos: semana del vencimiento)
+      if(semProy) return (semProy[idx]?.[semIdx]) || 0;
       // Sin override: mostrar el valor base COMPLETO en la primera semana
       return semIdx === 0 ? base : 0;
     }
@@ -6313,6 +6248,27 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   // cat::etiqueta debe ser único; si el usuario agregó líneas con el mismo
   // nombre en la misma categoría, hay que avisarlo antes de seguir.
   const dupClaves = useMemo(() => clavesDuplicadas(emp), [emp]);
+  const escPC = useMemo(()=>escenarioPorConciliar(empNombre, emp, creditosData, realData?.[empNombre]),[empNombre, emp, creditosData, realData]);
+  // Créditos en el flujo: vencidas confirmadas arrastradas al mes en curso,
+  // cuotas históricas por conciliar (fuera del flujo), créditos sin TC y
+  // valores manuales antiguos en Pago Préstamos / Renovaciones que siguen
+  // aplicando hasta conciliarse.
+  const avisoCreditos = useMemo(()=>{
+    const fc = flujoCredEmpresa(empNombre, creditosData);
+    const ovIgnorados = [];
+    emp.sections.forEach(sec=>sec.lines.forEach(l=>{
+      if(!l._fuenteCreditos) return;
+      const ov = overridesDeLinea(proyOverrides, emp, sec.cat, l.label, resoluciones) || {};
+      Object.entries(ov).forEach(([i,v])=>{
+        const idx=Number(i); if(isNaN(idx)||!MESES_65[idx]) return;
+        const val = typeof v==="object"&&v!==null ? Object.values(v).reduce((a,x)=>a+(Number(x)||0),0) : (Number(v)||0);
+        ovIgnorados.push({linea:l.label, mes:MESES_65[idx], manual:val, creditos:l.proy[idx]||0});
+      });
+    }));
+    // TC de proyección: avisa estimado (TC declarado) y antigüedad > 7 días, con fecha y fuente.
+    const tcAvisos = (fc.valorizacion||[]).filter(v=>v.estimado||v.desactualizado||v.porFecha);
+    return { arrastrados: fc.arrastrados, porConciliar: fc.porConciliar, sinTC: fc.sinTC, ovIgnorados, tcAvisos };
+  },[empNombre, creditosData, emp, proyOverrides, resoluciones]);
 
   // Asignar UN mes de un override ambiguo a una categoría concreta.
   const resolver = useCallback(async (amb, mes, cat) => {
@@ -6829,9 +6785,6 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         let val;
                         if(isTot||col.type==="month"||col.type==="month_collapsed"){
                           val=valMes;
-                        } else if(line.formula&&line.label.includes("Préstamos")&&col.type==="week"){
-                          const semMap=calcPrestamosSemanasEmpresa(empNombre, creditosData);
-                          val=(semMap[col.mes]?.[col.semana])||0;
                         } else if(col.type==="week") {
                           // Cada semana tiene su propio valor independiente
                           const propValSem = getProySemana(sec.cat, line.label, col.idx, col.semIdx, col.isLastInMonth);
@@ -6856,7 +6809,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         // solo aporta el valor por defecto; lo ingresado manda.
                         const overrideDesde = typeof line._permiteOverrideDesdeIdx === "number" ? line._permiteOverrideDesdeIdx : null;
                         const permiteOverrideManual = line.label === "Royalty IQ" || (overrideDesde !== null && col.idx >= overrideDesde);
-                        const formulaBloquea = line.formula && !esTemporadaActual && !permiteOverrideManual;
+                        // Pago Préstamos / Renovaciones: se editan en Créditos (única fuente).
+                        const formulaBloquea = line._fuenteCreditos || (line.formula && !esTemporadaActual && !permiteOverrideManual);
                         const isEditable=canEdit && !formulaBloquea && !isTot && col.type!=="month_collapsed";
                         return (
                           <td key={`${col.mes}-${col.label}-${line.label}-${ci}`}
@@ -6895,84 +6849,52 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     })}
                   </tr>
                   {/* SubLines: clientes/acreedores con montos por mes */}
-                  {/* For Pago Préstamos: auto-generate rows from calcPrestamosDesglose */}
-                  {line.subLines&&expandedSubs[line.label]&&line.label.includes("Préstamos")&&(()=>{
-                    const desglose      = calcPrestamosDesglose(empNombre, creditosData);
-                    const desgloseSemsn = calcPrestamosDesgloseSemanasEmpresa(empNombre, creditosData);
-                    return Object.entries(desglose).map(([acreedor, proyArr])=>{
-                      const semMap = desgloseSemsn[acreedor]||{};
-                      return (
-                      <tr key={`prest-${acreedor}`} style={{borderBottom:`1px solid ${C.border}11`,background:`${C.red}06`}}>
+                  {/* Pago Préstamos / Renovaciones: desglose automático desde Créditos —
+                      por acreedor y por componente (capital / intereses / otros cargos).
+                      Mismo cálculo que la fila padre: mes y semana exacta del vencimiento. */}
+                  {line._fuenteCreditos&&expandedSubs[line.label]&&(()=>{
+                    const fc = flujoCredEmpresa(empNombre, creditosData);
+                    const b = line.label==="Renovaciones" ? fc.renovaciones : fc.prestamos;
+                    const tieneValor = (arr)=>arr.some(v=>Math.abs(v)>0.005);
+                    const filas = [
+                      ...Object.entries(b.porAcreedor).map(([acr,x])=>({key:`a-${acr}`, label:acr, icono:line.label==="Renovaciones"?"↺":"↳", color:line.label==="Renovaciones"?C.orange:C.red, mes:x.mes, sem:x.sem})),
+                      ...[["capital","Amortización de capital"],["interes","Intereses"],["cargos","Otros cargos (comisiones, seguros)"],["sinDesglose","Cuotas sin desglosar"]]
+                        .filter(([k])=>tieneValor(b[k]))
+                        .map(([k,lbl])=>({key:`c-${k}`, label:lbl, icono:"Σ", color:C.muted, mes:b[k], sem:b.semComp[k], comp:true})),
+                    ];
+                    // Si un valor manual antiguo sigue vigente en algún mes, la fila padre
+                    // no es la suma de los componentes: se muestra el ajuste para que cuadre.
+                    const ajuste = MESES_65.map((_,i)=>getProy(sec.cat, line.label, i) - (b.total[i]||0));
+                    if(ajuste.some(v=>Math.abs(v)>0.005)) filas.push({key:"c-ajuste", label:"Ajuste: valor manual vigente (pendiente de conciliar)", icono:"±", color:C.orange, mes:ajuste, sem:{}, comp:true});
+                    return filas.map((f,fi)=>(
+                      <tr key={`fc-${line.label}-${f.key}`} style={{borderBottom:`1px solid ${C.border}11`,background:`${C.red}06`,
+                        borderTop:f.comp&&(fi===0||!filas[fi-1].comp)?`1px dashed ${C.border}`:undefined}}>
                         <td style={{padding:"4px 14px 4px 28px",fontSize:10,position:"sticky",left:0,
                           background:`${C.red}06`,zIndex:1,borderRight:`1px solid ${C.border}`,color:C.muted}}>
                           <div style={{display:"flex",alignItems:"center",gap:4}}>
-                            <span style={{color:C.red,fontSize:9}}>↳</span>
-                            <span style={{fontWeight:600}}>{acreedor}</span>
+                            <span style={{color:f.color,fontSize:9}}>{f.icono}</span>
+                            <span style={{fontWeight:f.comp?500:600,fontStyle:f.comp?"italic":"normal"}}>{f.label}</span>
                           </div>
                         </td>
                         {colStructure.map(({season:s,collapsed,cols})=>{
                           if(collapsed){
-                            const tot=s.indices.reduce((a,i)=>a+(proyArr[i]||0),0);
+                            const tot=s.indices.reduce((a,i)=>a+(f.mes[i]||0),0);
                             return <td key={s.key} style={{padding:"4px 6px",textAlign:"right",fontSize:9,
-                              color:tot?C.red:C.muted2,fontWeight:tot?700:400,
+                              color:tot?f.color:C.muted2,fontWeight:tot?700:400,
                               borderLeft:`2px solid ${C.border2}`}}>{tot?$$(tot):"—"}</td>;
                           }
                           return cols.map((col,ci)=>{
                             const isTot=col.isTotalMes;
-                            // Vista mensual: usar proy mensual
-                            // Vista semanal: usar semana exacta de vencimiento
                             let disp=0;
-                            if(isTot||col.type==="month"||col.type==="month_collapsed"){
-                              disp=proyArr[col.idx]||0;
-                            } else if(col.type==="week"&&col.mes&&col.semana){
-                              disp=(semMap[col.mes]?.[col.semana])||0;
-                            }
+                            if(isTot||col.type==="month"||col.type==="month_collapsed") disp=f.mes[col.idx]||0;
+                            else if(col.type==="week") disp=(f.sem[col.idx]?.[col.semIdx])||0;
                             const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                             return (
-                              <td key={`pr-${acreedor}-${col.mes||""}-${ci}`}
+                              <td key={`fc-${f.key}-${col.mes||""}-${ci}`}
                                 style={{padding:"4px 5px",textAlign:"right",fontSize:9,
                                   background:isTot?`${C.yellow}12`:`${C.red}06`,
                                   borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
-                                <span style={{color:disp?C.red:C.muted2,fontWeight:disp?700:400}}>
-                                  {disp?$$(disp):"—"}
-                                </span>
-                              </td>
-                            );
-                          });
-                        })}
-                      </tr>
-                      );
-                    });
-                  })()}
-                  {/* Renovaciones sub-rows */}
-                  {line.subLines&&expandedSubs[line.label]&&line.label==="Renovaciones"&&(()=>{
-                    const desgloseRen = calcRenovacionesDesglose(empNombre, creditosData);
-                    return Object.entries(desgloseRen).map(([acreedor, proyArr])=>(
-                      <tr key={`ren-${acreedor}`} style={{borderBottom:`1px solid ${C.border}11`,background:`${C.orange}06`}}>
-                        <td style={{padding:"4px 14px 4px 28px",fontSize:10,position:"sticky",left:0,
-                          background:`${C.orange}06`,zIndex:1,borderRight:`1px solid ${C.border}`,color:C.muted}}>
-                          <div style={{display:"flex",alignItems:"center",gap:4}}>
-                            <span style={{color:C.orange,fontSize:9}}>↺</span>
-                            <span style={{fontWeight:600}}>{acreedor}</span>
-                          </div>
-                        </td>
-                        {colStructure.map(({season:s,collapsed,cols})=>{
-                          if(collapsed){
-                            const tot=s.indices.reduce((a,i)=>a+(proyArr[i]||0),0);
-                            return <td key={s.key} style={{padding:"4px 6px",textAlign:"right",fontSize:9,
-                              color:tot?C.orange:C.muted2,fontWeight:tot?700:400,
-                              borderLeft:`2px solid ${C.border2}`}}>{tot?$$(tot):"—"}</td>;
-                          }
-                          return cols.map((col,ci)=>{
-                            const raw=proyArr[col.idx]||0;
-                            const disp=col.isTotalMes||col.type==="month"||col.type==="month_collapsed"||col.isLastInMonth?raw:0;
-                            const isFirst=col.isFirstInSeason||col.isFirstInMonth;
-                            return (
-                              <td key={`ren-${acreedor}-${col.mes||""}-${ci}`}
-                                style={{padding:"4px 5px",textAlign:"right",fontSize:9,
-                                  background:col.isTotalMes?`${C.yellow}12`:`${C.orange}06`,
-                                  borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
-                                <span style={{color:disp?C.orange:C.muted2,fontWeight:disp?700:400}}>
+                                <span style={{color:disp?f.color:C.muted2,fontWeight:disp&&!f.comp?700:400,fontStyle:f.comp?"italic":"normal"}}>
                                   {disp?$$(disp):"—"}
                                 </span>
                               </td>
@@ -7473,6 +7395,37 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                 });
               })}
             </tr>
+            {/* ESCENARIO: incluyendo cuotas por conciliar (potencialmente impagas) */}
+            {escPC.impacto>0.5&&(
+            <tr style={{background:"#ede9fe"}}>
+              <td style={{padding:"7px 14px",fontWeight:800,color:"#5b21b6",fontSize:10,
+                position:"sticky",left:0,background:"#ede9fe",borderRight:`1px solid ${C.border}`,zIndex:1}}
+                title="Escenario: si las cuotas históricas por conciliar resultaran impagas, se pagarían en el mes en curso">
+                SALDO ACUM. incl. por conciliar
+                <div style={{fontSize:8,fontWeight:600}}>escenario · −{$$(escPC.impacto)}{escPC.provisional?" · PROVISIONAL":""}</div>
+                {escPC.superposicionUSD>0.5&&<div style={{fontSize:8,fontWeight:600,color:C.red}}>puede superponerse con valor manual ({$$(escPC.superposicionUSD)})</div>}
+              </td>
+              {colStructure.map(({season:s,collapsed,cols})=>{
+                if(collapsed){
+                  const last=s.indices[s.indices.length-1];
+                  const v = acumArr[last]==null ? null : acumArr[last]-escPC.impacto;
+                  return <td key={s.key} style={{padding:"7px 8px",textAlign:"right",fontWeight:800,fontSize:11,color:v==null?C.muted2:cf(v),borderLeft:`2px solid ${C.border2}`}}>{v==null?"—":$$(v)}</td>;
+                }
+                return cols.map((col,ci)=>{
+                  const isTot=col.isTotalMes;
+                  const isFirst=col.isFirstInSeason||col.isFirstInMonth;
+                  const b = col.type==="week" ? getAcumSemana(col.idx, col.semIdx) : acumArr[col.idx];
+                  const v = b==null ? null : b - escPC.impacto;
+                  return (
+                    <td key={`acumpc-${col.mes}-${col.label}-${ci}`}
+                      style={{padding:"6px 5px",textAlign:"right",fontWeight:isTot?900:700,fontSize:isTot?10:9,color:v==null?C.muted2:cf(v),
+                        borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
+                      {v==null?"—":$$(v)}
+                    </td>
+                  );
+                });
+              })}
+            </tr>)}
           </tbody>
         </table>
       </div>
@@ -7549,6 +7502,53 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
           💡 Haz click en cualquier valor proyectado para editarlo. Los cambios se guardan automáticamente.
           {Object.keys(proyOverrides).length>0&&
             <span style={{marginLeft:8,color:C.yellow}}>● {Object.keys(proyOverrides).length} línea(s) con valores modificados</span>}
+        </div>
+      )}
+
+      {/* ── Créditos: vencidos arrastrados, sin TC, manuales que no aplican ── */}
+      {(avisoCreditos.arrastrados.length>0||avisoCreditos.porConciliar.length>0||avisoCreditos.sinTC.length>0||avisoCreditos.ovIgnorados.length>0||avisoCreditos.tcAvisos.length>0)&&(
+        <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,borderRadius:10,padding:"10px 14px",fontSize:11,color:C.text,lineHeight:1.6}}>
+          {avisoCreditos.arrastrados.length>0&&(<div>
+            <strong>⚠ {avisoCreditos.arrastrados.length} cuota(s) vencida(s) impaga(s) confirmada(s): {$$(avisoCreditos.arrastrados.reduce((a,v)=>a+v.usd,0))}</strong> se
+            proyectan en el mes y semana en curso; se muestra su fecha contractual original. Si ya se pagaron, regístralo en Créditos → Pagos.
+            <div style={{color:C.muted,fontSize:10}}>
+              {avisoCreditos.arrastrados.slice(0,8).map(v=>`${v.acreedor} ${fmtDate(v.fecha)} ${$$(v.usd)}`).join(" · ")}
+              {avisoCreditos.arrastrados.length>8?` · y ${avisoCreditos.arrastrados.length-8} más`:""}
+            </div>
+          </div>)}
+          {avisoCreditos.porConciliar.length>0&&(<div style={{marginTop:4}}>
+            <strong>🔎 {avisoCreditos.porConciliar.length} cuota(s) histórica(s) por conciliar: {$$(avisoCreditos.porConciliar.reduce((a,v)=>a+v.usd,0))}</strong> — NO están
+            incluidas en el flujo confirmado (vencieron sin pago registrado en la app, lo que no prueba que sigan impagas).
+            {escPC.impacto>0.5
+              ? <> Dos escenarios: <strong>confirmado</strong> (fila SALDO ACUM.) e <strong>incluyendo por conciliar</strong> (fila morada, {$$(escPC.impacto)} menos desde el mes en curso).</>
+              : <> El escenario "incluyendo por conciliar" no agrega montos a esta empresa.</>}
+            {escPC.excluidoUSD>0.5&&<> No se suman {$$(escPC.excluidoUSD)} vinculados explícitamente a un valor manual vigente.</>}
+            {escPC.superposicionUSD>0.5&&<strong style={{color:C.red}}> Escenario PROVISIONAL: {$$(escPC.superposicionUSD)} se suman aunque el mes en curso tiene un valor manual vigente cuya cobertura no está definida; puede haber superposición y el saldo no es definitivo. Define qué cuotas cubre ese valor en Créditos → Conciliación.</strong>}
+            {escPC.sinTC.length>0&&<> Hay cuotas por conciliar en otra moneda sin TC: el escenario está incompleto.</>}
+            Concílialas en Créditos → Conciliación.
+            <div style={{color:C.muted,fontSize:10}}>
+              {avisoCreditos.porConciliar.slice(0,8).map(v=>`${v.acreedor} ${fmtDate(v.fecha)} ${$$(v.usd)}`).join(" · ")}
+              {avisoCreditos.porConciliar.length>8?` · y ${avisoCreditos.porConciliar.length-8} más`:""}
+            </div>
+          </div>)}
+          {avisoCreditos.sinTC.length>0&&(<div style={{marginTop:4}}>
+            <strong>⚠ {avisoCreditos.sinTC.length} crédito(s) en otra moneda sin tipo de cambio</strong> no entran al flujo
+            (no se suman montos en {[...new Set(avisoCreditos.sinTC.map(c=>c.moneda))].join("/")} a un flujo en USD): {avisoCreditos.sinTC.map(c=>c.acreedor).join(", ")}.
+            Carga el TC en Créditos.
+          </div>)}
+          {avisoCreditos.tcAvisos.length>0&&(<div style={{marginTop:4}}>
+            <strong>⚠ Tipo de cambio de la proyección de créditos:</strong>{" "}
+            {avisoCreditos.tcAvisos.map(v=>`${v.acreedor}: ${valorTC(v)} · ${v.fecha?fmtDate(v.fecha):"sin fecha"} · ${v.fuente}`
+              +(v.estimado?" · ESTIMADO (TC declarado en el crédito)":"")+(v.desactualizado?` · ${v.antiguedadDias!=null?v.antiguedadDias+" días":"sin fecha"} de antigüedad (> ${TC_ANTIGUEDAD_AVISO_DIAS})`:"")
+              +(v.porFecha?" · UF de cada vencimiento futuro = última publicada (hipótesis de proyección)":"")).join(" · ")}
+          </div>)}
+          {avisoCreditos.ovIgnorados.length>0&&(<div style={{marginTop:4}}>
+            <strong>ℹ {avisoCreditos.ovIgnorados.length} valor(es) manual(es) antiguo(s) en Pago Préstamos / Renovaciones SIGUEN aplicándose</strong> en
+            lugar del calendario de Créditos, hasta que se concilien mes a mes en Créditos → Conciliación.
+            <div style={{color:C.muted,fontSize:10}}>
+              {avisoCreditos.ovIgnorados.map(o=>`${o.linea} ${o.mes}: manual ${$$(o.manual)} → Créditos ${$$(o.creditos)}`).join(" · ")}
+            </div>
+          </div>)}
         </div>
       )}
 
@@ -7753,10 +7753,1407 @@ function Dashboard({empresas, empresasConOverrides, saldosBancos}) {
 // ═══════════════════════════════════════════════════════════════════
 // CRÉDITOS
 // ═══════════════════════════════════════════════════════════════════
-function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canEdit=false, empresasPermitidas, nextCreditId}) {
+// ═══════════════════════════════════════════════════════════════════
+// CRÉDITOS — piezas de interfaz (detalle, contrato, análisis, prepago).
+// La lógica vive en src/creditos.js; acá solo se muestra y se captura.
+// ═══════════════════════════════════════════════════════════════════
+const $c = (n, mon) => {
+  if(n==null||n==="") return "—";
+  const v = Number(n)||0;
+  const d = mon==="UF" ? 4 : 2;   // la UF se expresa con 4 decimales
+  return `${v<0?"-":""}${mon&&mon!=="USD"?mon+" ":"$"}${Math.abs(v).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d})}`;
+};
+// Número con decimales fijos (sin símbolo), para diferencias exactas y TC.
+const fmtN = (n, dec=2) => (n==null||n===""||isNaN(Number(n))) ? "—" : Number(n).toLocaleString("en-US",{minimumFractionDigits:dec,maximumFractionDigits:dec});
+const CR_INP = {width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"};
+const CR_TH = {padding:"7px 10px",fontWeight:700,fontSize:10,color:"rgba(255,255,255,0.9)",letterSpacing:"0.4px",textTransform:"uppercase",whiteSpace:"nowrap"};
+const CR_TD = {padding:"6px 10px",fontSize:11,borderBottom:`1px solid ${C.border}22`};
+const ESTADO_VENC = {
+  pagada:   {lbl:"Pagada",    bg:"#dcfce7", fg:"#166534"},
+  parcial:  {lbl:"Parcial",   bg:"#dbeafe", fg:"#1e40af"},
+  vencida:  {lbl:"Vencida",   bg:"#fee2e2", fg:"#991b1b"},
+  pendiente:{lbl:"Pendiente", bg:"#fef9c3", fg:"#854d0e"},
+  por_conciliar:{lbl:"Por conciliar", bg:"#ede9fe", fg:"#5b21b6"},
+};
+const ESTADO_CRED = {
+  vigente:     {lbl:"Vigente",      bg:"#fef9c3", fg:"#854d0e"},
+  con_vencidos:{lbl:"Con vencidos", bg:"#fee2e2", fg:"#991b1b"},
+  por_conciliar:{lbl:"Por conciliar", bg:"#ede9fe", fg:"#5b21b6"},
+  cerrado:     {lbl:"Cerrado",      bg:"#dcfce7", fg:"#166534"},
+  anulado:     {lbl:"Anulado",      bg:"#e5e7eb", fg:"#374151"},
+};
+function Pill({def,extra}){
+  return <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:def.bg,color:def.fg,whiteSpace:"nowrap"}}>{def.lbl}{extra||""}</span>;
+}
+function CampoCr({label,children,ayuda,span}){
+  return (
+    <div style={span?{gridColumn:`span ${span}`}:undefined}>
+      <div style={{fontSize:10,color:C.muted,marginBottom:3,fontWeight:600}}>{label}</div>
+      {children}
+      {ayuda&&<div style={{fontSize:9,color:C.muted2,marginTop:2}}>{ayuda}</div>}
+    </div>
+  );
+}
+
+// ── Campos comunes a todo tipo de crédito ─────────────────────────────
+function CamposComunesCredito({form,setForm,sinMoneda=false}){
+  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const docs = Array.isArray(form.documentos)?form.documentos:[];
+  return (
+    <div style={{padding:"4px 20px 12px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+      <CampoCr label="Tipo de acreedor">
+        <select value={form.tipo_acreedor||""} onChange={e=>set("tipo_acreedor",e.target.value)} style={CR_INP}>
+          <option value="">— seleccionar —</option>{TIPOS_ACREEDOR.map(t=><option key={t}>{t}</option>)}
+        </select>
+      </CampoCr>
+      <CampoCr label="Identificador (N° operación / contrato)">
+        <input value={form.identificador||""} onChange={e=>set("identificador",e.target.value)} style={CR_INP}/>
+      </CampoCr>
+      <CampoCr label="Moneda del crédito" ayuda={sinMoneda?"Crédito de socio: en USD.":undefined}>
+        <select value={sinMoneda?"USD":(form.moneda||"USD")} disabled={sinMoneda} onChange={e=>set("moneda",e.target.value)} style={CR_INP}>
+          {MONEDAS_CREDITO.map(m=><option key={m}>{m}</option>)}
+        </select>
+      </CampoCr>
+      {!sinMoneda&&(form.moneda||"USD")!=="USD"&&(
+        <CampoCr label={`TC de respaldo (${form.moneda} por 1 US$) y su fecha`} ayuda="Se usa solo si Maestros → Tipo de Cambio no tiene el par a la fecha de corte. Sin TC el crédito NO entra al flujo en USD.">
+          <div style={{display:"flex",gap:6}}>
+            <InputNumero formato="tasa" value={form.tc_flujo||""} onChange={n=>set("tc_flujo",n)} style={CR_INP}/>
+            <input type="date" value={form.tc_flujo_fecha||""} onChange={e=>set("tc_flujo_fecha",e.target.value)} style={CR_INP}/>
+          </div>
+        </CampoCr>
+      )}
+      <CampoCr label="Garantías" span={!sinMoneda&&(form.moneda||"USD")!=="USD"?2:3}>
+        <input value={form.garantias||""} onChange={e=>set("garantias",e.target.value)} placeholder="Ej: hipoteca predio X, aval Mediterra, prenda maquinaria" style={CR_INP}/>
+      </CampoCr>
+      <CampoCr label="Prepago: comisión / penalidad" ayuda="Se usa en la simulación. Si no está, la simulación lo declara como dato faltante.">
+        <select value={form.prepago_comision_tipo||""} onChange={e=>set("prepago_comision_tipo",e.target.value)} style={CR_INP}>
+          <option value="">— sin información —</option>
+          <option value="ninguna">Sin comisión</option>
+          <option value="pct">% sobre capital prepagado</option>
+          <option value="meses_interes">N meses de interés sobre lo prepagado</option>
+          <option value="monto">Monto fijo</option>
+        </select>
+      </CampoCr>
+      {["pct","meses_interes","monto"].includes(form.prepago_comision_tipo)&&(
+        <CampoCr label={form.prepago_comision_tipo==="pct"?"% comisión":form.prepago_comision_tipo==="meses_interes"?"N° de meses":"Monto"}>
+          <InputNumero formato={form.prepago_comision_tipo==="monto"?"monto":"tasa"} value={form.prepago_comision_valor||""} onChange={n=>set("prepago_comision_valor",n)} style={CR_INP}/>
+        </CampoCr>
+      )}
+      <CampoCr label="Otras condiciones de prepago (aviso, mínimos…)" span={["pct","meses_interes","monto"].includes(form.prepago_comision_tipo)?1:2}>
+        <input value={form.prepago_notas||""} onChange={e=>set("prepago_notas",e.target.value)} style={CR_INP}/>
+      </CampoCr>
+      <div style={{gridColumn:"span 3"}}>
+        <div style={{fontSize:10,color:C.muted,marginBottom:3,fontWeight:600,display:"flex",alignItems:"center",gap:8}}>
+          Documentos de respaldo (nombre + enlace)
+          <button type="button" onClick={()=>set("documentos",[...docs,{nombre:"",url:""}])}
+            style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700}}>+ documento</button>
+        </div>
+        {docs.map((d,i)=>(
+          <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 2fr auto",gap:6,marginBottom:4}}>
+            <input value={d.nombre||""} placeholder="Ej: Pagaré, Tabla de desarrollo" onChange={e=>set("documentos",docs.map((x,j)=>j===i?{...x,nombre:e.target.value}:x))} style={CR_INP}/>
+            <input value={d.url||""} placeholder="https://… (SharePoint, Drive)" onChange={e=>set("documentos",docs.map((x,j)=>j===i?{...x,url:e.target.value}:x))} style={CR_INP}/>
+            <button type="button" onClick={()=>set("documentos",docs.filter((_,j)=>j!==i))}
+              style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Condiciones de un crédito tipo "contrato" + vista previa ─────────
+function CamposContrato({form,setForm,EMP_SELECT}){
+  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const esManual = form.modalidad==="manual";
+  const cal = useMemo(()=>calendarioContrato(form),[form]);
+  const man = Array.isArray(form.calendario_manual)?form.calendario_manual:[];
+  const cp  = Array.isArray(form.cargos_periodicos)?form.cargos_periodicos:[];
+  const cu  = Array.isArray(form.cargos_unicos)?form.cargos_unicos:[];
+  const tot = cal.filas.reduce((a,f)=>({cap:a.cap+f.capital,int:a.int+f.interes,car:a.car+f.cargos}),{cap:0,int:0,car:0});
+  const mon = form.moneda||"USD";
+  const listaEditable=(arr,key,cols)=>(
+    <div>
+      {arr.map((r,i)=>(
+        <div key={i} style={{display:"grid",gridTemplateColumns:`${cols.map(c=>c.w||"1fr").join(" ")} auto`,gap:6,marginBottom:4}}>
+          {cols.map(c=>c.tipo==="date"
+            ? <input key={c.k} type="date" value={r[c.k]||""} onChange={e=>set(key,arr.map((x,j)=>j===i?{...x,[c.k]:e.target.value}:x))} style={CR_INP}/>
+            : c.tipo==="text"
+              ? <input key={c.k} value={r[c.k]||""} placeholder={c.ph} onChange={e=>set(key,arr.map((x,j)=>j===i?{...x,[c.k]:e.target.value}:x))} style={CR_INP}/>
+              : <InputNumero key={c.k} formato="monto" value={r[c.k]||""} placeholder={c.ph} onChange={n=>set(key,arr.map((x,j)=>j===i?{...x,[c.k]:n}:x))} style={CR_INP}/>)}
+          <button type="button" onClick={()=>set(key,arr.filter((_,j)=>j!==i))}
+            style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <div>
+      <div style={{padding:"16px 20px 8px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+        <CampoCr label="Empresa deudora">
+          <select value={form.empresa||""} onChange={e=>set("empresa",e.target.value)} style={CR_INP}>
+            <option value="">— seleccionar —</option>{EMP_SELECT.map(o=><option key={o}>{o}</option>)}
+          </select>
+        </CampoCr>
+        <CampoCr label="Acreedor"><input value={form.acreedor||""} onChange={e=>set("acreedor",e.target.value)} style={CR_INP}/></CampoCr>
+        <CampoCr label="Tipo de crédito">
+          <select value={form.tipo_cr||""} onChange={e=>set("tipo_cr",e.target.value)} style={CR_INP}>
+            <option value="">— seleccionar —</option>{TIPOS_CREDITO.map(o=><option key={o}>{o}</option>)}
+          </select>
+        </CampoCr>
+        <CampoCr label={`Capital original (${mon})`}><InputNumero formato="monto" value={form.monto||""} onChange={n=>set("monto",n)} style={CR_INP}/></CampoCr>
+        <CampoCr label="Fecha de desembolso"><input type="date" value={form.fecha_desembolso||""} onChange={e=>set("fecha_desembolso",e.target.value)} style={CR_INP}/></CampoCr>
+        <CampoCr label="¿El desembolso entra a caja?" ayuda="No, si es refinanciamiento con el mismo acreedor sin movimiento de caja.">
+          <select value={form.desembolso_en_flujo===false?"no":"si"} onChange={e=>set("desembolso_en_flujo",e.target.value==="si")} style={CR_INP}>
+            <option value="si">Sí (Ingresos Financiamiento)</option><option value="no">No</option>
+          </select>
+        </CampoCr>
+        <CampoCr label="Modalidad de pago" span={2}>
+          <select value={form.modalidad||""} onChange={e=>set("modalidad",e.target.value)} style={CR_INP}>
+            <option value="">— seleccionar —</option>{Object.entries(MODALIDADES).map(([k,l])=><option key={k} value={k}>{l}</option>)}
+          </select>
+        </CampoCr>
+        {!esManual&&<CampoCr label="Vencimiento final"><input type="date" value={form.vencimiento_final||""} onChange={e=>set("vencimiento_final",e.target.value)} style={CR_INP}/></CampoCr>}
+        {!esManual&&form.modalidad!=="bullet_total"&&(<>
+          <CampoCr label="Periodicidad">
+            <select value={String(form.periodicidad||1)} onChange={e=>set("periodicidad",Number(e.target.value))} style={CR_INP}>
+              <option value="1">Mensual</option><option value="3">Trimestral</option><option value="6">Semestral</option><option value="12">Anual</option>
+            </select>
+          </CampoCr>
+          <CampoCr label="Primer vencimiento" ayuda="Vacío = desembolso + 1 período"><input type="date" value={form.primer_venc||""} onChange={e=>set("primer_venc",e.target.value)} style={CR_INP}/></CampoCr>
+          <CampoCr label="Períodos de gracia (capital)">
+            <div style={{display:"flex",gap:6}}>
+              <InputNumero formato="entero" value={form.gracia_periodos||""} onChange={n=>set("gracia_periodos",n)} style={{...CR_INP,width:70}}/>
+              <select value={form.gracia_tipo||"interes"} onChange={e=>set("gracia_tipo",e.target.value)} style={CR_INP}>
+                <option value="interes">paga intereses</option><option value="total">total (intereses se capitalizan)</option>
+              </select>
+            </div>
+          </CampoCr>
+        </>)}
+        {!esManual&&(<>
+          <CampoCr label="Tasa">
+            <select value={form.tasa_tipo||"fija"} onChange={e=>set("tasa_tipo",e.target.value)} style={CR_INP}>
+              <option value="fija">Fija</option><option value="variable">Variable</option>
+            </select>
+          </CampoCr>
+          {(form.tasa_tipo||"fija")==="fija"
+            ? <CampoCr label="Tasa anual nominal (%)"><InputNumero formato="tasa" value={form.tasa_anual??""} onChange={n=>set("tasa_anual",n)} style={CR_INP}/></CampoCr>
+            : (<>
+              <CampoCr label="Referencia (nombre)"><input value={form.tasa_ref_nombre||""} placeholder="SOFR 3M, TAB 90, TPM…" onChange={e=>set("tasa_ref_nombre",e.target.value)} style={CR_INP}/></CampoCr>
+              <CampoCr label="Referencia vigente (%) — hipótesis" ayuda="Se proyecta constante. Actualízala cuando cambie."><InputNumero formato="tasa" value={form.tasa_ref_hipotesis??""} onChange={n=>set("tasa_ref_hipotesis",n)} style={CR_INP}/></CampoCr>
+              <CampoCr label="Margen / spread (%)"><InputNumero formato="tasa" value={form.margen??""} onChange={n=>set("margen",n)} style={CR_INP}/></CampoCr>
+            </>)}
+          <CampoCr label="Base de cálculo de intereses">
+            <select value={form.base||""} onChange={e=>set("base",e.target.value)} style={CR_INP}>
+              <option value="">— seleccionar —</option>{Object.entries(BASES).map(([k,l])=><option key={k} value={k}>{l}</option>)}
+            </select>
+          </CampoCr>
+        </>)}
+      </div>
+
+      {esManual&&(
+        <div style={{padding:"4px 20px 10px"}}>
+          <div style={{fontSize:11,fontWeight:800,color:C.text,marginBottom:6,display:"flex",gap:8,alignItems:"center"}}>
+            📑 Calendario contractual (tal como lo entrega el acreedor)
+            <button type="button" onClick={()=>set("calendario_manual",[...man,{fecha:"",capital:"",interes:"",cargos:""}])}
+              style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700}}>+ vencimiento</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr auto",gap:6,fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>
+            <div>Fecha</div><div>Capital</div><div>Intereses</div><div>Otros cargos</div><div/>
+          </div>
+          {listaEditable(man,"calendario_manual",[{k:"fecha",tipo:"date"},{k:"capital",ph:"capital"},{k:"interes",ph:"intereses"},{k:"cargos",ph:"cargos"}])}
+        </div>
+      )}
+
+      <div style={{padding:"4px 20px 10px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:4,display:"flex",gap:8,alignItems:"center"}}>
+            Cargos en cada vencimiento (seguros, comisiones)
+            <button type="button" onClick={()=>set("cargos_periodicos",[...cp,{concepto:"",monto:""}])}
+              style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700}}>+</button>
+          </div>
+          {listaEditable(cp,"cargos_periodicos",[{k:"concepto",tipo:"text",ph:"Ej: seguro desgravamen",w:"2fr"},{k:"monto",ph:"monto"}])}
+        </div>
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:4,display:"flex",gap:8,alignItems:"center"}}>
+            Cargos únicos (apertura, notaría, impuesto)
+            <button type="button" onClick={()=>set("cargos_unicos",[...cu,{concepto:"",fecha:"",monto:""}])}
+              style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700}}>+</button>
+          </div>
+          {listaEditable(cu,"cargos_unicos",[{k:"concepto",tipo:"text",ph:"concepto",w:"1.5fr"},{k:"fecha",tipo:"date"},{k:"monto",ph:"monto"}])}
+        </div>
+      </div>
+
+      {/* Vista previa del calendario */}
+      <div style={{padding:"4px 20px 14px"}}>
+        {cal.faltantes.length>0?(
+          <div style={{background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"8px 12px",fontSize:11,color:C.text}}>
+            Faltan datos para generar el calendario: <strong>{cal.faltantes.join(", ")}</strong>.
+          </div>
+        ):(
+          <div style={{border:`1px solid ${C.border}`,borderRadius:8,overflow:"auto",maxHeight:260}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr style={{background:C.primary}}>
+                {["#","Vencimiento","Capital","Intereses","Otros cargos","Total","Saldo capital"].map(h=><th key={h} style={{...CR_TH,textAlign:h==="#"||h==="Vencimiento"?"left":"right"}}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {cal.filas.map((f,i)=>(
+                  <tr key={i}>
+                    <td style={{...CR_TD,color:C.muted}}>{i+1}</td>
+                    <td style={{...CR_TD,whiteSpace:"nowrap"}}>{fmtDate(f.fecha)}{f.capitalizado>0&&<span title="Gracia total: el interés se capitaliza" style={{color:C.orange,marginLeft:4}}>↑cap.</span>}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{$c(f.capital,mon)}</td>
+                    <td style={{...CR_TD,textAlign:"right",color:C.orange}}>{$c(f.interes,mon)}</td>
+                    <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{$c(f.cargos,mon)}</td>
+                    <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(f.capital+f.interes+f.cargos,mon)}</td>
+                    <td style={{...CR_TD,textAlign:"right",color:C.blue}}>{f.saldoFinal!=null?$c(f.saldoFinal,mon):"—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr style={{background:C.bg2}}>
+                <td style={CR_TD}/><td style={{...CR_TD,fontWeight:800}}>Total</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(tot.cap,mon)}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:800,color:C.orange}}>{$c(tot.int,mon)}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(tot.car,mon)}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(tot.cap+tot.int+tot.car,mon)}</td><td style={CR_TD}/>
+              </tr></tfoot>
+            </table>
+          </div>
+        )}
+        {cal.avisos.map((a,i)=><div key={i} style={{fontSize:10,color:C.orange,marginTop:4}}>⚠ {a}</div>)}
+        {!esManual&&form.tasa_tipo==="variable"&&cal.faltantes.length===0&&(
+          <div style={{fontSize:10,color:C.orange,marginTop:4}}>
+            Intereses PROYECTADOS: {form.tasa_ref_nombre||"referencia"} {form.tasa_ref_hipotesis}% supuesta constante (hipótesis) + margen {form.margen}%.
+            No son montos contractuales: cambian cuando cambie la referencia; actualiza la hipótesis en el crédito.
+          </div>)}
+      </div>
+    </div>
+  );
+}
+
+// ── Cambios de Créditos sin confirmar por el servidor (creditosPendientes.js) ──
+// Aviso persistente + revisión: qué cambio, si el servidor ya lo tiene, si se puede
+// reintentar o si el crédito cambió desde entonces. Nada se descarta sin decisión.
+function PanelCreditosPendientes({creditosServidor, canEdit, onReintentar, usuario}){
+  const lista = useCreditosPendientes(usuario);
+  const [ocupado,setOcupado]=useState(null);
+  // Clasificación contra lo que tiene el SERVIDOR (no contra la pantalla). Sin
+  // lectura del servidor todavía: "sin verificar".
+  const clases = useMemo(()=>{
+    const m = {};
+    lista.forEach(e=>(e.cambios||[]).forEach(c=>{ m[`${e.id}|${c.uid}`] = creditosServidor ? clasificarPendiente(c, creditosServidor) : "sin_verificar"; }));
+    return m;
+  },[lista, creditosServidor]);
+  const sinConf = lista.filter(e=>e.estado==="sin_confirmar");
+  if(!lista.length) return null;
+  const desc = (c)=>{ const d=c.despues||{}; return `${d.empresa||""} · ${d.acreedor||""}${d.n!=null?` (n ${d.n})`:""}`; };
+  const etiqueta = { confirmado:"ya está en el servidor", reaplicable:"se puede reintentar", conflicto:"el crédito cambió en el servidor desde entonces: revisar a mano", sin_verificar:"sin verificar (cargando el servidor)" };
+  return (
+    <div style={{margin:"0 0 12px"}}>
+      <AvisoCreditosPendientes usuario={usuario} texto="revísalos aquí abajo: reintentar (no duplica) o descartar con motivo." />
+      {sinConf.map(e=>(
+        <div key={e.id} data-pendiente-credito={e.id} style={{background:"#fff",border:"1px solid #fecaca",borderRadius:10,padding:"8px 12px",marginBottom:8,fontSize:11}}>
+          <div style={{color:C.muted,marginBottom:4}}>{fmtDate((e.ts||"").slice(0,10))} {(e.ts||"").slice(11,16)} · {e.usuario||"—"} · motivo: {e.motivo||"sin confirmación"}</div>
+          {(e.cambios||[]).map(c=>{
+            const cl = clases[`${e.id}|${c.uid}`] || "sin_verificar";
+            const pagos = pagosNuevos(c);
+            return (
+              <div key={c.uid} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",padding:"3px 0"}}>
+                <b>{desc(c)}</b>
+                <span>{pagos.length?pagos.map(p=>`pago ${fmtDate(p.fecha)} ${$c(totalPago(p),c.despues?.moneda||"USD")}${p.nota?` · ${p.nota}`:""}`).join(" · "):"cambio del registro"}</span>
+                <span style={{color:cl==="conflicto"?C.red:cl==="reaplicable"?C.orange:C.green}}>— {etiqueta[cl]}</span>
+                {cl==="reaplicable"&&canEdit&&<button disabled={!!ocupado} onClick={async()=>{ setOcupado(e.id); try{ const r=await onReintentar(c); if(!r||!r.ok) alert(r&&r.motivo==="sin_permiso" ? "No tienes permiso para reintentar este cambio (pestaña Créditos o empresa). Sigue anotado." : "El servidor no confirmó el reintento. El cambio sigue anotado para recuperarlo."); } finally{ setOcupado(null); } }}
+                  style={{padding:"3px 10px",borderRadius:6,border:"none",background:C.primary,color:"#fff",cursor:"pointer",fontSize:11}}>Reintentar</button>}
+              </div>);
+          })}
+          {canEdit&&<button disabled={!!ocupado} onClick={()=>{
+            const motivo = window.prompt("Descartar estos cambios SIN registrarlos en el servidor.\nSe pierden de este navegador. Motivo (obligatorio):");
+            if(!motivo||!motivo.trim()) return;
+            const reg = pendientesCreditos.descartar(e.id, motivo.trim(), usuario);
+            if(window.auditLog) window.auditLog("descartar", { modulo:"finanzas", seccion:"creditos", descripcion:`Cambios de Créditos sin confirmar descartados: ${motivo.trim()}`, registroId:e.id, detalle:reg });
+          }} style={{marginTop:4,padding:"2px 8px",borderRadius:6,border:"1px solid #fca5a5",background:"#fff",color:"#991b1b",cursor:"pointer",fontSize:10}}>Descartar…</button>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Detalle de un crédito: calendario, pagos, historial ──────────────
+function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
+  const hoy = hoyISO();
+  const sinConfirmar = pagosSinConfirmar(useCreditosPendientes(usuario));
+  const e = useMemo(()=>estadoCredito(credito, hoy),[credito, hoy]);
+  const mon = credito.moneda||"USD";
+  const [pagoForm,setPagoForm]=useState(null); // {vencKey, fecha, capital, interes, cargos, sinDesglose, nota}
+  const [desgloseLegacy,setDesgloseLegacy]=useState(null);
+  const esLegacy = !credito.tipo_credito || credito.tipo_credito==="banco";
+  // UF: equivalente en CLP con el valor UF de la fecha (pago/vencimiento), con fecha y fuente.
+  // Vencimientos futuros sin valor publicado → hipótesis de proyección.
+  const ufInfo = (monto, fecha)=>{
+    const pf = credito._tc && credito._tc.porFecha; if(mon!=="UF"||!pf||!fecha) return null;
+    const x = pf(fecha); if(!x) return <div style={{fontSize:9,color:C.red}}>sin valor UF</div>;
+    return <div style={{fontSize:9,color:x.hipotesis?C.orange:C.muted}} title={`UF ${x.ufCLP} del ${x.ufFecha} (${x.ufFuente})`}>
+      ≈ CLP {Math.round(monto*x.ufCLP).toLocaleString("es-CL")} · UF {fmtN(x.ufCLP,2)} {fmtDate(x.ufFecha)} · {x.ufFuente}{x.hipotesis?" · hipótesis":""}</div>;
+  };
+  // `_clave` se fija al abrir el formulario y viaja como origen del pago: si el
+  // guardado no se confirma (rechazo o respuesta perdida) y se reintenta con el
+  // mismo formulario, no se registra dos veces (registrarPagoIdempotente).
+  const abrirPago=(v)=>setPagoForm({vencKey:v.key, fecha:hoy, capital:v.pendiente.capital||"", interes:v.pendiente.interes||"",
+    cargos:v.pendiente.cargos||"", sinDesglose:v.pendiente.sinDesglose||"", nota:"", _v:v,
+    _clave:`manual:${uidCredito(credito)}@${v.key}:${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`});
+  async function guardarPago(){
+    try {
+      const { _v, _clave, ...datos } = pagoForm;
+      // Con `duplicado` (el pago ya está en pantalla por un intento anterior sin
+      // confirmar) se guarda igual: solo el servidor puede confirmar que lo tiene.
+      const r = registrarPagoIdempotente(credito, { ...datos, origen:{ tipo:"manual", clave:_clave } }, usuario);
+      await onSave(r.credito);
+      setPagoForm(null);
+    } catch(err){ alert(err.message); }
+  }
+  async function anular(p){
+    const motivo = window.prompt(`Anular el pago del ${fmtDate(p.fecha)} por ${$c(totalPago(p),mon)}.\nEl pago queda en el historial como anulado. Motivo (obligatorio):`);
+    if(motivo===null) return;
+    try { await onSave(anularPago(credito, p.id, motivo, usuario)); } catch(err){ alert(err.message); }
+  }
+  async function confirmarImp(v){
+    const nota = window.prompt(`Confirmar como IMPAGA la cuota del ${fmtDate(v.fecha)} por ${$c(v.pendienteTotal,mon)}.\nRespaldo (cartola, certificado de deuda, correo del acreedor):`);
+    if(nota===null) return;
+    try { await onSave(confirmarImpaga(credito, v.key, nota, usuario)); } catch(err){ alert(err.message); }
+  }
+  async function anularConc(x){
+    const motivo = window.prompt(`Anular la confirmación de impaga (${x.vencKey}). La cuota vuelve a "por conciliar". Motivo:`);
+    if(motivo===null) return;
+    try { await onSave(anularConciliacion(credito, x.id, motivo, usuario)); } catch(err){ alert(err.message); }
+  }
+  async function guardarDesglose(){
+    const d = desgloseLegacy;
+    if(!(d.respaldo||"").trim()){ alert("Indica el respaldo contractual del desglose (tabla de desarrollo, pagaré, contrato, cartola)."); return; }
+    const suma = (Number(d.capital)||0)+(Number(d.interes)||0)+(Number(d.cargos)||0);
+    const cuota = Number(credito.cuota)||0;
+    if(suma - cuota > 0.005){ alert(`El desglose (${$c(suma,mon)}) supera la cuota (${$c(cuota,mon)}).`); return; }
+    const ts=new Date().toISOString();
+    await onSave({...credito, desglose:{capital:d.capital, interes:d.interes, cargos:d.cargos, respaldo:d.respaldo.trim(), usuario, ts},
+      historial:[...(credito.historial||[]),{ts,usuario,accion:"desglose",detalle:`capital ${d.capital||0} · interés ${d.interes||0} · cargos ${d.cargos||0} · respaldo: ${d.respaldo.trim()}`}]});
+    setDesgloseLegacy(null);
+  }
+  const pagos = Array.isArray(credito.pagos)?credito.pagos:[];
+  const t = e.tasa;
+  const resumen = [
+    ["Empresa", credito.empresa], ["Acreedor", `${credito.acreedor}${credito.tipo_acreedor?` (${credito.tipo_acreedor})`:""}`],
+    ["Tipo", credito.tipo_cr||"—"], ["Identificador", credito.identificador||"—"],
+    ["Moneda / valorización", mon==="USD"?"USD":(credito._tc?`${mon} · ${textoTC(credito._tc)}`:`${mon} · SIN TC: no se convierte a USD ni entra al flujo`)],
+    ["Capital original", $c(credito.monto,mon)], ["Desembolso", fmtDate(credito.fecha_desembolso||credito.f_inicio)],
+    ["Vencimiento final", fmtDate(e.vencimientoFinal)],
+    ["Tasa", t.tasa===null?"sin dato":`${t.tasa}% ${t.variable?"variable":"fija"}${t.efectiva?" efectiva":""} · ${t.origen}`],
+    ["Base", BASES[credito.base]||(credito.tipo_credito==="socio"?"Efectiva anual, Actual/365":"sin dato")],
+    ["Modalidad", MODALIDADES[credito.modalidad]||(credito.tipo_credito==="socio"?"Crédito de socio (cuotas definidas)":"Registro por vencimiento")],
+    ["Garantías", credito.garantias||"—"],
+    ["Prepago", credito.prepago_comision_tipo?({ninguna:"sin comisión",pct:`${credito.prepago_comision_valor}% s/capital`,meses_interes:`${credito.prepago_comision_valor} mes(es) de interés`,monto:$c(credito.prepago_comision_valor,mon)}[credito.prepago_comision_tipo]||"—")+(credito.prepago_notas?` · ${credito.prepago_notas}`:""):"sin información"],
+  ];
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.6)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:C.bg2,border:`1px solid ${C.blue}55`,borderRadius:16,width:1100,maxWidth:"96vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(16,24,40,0.4)"}}>
+        <div style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:13,fontWeight:800,color:C.text}}>📅 {credito.acreedor} · {credito.empresa}</span>
+          <Pill def={ESTADO_CRED[e.estado]||ESTADO_CRED.vigente}/>
+          <button onClick={onClose} style={{marginLeft:"auto",background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:20}}>×</button>
+        </div>
+        <div style={{padding:"12px 20px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"6px 16px",fontSize:11}}>
+          {resumen.map(([k,v])=><div key={k}><span style={{color:C.muted}}>{k}: </span><span style={{color:C.text,fontWeight:600}}>{v}</span></div>)}
+        </div>
+        {Array.isArray(credito.documentos)&&credito.documentos.length>0&&(
+          <div style={{padding:"0 20px 8px",fontSize:11}}>
+            <span style={{color:C.muted}}>Documentos: </span>
+            {credito.documentos.map((d,i)=>d.url?<a key={i} href={d.url} target="_blank" rel="noreferrer" style={{marginRight:10,color:C.blue}}>{d.nombre||d.url}</a>:<span key={i} style={{marginRight:10}}>{d.nombre}</span>)}
+          </div>
+        )}
+        <div style={{padding:"0 20px 10px",display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
+          <KPI label="Saldo capital" value={$c(e.saldoCapital,mon)} color={C.red}/>
+          <KPI label="Intereses pendientes" value={$c(e.interesPend,mon)} color={C.orange}/>
+          <KPI label="Otros cargos pendientes" value={$c(e.cargosPend,mon)} color={C.muted}/>
+          <KPI label="Sin desglose" value={$c(e.sinDesglosePend,mon)} color={e.sinDesglosePend>0?C.yellow:C.muted}/>
+          <KPI label="Vencido impago" value={$c(e.vencidoTotal,mon)} color={e.vencidoTotal>0?C.red:C.green}/>
+        </div>
+        {e.porConciliarTotal>0&&<div style={{margin:"0 20px 10px",background:"#ede9fe",border:"1px solid #c4b5fd",borderRadius:8,padding:"8px 12px",fontSize:11}}>
+          🔎 {$c(e.porConciliarTotal,mon)} en cuotas vencidas antes de que este crédito se controlara en la app, sin pago registrado.
+          No se cuentan como deuda confirmada ni entran al flujo. Para cada una: registra el pago si se pagó, o "Confirmar impaga" con el respaldo.</div>}
+        {e.faltantes.length>0&&<div style={{margin:"0 20px 10px",background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
+          Faltan condiciones para el calendario: <strong>{e.faltantes.join(", ")}</strong>. Edita el crédito.</div>}
+        {e.huerfanos.length>0&&<div style={{margin:"0 20px 10px",background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
+          ⚠ {e.huerfanos.length} pago(s) quedaron sin vencimiento asociado (se modificaron las condiciones y esa fecha ya no existe). Siguen en el historial;
+          anúlalos y regístralos en el vencimiento correcto: {e.huerfanos.map(p=>`${fmtDate(p.fecha)} ${$c(totalPago(p),mon)}`).join(" · ")}</div>}
+        {esLegacy&&e.sinDesglosePend>0&&(
+          <div style={{margin:"0 20px 10px",fontSize:11,color:C.text,background:`${C.blue}0d`,border:`1px solid ${C.blue}33`,borderRadius:8,padding:"8px 12px"}}>
+            Cuota sin desglosar: no se sabe cuánto es capital. Queda fuera del saldo de capital identificado y dentro del servicio de deuda.
+            Complétalo con el respaldo contractual (no se asume que todo sea capital).{credito.desglose?.respaldo?` Desglose actual respaldado en: ${credito.desglose.respaldo}.`:""}
+            {canEdit&&!desgloseLegacy&&<button onClick={()=>setDesgloseLegacy({capital:credito.desglose?.capital??"",interes:credito.desglose?.interes??"",cargos:credito.desglose?.cargos??"",respaldo:credito.desglose?.respaldo??""})}
+              style={{marginLeft:8,padding:"3px 10px",borderRadius:6,border:`1px solid ${C.blue}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:11,fontWeight:700}}>Desglosar cuota ({$c(credito.cuota,mon)})</button>}
+            {desgloseLegacy&&(
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 2fr auto auto",gap:8,marginTop:8,alignItems:"end"}}>
+                {[["capital","Capital"],["interes","Intereses"],["cargos","Otros cargos"]].map(([k,l])=>(
+                  <CampoCr key={k} label={`${l} por cuota`}><InputNumero formato="monto" decimales={decimalesMoneda(mon)} value={desgloseLegacy[k]||""} onChange={n=>setDesgloseLegacy(p=>({...p,[k]:n}))} style={CR_INP}/></CampoCr>
+                ))}
+                <CampoCr label="Respaldo contractual (obligatorio)"><input value={desgloseLegacy.respaldo||""} placeholder="Tabla de desarrollo BCI op. 123, pagaré…" onChange={e=>setDesgloseLegacy(p=>({...p,respaldo:e.target.value}))} style={CR_INP}/></CampoCr>
+                <button onClick={guardarDesglose} style={{padding:"7px 14px",borderRadius:8,border:"none",background:C.blue,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Guardar</button>
+                <button onClick={()=>setDesgloseLegacy(null)} style={{padding:"7px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:12}}>Cancelar</button>
+                <div style={{gridColumn:"span 6",fontSize:10,color:C.muted}}>Lo que no se asigne queda "cuota sin desglosar" (fuera del saldo de capital identificado, dentro del servicio de deuda). Capital + intereses + cargos no puede superar la cuota.</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Calendario */}
+        <div style={{margin:"0 20px 12px",border:`1px solid ${C.border}`,borderRadius:8,overflow:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead><tr style={{background:C.primary}}>
+              {["Vencimiento","Origen","Capital","Intereses","Otros cargos","Sin desglose","Total","Pagado","Pendiente","Estado",...(canEdit?[""]:[])].map((h,i)=>
+                <th key={i} style={{...CR_TH,textAlign:["Vencimiento","Origen","Estado",""].includes(h)?"left":"right"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {e.vencimientos.map(v=>(
+                <tr key={v.key} style={{background:v.estado==="vencida"?"#fee2e211":v.estado==="pagada"?`${C.green}08`:"transparent"}}>
+                  <td style={{...CR_TD,whiteSpace:"nowrap"}}>{fmtDate(v.fecha)}{v.estimado&&<span title="Interés estimado tras prepago sobre calendario manual" style={{color:C.orange}}> ≈</span>}{v.tasaVariable&&v.pendiente.interes>0&&<span title="Interés proyectado con la tasa de referencia supuesta constante" style={{color:C.orange,fontSize:9}}> proy.</span>}</td>
+                  <td style={{...CR_TD,color:C.muted}}>{v.origen==="renovacion"?`Renov. ${v.renovacion+1}`:"Cuota"}</td>
+                  <td style={{...CR_TD,textAlign:"right"}}>{$c(v.capital,mon)}</td>
+                  <td style={{...CR_TD,textAlign:"right",color:C.orange}}>{$c(v.interes,mon)}</td>
+                  <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{$c(v.cargos,mon)}</td>
+                  <td style={{...CR_TD,textAlign:"right",color:v.sinDesglose?C.yellow:C.muted2}}>{v.sinDesglose?$c(v.sinDesglose,mon):"—"}</td>
+                  <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(v.total,mon)}{ufInfo(v.total,v.fecha)}</td>
+                  <td style={{...CR_TD,textAlign:"right",color:C.green}}>{v.pagadoSinRegistro?<span title="Marcado pagado antes del registro de pagos: sin fecha ni desglose">✓ (sin registro)</span>:(v.pagadoTotal?$c(v.pagadoTotal,mon):"—")}</td>
+                  <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:v.pendienteTotal?C.red:C.muted2}}>{v.pendienteTotal?$c(v.pendienteTotal,mon):"—"}</td>
+                  <td style={CR_TD}><Pill def={ESTADO_VENC[v.estado]} extra={v.estado==="vencida"&&v.parcial?" (parcial)":""}/></td>
+                  {canEdit&&<td style={{...CR_TD,whiteSpace:"nowrap"}}>{v.pendienteTotal>0&&<button onClick={()=>abrirPago(v)}
+                    style={{padding:"3px 10px",borderRadius:6,border:`1px solid ${C.green}`,background:"transparent",color:C.green,cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>💵 Pagar</button>}
+                    {v.porConciliar&&<button onClick={()=>confirmarImp(v)}
+                    style={{marginLeft:4,padding:"3px 8px",borderRadius:6,border:`1px solid ${C.red}`,background:"transparent",color:C.red,cursor:"pointer",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>Confirmar impaga</button>}</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {pagoForm&&(
+          <div style={{margin:"0 20px 12px",border:`1px solid ${C.green}66`,background:`${C.green}08`,borderRadius:10,padding:"12px 14px"}}>
+            <div style={{fontSize:12,fontWeight:800,color:C.text,marginBottom:8}}>
+              Registrar pago · vencimiento {fmtDate(pagoForm._v.fecha)} · pendiente {$c(pagoForm._v.pendienteTotal,mon)}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr 2fr",gap:8}}>
+              <CampoCr label="Fecha efectiva"><input type="date" value={pagoForm.fecha} onChange={ev=>setPagoForm(p=>({...p,fecha:ev.target.value}))} style={CR_INP}/></CampoCr>
+              {[["capital","Capital"],["interes","Intereses"],["cargos","Otros cargos"],["sinDesglose","Sin desglose"]].map(([k,l])=>(
+                <CampoCr key={k} label={l}><InputNumero formato="monto" decimales={decimalesMoneda(mon)} value={pagoForm[k]||""} onChange={n=>setPagoForm(p=>({...p,[k]:n}))} style={CR_INP}/></CampoCr>
+              ))}
+              <CampoCr label="Nota (banco, N° operación…)"><input value={pagoForm.nota} onChange={ev=>setPagoForm(p=>({...p,nota:ev.target.value}))} style={CR_INP}/></CampoCr>
+            </div>
+            <div style={{fontSize:10,color:C.muted,marginTop:6}}>
+              Total del pago: <strong>{$c(["capital","interes","cargos","sinDesglose"].reduce((a,k)=>a+(Number(pagoForm[k])||0),0),mon)}</strong>.
+              Un pago parcial deja pendiente solo la diferencia. El saldo de capital baja solo con la parte de capital.
+              Lo "sin desglose" se imputa a cargos → intereses → capital (art. 1595 CC).
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}>
+              <button onClick={()=>setPagoForm(null)} style={{padding:"7px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:12}}>Cancelar</button>
+              <button onClick={guardarPago} style={{padding:"7px 14px",borderRadius:8,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>💾 Registrar pago</button>
+            </div>
+          </div>
+        )}
+
+        {/* Pagos */}
+        <div style={{margin:"0 20px 12px"}}>
+          <SectionTitle>Pagos registrados</SectionTitle>
+          {pagos.length===0?<div style={{fontSize:11,color:C.muted2,fontStyle:"italic"}}>Sin pagos registrados.</div>:(
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr style={{background:C.primary}}>
+                {["Fecha","Tipo","Vencimiento","Capital","Intereses","Cargos","Sin desglose","Total","Nota","Usuario",""].map((h,i)=><th key={i} style={{...CR_TH,textAlign:["Capital","Intereses","Cargos","Sin desglose","Total"].includes(h)?"right":"left"}}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {pagos.map(p=>{
+                  const v = e.vencimientos.find(x=>x.key===p.vencKey);
+                  return (
+                    <tr key={p.id} style={{opacity:p.anulado?0.5:1,textDecoration:p.anulado?"line-through":"none"}}>
+                      <td style={{...CR_TD,whiteSpace:"nowrap"}}>{fmtDate(p.fecha)}</td>
+                      <td style={CR_TD}>{p.tipo==="prepago"?"Prepago":p.tipo==="extincion"?"Extinción (sin caja)":"Pago"}{p.origen?.tipo==="nomina"&&<div style={{fontSize:9,color:C.blue}}>Nómina {p.origen.nombreNomina||p.origen.nominaId}</div>}
+                        {sinConfirmar.has(p.id)&&<div data-pago-sin-confirmar style={{fontSize:9,fontWeight:700,color:C.red}}>⏳ sin confirmar por el servidor</div>}</td>
+                      <td style={{...CR_TD,whiteSpace:"nowrap",color:C.muted}}>{v?fmtDate(v.fecha):(p.vencKey?"⚠ sin vencimiento":"—")}</td>
+                      <td style={{...CR_TD,textAlign:"right"}}>{$c(p.capital,mon)}</td>
+                      <td style={{...CR_TD,textAlign:"right"}}>{$c(p.interes,mon)}</td>
+                      <td style={{...CR_TD,textAlign:"right"}}>{$c(p.cargos,mon)}</td>
+                      <td style={{...CR_TD,textAlign:"right"}}>{p.sinDesglose?$c(p.sinDesglose,mon):"—"}</td>
+                      <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(totalPago(p),mon)}{ufInfo(totalPago(p),p.fecha)}</td>
+                      <td style={{...CR_TD,color:C.muted,textDecoration:"none"}}>{p.nota}{p.anulado&&<div style={{color:C.red}}>Anulado: {p.motivoAnulacion} ({p.anuladoPor})</div>}
+                        {(p.anotaciones||[]).map((a,i)=><div key={i} style={{color:C.orange,fontSize:10}}>📝 {a.texto} ({a.usuario}, {fmtDate(a.ts)})</div>)}</td>
+                      <td style={{...CR_TD,color:C.muted}}>{p.usuario}</td>
+                      <td style={CR_TD}>{canEdit&&!p.anulado&&p.tipo!=="extincion"&&<button onClick={()=>anular(p)}
+                        style={{padding:"2px 8px",borderRadius:6,border:"none",background:"#fee2e2",color:"#991b1b",cursor:"pointer",fontSize:10}}>Anular</button>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {Array.isArray(credito.conciliaciones)&&credito.conciliaciones.length>0&&(
+          <div style={{margin:"0 20px 12px"}}>
+            <SectionTitle>Conciliaciones</SectionTitle>
+            {credito.conciliaciones.map(x=>{
+              const v = e.vencimientos.find(y=>y.key===x.vencKey);
+              return (
+                <div key={x.id} style={{fontSize:11,padding:"3px 0",opacity:x.anulado?0.5:1,display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{textDecoration:x.anulado?"line-through":"none"}}>Cuota {v?fmtDate(v.fecha):x.vencKey} confirmada impaga · {x.nota} · {x.usuario} · {fmtDate(x.ts)}</span>
+                  {x.anulado&&<span style={{color:C.red}}>Anulada: {x.motivoAnulacion}</span>}
+                  {canEdit&&!x.anulado&&<button onClick={()=>anularConc(x)} style={{padding:"1px 8px",borderRadius:6,border:"none",background:"#fee2e2",color:"#991b1b",cursor:"pointer",fontSize:10}}>Anular</button>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {Array.isArray(credito.historial)&&credito.historial.length>0&&(
+          <div style={{margin:"0 20px 16px"}}>
+            <SectionTitle>Historial</SectionTitle>
+            {credito.historial.slice().reverse().map((h,i)=>(
+              <div key={i} style={{fontSize:10,color:C.muted,padding:"2px 0"}}>{fmtDate(h.ts)} · {h.usuario||"—"} · <strong>{h.accion}</strong> · {h.detalle}</div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Análisis de cartera para el CFO ──────────────────────────────────
+function AnalisisCreditos({creditos, empresas}){
+  const hoy = hoyISO();
+  const an = useMemo(()=>analisisCartera(creditos, hoy),[creditos, hoy]);
+  const sHoy = useMemo(()=>saldosAlCorte(creditos, hoy, hoy),[creditos, hoy]);
+  const serv = useMemo(()=>servicioDeudaPorMes(creditos, hoy),[creditos, hoy]);
+  const [agrupar,setAgrupar]=useState("porEmpresa");
+  const tot = Object.values(an.porEmpresa).reduce((a,x)=>({cap:a.cap+x.saldoCapital,sd:a.sd+x.sinDesglose,pend:a.pend+x.pendiente,venc:a.venc+x.vencido,pc:a.pc+x.porConciliar}),{cap:0,sd:0,pend:0,venc:0,pc:0});
+  // Cuotas sin desglosar (confirmadas, pendientes): cuántas y cuánto
+  const sinDesgl = an.estados.flatMap(e=>e.f===null?[]:e.vencimientos.filter(v=>!v.porConciliar&&v.pendiente.sinDesglose>0).map(v=>v.pendiente.sinDesglose*e.f));
+  const credSinDesgl = an.estados.filter(e=>e.sinDesglosePend>0).length;
+  // 18 meses desde el mes en curso
+  const meses = []; { let [y,m]=hoy.split("-").map(Number); for(let i=0;i<18;i++){ meses.push(`${y}-${String(m).padStart(2,"0")}`); m++; if(m>12){m=1;y++;} } }
+  const mesLbl = (k)=>{ const [y,m]=k.split("-"); return `${MESES_ABR_SD[Number(m)-1]}-${y.slice(2)}`; };
+  const s12 = meses.slice(0,12).reduce((a,k)=>a+(serv[k]?.total||0),0);
+  const fUSD = (c)=>factorUSD(c);
+  const venc = an.estados.flatMap(e=>e.f===null?[]:e.vencimientos.filter(v=>v.pendienteTotal>0&&!v.porConciliar).map(v=>({...v,usd:v.pendienteTotal*e.f})));
+  const vencidos = venc.filter(v=>v.vencida).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const lim60 = (()=>{ const d=new Date(); d.setDate(d.getDate()+60); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+  const lim180 = (()=>{ const d=new Date(); d.setDate(d.getDate()+180); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+  const proximos = venc.filter(v=>!v.vencida&&v.fecha<=lim60).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const porVencer = an.estados.filter(e=>e.pendienteTotal>0&&e.vencimientoFinal&&e.vencimientoFinal<=lim180).sort((a,b)=>a.vencimientoFinal.localeCompare(b.vencimientoFinal));
+  const grupo = an[agrupar]||{};
+  const filasGrupo = Object.entries(grupo).filter(([,x])=>x.pendiente>0).sort((a,b)=>(b[1].saldoCapital+b[1].sinDesglose)-(a[1].saldoCapital+a[1].sinDesglose));
+  const baseConc = filasGrupo.reduce((a,[,x])=>a+x.saldoCapital+x.sinDesglose,0)||1;
+  const T = an.tasas;
+  const tabla = (heads, filas, pie)=>(
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse"}}>
+        <thead><tr style={{background:C.primary}}>{heads.map((h,i)=><th key={i} style={{...CR_TH,textAlign:i===0?"left":"right"}}>{h}</th>)}</tr></thead>
+        <tbody>{filas}</tbody>
+        {pie&&<tfoot>{pie}</tfoot>}
+      </table>
+    </div>
+  );
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:10}}>
+        <KPI label={`Saldo capital identificado (USD)${sHoy.estimado?" · ESTIMADO":""}${sHoy.incompleto?" · INCOMPLETO":""}`} value={$$(tot.cap)} color={C.red}/>
+        <KPI label="Cuotas sin desglosar" value={$$(tot.sd)} color={tot.sd>0?C.yellow:C.muted}/>
+        <KPI label="Vencido impago confirmado" value={$$(tot.venc)} color={tot.venc>0?C.red:C.green}/>
+        <KPI label="Por conciliar (fuera)" value={$$(tot.pc)} color={tot.pc>0?"#5b21b6":C.muted}/>
+        <KPI label="Servicio próx. 12 meses" value={$$(s12)} color={C.orange}/>
+        <KPI label="Tasa promedio ponderada" value={T.tasaPromedio==null?"—":`${T.tasaPromedio.toFixed(2)}%`} color={C.blue}/>
+        <KPI label="Costo anual (capital identificado)" value={$$(T.costoAnualEstimado)} color={C.orange}/>
+      </div>
+      {tot.sd>0.5&&<div style={{background:`${C.yellow}14`,border:`1px solid ${C.yellow}55`,borderRadius:8,padding:"8px 12px",fontSize:11,lineHeight:1.6}}>
+        ⚠ <strong>Sin clasificar: {$$(tot.sd)}</strong> en {sinDesgl.length} cuota(s) de {credSinDesgl} crédito(s) no separan capital, intereses y cargos
+        ({(tot.sd/((tot.cap+tot.sd)||1)*100).toFixed(1)}% de la deuda confirmada). Están en el servicio de deuda pero NO en el saldo de capital identificado,
+        y no se asume que sean capital. Mientras no se desglosen con respaldo, el saldo de capital y el costo financiero son parciales.
+      </div>}
+      {tot.pc>0.5&&<div style={{background:"#ede9fe",border:"1px solid #c4b5fd",borderRadius:8,padding:"8px 12px",fontSize:11}}>
+        🔎 {$$(tot.pc)} en cuotas históricas por conciliar quedan fuera de todas las cifras de esta vista (ver pestaña Conciliación).
+      </div>}
+      <AvisosValorizacion s={sHoy}/>
+
+      <Card>
+        <SectionTitle>Saldos en moneda original y valorización a USD</SectionTitle>
+        {(()=>{
+          const g = {};
+          an.estados.forEach(e=>{
+            const mon = e.c.moneda||"USD";
+            const x = g[mon] || (g[mon] = {cap:0, sd:0, pend:0, pc:0, capUSD:0, sdUSD:0, pendUSD:0, sinTC:0, tcs:{}});
+            x.cap+=e.saldoCapital; x.sd+=e.sinDesglosePend; x.pend+=e.pendienteTotal; x.pc+=e.porConciliarTotal;
+            if(e.f===null){ x.sinTC+=e.pendienteTotal; return; }
+            x.capUSD+=e.saldoCapital*e.f; x.sdUSD+=e.sinDesglosePend*e.f; x.pendUSD+=e.pendienteTotal*e.f;
+            const t=e.c._tc; if(t&&mon!=="USD") x.tcs[`${t.tc}|${t.fecha||"s/f"}|${t.fuente}`]=t;
+          });
+          const incompleto = Object.values(g).some(x=>x.sinTC>0.005);
+          return (<>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead><tr style={{background:C.primary}}>
+                  {["Moneda","Capital identificado","Sin clasificar","Pendiente total","Por conciliar","TC usado (moneda por US$) · fecha · fuente","Capital USD","Pendiente USD","No convertido (sin TC)"].map((h,i)=><th key={i} style={{...CR_TH,textAlign:i===0||i===5?"left":"right"}}>{h}</th>)}
+                </tr></thead>
+                <tbody>{Object.entries(g).map(([mon,x])=>(
+                  <tr key={mon}>
+                    <td style={{...CR_TD,fontWeight:700}}>{mon}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{$c(x.cap,mon)}</td>
+                    <td style={{...CR_TD,textAlign:"right",color:x.sd?C.yellow:C.muted2}}>{x.sd?$c(x.sd,mon):"—"}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{$c(x.pend,mon)}</td>
+                    <td style={{...CR_TD,textAlign:"right",color:x.pc?"#5b21b6":C.muted2}}>{x.pc?$c(x.pc,mon):"—"}</td>
+                    <td style={{...CR_TD,fontSize:10}}>{mon==="USD"?"—":Object.values(x.tcs).map(t=>`${valorTC(t)} · ${t.fecha?fmtDate(t.fecha):"sin fecha"} · ${t.fuente}${t.estimado?" · ESTIMADO":""}${t.desactualizado?` (⚠ ${t.antiguedadDias!=null?t.antiguedadDias+" días":"sin fecha"} de antigüedad)`:""}`).join(" | ")||"—"}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{$$(x.capUSD)}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{$$(x.pendUSD)}</td>
+                    <td style={{...CR_TD,textAlign:"right",color:x.sinTC?C.red:C.muted2,fontWeight:x.sinTC?700:400}}>{x.sinTC?$c(x.sinTC,mon):"—"}</td>
+                  </tr>))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{fontSize:10,color:incompleto?C.red:C.muted,marginTop:6}}>
+              {incompleto?"⚠ Total consolidado en USD INCOMPLETO: hay montos sin tipo de cambio (columna \"No convertido\"); no están en ninguna cifra en USD de esta vista ni en el flujo. ":""}
+              Valorización a la fecha de hoy con el último TC del histórico de Maestros (los valores manuales del CFO prevalecen sobre las APIs); si Maestros no tiene el par, se usa el TC declarado en el crédito (hipótesis). Los saldos se conservan en su moneda original.
+            </div>
+          </>);
+        })()}
+      </Card>
+
+      <Card>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+          <SectionTitle>Saldo y concentración</SectionTitle>
+          <div style={{marginLeft:"auto",display:"flex",gap:4,flexWrap:"wrap"}}>
+            {[["porEmpresa","Empresa"],["porAcreedor","Acreedor"],["porTipoAcreedor","Tipo acreedor"],["porMoneda","Moneda"],["porTipo","Tipo crédito"]].map(([k,l])=>
+              <Btn key={k} small active={agrupar===k} onClick={()=>setAgrupar(k)}>{l}</Btn>)}
+          </div>
+        </div>
+        {tabla(["","Saldo capital identificado","Cuota sin desglosar","% del total","Pendiente total (cap.+int.+cargos)","Vencido confirmado","N° créditos"],
+          filasGrupo.map(([k,x])=>{
+            const e2 = agrupar==="porEmpresa" ? (empresas[k]||{emoji:"🏢"}) : null;
+            return (
+              <tr key={k}>
+                <td style={{...CR_TD,fontWeight:600}}>{e2?`${e2.emoji} `:""}{k}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:C.red}}>{$$(x.saldoCapital)}</td>
+                <td style={{...CR_TD,textAlign:"right",color:x.sinDesglose?C.yellow:C.muted2}}>{x.sinDesglose?$$(x.sinDesglose):"—"}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{((x.saldoCapital+x.sinDesglose)/baseConc*100).toFixed(1)}%</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{$$(x.pendiente)}</td>
+                <td style={{...CR_TD,textAlign:"right",color:x.vencido?C.red:C.muted2}}>{x.vencido?$$(x.vencido):"—"}</td>
+                <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{x.n}</td>
+              </tr>
+            );
+          }),
+          <tr style={{background:C.bg2}}>
+            <td style={{...CR_TD,fontWeight:800}}>Total</td>
+            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(tot.cap)}</td>
+            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(tot.sd)}</td>
+            <td style={{...CR_TD,textAlign:"right"}}>100%</td>
+            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(tot.pend)}</td>
+            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(tot.venc)}</td><td style={CR_TD}/>
+          </tr>)}
+        <div style={{fontSize:10,color:C.muted,marginTop:6}}>
+          "Sin desglose" = cuotas de registros antiguos que no separan capital de intereses; se muestran aparte para no inflar ni subestimar el saldo de capital.
+          Desglósalas en el detalle de cada crédito.
+        </div>
+      </Card>
+
+      <Card>
+        <SectionTitle>Servicio de deuda por mes (pendiente, USD)</SectionTitle>
+        {tabla(["Mes","Capital","Intereses","de ello proy. tasa variable","Otros cargos","Cuota sin desglosar","Total","de ello vencido","Por conciliar (fuera del total)"],
+          meses.map((k,i)=>{ const x=serv[k]||{}; return (
+            <tr key={k} style={{background:i===0?`${C.yellow}10`:"transparent"}}>
+              <td style={{...CR_TD,fontWeight:600}}>{mesLbl(k)}{i===0?" (en curso)":""}</td>
+              {["capital","interes","interesVariable","cargos","sinDesglose","total"].map(c=><td key={c} style={{...CR_TD,textAlign:"right",fontWeight:c==="total"?700:400,color:c==="interesVariable"&&x[c]?C.orange:undefined,fontStyle:c==="interesVariable"?"italic":"normal"}}>{x[c]?$$(x[c]):"—"}</td>)}
+              <td style={{...CR_TD,textAlign:"right",color:x.vencido?C.red:C.muted2}}>{x.vencido?$$(x.vencido):"—"}</td>
+              <td style={{...CR_TD,textAlign:"right",color:x.porConciliar?"#5b21b6":C.muted2}}>{x.porConciliar?$$(x.porConciliar):"—"}</td>
+            </tr>);}),
+          <tr style={{background:C.bg2}}>
+            <td style={{...CR_TD,fontWeight:800}}>Total 18 meses</td>
+            {["capital","interes","interesVariable","cargos","sinDesglose","total","vencido","porConciliar"].map(c=><td key={c} style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(meses.reduce((a,k)=>a+(serv[k]?.[c]||0),0))}</td>)}
+          </tr>)}
+        <div style={{fontSize:10,color:C.muted,marginTop:6}}>Las vencidas impagas confirmadas se muestran en el mes en curso, igual que en el Flujo de Caja. Incluye cuotas de renovaciones.
+          El interés de tasa variable es una proyección con la referencia vigente supuesta constante (hipótesis cargada en cada crédito), no un monto contractual fijo.
+          "Por conciliar" no suma al total: es el impacto potencial si esas cuotas históricas resultaran impagas.</div>
+      </Card>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+        <Card>
+          <SectionTitle>Vencidos impagos ({vencidos.length})</SectionTitle>
+          {vencidos.length===0?<div style={{fontSize:11,color:C.green}}>Sin vencidos impagos.</div>:
+            tabla(["Fecha","Empresa","Acreedor","Pendiente USD","Días"], vencidos.map(v=>(
+              <tr key={v.key}><td style={CR_TD}>{fmtDate(v.fecha)}</td><td style={CR_TD}>{v.empresa}</td><td style={CR_TD}>{v.acreedor}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:C.red}}>{$$(v.usd)}</td>
+                <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{Math.round((new Date(hoy)-new Date(v.fecha))/86400000)}</td></tr>)))}
+        </Card>
+        <Card>
+          <SectionTitle>Próximos vencimientos (60 días)</SectionTitle>
+          {proximos.length===0?<div style={{fontSize:11,color:C.muted}}>Sin vencimientos en los próximos 60 días.</div>:
+            tabla(["Fecha","Empresa","Acreedor","Capital","Int.+cargos","Total USD"], proximos.map(v=>{
+              const f = v.usd/(v.pendienteTotal||1);
+              return (<tr key={v.key}><td style={CR_TD}>{fmtDate(v.fecha)}</td><td style={CR_TD}>{v.empresa}</td><td style={CR_TD}>{v.acreedor}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{$$(v.pendiente.capital*f)}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{$$((v.pendiente.interes+v.pendiente.cargos)*f)}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$$(v.usd)}</td></tr>);}))}
+        </Card>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+        <Card>
+          <SectionTitle>Créditos que vencen o se renuevan en 180 días</SectionTitle>
+          {porVencer.length===0?<div style={{fontSize:11,color:C.muted}}>Ninguno.</div>:
+            tabla(["Vence","Empresa","Acreedor","Tipo","Pendiente USD"], porVencer.map(e=>(
+              <tr key={e.uid}><td style={CR_TD}>{fmtDate(e.vencimientoFinal)}</td><td style={CR_TD}>{e.c.empresa}</td>
+                <td style={CR_TD}>{e.c.acreedor}{e.c.renovable?" 🔄":""}</td><td style={{...CR_TD,color:C.muted}}>{e.c.tipo_cr}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{e.f===null?"sin TC":$$(e.pendienteTotal*e.f)}</td></tr>)))}
+        </Card>
+        <Card>
+          <SectionTitle>Exposición a tasas y costo financiero</SectionTitle>
+          {tabla(["","Saldo USD","%"],[
+            ["Tasa fija",T.capFija],["Tasa variable",T.capVar],["Sin tasa registrada",T.capSinTasa]].map(([l,v])=>{
+              const b=(T.capFija+T.capVar+T.capSinTasa)||1;
+              return <tr key={l}><td style={CR_TD}>{l}</td><td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$$(v)}</td><td style={{...CR_TD,textAlign:"right"}}>{(v/b*100).toFixed(1)}%</td></tr>;
+            }))}
+          <div style={{fontSize:11,color:C.text,marginTop:8,lineHeight:1.6}}>
+            Sensibilidad: +100 pb en la tasa de referencia = <strong>{$$(T.sensibilidad100pb)}</strong> más de interés al año ({$$(T.capVar)} × 1%).
+            Los intereses de tasa variable son <strong>proyecciones</strong>: suponen la referencia constante en el valor cargado como hipótesis.
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginTop:6,lineHeight:1.6}}>
+            {T.sinDesgloseConTasa>0.5&&<div style={{color:C.orange,marginBottom:4}}>
+              El costo anual ({$$(T.costoAnualEstimado)}) considera solo capital identificado. Hay {$$(T.sinDesgloseConTasa)} en cuotas sin desglose con tasa
+              registrada: si todo eso fuera capital, el costo sería {$$(T.costoAnualSiSinDesgloseFueraCapital)} (cota superior; esas cuotas pueden incluir intereses).
+            </div>}
+            <strong>Hipótesis:</strong> costo anual = Σ saldo de capital × tasa nominal registrada. Tasa promedio y exposición ponderan por capital + "sin desglose". Tasa variable = referencia
+            vigente cargada como hipótesis + margen, proyectada constante. Créditos de socio usan su tasa efectiva. No incluye comisiones ni seguros.
+            Los créditos sin tasa quedan fuera del promedio y del costo.
+            {T.sinTasa.length>0&&<div style={{color:C.orange}}>Sin tasa: {T.sinTasa.map(e=>`${e.c.acreedor} (${e.c.empresa})`).filter((x,i,a)=>a.indexOf(x)===i).join(", ")}.</div>}
+            {T.variables.length>0&&<div>Hipótesis por crédito variable: {T.variables.map(e=>`${e.c.acreedor}: ${e.tasa.origen} = ${e.tasa.tasa}% proyectado`).join(" · ")}.</div>}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ── Simulación de prepago ────────────────────────────────────────────
+function SimuladorPrepago({creditos, onSaveOne, canEdit, usuario}){
+  const hoy = hoyISO();
+  const opciones = useMemo(()=>creditos.map(c=>({c,e:estadoCredito(c,hoy)})).filter(x=>x.e.pendienteTotal>0),[creditos,hoy]);
+  const [uid,setUid]=useState("");
+  const [sim,setSim]=useState({fecha:hoy,total:true,capital:"",modo:"plazo",tasaHipotesis:"",baseHipotesis:"",comisionTipo:"",comisionValor:""});
+  const sel = opciones.find(x=>x.e.uid===uid);
+  const res = useMemo(()=>sel?simularPrepago(sel.c,{...sim,comisionTipo:sim.comisionTipo||undefined,comisionValor:sim.comisionValor===""?undefined:sim.comisionValor},hoy):null,[sel,sim,hoy]);
+  const mon = sel?.c.moneda||"USD";
+  const set=(k,v)=>setSim(p=>({...p,[k]:v}));
+  async function aplicar(){
+    if(!res||!res.aplicable) return;
+    const txt = `Aplicar prepago ${res.esTotal?"TOTAL":"parcial"} de ${sel.c.acreedor} (${sel.c.empresa}) al ${fmtDate(res.fecha)}:\n`+
+      `capital ${$c(res.capital,mon)} + interés devengado ${$c(res.devengado,mon)} + comisión ${$c(res.comision,mon)} = ${$c(res.capital+res.devengado+res.comision,mon)}\n\n`+
+      `Queda registrado como pago y el calendario y el flujo se recalculan. Se puede revertir anulando el pago.`;
+    if(!window.confirm(txt)) return;
+    try { await onSaveOne(aplicarPrepago(sel.c, res, usuario)); alert("Prepago aplicado."); }
+    catch(err){ alert(err.message); }
+  }
+  const totales=(arr)=>arr.reduce((a,v)=>({cap:a.cap+v.capital,int:a.int+v.interes,car:a.car+v.cargos,sd:a.sd+(v.sinDesglose||0),tot:a.tot+v.total}),{cap:0,int:0,car:0,sd:0,tot:0});
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
+      <Card>
+        <SectionTitle>Simular prepago (no modifica nada hasta confirmar)</SectionTitle>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:12}}>
+          <CampoCr label="Crédito">
+            <select value={uid} onChange={e=>setUid(e.target.value)} style={CR_INP}>
+              <option value="">— seleccionar —</option>
+              {opciones.map(({c,e})=><option key={e.uid} value={e.uid}>{c.empresa} · {c.acreedor} · {c.tipo_cr||""} · vence {fmtDate(e.vencimientoFinal)} · pend. {$c(e.pendienteTotal,c.moneda||"USD")}</option>)}
+            </select>
+          </CampoCr>
+          <CampoCr label="Fecha del prepago"><input type="date" value={sim.fecha} onChange={e=>set("fecha",e.target.value)} style={CR_INP}/></CampoCr>
+          <CampoCr label="Alcance">
+            <select value={sim.total?"total":"parcial"} onChange={e=>set("total",e.target.value==="total")} style={CR_INP}>
+              <option value="total">Total</option><option value="parcial">Parcial</option>
+            </select>
+          </CampoCr>
+          {!sim.total&&<CampoCr label={`Capital a prepagar (${mon})`}><InputNumero formato="monto" decimales={decimalesMoneda(mon)} value={sim.capital} onChange={n=>set("capital",n)} style={CR_INP}/></CampoCr>}
+          {!sim.total&&<CampoCr label="Efecto">
+            <select value={sim.modo} onChange={e=>set("modo",e.target.value)} style={CR_INP}>
+              <option value="plazo">Reduce plazo (misma cuota)</option><option value="cuota">Reduce cuota (mismo plazo)</option>
+            </select>
+          </CampoCr>}
+        </div>
+        {res&&!res.error&&(res.faltantes.length>0||!sel.c.prepago_comision_tipo)&&(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginTop:12,paddingTop:10,borderTop:`1px dashed ${C.border}`}}>
+            <div style={{gridColumn:"span 4",fontSize:10,color:C.muted}}>Hipótesis de la simulación (solo si el crédito no trae el dato; el resultado queda marcado como estimación):</div>
+            {res.faltantes.includes("tasa de interés")||sim.tasaHipotesis!==""?<CampoCr label="Tasa anual (%) — hipótesis"><InputNumero formato="tasa" value={sim.tasaHipotesis} onChange={n=>set("tasaHipotesis",n)} style={CR_INP}/></CampoCr>:null}
+            {res.faltantes.includes("base de cálculo de intereses")||sim.baseHipotesis!==""?<CampoCr label="Base — hipótesis">
+              <select value={sim.baseHipotesis} onChange={e=>set("baseHipotesis",e.target.value)} style={CR_INP}>
+                <option value="">— elegir —</option>{Object.entries(BASES).map(([k,l])=><option key={k} value={k}>{l}</option>)}
+              </select></CampoCr>:null}
+            {!sel.c.prepago_comision_tipo&&<CampoCr label="Comisión de prepago — hipótesis">
+              <select value={sim.comisionTipo} onChange={e=>set("comisionTipo",e.target.value)} style={CR_INP}>
+                <option value="">— sin dato —</option><option value="ninguna">Sin comisión</option><option value="pct">% s/capital</option>
+                <option value="meses_interes">N meses de interés</option><option value="monto">Monto fijo</option>
+              </select></CampoCr>}
+            {!sel.c.prepago_comision_tipo&&["pct","meses_interes","monto"].includes(sim.comisionTipo)&&<CampoCr label="Valor">
+              <InputNumero formato={sim.comisionTipo==="monto"?"monto":"tasa"} value={sim.comisionValor} onChange={n=>set("comisionValor",n)} style={CR_INP}/></CampoCr>}
+          </div>
+        )}
+      </Card>
+
+      {res&&res.error&&<div style={{background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"10px 14px",fontSize:12}}>{res.error}</div>}
+
+      {res&&!res.error&&(()=>{
+        const o=totales(res.original), n=totales(res.escenario);
+        return (<>
+          <Card>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+              <SectionTitle>Resultado {res.estimacion?"— ESTIMACIÓN":""}</SectionTitle>
+              {res.estimacion&&<span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#fef9c3",color:"#854d0e"}}>Estimación</span>}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10}}>
+              <KPI label="Capital a prepagar" value={$c(res.capital,mon)} color={C.red}/>
+              <KPI label="Interés devengado a la fecha" value={res.devengado==null?"falta dato":$c(res.devengado,mon)} color={C.orange}/>
+              <KPI label="Comisión / penalidad" value={res.comision==null?"falta dato":$c(res.comision,mon)} color={C.orange}/>
+              <KPI label="Desembolso total estimado" value={res.desembolso==null?"—":$c(res.desembolso,mon)} color={C.blue}/>
+              <KPI label="Intereses futuros evitados" value={res.interesesEvitados==null?"—":$c(res.interesesEvitados,mon)} color={C.green}/>
+              <KPI label="Ahorro neto estimado" value={res.ahorroNeto==null?"—":$c(res.ahorroNeto,mon)} color={res.ahorroNeto!=null&&res.ahorroNeto<0?C.red:C.green}/>
+            </div>
+            <div style={{fontSize:11,color:C.text,marginTop:10,lineHeight:1.7,fontVariantNumeric:"tabular-nums"}}>
+              <div>Capital pendiente antes del prepago (cuotas posteriores al {fmtDate(res.fecha)}): {$c(res.saldoCapital,mon)} · se prepaga {$c(res.capital,mon)} ({res.esTotal?"total":`parcial, ${res.modo==="cuota"?"reduce cuota":"reduce plazo"}`})</div>
+              <div>Interés devengado = {$c(res.esTotal?res.saldoCapital:res.capital,mon)} × {res.tasa??"?"}% × {res.base==="efectiva365"?`[(1+t)^(${res.diasDevengados}/365) − 1]`:res.base==="30360"?"fracción 30/360":`${res.diasDevengados} días / ${res.base==="act365"?365:360}`} — desde {fmtDate(res.desde)} (último vencimiento/pago de intereses o desembolso) hasta {fmtDate(res.fecha)} = {res.devengado==null?"—":$c(res.devengado,mon)}</div>
+              {res.comision!=null&&res.comisionTipo&&<div>Comisión = {res.comisionTipo==="pct"?`${$c(res.capital,mon)} × ${res.comisionValor}%`:res.comisionTipo==="meses_interes"?`${$c(res.capital,mon)} × ${res.tasa}% × ${res.comisionValor}/12`:res.comisionTipo==="monto"?"monto fijo":"sin comisión"} = {$c(res.comision,mon)}</div>}
+              <div>Desembolso = capital {$c(res.capital,mon)} + devengado {res.devengado==null?"—":$c(res.devengado,mon)} + comisión {res.comision==null?"—":$c(res.comision,mon)}{res.vencidosImpagos>0?` + cuotas con vencimiento hasta esa fecha aún impagas ${$c(res.vencidosImpagos,mon)}`:""} = {res.desembolso==null?"—":$c(res.desembolso,mon)}</div>
+              <div>Intereses evitados = futuros originales {$c(res.interesesFuturosOriginal,mon)} − futuros del escenario {$c(res.interesesFuturosEscenario,mon)} − devengado {res.devengado==null?"—":$c(res.devengado,mon)} = {res.interesesEvitados==null?"—":$c(res.interesesEvitados,mon)}</div>
+              <div>Ahorro neto = intereses evitados − comisión = {res.ahorroNeto==null?"—":$c(res.ahorroNeto,mon)} <span style={{color:C.muted}}>(sin descontar el costo de oportunidad de la caja usada)</span></div>
+              {res.cargosEvitados>0.005&&<div>Además deja de pagar otros cargos futuros por {$c(res.cargosEvitados,mon)} (no incluidos en el ahorro neto).</div>}
+            </div>
+            {res.faltantes.length>0&&<div style={{marginTop:8,fontSize:11,color:C.red}}>Datos faltantes: {res.faltantes.join("; ")}.</div>}
+            {res.hipotesis.map((h,i)=><div key={i} style={{marginTop:4,fontSize:11,color:C.orange}}>Hipótesis: {h}</div>)}
+            {res.avisos.map((h,i)=><div key={i} style={{marginTop:4,fontSize:11,color:C.orange}}>⚠ {h}</div>)}
+            {canEdit&&(
+              <div style={{display:"flex",justifyContent:"flex-end",marginTop:10,gap:8,alignItems:"center"}}>
+                {!res.aplicable&&<span style={{fontSize:10,color:C.muted}}>
+                  {res.faltantes.length?"No se puede aplicar mientras falten datos.":"En registros antiguos o de socio solo se aplica el prepago total; para uno parcial, regístralo como crédito tipo contrato."}</span>}
+                <button disabled={!res.aplicable} onClick={aplicar}
+                  style={{padding:"8px 18px",borderRadius:8,border:"none",background:res.aplicable?C.blue:C.border,color:"#fff",cursor:res.aplicable?"pointer":"not-allowed",fontSize:12,fontWeight:700}}>
+                  Aplicar prepago
+                </button>
+              </div>
+            )}
+          </Card>
+          <Card>
+            <SectionTitle>Calendario original vs. escenario con prepago (vencimientos posteriores al {fmtDate(res.fecha)})</SectionTitle>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead><tr style={{background:C.primary}}>
+                  {["Vencimiento","Capital orig.","Interés orig.","Total orig.","Capital escen.","Interés escen.","Total escen.","Diferencia"].map((h,i)=><th key={i} style={{...CR_TH,textAlign:i===0?"left":"right"}}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {[...new Set([...res.original.map(v=>v.fecha),...res.escenario.map(v=>v.fecha)])].sort().map(f=>{
+                    const a=res.original.find(v=>v.fecha===f)||{capital:0,interes:0,total:0}, b=res.escenario.find(v=>v.fecha===f)||{capital:0,interes:0,total:0};
+                    return (<tr key={f}>
+                      <td style={CR_TD}>{fmtDate(f)}</td>
+                      <td style={{...CR_TD,textAlign:"right"}}>{$c(a.capital,mon)}</td><td style={{...CR_TD,textAlign:"right"}}>{$c(a.interes,mon)}</td><td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(a.total,mon)}</td>
+                      <td style={{...CR_TD,textAlign:"right"}}>{$c(b.capital,mon)}</td><td style={{...CR_TD,textAlign:"right"}}>{$c(b.interes,mon)}</td><td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(b.total,mon)}</td>
+                      <td style={{...CR_TD,textAlign:"right",color:b.total-a.total<0?C.green:C.red}}>{$c(b.total-a.total,mon)}</td>
+                    </tr>);
+                  })}
+                </tbody>
+                <tfoot><tr style={{background:C.bg2}}>
+                  <td style={{...CR_TD,fontWeight:800}}>Total</td>
+                  <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(o.cap,mon)}</td><td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(o.int,mon)}</td><td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(o.tot,mon)}</td>
+                  <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(n.cap,mon)}</td><td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(n.int,mon)}</td><td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(n.tot,mon)}</td>
+                  <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$c(n.tot-o.tot,mon)}</td>
+                </tr></tfoot>
+              </table>
+            </div>
+            {o.sd>0&&<div style={{fontSize:10,color:C.orange,marginTop:6}}>El calendario original tiene {$c(o.sd,mon)} sin desglose capital/interés (incluido en "Total orig.").</div>}
+          </Card>
+        </>);
+      })()}
+    </div>
+  );
+}
+
+// ── Conciliación con cada acreedor: capital contra capital, en moneda original ──
+const ESTADO_CONC = {
+  cuadra:     {lbl:"Cuadra (capital)",         bg:"#dcfce7", fg:"#166534"},
+  diferencia: {lbl:"Diferencia de capital",    bg:"#fee2e2", fg:"#991b1b"},
+  incompleta: {lbl:"Conciliación incompleta",  bg:"#fef9c3", fg:"#854d0e"},
+  sin_dato:   {lbl:"Sin dato del acreedor",    bg:"#e5e7eb", fg:"#374151"},
+};
+// Texto de un TC: "955 CLP/US$ · 30/09/2026 · Maestros · manual" (+ estimado / antigüedad).
+// UF: se muestra el valor de la UF en CLP (fecha y fuente) y el USD-CLP usado.
+function valorTC(t){
+  if(!t) return "sin TC";
+  if(t.moneda==="UF"){
+    const u = t.ufCLP!=null ? t : (typeof t.porFecha==="function" ? t.porFecha(t.corte||t.fecha) : null);
+    if(u&&u.ufCLP) return `UF ${fmtN(u.ufCLP,2)} CLP (${fmtDate(u.ufFecha)}, ${u.ufFuente}) / US$ ${fmtN(u.usdCLP,2)} CLP = ${fmtN(t.tc,6)} UF por US$`;
+    return `${fmtN(t.tc,6)} UF por US$`;
+  }
+  return `${fmtN(t.tc,t.tc<1?4:2)} ${t.moneda||""} por US$`;
+}
+function textoTC(t){
+  if(!t) return "sin TC";
+  if(t.origen==="usd") return "USD";
+  return `${valorTC(t)} · ${t.fecha?fmtDate(t.fecha):"sin fecha"} · ${t.fuente}${t.estimado?" · ESTIMADO":""}${t.desactualizado?` · ${t.antiguedadDias!=null?t.antiguedadDias+" días":"sin fecha"} de antigüedad`:""}`;
+}
+function ConciliacionAcreedores({creditos, saldosInformados=[], onSaveSaldosInformados, canEdit, usuario, creditosConfig={}, onSaveCreditosConfig, tcData}){
+  const hoy = hoyISO();
+  const tolerancias = creditosConfig?.tolerancias || null;
+  const filas = useMemo(()=>conciliacionAcreedores(creditos, saldosInformados, hoy, {tolerancias, tcData}),[creditos, saldosInformados, hoy, tolerancias, tcData]);
+  const [form,setForm]=useState(null);
+  const [abierta,setAbierta]=useState(null);   // clave con movimientos desplegados
+  const [tolForm,setTolForm]=useState(null);
+  async function guardarTol(){
+    const t={};
+    for(const m of Object.keys(TOLERANCIAS_DEFAULT)){
+      const v=tolForm[m];
+      if(v===""||v==null){ continue; }
+      if(!(Number(v)>=0)){ alert(`Tolerancia inválida para ${m}.`); return; }
+      t[m]=Number(v);
+    }
+    const res = await onSaveCreditosConfig?.({...(creditosConfig||{}), tolerancias:t, toleranciasPor:usuario, toleranciasTs:new Date().toISOString()});
+    if(res && res.ok===false){ alert("No se guardó en el servidor; reintenta."); return; }
+    setTolForm(null);
+  }
+  const abrir=(f)=>setForm({empresa:f.empresa, acreedor:f.acreedor, moneda:f.moneda, fecha:f.informado?.fecha||hoy,
+    capital:"", intereses:"", cargos:"", respaldo:""});
+  async function guardar(){
+    if(!(Number(form.capital)>=0) || form.capital===""){ alert("Indica el capital insoluto informado por el acreedor."); return; }
+    if(!(form.respaldo||"").trim()){ alert("Indica el respaldo (certificado de deuda, cartola del crédito, correo del ejecutivo…)."); return; }
+    const reg = {...form, id:`si-${Date.now().toString(36)}`, capital:Number(form.capital),
+      intereses: form.intereses===""?null:Number(form.intereses), cargos: form.cargos===""?null:Number(form.cargos),
+      respaldo: form.respaldo.trim(), usuario, ts:new Date().toISOString()};
+    const res = await onSaveSaldosInformados([...(saldosInformados||[]), reg]);
+    if(res && res.ok===false){ alert("No se guardó en el servidor; reintenta."); return; }
+    setForm(null);
+  }
+  async function anular(inf){
+    const motivo = window.prompt(`Anular el saldo informado por ${inf.acreedor} al ${fmtDate(inf.fecha)} (${$c(inf.capital,inf.moneda)}). Queda en el historial. Motivo:`);
+    if(!motivo||!motivo.trim()) return;
+    const res = await onSaveSaldosInformados((saldosInformados||[]).map(x=>x.id===inf.id?{...x,anulado:true,motivoAnulacion:motivo.trim(),anuladoPor:usuario,anuladoTs:new Date().toISOString()}:x));
+    if(res && res.ok===false) alert("No se guardó en el servidor; reintenta.");
+  }
+  const cont = filas.reduce((a,f)=>{a[f.estado]=(a[f.estado]||0)+1;return a;},{});
+  return (
+    <Card>
+      <SectionTitle>Conciliación con cada acreedor (capital contra capital, moneda original)</SectionTitle>
+      <div style={{fontSize:11,color:C.text,marginBottom:8,lineHeight:1.6}}>
+        Se compara el <strong>capital pendiente identificado en la app a la fecha de corte</strong> (solo pagos con fecha ≤ corte) con el
+        <strong> capital insoluto que informa el acreedor</strong>. Intereses, otros cargos, cuotas sin clasificar y cuotas por conciliar se muestran
+        por separado y <strong>no se suman al capital</strong>: si existen, el estado es "conciliación incompleta" aunque el capital coincida.
+        La comparación es en la moneda original; el equivalente en US$ usa el TC <strong>de la fecha de corte</strong> (nunca uno posterior).
+        La tolerancia solo absorbe redondeo: <strong>nunca</strong> da "Cuadra" si faltan desgloses, respaldos o datos. {Object.entries(cont).map(([k,n])=>`${ESTADO_CONC[k]?.lbl}: ${n}`).join(" · ")}
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",fontSize:10,color:C.muted,marginBottom:8}}>
+        <span>Tolerancia de redondeo: {Object.keys(TOLERANCIAS_DEFAULT).map(m=>`${m} ${fmtN(toleranciaDe(m,tolerancias),decimalesMoneda(m))}`).join(" · ")}
+          {creditosConfig?.toleranciasPor?` (definida por ${creditosConfig.toleranciasPor} el ${fmtDate((creditosConfig.toleranciasTs||"").slice(0,10))})`:" (valores iniciales)"}</span>
+        {canEdit&&onSaveCreditosConfig&&<button onClick={()=>setTolForm(Object.fromEntries(Object.keys(TOLERANCIAS_DEFAULT).map(m=>[m,String(toleranciaDe(m,tolerancias))])))}
+          style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.blue}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700}}>Editar tolerancias</button>}
+      </div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr style={{background:C.primary}}>
+            {["Empresa","Acreedor","Mon.","Corte","Capital app","Capital informado","Diferencia exacta","Tolerancia","Capital app en US$ (TC al corte)","Int. vencidos impagos","Cargos vencidos","Int. futuros (calendario)","Sin clasificar","Por conciliar","Estado",""].map((h,i)=>
+              <th key={i} style={{...CR_TH,textAlign:i<4||i>13?"left":"right"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {filas.map(f=>{ const mv = abierta===f.clave ? movimientosCapitalAlCorte(f.creditos, f.corte) : null; return (
+              <React.Fragment key={f.clave}>
+              <tr>
+                <td style={CR_TD}>{f.empresa}</td><td style={CR_TD}>{f.acreedor}</td><td style={CR_TD}>{f.moneda}</td>
+                <td style={{...CR_TD,whiteSpace:"nowrap"}}>{fmtDate(f.corte)}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(f.app.capital,f.moneda)}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{f.informado?<span title={`Respaldo: ${f.informado.respaldo} · ${f.informado.usuario}`}>{$c(f.capitalInformado,f.moneda)}</span>:"—"}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:f.diferenciaExacta==null?C.muted2:Math.abs(f.diferenciaExacta)<=f.tolerancia+1e-9?C.green:C.red}}
+                  title={f.diferenciaExacta==null?"":`Diferencia sin redondear: ${f.diferenciaExacta}`}>{f.diferenciaExacta==null?"—":`${fmtN(f.diferenciaExacta,decimalesMoneda(f.moneda))} ${f.moneda}`}</td>
+                <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{fmtN(f.tolerancia,decimalesMoneda(f.moneda))}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{f.capitalUSD==null?<span style={{color:C.red}}>sin TC al corte</span>:<>{$$(f.capitalUSD)}
+                  {f.moneda!=="USD"&&<div style={{fontSize:9,color:f.tcCorte?.estimado?C.red:C.muted,maxWidth:200}}>{textoTC(f.tcCorte)}</div>}</>}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{$c(f.app.interesVencido,f.moneda)}{f.informado?.intereses!=null&&<div style={{fontSize:9,color:C.muted}}>informado {$c(f.informado.intereses,f.moneda)}</div>}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{$c(f.app.cargosVencidos,f.moneda)}{f.informado?.cargos!=null&&<div style={{fontSize:9,color:C.muted}}>informado {$c(f.informado.cargos,f.moneda)}</div>}</td>
+                <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{$c(f.app.interesFuturo,f.moneda)}</td>
+                <td style={{...CR_TD,textAlign:"right",color:f.app.sinClasificar?C.yellow:C.muted2}}>{f.app.sinClasificar?$c(f.app.sinClasificar,f.moneda):"—"}</td>
+                <td style={{...CR_TD,textAlign:"right",color:f.app.porConciliar?"#5b21b6":C.muted2}}>{f.app.porConciliar?$c(f.app.porConciliar,f.moneda):"—"}</td>
+                <td style={CR_TD}><Pill def={ESTADO_CONC[f.estado]}/>{f.motivos.length>0&&<div style={{fontSize:9,color:C.muted,maxWidth:220}}>{f.motivos.join("; ")}</div>}</td>
+                <td style={{...CR_TD,whiteSpace:"nowrap"}}>
+                  {canEdit&&<button onClick={()=>abrir(f)} style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.blue}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700}}>Saldo informado</button>}
+                  {canEdit&&f.informado&&<button onClick={()=>anular(f.informado)} style={{marginLeft:4,padding:"2px 8px",borderRadius:6,border:"none",background:"#fee2e2",color:"#991b1b",cursor:"pointer",fontSize:10}}>Anular</button>}
+                  <button onClick={()=>setAbierta(abierta===f.clave?null:f.clave)} style={{marginLeft:4,padding:"2px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.text,cursor:"pointer",fontSize:10}}>{abierta===f.clave?"Ocultar movimientos":"Ver movimientos"}</button>
+                </td>
+              </tr>
+              {mv&&(
+                <tr><td colSpan={16} style={{...CR_TD,background:C.rowAlt,padding:0}}>
+                  <div style={{position:"sticky",left:0,maxWidth:"min(980px, calc(100vw - 120px))",padding:"10px 12px"}}>
+                  <div style={{fontSize:11,fontWeight:800,marginBottom:6}}>De dónde sale el capital de la app al {fmtDate(f.corte)} ({f.moneda})</div>
+                  <table style={{borderCollapse:"collapse",fontSize:11,marginBottom:8}}><tbody>
+                    {[["Capital inicial (monto desembolsado)",mv.original],
+                      ["Prepagos de capital hasta el corte (ya descontados del calendario)",-mv.prepagosCapital],
+                      ["Capital en calendario",mv.capitalCalendario],
+                      ["− Capital pagado en cuotas (pagos vigentes con fecha ≤ corte)",-(mv.capitalPagado-mv.excesoCapital)],
+                      ["− Cuotas marcadas pagadas sin registro",-mv.capitalSinRegistro],
+                      ["− Capital de cuotas por conciliar (no confirmado)",-mv.capitalPorConciliar],
+                      ["= Capital app",mv.calculado]].map(([l,v],i)=>(
+                      <tr key={i} style={{fontWeight:i===2||i===6?800:400}}><td style={{padding:"2px 10px 2px 0"}}>{l}</td><td style={{textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtN(v,decimalesMoneda(f.moneda))}</td></tr>))}
+                  </tbody></table>
+                  <div style={{fontSize:10,color:mv.cuadra?C.green:C.red,marginBottom:6}}>
+                    {mv.cuadra?`Control: el cálculo paso a paso (${fmtN(mv.calculado,decimalesMoneda(f.moneda))}) es igual al capital app (${fmtN(mv.capitalApp,decimalesMoneda(f.moneda))}).`
+                      :`Control: el cálculo paso a paso (${fmtN(mv.calculado,decimalesMoneda(f.moneda))}) NO coincide con el capital app (${fmtN(mv.capitalApp,decimalesMoneda(f.moneda))}). Revisar.`}
+                    {" "}Intereses pagados {fmtN(mv.interesPagado,decimalesMoneda(f.moneda))} y cargos pagados {fmtN(mv.cargosPagados,decimalesMoneda(f.moneda))}: <strong>no se descuentan del capital</strong>.
+                  </div>
+                  <table style={{borderCollapse:"collapse",fontSize:10,width:"100%"}}>
+                    <thead><tr>{["Fecha","Movimiento","Capital","Interés","Cargos","Sin desglose","¿Cuenta al corte?"].map((h,i)=><th key={i} style={{textAlign:i<2||i===6?"left":"right",padding:"2px 6px",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
+                    <tbody>{mv.movimientos.map((m,i)=>(
+                      <tr key={i} style={{color:m.cuenta?C.text:C.muted}}>
+                        <td style={{padding:"2px 6px",whiteSpace:"nowrap"}}>{m.fecha?fmtDate(m.fecha):"—"}</td><td style={{padding:"2px 6px"}}>{m.tipo}</td>
+                        {[m.capital,m.interes,m.cargos,m.sinDesglose].map((x,j)=><td key={j} style={{padding:"2px 6px",textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{x?fmtN(x,decimalesMoneda(f.moneda)):"—"}</td>)}
+                        <td style={{padding:"2px 6px"}}>{m.cuenta?"sí":"no"}</td>
+                      </tr>))}
+                      {!mv.movimientos.length&&<tr><td colSpan={7} style={{padding:"2px 6px",color:C.muted}}>Sin pagos, prepagos ni anulaciones registrados.</td></tr>}
+                    </tbody>
+                  </table>
+                  </div>
+                </td></tr>
+              )}
+              </React.Fragment>
+            );})}
+          </tbody>
+        </table>
+      </div>
+      {tolForm&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:C.bg2,border:`1px solid ${C.blue}`,borderRadius:10,padding:16,width:420,maxWidth:"94vw"}}>
+            <div style={{fontWeight:800,marginBottom:8,fontSize:12}}>Tolerancia de redondeo por moneda</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {Object.keys(TOLERANCIAS_DEFAULT).map(m=>(
+                <CampoCr key={m} label={`${m} (inicial ${TOLERANCIAS_DEFAULT[m]})`}><input type="number" step="any" min="0" value={tolForm[m]} onChange={e=>setTolForm(p=>({...p,[m]:e.target.value}))} style={CR_INP}/></CampoCr>))}
+            </div>
+            <div style={{fontSize:10,color:C.muted,marginTop:6}}>Solo absorbe diferencias de redondeo. No cambia el estado de una conciliación incompleta.</div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+              <button onClick={()=>setTolForm(null)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:12}}>Cancelar</button>
+              <button onClick={guardarTol} style={{padding:"6px 14px",borderRadius:8,border:"none",background:C.blue,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {form&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:C.bg2,border:`1px solid ${C.blue}`,borderRadius:10,padding:16,width:520,maxWidth:"94vw"}}>
+            <div style={{fontWeight:800,marginBottom:8,fontSize:12}}>Saldo informado por {form.acreedor} · {form.empresa} · {form.moneda}</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <CampoCr label="Fecha de corte del certificado"><input type="date" value={form.fecha} onChange={e=>setForm(p=>({...p,fecha:e.target.value}))} style={CR_INP}/></CampoCr>
+              <CampoCr label={`Capital insoluto informado (${form.moneda})`}><InputNumero formato="monto" decimales={decimalesMoneda(form.moneda)} value={form.capital} onChange={n=>setForm(p=>({...p,capital:n}))} style={CR_INP}/></CampoCr>
+              <CampoCr label="Intereses informados (opcional)"><InputNumero formato="monto" decimales={decimalesMoneda(form.moneda)} value={form.intereses} onChange={n=>setForm(p=>({...p,intereses:n}))} style={CR_INP}/></CampoCr>
+              <CampoCr label="Cargos informados (opcional)"><InputNumero formato="monto" decimales={decimalesMoneda(form.moneda)} value={form.cargos} onChange={n=>setForm(p=>({...p,cargos:n}))} style={CR_INP}/></CampoCr>
+              <CampoCr label="Respaldo (obligatorio)" span={2}><input value={form.respaldo} placeholder="Certificado de deuda BCI al 30-09-2026, enlace…" onChange={e=>setForm(p=>({...p,respaldo:e.target.value}))} style={CR_INP}/></CampoCr>
+            </div>
+            <div style={{fontSize:10,color:C.muted,marginTop:6}}>Se compara solo el capital. Intereses y cargos informados se muestran al lado, sin mezclarse.</div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+              <button onClick={()=>setForm(null)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:12}}>Cancelar</button>
+              <button onClick={guardar} style={{padding:"6px 14px",borderRadius:8,border:"none",background:C.blue,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ── Dos escenarios de caja por empresa ─────────────────────────────────
+function EscenariosCajaCreditos({creditos, empresas, realData={}}){
+  const filas = Object.entries(empresas||{}).map(([emp,eo])=>({emp, ...escenarioPorConciliar(emp, eo, creditos, realData?.[emp])}))
+    .filter(f=>f.incluidas.length||f.excluidas.length||f.sinTC.length);
+  if(!filas.length) return null;
+  const tot = filas.reduce((a,f)=>({inc:a.inc+f.impacto, exc:a.exc+f.excluidoUSD, sup:a.sup+f.superposicionUSD}),{inc:0,exc:0,sup:0});
+  const provisional = filas.some(f=>f.provisional);
+  return (
+    <Card>
+      <SectionTitle>Dos escenarios de caja: confirmado vs incluyendo cuotas por conciliar</SectionTitle>
+      <div style={{fontSize:11,color:C.text,marginBottom:8,lineHeight:1.6}}>
+        El flujo confirmado no incluye las cuotas por conciliar. El escenario "incluyendo por conciliar" las paga en el mes en curso.
+        Diferencia en el saldo acumulado desde el mes en curso: <strong style={{color:C.red}}>{$$(tot.inc)}</strong>.
+        {tot.exc>0.5&&<> Se excluyen {$$(tot.exc)} vinculados explícitamente a un valor manual vigente.</>}
+        {provisional&&<div style={{color:C.red,fontWeight:700}}>ESCENARIO PROVISIONAL: {tot.sup>0.5?`${$$(tot.sup)} pueden superponerse con valores manuales cuya cobertura está pendiente de conciliación. `:""}{filas.some(f=>f.sinTC.length)?"Hay cuotas sin TC. ":""}No es un saldo definitivo.</div>}
+      </div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr style={{background:C.primary}}>
+            {["Empresa","Cuotas sumadas","Diferencia de caja (USD)","Excluidas (vinculadas a valor manual)","Cobertura pendiente (posible superposición)","Sin TC","Estado"].map((h,i)=><th key={i} style={{...CR_TH,textAlign:i===0||i===6?"left":"right"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {filas.map(f=>(
+              <tr key={f.emp}>
+                <td style={CR_TD}>{f.emp}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{f.incluidas.length}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:C.red}}>{f.impacto?`−${$$(f.impacto)}`:"—"}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{f.excluidas.length?`${f.excluidas.length} · ${$$(f.excluidoUSD)}`:"—"}</td>
+                <td style={{...CR_TD,textAlign:"right",color:f.pendientesCobertura.length?C.red:C.muted2}}>{f.pendientesCobertura.length?`${f.pendientesCobertura.length} · ${$$(f.superposicionUSD)}`:"—"}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{f.sinTC.length?f.sinTC.map(c=>`${c.acreedor} ${$c(c._porConciliarOriginal,c.moneda)}`).join(" · "):"—"}</td>
+                <td style={CR_TD}>{f.provisional?<Pill def={{lbl:"Provisional",bg:"#fee2e2",fg:"#991b1b"}}/>:<Pill def={{lbl:"Completo",bg:"#dcfce7",fg:"#166534"}}/>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+// ── Contraste de la UF usada (valor, fecha y fuente) ─────────────────
+// La descarga automática de UF (mindicador.cl, que la toma del Banco Central)
+// está PENDIENTE DE PRUEBA EN VIVO: este panel permite comparar lo guardado en
+// Maestros con la fuente oficial antes de confiar en ella.
+function ContrasteUF({tcData, creditos=[]}){
+  const serie = [...((tcData&&tcData["UF-CLP"])||[])].filter(p=>p&&p.fecha).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  const hoy = hoyISO();
+  const ddmm = (iso)=>{ const [y,m,d]=iso.split("-"); return `${d}-${m}-${y}`; };
+  const usos = [];
+  creditos.filter(c=>!c.anulado && c.moneda==="UF").forEach(c=>{
+    const pf = c._tc && c._tc.porFecha;
+    aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.filter(v=>v.pendienteTotal>0).forEach(v=>{
+      const f = v.fecha<hoy?hoy:v.fecha; const x = pf?pf(f):null;
+      usos.push({acreedor:c.acreedor, empresa:c.empresa, venc:v.fecha, fecha:f, monto:v.pendienteTotal, x});
+    });
+  });
+  const tipoLbl = (x)=>!x?"sin UF":x.tipo==="publicado"?`valor de esa fecha${x.ufFuente==="manual"?" (manual)":""}`:x.tipo==="ultimo_publicado"?"último publicado anterior":"HIPÓTESIS (última UF disponible)";
+  return (
+    <Card>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6}}>
+        <SectionTitle>UF utilizada: contrastar valor, fecha y fuente</SectionTitle>
+        <Pill def={{lbl:"Descarga automática de UF: pendiente de prueba en vivo",bg:"#fef3c7",fg:"#92400e"}}/>
+      </div>
+      <div style={{fontSize:11,color:C.text,lineHeight:1.6,marginBottom:8}}>
+        Fuente oficial: Banco Central de Chile (publica a más tardar el día 9 los valores del 10 de ese mes al 9 del siguiente). La app guarda la UF en
+        Maestros → Tipo de Cambio, par <strong>UF-CLP</strong>; un valor manual prevalece sobre la descarga. Compara el valor de cada fecha con
+        {" "}<a href="https://www.bcentral.cl" target="_blank" rel="noreferrer">bcentral.cl</a> (indicadores diarios) o con
+        {" "}<a href={`https://mindicador.cl/api/uf/${ddmm(hoy)}`} target="_blank" rel="noreferrer">mindicador.cl/api/uf/{ddmm(hoy)}</a>.
+        Si no coincide, corrígelo como valor manual en Maestros.
+      </div>
+      {serie.length===0
+        ? <div style={{fontSize:11,color:C.red,fontWeight:700}}>Maestros no tiene valores UF-CLP: los créditos en UF quedan sin convertir a US$ (total incompleto).</div>
+        : <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+            <div style={{overflowX:"auto"}}>
+              <table style={{borderCollapse:"collapse"}}>
+                <thead><tr style={{background:C.primary}}>{["Fecha","UF (CLP)","Fuente"].map((h,i)=><th key={i} style={{...CR_TH,textAlign:i===1?"right":"left"}}>{h}</th>)}</tr></thead>
+                <tbody>{serie.slice(0,8).map(p=>(
+                  <tr key={p.fecha}><td style={CR_TD}>{fmtDate(p.fecha)}{p.fecha>hoy?" (futura)":""}</td><td style={{...CR_TD,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{fmtN(p.valor,2)}</td><td style={CR_TD}>{p.fuente||"s/f"}</td></tr>))}
+                </tbody>
+              </table>
+            </div>
+            {usos.length>0&&<div style={{overflowX:"auto",flex:1,minWidth:0}}>
+              <table style={{borderCollapse:"collapse",width:"100%"}}>
+                <thead><tr style={{background:C.primary}}>{["Crédito","Vencimiento","Pendiente","UF usada","Fecha UF","Fuente","Tipo"].map((h,i)=><th key={i} style={{...CR_TH,textAlign:i===2||i===3?"right":"left"}}>{h}</th>)}</tr></thead>
+                <tbody>{usos.map((u,i)=>(
+                  <tr key={i}>
+                    <td style={CR_TD}>{u.empresa} · {u.acreedor}</td><td style={CR_TD}>{fmtDate(u.venc)}{u.venc<hoy?" (vencida: UF de hoy)":""}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{$c(u.monto,"UF")}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{u.x?fmtN(u.x.ufCLP,2):"—"}</td>
+                    <td style={CR_TD}>{u.x?fmtDate(u.x.ufFecha):"—"}</td><td style={CR_TD}>{u.x?u.x.ufFuente:"—"}</td>
+                    <td style={{...CR_TD,color:!u.x||u.x.hipotesis?C.red:C.text,fontWeight:!u.x||u.x.hipotesis?700:400}}>{tipoLbl(u.x)}</td>
+                  </tr>))}
+                </tbody>
+              </table>
+            </div>}
+          </div>}
+    </Card>
+  );
+}
+
+// ── Conciliación: cuotas históricas por conciliar + valores manuales antiguos ──
+// Nada de esto se da por conciliado con datos simulados: la tabla se exporta
+// a Excel con columnas en blanco para cotejar contra cartolas / certificados
+// de deuda, y cada decisión queda registrada con usuario, fecha y respaldo.
+function ConciliacionCreditos({creditos, creditosTodos, empresas, realData={}, onConciliarOverride, onSaveOne, canEdit, usuario, abrirDetalle,
+  saldosInformados=[], onSaveSaldosInformados, creditosConfig={}, onSaveCreditosConfig, tcData, onGuardarCobertura}){
+  const [cobForm,setCobForm]=useState(null); // {r, sel:Set, nota}
+  const hoy = hoyISO();
+  const filas = useMemo(()=>porConciliarCartera(creditos, hoy),[creditos, hoy]);
+  const porEmp = {};
+  filas.forEach(v=>{ const x=porEmp[v.empresa]||(porEmp[v.empresa]={n:0,usd:0,sinTC:0}); x.n++; if(v.usd==null) x.sinTC++; else x.usd+=v.usd; });
+  const totUSD = filas.reduce((a,v)=>a+(v.usd||0),0);
+  // Valores manuales antiguos de las líneas que alimenta Créditos
+  const ovFilas = useMemo(()=>{
+    const out=[];
+    Object.entries(empresas||{}).forEach(([emp,eo])=>{
+      const rd = realData?.[emp] || {};
+      const res = rd._resolucionesCreditos || [];
+      (eo.sections||[]).forEach(sec=>(sec.lines||[]).forEach(l=>{
+        if(!l._fuenteCreditos) return;
+        const ov = overridesDeLinea(rd._proyOverrides||{}, eo, sec.cat, l.label, rd._resolucionesOverride) || {};
+        Object.entries(ov).forEach(([i,val])=>{
+          const idx=Number(i); if(isNaN(idx)||!MESES_65[idx]) return;
+          const manual = typeof val==="object"&&val!==null ? Object.values(val).reduce((a,x)=>a+(Number(x)||0),0) : (Number(val)||0);
+          const cred = l.proy[idx]||0;
+          const ult = [...res].reverse().find(r=>r.linea===l.label && r.idx===idx);
+          const cob = (rd._coberturasManual||[]).find(x=>!x.anulado && x.linea===l.label && x.idx===idx) || null;
+          out.push({emp, cat:sec.cat, label:l.label, idx, mes:MESES_65[idx], manual, creditos:cred, dif:manual-cred,
+            decision: ult && ult.decision==="mantener" ? ult : null, cobertura: cob});
+        });
+      }));
+    });
+    return out.sort((a,b)=>a.emp.localeCompare(b.emp)||a.idx-b.idx);
+  },[empresas, realData]);
+  const resueltos = useMemo(()=>Object.entries(realData||{}).flatMap(([emp,rd])=>(rd?._resolucionesCreditos||[]).map(r=>({...r,emp}))).filter(r=>empresas[r.emp]),[realData,empresas]);
+  const pendOv = ovFilas.filter(r=>!r.decision);
+
+  async function confirmar(v){
+    const nota = window.prompt(`Confirmar como IMPAGA la cuota del ${fmtDate(v.fecha)} de ${v.acreedor} (${v.empresa}) por ${$c(v.pendienteTotal,v.moneda)}.\n\nPasará a "vencida" y se proyectará en el mes y semana en curso (conservando su fecha original).\nRespaldo de la confirmación (cartola, certificado de deuda, correo del acreedor…):`);
+    if(nota===null) return;
+    try { await onSaveOne(confirmarImpaga(v.credito, v.key, nota, usuario)); } catch(err){ alert(err.message); }
+  }
+  async function resolverOv(r, decision){
+    let nota = "";
+    if(decision==="mantener"){
+      nota = window.prompt(`Mantener el valor manual ${$$(r.manual)} en ${r.label} ${r.mes} (${r.emp}) en vez de ${$$(r.creditos)} de Créditos.\nMotivo (p. ej. cuota no registrada todavía en Créditos):`);
+      if(nota===null) return;
+    } else if(!window.confirm(`${r.emp} · ${r.label} · ${r.mes}\nValor manual ${$$(r.manual)} → Créditos ${$$(r.creditos)} (diferencia ${$$(r.dif)}).\n\nSe retira el valor manual de ese mes; queda el registro de la decisión.`)) return;
+    const res = await onConciliarOverride(r.emp, {cat:r.cat, label:r.label, idx:r.idx, decision, manual:r.manual, creditos:r.creditos, nota});
+    if(!res?.ok) alert(`No se guardó: ${res?.motivo||"error"}`);
+  }
+  function exportar(){
+    const wb = XLSX.utils.book_new();
+    const a = [["Empresa","Acreedor","Identificador","Tipo","Vencimiento","Moneda","Capital","Intereses","Otros cargos","Sin desglose","Total","Total USD",
+      "Estado según banco (pagada / impaga)","Fecha pago según banco","Monto pagado según banco","Documento de respaldo","Observación"]];
+    filas.forEach(v=>a.push([v.empresa,v.acreedor,v.credito.identificador||"",v.tipo_cr||"",v.fecha,v.moneda,v.pendiente.capital,v.pendiente.interes,v.pendiente.cargos,v.pendiente.sinDesglose,v.pendienteTotal,v.usd??"sin TC","","","","",""]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(a), "Cuotas por conciliar");
+    const b = [["Empresa","Línea","Mes","Valor manual (se aplica hoy)","Calendario Créditos","Diferencia (manual − Créditos)","Decisión registrada","Motivo","Usuario","Fecha"]];
+    ovFilas.forEach(r=>b.push([r.emp,r.label,r.mes,r.manual,r.creditos,r.dif,r.decision?"mantener":"PENDIENTE",r.decision?.nota||"",r.decision?.usuario||"",r.decision?.ts||""]));
+    resueltos.filter(r=>r.decision==="creditos").forEach(r=>b.push([r.emp,r.linea,r.mes,r.valorManual,r.valorCreditos,r.diferencia,"usar Créditos (valor manual retirado)",r.nota||"",r.usuario,r.ts]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(b), "Valores manuales vs Créditos");
+    XLSX.writeFile(wb, `Conciliacion_Creditos_${hoy}.xlsx`);
+  }
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
+      <Card>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:8}}>
+          <SectionTitle>Procedimiento de conciliación</SectionTitle>
+          <button onClick={exportar} style={{marginLeft:"auto",padding:"6px 14px",borderRadius:8,border:`1px solid ${C.green}`,background:"transparent",color:C.green,cursor:"pointer",fontSize:11,fontWeight:700}}>📥 Exportar a Excel para cotejar</button>
+        </div>
+        <ol style={{fontSize:11,color:C.text,lineHeight:1.7,margin:0,paddingLeft:18}}>
+          <li>Exporta el Excel y coteja cada cuota contra la cartola bancaria o el certificado de deuda del acreedor (columnas en blanco para completar).</li>
+          <li>Si se pagó: abre 📅 y registra el pago con su fecha y monto reales (queda en el historial del crédito).</li>
+          <li>Si sigue impaga: "Confirmar impaga" con el respaldo. Pasa a vencida y entra al flujo en el mes y semana en curso, con su fecha original.</li>
+          <li>Valores manuales antiguos de Pago Préstamos: compara con el calendario y decide mes a mes. Hasta decidir, el valor manual se sigue aplicando.</li>
+          <li>Cuadre con el acreedor (tabla de abajo): carga el capital insoluto que informa cada acreedor a su fecha de corte. Se compara SOLO capital
+            contra capital identificado. Intereses, cargos, cuotas sin clasificar y por conciliar van aparte; si existen, la conciliación queda "incompleta".</li>
+        </ol>
+      </Card>
+      <ContrasteUF tcData={tcData} creditos={creditos}/>
+      <ConciliacionAcreedores creditos={creditos} saldosInformados={saldosInformados} onSaveSaldosInformados={onSaveSaldosInformados} canEdit={canEdit} usuario={usuario}
+        creditosConfig={creditosConfig} onSaveCreditosConfig={onSaveCreditosConfig} tcData={tcData}/>
+      <EscenariosCajaCreditos creditos={creditos} empresas={empresas} realData={realData}/>
+
+      <Card>
+        <SectionTitle>Cuotas históricas por conciliar ({filas.length})</SectionTitle>
+        {filas.length===0?<div style={{fontSize:11,color:C.green}}>No hay cuotas por conciliar.</div>:(<>
+          <div style={{fontSize:11,color:C.text,marginBottom:8,lineHeight:1.6}}>
+            Vencieron antes de que el crédito se controlara en la app y no tienen pago registrado. <strong>No están en la deuda confirmada ni en el flujo.</strong>
+            Impacto potencial en caja: si todas se confirmaran impagas, el mes en curso tendría <strong style={{color:C.red}}>{$$(totUSD)}</strong> más de egreso
+            {Object.entries(porEmp).map(([e,x])=>` · ${e}: ${$$(x.usd)} (${x.n})${x.sinTC?` + ${x.sinTC} sin TC`:""}`).join("")}.
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr style={{background:C.primary}}>
+                {["Empresa","Acreedor","Vencimiento","Días","Capital","Intereses","Cargos","Sin desglose","Total","USD",""].map((h,i)=><th key={i} style={{...CR_TH,textAlign:i<4&&i!==3?"left":"right"}}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {filas.map(v=>(
+                  <tr key={v.key}>
+                    <td style={CR_TD}>{v.empresa}</td><td style={CR_TD}>{v.acreedor}</td>
+                    <td style={{...CR_TD,whiteSpace:"nowrap"}}>{fmtDate(v.fecha)}</td>
+                    <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{diasEntreISO(v.fecha,hoy)}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{$c(v.pendiente.capital,v.moneda)}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{$c(v.pendiente.interes,v.moneda)}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{$c(v.pendiente.cargos,v.moneda)}</td>
+                    <td style={{...CR_TD,textAlign:"right",color:v.pendiente.sinDesglose?C.yellow:C.muted2}}>{v.pendiente.sinDesglose?$c(v.pendiente.sinDesglose,v.moneda):"—"}</td>
+                    <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(v.pendienteTotal,v.moneda)}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{v.usd==null?"sin TC":$$(v.usd)}</td>
+                    <td style={{...CR_TD,whiteSpace:"nowrap"}}>
+                      <button onClick={()=>abrirDetalle(uidCredito(v.credito))} style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.blue}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700,marginRight:4}}>📅 Pagada</button>
+                      {canEdit&&<button onClick={()=>confirmar(v)} style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.red}`,background:"transparent",color:C.red,cursor:"pointer",fontSize:10,fontWeight:700}}>Confirmar impaga</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>)}
+      </Card>
+
+      <Card>
+        <SectionTitle>Valores manuales antiguos en Pago Préstamos / Renovaciones vs calendario de Créditos</SectionTitle>
+        {ovFilas.length===0?<div style={{fontSize:11,color:C.green}}>No quedan valores manuales sobre estas líneas.</div>:(<>
+          <div style={{fontSize:11,color:C.text,marginBottom:8}}>
+            {pendOv.length} mes(es) pendiente(s) de decisión. Mientras no se decida, <strong>el flujo sigue usando el valor manual</strong>.
+            Diferencia neta pendiente (manual − Créditos): <strong>{$$(pendOv.reduce((a,r)=>a+r.dif,0))}</strong>.
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse"}}>
+              <thead><tr style={{background:C.primary}}>
+                {["Empresa","Línea","Mes","Manual (vigente)","Créditos","Diferencia","Estado","Cobertura de cuotas por conciliar",""].map((h,i)=><th key={i} style={{...CR_TH,textAlign:i<3||i>5?"left":"right"}}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {ovFilas.map(r=>(
+                  <tr key={`${r.emp}-${r.label}-${r.idx}`}>
+                    <td style={CR_TD}>{r.emp}</td><td style={CR_TD}>{r.label}</td><td style={CR_TD}>{r.mes}</td>
+                    <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$$(r.manual)}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{$$(r.creditos)}</td>
+                    <td style={{...CR_TD,textAlign:"right",color:Math.abs(r.dif)>0.5?C.red:C.green,fontWeight:700}}>{Math.abs(r.dif)>0.5?$$(r.dif):"0"}</td>
+                    <td style={{...CR_TD,fontSize:10}}>{r.decision?<span title={r.decision.nota}>Mantener (decidido por {r.decision.usuario}: {r.decision.nota})</span>:<span style={{color:C.orange,fontWeight:700}}>Pendiente</span>}</td>
+                    <td style={{...CR_TD,fontSize:10}}>
+                      {r.cobertura
+                        ? <span title={r.cobertura.nota}>{r.cobertura.vencKeys.length?`Cubre ${r.cobertura.vencKeys.length} cuota(s)`:"No cubre cuotas por conciliar"} · {r.cobertura.usuario}</span>
+                        : <span style={{color:C.red,fontWeight:700}}>Pendiente de conciliación</span>}
+                      {canEdit&&onGuardarCobertura&&<button onClick={()=>setCobForm({r, sel:new Set(r.cobertura?.vencKeys||[]), nota:""})}
+                        style={{marginLeft:6,padding:"1px 7px",borderRadius:6,border:`1px solid ${C.blue}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10}}>Definir</button>}
+                    </td>
+                    <td style={{...CR_TD,whiteSpace:"nowrap"}}>{canEdit&&(<>
+                      <button onClick={()=>resolverOv(r,"creditos")} style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.green}`,background:"transparent",color:C.green,cursor:"pointer",fontSize:10,fontWeight:700,marginRight:4}}>Usar Créditos</button>
+                      {!r.decision&&<button onClick={()=>resolverOv(r,"mantener")} style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:10}}>Mantener manual</button>}
+                    </>)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>)}
+        {cobForm&&(()=>{
+          const r = cobForm.r;
+          const cands = filas.filter(v=>v.empresa===r.emp && (r.label==="Renovaciones" ? v.origen==="renovacion" : v.origen!=="renovacion"));
+          const guardarCob = async ()=>{
+            const res = await onGuardarCobertura(r.emp, {linea:r.label, idx:r.idx, vencKeys:[...cobForm.sel], nota:cobForm.nota});
+            if(!res?.ok){ alert(`No se guardó: ${res?.motivo||"error"}`); return; }
+            setCobForm(null);
+          };
+          return (
+            <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <div style={{background:C.bg2,border:`1px solid ${C.blue}`,borderRadius:10,padding:16,width:600,maxWidth:"94vw",fontSize:11}}>
+                <div style={{fontWeight:800,fontSize:12,marginBottom:6}}>¿Qué cuotas por conciliar cubre el valor manual {$$(r.manual)} de {r.label} en {r.mes} ({r.emp})?</div>
+                <div style={{color:C.muted,marginBottom:8}}>Marca solo las que ese valor manual incluye según su respaldo. Las marcadas se excluyen del escenario "incluyendo por conciliar"
+                  (si no, se contarían dos veces). Sin marcar ninguna = el valor manual no cubre cuotas por conciliar.</div>
+                {cands.length===0?<div style={{color:C.muted}}>No hay cuotas por conciliar en esta empresa y línea.</div>:cands.map(v=>(
+                  <label key={v.key} style={{display:"flex",gap:8,alignItems:"center",padding:"3px 0"}}>
+                    <input type="checkbox" checked={cobForm.sel.has(v.key)} onChange={e=>setCobForm(p=>{const n=new Set(p.sel); e.target.checked?n.add(v.key):n.delete(v.key); return {...p,sel:n};})}/>
+                    {v.acreedor} · cuota {fmtDate(v.fecha)} · {$c(v.pendienteTotal,v.moneda)}{v.usd!=null&&v.moneda!=="USD"?` (${$$(v.usd)})`:""}
+                  </label>))}
+                <CampoCr label="Respaldo / motivo (obligatorio)"><input value={cobForm.nota} onChange={e=>setCobForm(p=>({...p,nota:e.target.value}))} placeholder="Ej: planilla de Pago Préstamos oct-26 incluye cuota Banco Security 31-07" style={CR_INP}/></CampoCr>
+                <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+                  <button onClick={()=>setCobForm(null)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:12}}>Cancelar</button>
+                  <button onClick={guardarCob} style={{padding:"6px 14px",borderRadius:8,border:"none",background:C.blue,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Guardar cobertura</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+        {resueltos.filter(r=>r.decision==="creditos").length>0&&(
+          <div style={{fontSize:10,color:C.muted,marginTop:8}}>
+            Ya conciliados (valor manual retirado): {resueltos.filter(r=>r.decision==="creditos").map(r=>`${r.emp} ${r.linea} ${r.mes}: ${$$(r.valorManual)}→${$$(r.valorCreditos)} (${r.usuario})`).join(" · ")}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+const diasEntreISO = (a,b)=>{ const pa=partesISO(a), pb=partesISO(b); if(!pa||!pb) return ""; return Math.round((Date.UTC(pb.y,pb.m-1,pb.d)-Date.UTC(pa.y,pa.m-1,pa.d))/86400000); };
+
+function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canEdit=false, empresasPermitidas, nextCreditId, usuario="", realData={}, onConciliarOverride,
+  tcEstado, saldosInformados=[], onSaveSaldosInformados, creditosConfig={}, onSaveCreditosConfig, tcData, onGuardarCobertura}) {
   // Subset de empresas que el usuario puede ver. Todos los créditos,
   // KPIs y deudas se computan SOLO sobre este subset. Defensa adicional
-  // en guardar/togglePagado/eliminar para descartar registros fuera del subset.
+  // en guardar/pagos/anulación para descartar registros fuera del subset.
   const permitidasSet = useMemo(
     () => Array.isArray(empresasPermitidas) && empresasPermitidas.length>0
       ? new Set(empresasPermitidas)
@@ -7773,15 +9170,33 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   // Lista de empresas para el <select> del modal: filtrar por permisos
   const EMP_SELECT = ["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú"]
     .filter(e => esPermitida(e));
-  const [vistaCred,setVistaCred]=useState("creditos"); // "creditos" | "saldomes"
+  const [vistaCred,setVistaCred]=useState("creditos"); // "creditos" | "analisis" | "prepago" | "saldomes"
   const [busq,setBusq]=useState("");
   const [filtEmp,setFiltEmp]=useState("Todas");
-  const [filtPagado,setFiltPagado]=useState("Todos"); // "Todos" | "Pendientes" | "Pagados"
+  const [filtPagado,setFiltPagado]=useState("Vigentes"); // Todos | Vigentes | Con vencidos | Cerrados | Anulados
   const [modal,setModal]=useState(false);
-  const [editId,setEditId]=useState(null);
+  const [editId,setEditId]=useState(null);     // uid del crédito en edición
+  const [detalleUid,setDetalleUid]=useState(null);
+  const hoy = hoyISO();
+  // Estado de cada crédito (calendario + pagos) — misma fuente que el flujo.
+  const estados = useMemo(()=>{
+    const m = {};
+    creditosVisibles.forEach(c=>{ m[uidCredito(c)] = estadoCredito(c, hoy); });
+    return m;
+  },[creditosVisibles, hoy]);
+  const estadoDe = (c)=>estados[uidCredito(c)] || estadoCredito(c, hoy);
+  // Guarda UN crédito (por uid) y devuelve la promesa del guardado real.
+  async function guardarUno(nuevo){
+    const next = creditosVisibles.map(c=>uidCredito(c)===uidCredito(nuevo)?nuevo:c);
+    const res = onSaveCreditos ? await onSaveCreditos(next) : null;
+    if(res && res.ok===false) throw new Error(res.conservado
+      ? "El servidor todavía no confirmó el guardado. El cambio sigue en pantalla y se enviará con el próximo guardado: NO lo cargues de nuevo en otro formulario. Puedes reintentar con este mismo (no se duplica). Si aparece un conflicto, resuélvelo primero."
+      : "El servidor rechazó el guardado: el cambio NO quedó registrado. Revisa la conexión o tus permisos y vuelve a intentar con este mismo formulario (no se duplica).");
+    return res;
+  }
   const EMPTY_FORM = {
-    empresa:"",acreedor:"",tipo_inst:"",monto:"",f_inicio:"",f_venc:"",tipo_cr:"Bullet",tasa:"",cuota:"",
-    tipo_credito:"banco",       // "banco" | "socio"
+    empresa:"",acreedor:"",tipo_inst:"",monto:"",f_inicio:"",f_venc:"",tipo_cr:"",tasa:"",cuota:"",
+    tipo_credito:"contrato",       // "banco" | "socio" | "contrato"
     // Renovación (soporta VARIAS): renovaciones:[{monto,mes_ingreso,anio_ingreso,tasa_anual,cuotas:[{tipo,mes,anio}]}]
     renovable:false,
     tasa_anual:"",              // tasa por defecto (usada si una renovación no trae la suya)
@@ -7791,6 +9206,13 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     tasa_efectiva_anual:"",     // % efectiva anual (ej. 12.6)
     fecha_desembolso:"",        // ISO
     cuotas_socio:[],            // [{fecha_vencimiento, modo:"cuota"|"amortizacion", cuota_total, amortizacion}]
+    // Comunes (todo tipo)
+    tipo_acreedor:"", identificador:"", tc_flujo:"", garantias:"", documentos:[],
+    prepago_comision_tipo:"", prepago_comision_valor:"", prepago_notas:"",
+    // Contrato (calendario generado o manual)
+    desembolso_en_flujo:true, modalidad:"", periodicidad:1, primer_venc:"", vencimiento_final:"",
+    gracia_periodos:"", gracia_tipo:"interes", tasa_tipo:"fija", tasa_ref_nombre:"", tasa_ref_hipotesis:"", margen:"",
+    base:"", cargos_periodicos:[], cargos_unicos:[], calendario_manual:[],
   };
   const [form,setForm]=useState(EMPTY_FORM);
   const RENOVACION_VACIA = ()=>({ monto:"", mes_ingreso:"", anio_ingreso:"", tasa_anual:"", cuotas:[] });
@@ -7801,7 +9223,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     // Migra legacy (1 renovación en campos planos) → array renovaciones
     setForm({...c, monto:String(c.monto), cuota:String(c.cuota), tipo_credito:c.tipo_credito||"banco",
       renovaciones: getRenovaciones(c), cuotas_socio:c.cuotas_socio||[]});
-    setEditId(c.n); setModal(true);
+    setEditId(uidCredito(c)); setModal(true);
   }
   // ── Helpers cuotas de crédito de socio ──
   const addCuotaSocio = ()=>setForm(p=>({...p,cuotas_socio:[...(p.cuotas_socio||[]),CUOTA_SOCIO_VACIA()]}));
@@ -7833,7 +9255,12 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   const delRenCuota = (ri,ci)=>setForm(p=>{const arr=[...(p.renovaciones||[])];arr[ri]={...arr[ri],cuotas:(arr[ri].cuotas||[]).filter((_,j)=>j!==ci)};return {...p,renovaciones:arr};});
   function guardar(){
     const esSocio = form.tipo_credito === "socio";
-    if(esSocio){
+    const esContratoF = form.tipo_credito === "contrato";
+    if(esContratoF){
+      if(!form.empresa||!form.acreedor){ alert("Empresa y acreedor son obligatorios."); return; }
+      const falt = datosFaltantesContrato(form);
+      if(falt.length){ alert("Faltan datos para generar el calendario: "+falt.join(", ")+"."); return; }
+    } else if(esSocio){
       const cuotasVal = (form.cuotas_socio||[]).filter(cu=>cu.fecha_vencimiento);
       if(!form.empresa||!form.acreedor||!form.monto||!form.fecha_desembolso||!form.tasa_efectiva_anual||cuotasVal.length===0){
         alert("Socio: empresa, acreedor, capital, fecha desembolso, tasa y al menos una cuota con fecha son obligatorios."); return;
@@ -7844,25 +9271,50 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     // Cuotas Mensuales: la "Fecha desembolso" (f_inicio) es obligatoria — define
     // desde qué mes arrancan las cuotas. Sin ella, el reparto mensual no puede
     // arrancar y todo el crédito colapsa en el mes de vencimiento.
-    if(!esSocio && form.tipo_cr === "Cuotas Mensuales" && !form.f_inicio){
+    if(!esSocio && !esContratoF && form.tipo_cr === "Cuotas Mensuales" && !form.f_inicio){
       alert("Cuotas Mensuales: la 'Fecha desembolso' es obligatoria. Define desde qué mes se reparten las cuotas (hasta el vencimiento). Sin ella, todo caería en el mes de vencimiento.");
       return;
     }
     // Guardrail: no permitir crear/editar créditos de empresas fuera del subset
     if(!esPermitida(form.empresa)){ alert("Empresa no permitida."); return; }
+    if((form.moneda||"USD")!=="USD" && !(Number(form.tc_flujo)>0)){
+      if(!window.confirm(`El crédito está en ${form.moneda} y no tiene TC para el flujo: NO entrará al Flujo de Caja (en USD) hasta que lo cargues. ¿Guardar igual?`)) return;
+    }
     // ID secuencial: usa nextCreditId del parent (sobre el blob completo) si está disponible;
     // fallback al cálculo local sobre el subset visible (para retrocompat).
     const maxNLocal = creditosVisibles.reduce((m,c)=> Math.max(m, typeof c.n === 'number' && c.n < 100000 ? c.n : 0), 0);
-    const newN = editId || (typeof nextCreditId === 'number' ? nextCreditId : (maxNLocal + 1));
+    const original = editId ? creditosVisibles.find(c=>uidCredito(c)===editId) : null;
+    const newN = original ? original.n : (typeof nextCreditId === 'number' ? nextCreditId : (maxNLocal + 1));
+    const uid = original ? uidCredito(original) : `cr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+    const ts = new Date().toISOString();
+    // Desde el alta el crédito se controla en la app: una cuota posterior sin
+    // pago registrado es vencida confirmada; las anteriores quedan por conciliar.
+    const control_desde = original ? (original.control_desde||"") : hoy;
+    const historial = [...(original?.historial||form.historial||[]), {ts, usuario, accion: original?"edición":"alta",
+      detalle: original ? "condiciones modificadas" : `${form.acreedor} · ${form.monto} ${form.moneda||"USD"}`}];
     let item;
-    if(esSocio){
+    if(esContratoF){
+      const cal = calendarioContrato(form);
+      const t = tasaCredito(form);
+      item = {
+        ...form, n:newN, uid, historial, tipo_credito:"contrato", control_desde,
+        tipo_inst: form.tipo_acreedor || form.tipo_inst || "",
+        monto: parseFloat(form.monto)||0,
+        cuota: 0,                                   // no se usa: el flujo lee el calendario
+        tasa: t.tasa===null ? "" : `${t.tasa}%`,    // compatibilidad con vistas antiguas
+        f_inicio: form.fecha_desembolso || "",
+        f_venc: cal.filas.length ? cal.filas[cal.filas.length-1].fecha : (form.vencimiento_final||""),
+        pagado: false, renovable:false, renovaciones:[],
+        cuotas_socio: undefined, amortizacion_calc: undefined,
+      };
+    } else if(esSocio){
       const cuotas = (form.cuotas_socio||[]).filter(cu=>cu.fecha_vencimiento);
       const capital = parseFloat(form.monto)||0;
       const res = calcularAmortizacionSocio(capital, form.tasa_efectiva_anual, form.fecha_desembolso, cuotas);
       const fechaUlt = cuotas.length ? cuotas[cuotas.length-1].fecha_vencimiento : "";
       item={
         ...form,
-        n:newN, tipo_credito:"socio", tipo_inst:"Socio", moneda:"USD",
+        n:newN, uid, historial, tipo_credito:"socio", tipo_inst:"Socio", moneda:"USD", control_desde,
         monto: capital,
         cuota: 0,                       // no se usa: el flujo lee cuotas_socio
         tasa: `${form.tasa_efectiva_anual}%`,
@@ -7878,7 +9330,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     } else {
     item={
       ...form,
-      n: newN,
+      n: newN, uid, historial, control_desde,
       monto: parseFloat(form.monto)||0,
       cuota: parseFloat(form.cuota||form.monto)||0,
       pagado: form.pagado === true ? true : false,
@@ -7895,26 +9347,40 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     };
     }
     // El payload al parent contiene SOLO el subset visible — el parent hace merge.
-    const next=editId
-      ? creditosVisibles.map(c=>String(c.n)===String(editId)?item:c)
+    const next=original
+      ? creditosVisibles.map(c=>uidCredito(c)===editId?item:c)
       : [...creditosVisibles,item];
     if(onSaveCreditos) onSaveCreditos(next);
     setModal(false);
   }
-  function togglePagado(n, value){
-    const next=creditosVisibles.map(c=>String(c.n)===String(n)?{...c,pagado:value!==undefined?value:!c.pagado}:c);
-    if(onSaveCreditos) onSaveCreditos(next);
+  // No se borra: se anula con motivo (queda en la lista "Anulados").
+  function anularCredito(c){
+    if(!puedeAnularCredito(c)){
+      alert("Este crédito tiene pagos registrados: no se puede anular. Si fue un error, anula primero los pagos (quedan en el historial).");
+      return;
+    }
+    const motivo = window.prompt(`Anular el crédito ${c.acreedor} (${c.empresa}).\nNo se borra: queda en "Anulados" y deja de proyectarse. Motivo (obligatorio):`);
+    if(!motivo || !motivo.trim()) return;
+    const ts=new Date().toISOString();
+    guardarUno({...c, anulado:true, motivoAnulacion:motivo.trim(), anuladoPor:usuario, anuladoTs:ts,
+      historial:[...(c.historial||[]),{ts,usuario,accion:"anulación",detalle:motivo.trim()}]}).catch(err=>alert(err.message));
   }
-  function eliminar(n){
-    if(!window.confirm("¿Eliminar este crédito?")) return;
-    if(onSaveCreditos) onSaveCreditos(creditosVisibles.filter(c=>String(c.n)!==String(n)));
+  function reactivarCredito(c){
+    if(!window.confirm(`Reactivar ${c.acreedor} (${c.empresa})? Vuelve a proyectarse en el flujo.`)) return;
+    const ts=new Date().toISOString();
+    guardarUno({...c, anulado:false, historial:[...(c.historial||[]),{ts,usuario,accion:"reactivación",detalle:""}]}).catch(err=>alert(err.message));
   }
   const empList=["Todas",...new Set(creditosVisibles.map(c=>c.empresa))];
   const filtered=creditosVisibles.filter(c=>{
     if(filtEmp!=="Todas"&&c.empresa!==filtEmp) return false;
-    if(filtPagado==="Pendientes"&&c.pagado) return false;
-    if(filtPagado==="Pagados"&&!c.pagado) return false;
-    if(busq&&![c.empresa,c.acreedor].some(s=>s.toLowerCase().includes(busq.toLowerCase()))) return false;
+    const est = c.anulado ? "anulado" : estadoDe(c).estado;
+    if(filtPagado!=="Anulados" && est==="anulado") return false;
+    if(filtPagado==="Anulados" && est!=="anulado") return false;
+    if(filtPagado==="Vigentes" && !["vigente","con_vencidos","por_conciliar"].includes(est)) return false;
+    if(filtPagado==="Por conciliar" && est!=="por_conciliar") return false;
+    if(filtPagado==="Con vencidos" && est!=="con_vencidos") return false;
+    if(filtPagado==="Cerrados" && est!=="cerrado") return false;
+    if(busq&&![c.empresa,c.acreedor,c.identificador||""].some(s=>String(s||"").toLowerCase().includes(busq.toLowerCase()))) return false;
     return true;
   }).sort((a,b)=>{
     // Ordenar por empresa, luego por fecha de vencimiento
@@ -7922,22 +9388,41 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     if(empCmp!==0) return empCmp;
     return (a.f_venc||"").localeCompare(b.f_venc||"");
   });
-  const deudaEmp={};creditosVisibles.forEach(c=>{
-    if(!deudaEmp[c.empresa]) deudaEmp[c.empresa]=0;
-    // Deuda original (si no está pagado)
-    if(!c.pagado) deudaEmp[c.empresa]+=c.monto;
-    // Deuda renovación (cuotas pendientes de capital)
-    if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
-      if((cq.tipo||'Solo Interés')==='Capital+Interés') deudaEmp[c.empresa]+=(Number(cq.monto)||0);
-    });
-  });
+  // Deuda por empresa (USD) = saldo de capital + cuotas sin desglose, ya
+  // descontados los pagos. Misma fuente que el flujo.
+  const sHoyCred = saldosAlCorte(creditosVisibles, hoy, hoy);
+  const deudaEmp={}; const sdEmp={};
+  Object.entries(sHoyCred.porEmpresa).forEach(([emp,x])=>{ if(x.capital>0.005||x.sinClasificar>0.005){ deudaEmp[emp]=x.capital; sdEmp[emp]=x.sinClasificar; } });
+  const kpi = creditosVisibles.reduce((a,c)=>{
+    if(c.anulado) return a;
+    const e=estadoDe(c), f=factorUSD(c);
+    if(f===null){ a.sinTC++; return a; }
+    a.cap+=e.saldoCapital*f; a.sd+=e.sinDesglosePend*f; a.venc+=e.vencidoTotal*f; a.pc+=e.porConciliarTotal*f;
+    if(e.pendienteTotal>0) a.vig++;
+    return a;
+  },{cap:0,sd:0,venc:0,vig:0,sinTC:0,pc:0});
+  // Próximos 8 trimestres calendario (desde el trimestre en curso): servicio y saldo al cierre.
+  const trimestres = (()=>{
+    const serv = servicioDeudaPorMes(creditosVisibles, hoy);
+    let [y,m]=hoy.split("-").map(Number); let q=Math.floor((m-1)/3);
+    const out=[];
+    for(let i=0;i<8;i++){
+      const meses=[1,2,3].map(k=>`${y}-${String(q*3+k).padStart(2,"0")}`);
+      const s2=meses.reduce((a,k)=>{const x=serv[k]||{};return {cap:a.cap+(x.capital||0),int:a.int+(x.interes||0)+(x.cargos||0),sd:a.sd+(x.sinDesglose||0),tot:a.tot+(x.total||0)};},{cap:0,int:0,sd:0,tot:0});
+      const fin=`${y}-${String(q*3+3).padStart(2,"0")}-${q===0||q===3?"31":"30"}`;
+      const sal=saldosAlCorte(creditosVisibles, fin, hoy);
+      out.push({lbl:`Q${q+1} ${y}`, ...s2, saldoCap:sal.total.capital, saldoSd:sal.total.sinClasificar});
+      q++; if(q>3){q=0;y++;}
+    }
+    return out;
+  })();
   const deudaList=Object.entries(deudaEmp).sort((a,b)=>b[1]-a[1]);
   const maxD=deudaList[0]?.[1]||1;
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
       {/* Subpestañas de Créditos */}
       <div style={{display:"flex",gap:6}}>
-        {[["creditos","💳 Créditos"],["saldomes","📅 Saldo por Mes"]].map(([id,lbl])=>(
+        {[["creditos","💳 Créditos"],["conciliacion","🔎 Conciliación"],["analisis","📊 Análisis CFO"],["prepago","🧮 Simular prepago"],["saldomes","📅 Saldo por Mes"]].map(([id,lbl])=>(
           <button key={id} onClick={()=>setVistaCred(id)}
             className={`mdt-tab${vistaCred===id?" mdt-tab--active":""}`}
             style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${vistaCred===id?C.blue:C.border}`,
@@ -7946,43 +9431,74 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         ))}
       </div>
 
-      {vistaCred==="saldomes" && <SaldoDeudaPorMes creditos={creditosVisibles} empresas={empresas}/>}
+      {(tcEstado==="error"||tcEstado==="vacio")&&creditosVisibles.some(c=>(c.moneda||"USD")!=="USD"&&!c.anulado)&&(
+        <div style={{fontSize:11,background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"6px 12px"}}>
+          ⚠ {tcEstado==="error"?"No se pudo leer":"Está vacío"} el histórico de tipo de cambio de Maestros: los créditos en otra moneda usan su TC declarado (hipótesis) o quedan sin convertir.
+        </div>)}
+      {vistaCred==="saldomes" && <SaldoDeudaPorMes creditos={creditosVisibles} empresas={empresas} tcData={tcData}/>}
+      {vistaCred==="analisis" && <AnalisisCreditos creditos={creditosVisibles} empresas={empresas}/>}
+      {vistaCred==="conciliacion" && <ConciliacionCreditos creditos={creditosVisibles} empresas={empresas} realData={realData}
+        onConciliarOverride={onConciliarOverride} onSaveOne={guardarUno} canEdit={canEdit} usuario={usuario} abrirDetalle={setDetalleUid}
+        creditosConfig={creditosConfig} onSaveCreditosConfig={onSaveCreditosConfig} tcData={tcData} onGuardarCobertura={onGuardarCobertura}
+        saldosInformados={(saldosInformados||[]).filter(x=>esPermitida(x.empresa))}
+        onSaveSaldosInformados={(lista)=>onSaveSaldosInformados([...(saldosInformados||[]).filter(x=>!esPermitida(x.empresa)), ...lista.filter(x=>esPermitida(x.empresa))])}/>}
+      {vistaCred==="prepago" && <SimuladorPrepago creditos={creditosVisibles.filter(c=>!c.anulado)} onSaveOne={guardarUno} canEdit={canEdit} usuario={usuario}/>}
+      {detalleUid && (()=>{
+        const c = creditosVisibles.find(x=>uidCredito(x)===detalleUid);
+        return c ? <CreditoDetalleModal credito={c} onClose={()=>setDetalleUid(null)} onSave={guardarUno} canEdit={canEdit&&!c.anulado} usuario={usuario}/> : null;
+      })()}
 
       {vistaCred==="creditos" && (<>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
-        <KPI label="Deuda Total Q1-2026" value={$$(CREDITOS_TRIM.saldos[0])} color={C.red}/>
-        <KPI label="Pagos Q1-2026"       value={$$(CREDITOS_TRIM.pagos[0])}  color={C.yellow}/>
-        <KPI label="N° Créditos"         value={creditosVisibles.length}             color={C.blue}/>
-        <KPI label="Renovables"          value={creditosVisibles.filter(c=>c.renovable).length} color={C.orange}/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10}}>
+        <KPI label={`Saldo capital identificado (USD)${sHoyCred.estimado?" · ESTIMADO":""}${sHoyCred.incompleto?" · INCOMPLETO":""}`} value={$$(kpi.cap)} color={C.red}/>
+        <KPI label="Cuotas sin desglosar"     value={$$(kpi.sd)}  color={kpi.sd>0?C.yellow:C.muted}/>
+        <KPI label="Vencido impago confirmado" value={$$(kpi.venc)} color={kpi.venc>0?C.red:C.green}/>
+        <KPI label="Por conciliar (fuera del flujo)" value={$$(kpi.pc)} color={kpi.pc>0?"#5b21b6":C.muted}/>
+        <KPI label={`Servicio ${trimestres[0].lbl}`} value={$$(trimestres[0].tot)} color={C.orange}/>
+        <KPI label="Créditos con saldo"       value={`${kpi.vig}${kpi.sinTC?` (+${kpi.sinTC} sin TC)`:""}`} color={C.blue}/>
       </div>
+      <AvisosValorizacion s={sHoyCred}/>
+      {kpi.pc>0&&<div style={{fontSize:10.5,color:C.text,background:"#ede9fe",border:"1px solid #c4b5fd",borderRadius:8,padding:"6px 12px"}}>
+        {$$(kpi.pc)} en cuotas históricas vencidas sin pago registrado: no se incluyen como deuda confirmada ni en el flujo hasta conciliarlas (pestaña 🔎 Conciliación).
+      </div>}
+      {kpi.sd>0&&<div style={{fontSize:10.5,color:C.text,background:`${C.yellow}14`,border:`1px solid ${C.yellow}55`,borderRadius:8,padding:"6px 12px"}}>
+        {$$(kpi.sd)} corresponde a cuotas de registros antiguos que no separan capital de intereses: no se suman al saldo de capital.
+        Ábrelas con 📅 y usa "Desglosar cuota" para completar el saldo y el costo financiero.
+      </div>}
       <Card>
-        <SectionTitle>Deuda por Empresa</SectionTitle>
+        <SectionTitle>Deuda por Empresa (capital identificado, USD; cuotas sin desglosar aparte)</SectionTitle>
         {deudaList.map(([n,monto])=>{const e=empresas[n]||{emoji:"🏢",color:C.blue};return (
           <div key={n} style={{display:"flex",alignItems:"center",gap:10,marginBottom:7}}>
             <div style={{width:148,fontSize:11,color:C.text,flexShrink:0}}>{e.emoji} {n}</div>
             <div style={{flex:1,background:C.card2,borderRadius:4,height:12,overflow:"hidden"}}><div style={{width:`${(monto/maxD)*100}%`,height:"100%",background:C.red,borderRadius:4,opacity:0.6}}/></div>
             <div style={{width:80,textAlign:"right",fontSize:11,fontWeight:700,color:C.red,flexShrink:0}}>{$$(monto)}</div>
+            <div style={{width:120,textAlign:"right",fontSize:10,color:sdEmp[n]>0.5?C.yellow:C.muted2,flexShrink:0}}>{sdEmp[n]>0.5?`+ ${$$(sdEmp[n])} sin clasif.`:""}</div>
           </div>
         );})}
       </Card>
       <Card style={{padding:"12px 16px"}}>
-        <SectionTitle>Saldo Deuda por Trimestre</SectionTitle>
+        <SectionTitle>Servicio de deuda y saldo por trimestre (calculado desde los créditos, USD)</SectionTitle>
         <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead><tr style={{background:C.primary}}>
-              {["Trimestre","Pagos","Saldo Deuda"].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:700,fontSize:10,color:"rgba(255,255,255,0.9)",letterSpacing:"0.5px",textTransform:"uppercase",borderBottom:`1px solid rgba(255,255,255,0.12)`,textAlign:h==="Trimestre"?"left":"right"}}>{h}</th>)}
+              {["Trimestre","Capital","Intereses + cargos","Sin desglose","Servicio total","Saldo capital al cierre","Sin desglose al cierre"].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:700,fontSize:10,color:"rgba(255,255,255,0.9)",letterSpacing:"0.5px",textTransform:"uppercase",borderBottom:`1px solid rgba(255,255,255,0.12)`,textAlign:h==="Trimestre"?"left":"right"}}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {CREDITOS_TRIM.quarters.map((q,i)=>(
-                <tr key={q} style={{borderBottom:`1px solid ${C.border}22`}}>
-                  <td style={{padding:"7px 12px",fontWeight:600,color:C.text}}>{q}</td>
-                  <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow,fontWeight:600}}>{$$(CREDITOS_TRIM.pagos[i])}</td>
-                  <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:C.red}}>{$$(CREDITOS_TRIM.saldos[i])}</td>
+              {trimestres.map((q,i)=>(
+                <tr key={q.lbl} style={{borderBottom:`1px solid ${C.border}22`}}>
+                  <td style={{padding:"7px 12px",fontWeight:600,color:C.text}}>{q.lbl}{i===0?" (en curso, incluye vencidos)":""}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right"}}>{$$(q.cap)}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",color:C.orange}}>{$$(q.int)}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",color:q.sd?C.yellow:C.muted2}}>{q.sd?$$(q.sd):"—"}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow,fontWeight:700}}>{$$(q.tot)}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:C.red}}>{$$(q.saldoCap)}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",color:q.saldoSd?C.yellow:C.muted2}}>{q.saldoSd?$$(q.saldoSd):"—"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <div style={{fontSize:10,color:C.muted,marginTop:6}}>Antes esta tabla mostraba cifras fijas cargadas a mano (Q1-2026 a Q4-2028); ahora sale de los créditos registrados y sus pagos.</div>
       </Card>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         {canEdit&&<button onClick={openNew} className="mdt-btn-solid"
@@ -7998,38 +9514,54 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         </select>
         <select value={filtPagado} onChange={e=>setFiltPagado(e.target.value)}
           style={{padding:"7px 12px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none"}}>
-          {["Todos","Pendientes","Pagados"].map(v=><option key={v}>{v}</option>)}
+          {["Vigentes","Con vencidos","Por conciliar","Cerrados","Anulados","Todos"].map(v=><option key={v}>{v}</option>)}
         </select>
       </div>
       <Card style={{padding:0,overflow:"hidden"}}>
         <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead><tr style={{background:C.primary}}>
-              {["#","Empresa","Acreedor","Tipo","Monto","Cuota","Desembolso","Vencimiento","Tasa","Renovación",...(canEdit?["Acciones"]:[])
-              ].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:700,fontSize:10,color:"rgba(255,255,255,0.9)",letterSpacing:"0.5px",textTransform:"uppercase",borderBottom:`1px solid rgba(255,255,255,0.12)`,textAlign:["Monto","Cuota","Tasa"].includes(h)?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
+              {["#","Empresa","Acreedor","Tipo","Monto","Cuota","Desembolso","Vencimiento","Tasa","Pendiente","Estado","Renovación","Acciones"
+              ].map(h=><th key={h} style={{padding:"8px 12px",fontWeight:700,fontSize:10,color:"rgba(255,255,255,0.9)",letterSpacing:"0.5px",textTransform:"uppercase",borderBottom:`1px solid rgba(255,255,255,0.12)`,textAlign:["Monto","Cuota","Tasa","Pendiente"].includes(h)?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
             </tr></thead>
             <tbody>
               {filtered.map(c=>{
-                const vencProx=new Date(c.f_venc)<=new Date("2026-12-31");
+                const est=estadoDe(c);
+                const cerrado = est.estado==="cerrado"||c.anulado;
+                const fVenc = est.vencimientoFinal || c.f_venc;
+                // "Próximo": vence en los próximos 90 días (antes: fecha fija 31-12-2026)
+                const lim90=(()=>{const d=new Date();d.setDate(d.getDate()+90);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;})();
+                const vencProx=!cerrado && fVenc && fVenc<=lim90;
                 const e=empresas[c.empresa]||{emoji:"🏢",color:C.blue};
+                const mon=c.moneda||"USD";
                 return (
-                  <tr key={c.n} style={{borderBottom:`1px solid ${C.border}22`,
-                    opacity:c.pagado?0.5:1,
-                    background:c.pagado?`${C.green}08`:vencProx?`${C.yellow}08`:"transparent"}}>
+                  <tr key={uidCredito(c)} style={{borderBottom:`1px solid ${C.border}22`,
+                    opacity:cerrado?0.5:1,
+                    background:est.estado==="con_vencidos"?"#fee2e211":cerrado?`${C.green}08`:vencProx?`${C.yellow}08`:"transparent"}}>
                     <td style={{padding:"7px 12px",color:C.muted}}>{c.n}</td>
                     <td style={{padding:"7px 12px",fontWeight:600,color:e.color,whiteSpace:"nowrap"}}>{e.emoji} {c.empresa}</td>
                     <td style={{padding:"7px 12px",color:C.text}}>{c.acreedor}
                       {c.tipo_credito==="socio"&&<span style={{fontSize:9,marginLeft:4,background:`${C.blue}22`,color:C.blue,borderRadius:10,padding:"1px 6px",fontWeight:700}}>🤝 Socio</span>}
+                      {c.tipo_credito==="contrato"&&<span style={{fontSize:9,marginLeft:4,background:`${C.green}22`,color:C.green,borderRadius:10,padding:"1px 6px",fontWeight:700}}>📑 Contrato</span>}
+                      {c.identificador&&<div style={{fontSize:9,color:C.muted}}>{c.identificador}</div>}
                     </td>
                     <td style={{padding:"7px 12px"}}><span style={{fontSize:9,padding:"2px 7px",borderRadius:20,background:C.card2,border:`1px solid ${C.border}`,color:C.muted}}>{c.tipo_cr}</span></td>
-                    <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:c.pagado?C.green:C.red}}>
-                      {c.pagado?<span>✓ {$$(c.monto)}</span>:$$(c.monto)}
+                    <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:cerrado?C.green:C.red}}>
+                      {mon!=="USD"&&<span style={{fontSize:9,color:C.muted,marginRight:3}}>{mon}</span>}{cerrado?<span>✓ {$$(c.monto)}</span>:$$(c.monto)}
                     {c.renovable&&<span style={{fontSize:9,marginLeft:4,background:`${C.orange}22`,color:C.orange,borderRadius:10,padding:"1px 5px"}}>🔄 Renov.</span>}
                     </td>
-                    <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow}}>{$$(c.cuota)}</td>
-                    <td style={{padding:"7px 12px",whiteSpace:"nowrap",color:C.muted}}>{c.f_inicio?fmtDate(c.f_inicio):"—"}</td>
-                    <td style={{padding:"7px 12px",whiteSpace:"nowrap",color:vencProx?C.orange:C.muted}}>{fmtDate(c.f_venc)}{vencProx&&" ⚠️"}</td>
-                    <td style={{padding:"7px 12px",textAlign:"right",color:C.muted}}>{c.tasa||"—"}</td>
+                    <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow}}>{c.tipo_credito==="contrato"||c.tipo_credito==="socio"?<span style={{color:C.muted,fontSize:10}}>calendario</span>:$$(c.cuota)}</td>
+                    <td style={{padding:"7px 12px",whiteSpace:"nowrap",color:C.muted}}>{(c.fecha_desembolso||c.f_inicio)?fmtDate(c.fecha_desembolso||c.f_inicio):"—"}</td>
+                    <td style={{padding:"7px 12px",whiteSpace:"nowrap",color:vencProx?C.orange:C.muted}}>{fmtDate(fVenc)}{vencProx&&" ⚠️"}</td>
+                    <td style={{padding:"7px 12px",textAlign:"right",color:C.muted}}>{c.tasa||"—"}{c.tasa_tipo==="variable"?" var.":""}</td>
+                    <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:est.pendienteTotal?C.red:C.muted2}}>
+                      {est.pendienteTotal?$c(est.pendienteTotal,mon):"—"}
+                      {est.vencidoTotal>0&&<div style={{fontSize:9,color:C.red}}>vencido {$c(est.vencidoTotal,mon)}</div>}
+                      {est.porConciliarTotal>0&&<div style={{fontSize:9,color:"#5b21b6"}}>por conciliar {$c(est.porConciliarTotal,mon)}</div>}
+                    </td>
+                    <td style={{padding:"7px 12px"}}><Pill def={ESTADO_CRED[c.anulado?"anulado":est.estado]||ESTADO_CRED.vigente}/>
+                      {(mon!=="USD"&&!(Number(c.tc_flujo)>0))&&<div style={{fontSize:9,color:C.red}}>sin TC: fuera del flujo</div>}
+                      {est.faltantes.length>0&&<div style={{fontSize:9,color:C.red}}>faltan datos</div>}</td>
                     <td style={{padding:"7px 10px",textAlign:"center",fontSize:10}}>
                       {c.renovable ? (
                         <div>
@@ -8043,29 +9575,26 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                         </div>
                       ) : <span style={{color:C.muted2}}>—</span>}
                     </td>
-                    {canEdit&&(
-                      <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
-                        <div style={{display:"flex",gap:4}}>
-                          <select value={c.pagado?"pagado":"pendiente"}
-                            onChange={e=>togglePagado(c.n,e.target.value==="pagado")}
-                            style={{padding:"3px 7px",borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer",
-                              border:`1px solid ${c.pagado?"#86efac":"#fde68a"}`,
-                              background:c.pagado?"#dcfce7":"#fef9c3",
-                              color:c.pagado?"#166534":"#854d0e",outline:"none"}}>
-                            <option value="pendiente">⏳ Pendiente</option>
-                            <option value="pagado">✓ Pagado</option>
-                          </select>
-                          <button onClick={()=>openEdit(c)}
-                            style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:11,background:"transparent",color:C.muted}}>
-                            ✏️
-                          </button>
-                          <button onClick={()=>eliminar(c.n)}
-                            style={{padding:"3px 8px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,background:"#fee2e2",color:"#991b1b"}}>
-                            ×
-                          </button>
-                        </div>
-                      </td>
-                    )}
+                    <td style={{padding:"6px 8px",whiteSpace:"nowrap"}}>
+                      <div style={{display:"flex",gap:4}}>
+                        <button onClick={()=>setDetalleUid(uidCredito(c))} title="Calendario, pagos e historial"
+                          style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${C.blue}`,cursor:"pointer",fontSize:11,background:"transparent",color:C.blue,fontWeight:700}}>
+                          📅 {canEdit&&!c.anulado?"Pagos":"Ver"}
+                        </button>
+                        {canEdit&&!c.anulado&&<button onClick={()=>openEdit(c)} title="Editar condiciones"
+                          style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:11,background:"transparent",color:C.muted}}>
+                          ✏️
+                        </button>}
+                        {canEdit&&!c.anulado&&<button onClick={()=>anularCredito(c)} title="Anular (no se borra)"
+                          style={{padding:"3px 8px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,background:"#fee2e2",color:"#991b1b"}}>
+                          Anular
+                        </button>}
+                        {canEdit&&c.anulado&&<button onClick={()=>reactivarCredito(c)} title={`Anulado: ${c.motivoAnulacion||""}`}
+                          style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:11,background:"transparent",color:C.muted}}>
+                          Reactivar
+                        </button>}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -8074,164 +9603,80 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         </div>
       </Card>
 
-      {/* Saldo deuda por empresa al cierre de temporada (junio) */}
+      {/* Saldo deuda por empresa al cierre de temporada (junio) — desde el motor de créditos */}
       <Card style={{padding:0,overflow:"hidden"}}>
         <div style={{padding:"12px 16px 8px",borderBottom:`1px solid ${C.border}`}}>
           <SectionTitle>Saldo Deuda por Empresa — Cierre de Temporada (Junio)</SectionTitle>
           <div style={{fontSize:10,color:C.muted}}>
-            Deuda pendiente por empresa al 30 de junio de cada año
+            Capital identificado con vencimiento posterior al 30 de junio, ya descontados los pagos registrados (USD). Las cuotas sin desglosar van aparte ("sin clasif."); mismo cálculo que Saldo por Mes y Análisis CFO
           </div>
         </div>
         <div style={{overflowX:"auto",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-            <thead>
-              <tr style={{background:C.primary}}>
-                <th style={{padding:"8px 14px",fontWeight:700,fontSize:11,color:C.text,
-                  textAlign:"left",borderBottom:`1px solid ${C.border}`,
-                  position:"sticky",left:0,background:C.bg2,zIndex:1,minWidth:180}}>
-                  Empresa
-                </th>
-                {["Jun-26","Jun-27","Jun-28","Jun-29","Jun-30","Jun-31"].map(t=>(
-                  <th key={t} style={{padding:"8px 14px",fontWeight:600,fontSize:10,
-                    color:C.muted,textAlign:"right",borderBottom:`1px solid ${C.border}`,
-                    textTransform:"uppercase",whiteSpace:"nowrap"}}>
-                    {t}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {(()=>{
-                const CIERRES = [
-                  ["Jun-26","2026-06-30"],["Jun-27","2027-06-30"],
-                  ["Jun-28","2028-06-30"],["Jun-29","2029-06-30"],
-                  ["Jun-30","2030-06-30"],["Jun-31","2031-06-30"],
-                ];
-                const emps = [...new Set(creditosVisibles.map(c=>c.empresa))].sort();
-                return emps.map(emp=>{
-                  const e = empresas[emp]||{emoji:"🏢",color:C.blue};
-                  const empCreds = creditosVisibles.filter(c=>c.empresa===emp);
-                  const saldos = CIERRES.map(([,fecha])=>
-                    empCreds.reduce((s,c)=>{
-                      // Deuda original pendiente
-                      let d = (!c.pagado && c.f_venc>fecha) ? (Number(c.cuota)||0) : 0;
-                      // Cuotas de renovación pendientes (Capital+Interés aún no vencidas)
-                      if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
-                        if((cq.tipo||'Solo Interés')==='Capital+Interés'){
-                          const mesEn = ({Ene:'Jan',Feb:'Feb',Mar:'Mar',Abr:'Apr',May:'May',Jun:'Jun',Jul:'Jul',Ago:'Aug',Sep:'Sep',Oct:'Oct',Nov:'Nov',Dic:'Dec'})[cq.mes]||cq.mes;
-                          const fCuota = cq.anio&&cq.mes ? `${cq.anio}-${String(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].indexOf(mesEn)+1).padStart(2,'0')}-28` : '';
-                          if(fCuota>fecha) d+=Number(cq.monto)||0;
-                        }
-                      });
-                      return s+d;
-                    },0)
-                  );
-                  const hasSaldo = saldos.some(s=>s>0);
-                  if(!hasSaldo) return null;
-                  // Total inicial = saldo al cierre anterior (antes de Jun-26 = total deuda)
-                  const totalInicial = empCreds.reduce((s,c)=>{
-                    let d = Number(c.cuota)||0;
-                    if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
-                      if((cq.tipo||'Solo Interés')==='Capital+Interés') d+=Number(cq.monto)||0;
-                    });
-                    return s+d;
-                  },0);
-                  return (
-                    <tr key={emp} style={{borderBottom:`1px solid ${C.border}22`}}
-                      onMouseEnter={e2=>e2.currentTarget.style.background=`${C.card2}`}
-                      onMouseLeave={e2=>e2.currentTarget.style.background="transparent"}>
-                      <td style={{padding:"8px 14px",position:"sticky",left:0,
-                        background:C.card,zIndex:1,borderRight:`1px solid ${C.border}22`}}>
-                        <div style={{fontWeight:700,color:e.color,fontSize:11}}>
-                          {e.emoji} {emp}
-                        </div>
-                        <div style={{fontSize:9,color:C.muted,marginTop:1}}>
-                          Total: {$$(totalInicial)}
-                        </div>
-                      </td>
-                      {saldos.map((saldo,i)=>{
-                        const prev = i===0 ? totalInicial : saldos[i-1];
-                        const pagado = prev - saldo;
-                        const pct = totalInicial>0 ? Math.round((1-saldo/totalInicial)*100) : 100;
-                        return (
-                          <td key={i} style={{padding:"8px 14px",textAlign:"right"}}>
-                            {saldo>0 ? (
-                              <div>
-                                <div style={{fontWeight:800,fontSize:12,
-                                  color:saldo<totalInicial*0.3?C.yellow:C.red}}>
-                                  {$$(saldo)}
-                                </div>
-                                {pagado>0&&(
-                                  <div style={{fontSize:9,color:C.green,marginTop:1}}>
-                                    ↓ {$$(pagado)} pagado
-                                  </div>
-                                )}
-                                <div style={{fontSize:9,color:C.muted,marginTop:1}}>
-                                  {100-pct}% pendiente
-                                </div>
-                              </div>
-                            ) : (
-                              <span style={{color:C.green,fontWeight:700,fontSize:12}}>✓ Saldado</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                }).filter(Boolean);
-              })()}
-            </tbody>
-            {/* Fila total consolidado */}
-            <tfoot>
-              <tr style={{background:C.bg2,borderTop:`2px solid ${C.border}`}}>
-                <td style={{padding:"8px 14px",fontWeight:800,color:C.text,fontSize:11,
-                  position:"sticky",left:0,background:C.bg2,zIndex:1}}>
-                  TOTAL GRUPO
-                </td>
-                {(()=>{
-                  const CIERRES_F = [
-                    "2026-06-30","2027-06-30","2028-06-30",
-                    "2029-06-30","2030-06-30","2031-06-30"
-                  ];
-                  const MES_ABREV = {Ene:'01',Feb:'02',Mar:'03',Abr:'04',May:'05',Jun:'06',Jul:'07',Ago:'08',Sep:'09',Oct:'10',Nov:'11',Dic:'12'};
-                  return CIERRES_F.map((fecha,i)=>{
-                    const total = creditosVisibles.reduce((s,c)=>{
-                      let d = (!c.pagado && c.f_venc>fecha)?(Number(c.cuota)||0):0;
-                      if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
-                        if((cq.tipo||'Solo Interés')==='Capital+Interés'){
-                          const fCuota=cq.anio&&cq.mes?`\${cq.anio}-\${MES_ABREV[cq.mes]||'06'}-28`:'';
-                          if(fCuota>fecha) d+=Number(cq.monto)||0;
-                        }
-                      });
-                      return s+d;
-                    },0);
+          {(()=>{
+            const y0 = Number(hoy.slice(0,4)) + (hoy.slice(5,7)>"06"?1:0);
+            const CIERRES = Array.from({length:6},(_,i)=>[`Jun-${String(y0+i).slice(2)}`,`${y0+i}-06-30`]);
+            const activos = creditosVisibles.filter(c=>!c.anulado);
+            const emps = [...new Set(activos.map(c=>c.empresa))].sort();
+            const sHoy = saldosAlCorte(activos, hoy, hoy);
+            const sCie = CIERRES.map(([,f])=>saldosAlCorte(activos, f, hoy));
+            const filas = emps.map(emp=>{
+              const saldos = sCie.map(x=>x.porEmpresa[emp]?.capital||0);
+              const sds = sCie.map(x=>x.porEmpresa[emp]?.sinClasificar||0);
+              return {emp, actual:sHoy.porEmpresa[emp]?.capital||0, actualSd:sHoy.porEmpresa[emp]?.sinClasificar||0, saldos, sds};
+            }).filter(r=>r.actual>0.5||r.actualSd>0.5||r.saldos.some(x=>x>0.5)||r.sds.some(x=>x>0.5));
+            const th = {padding:"8px 14px",fontWeight:600,fontSize:10,color:C.muted,textAlign:"right",borderBottom:`1px solid ${C.border}`,textTransform:"uppercase",whiteSpace:"nowrap"};
+            return (
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                <thead><tr style={{background:C.primary}}>
+                  <th style={{...th,textAlign:"left",color:C.text,position:"sticky",left:0,background:C.bg2,zIndex:1,minWidth:180}}>Empresa</th>
+                  <th style={th}>Hoy</th>
+                  {CIERRES.map(([t])=><th key={t} style={th}>{t}</th>)}
+                </tr></thead>
+                <tbody>
+                  {filas.map(({emp,actual,actualSd,saldos,sds})=>{
+                    const e = empresas[emp]||{emoji:"🏢",color:C.blue};
                     return (
-                      <td key={i} style={{padding:"8px 14px",textAlign:"right",
-                        fontWeight:800,fontSize:12,color:total?C.red:C.green}}>
-                        {total?$$(total):"✓ Saldado"}
-                      </td>
+                      <tr key={emp} style={{borderBottom:`1px solid ${C.border}22`}}>
+                        <td style={{padding:"8px 14px",position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}22`,fontWeight:700,color:e.color}}>{e.emoji} {emp}</td>
+                        <td style={{padding:"8px 14px",textAlign:"right",fontWeight:800,color:C.red}}>{$$(actual)}{actualSd>0.5&&<div style={{fontSize:9,color:C.yellow,fontWeight:400}}>+ {$$(actualSd)} sin clasif.</div>}</td>
+                        {saldos.map((saldo,i)=>{
+                          const prev = i===0 ? actual : saldos[i-1];
+                          return (
+                            <td key={i} style={{padding:"8px 14px",textAlign:"right"}}>
+                              {saldo>0.5 ? (<div>
+                                <div style={{fontWeight:800,fontSize:12,color:saldo<actual*0.3?C.yellow:C.red}}>{$$(saldo)}</div>
+                                {prev-saldo>0.5&&<div style={{fontSize:9,color:C.green,marginTop:1}}>↓ {$$(prev-saldo)} amortizado</div>}
+                                {saldo-prev>0.5&&<div style={{fontSize:9,color:C.orange,marginTop:1}}>↑ {$$(saldo-prev)} nueva deuda</div>}
+                                {sds[i]>0.5&&<div style={{fontSize:9,color:C.yellow,marginTop:1}}>+ {$$(sds[i])} sin clasif.</div>}
+                              </div>) : sds[i]>0.5 ? <span style={{fontSize:10,color:C.yellow}}>{$$(sds[i])} sin clasif.</span> : <span style={{color:C.green,fontWeight:700,fontSize:12}}>✓ Saldado</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
                     );
-                  });
-                })()}
-              </tr>
-            </tfoot>
-          </table>
+                  })}
+                </tbody>
+                <tfoot><tr style={{background:C.bg2,borderTop:`2px solid ${C.border}`}}>
+                  <td style={{padding:"8px 14px",fontWeight:800,color:C.text,position:"sticky",left:0,background:C.bg2,zIndex:1}}>TOTAL GRUPO</td>
+                  <td style={{padding:"8px 14px",textAlign:"right",fontWeight:800,color:C.red}}>{$$(sHoy.total.capital)}{sHoy.total.sinClasificar>0.5&&<div style={{fontSize:9,color:C.yellow,fontWeight:400}}>+ {$$(sHoy.total.sinClasificar)} sin clasif.</div>}</td>
+                  {sCie.map((x,i)=>{const t=x.total.capital;return <td key={i} style={{padding:"8px 14px",textAlign:"right",fontWeight:800,fontSize:12,color:t>0.5?C.red:C.green}}>{t>0.5?$$(t):"✓ Saldado"}{x.total.sinClasificar>0.5&&<div style={{fontSize:9,color:C.yellow,fontWeight:400}}>+ {$$(x.total.sinClasificar)} sin clasif.</div>}{x.incompleto&&<div style={{fontSize:9,color:C.red,fontWeight:400}}>incompleto (sin TC)</div>}</td>;})}
+                </tr></tfoot>
+              </table>
+            );
+          })()}
         </div>
       </Card>
 
-      {/* Cronograma de pagos por empresa */}
+      {/* Cronograma de pagos por empresa → acreedor (vencimientos del calendario de cada crédito) */}
       <Card style={{padding:0,overflow:"hidden"}}>
         <div style={{padding:"12px 16px 8px",borderBottom:`1px solid ${C.border}`}}>
           <SectionTitle>Timeline de Pagos por Acreedor</SectionTitle>
-          <div style={{fontSize:10,color:C.muted}}>Cronograma visual: cuotas originales → renovaciones por empresa y acreedor</div>
+          <div style={{fontSize:10,color:C.muted}}>Vencimientos de cada crédito (cuotas y renovaciones) con su estado; ingresos de renovación en verde</div>
         </div>
         {(()=>{
-          // Agrupar por empresa → acreedor
           const byEmp = {};
-          creditosVisibles.forEach(c=>{
-            if(!byEmp[c.empresa]) byEmp[c.empresa]={};
-            if(!byEmp[c.empresa][c.acreedor]) byEmp[c.empresa][c.acreedor]=[];
-            byEmp[c.empresa][c.acreedor].push(c);
+          creditosVisibles.filter(c=>!c.anulado).forEach(c=>{
+            ((byEmp[c.empresa]=byEmp[c.empresa]||{})[c.acreedor]=byEmp[c.empresa][c.acreedor]||[]).push(c);
           });
           const MES_A = {Ene:"Jan",Feb:"Feb",Mar:"Mar",Abr:"Apr",May:"May",Jun:"Jun",Jul:"Jul",Ago:"Aug",Sep:"Sep",Oct:"Oct",Nov:"Nov",Dic:"Dec"};
           return Object.entries(byEmp).map(([emp,acreedores])=>{
@@ -8240,35 +9685,17 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
               <div key={emp} style={{borderBottom:`1px solid ${C.border}`,padding:"12px 16px"}}>
                 <div style={{fontSize:12,fontWeight:800,color:e.color,marginBottom:10}}>{e.emoji} {emp}</div>
                 {Object.entries(acreedores).map(([acreedor,creds])=>{
-                  // Construir eventos del timeline para este acreedor
                   const eventos = [];
-                  // Cuotas originales
                   creds.forEach(c=>{
-                    eventos.push({fecha:c.f_venc,label:mesDeDate(c.f_venc),monto:c.cuota,tipo:"original",pagado:c.pagado,id:c.n});
-                  });
-                  // Cuotas de renovación (todas las renovaciones del crédito)
-                  creds.filter(c=>c.renovable).forEach(c=>{
-                    getRenovaciones(c).forEach((ren,ri)=>{
-                      calcCuotasRenovacion(ren).forEach((cq,ci)=>{
-                        if(!cq.mes||!cq.anio) return;
-                        const mesEn=MES_A[cq.mes]||cq.mes;
-                        const label=`${mesEn}-${String(cq.anio).slice(2)}`;
-                        const fecha=`${cq.anio}-${String(Object.values(MES_A).indexOf(mesEn)+1).padStart(2,"0")}-15`;
-                        eventos.push({fecha,label,monto:cq.montoReal||0,tipo:cq.tipo||"Solo Interés",pagado:false,id:`ren-${c.n}-${ri}-${ci}`,isRen:true});
-                      });
-                    });
-                  });
-                  // Ingreso de renovación (todas las renovaciones)
-                  creds.filter(c=>c.renovable).forEach(c=>{
-                    getRenovaciones(c).forEach((ren,ri)=>{
+                    estadoDe(c).vencimientos.forEach(v=>eventos.push({fecha:v.fecha, label:fmtDate(v.fecha), monto:v.total, pend:v.pendienteTotal,
+                      estado:v.estado, isRen:v.origen==="renovacion", id:v.key, comp:v}));
+                    if(c.renovable) getRenovaciones(c).forEach((ren,ri)=>{
                       if(!ren.monto||!ren.mes_ingreso||!ren.anio_ingreso) return;
                       const mesEn=MES_A[ren.mes_ingreso]||ren.mes_ingreso;
-                      const label=`${mesEn}-${String(ren.anio_ingreso).slice(2)}`;
                       const fecha=`${ren.anio_ingreso}-${String(Object.values(MES_A).indexOf(mesEn)+1).padStart(2,"0")}-01`;
-                      eventos.push({fecha,label,monto:Number(ren.monto),tipo:"ingreso",pagado:false,id:`ing-${c.n}-${ri}`,isIngreso:true});
+                      eventos.push({fecha,label:`${mesEn}-${String(ren.anio_ingreso).slice(2)}`,monto:Number(ren.monto),isIngreso:true,id:`ing-${uidCredito(c)}-${ri}`});
                     });
                   });
-                  // Ordenar cronológicamente
                   eventos.sort((a,b)=>a.fecha.localeCompare(b.fecha));
                   if(eventos.length===0) return null;
                   return (
@@ -8276,24 +9703,23 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                       <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6}}>{acreedor}</div>
                       <div style={{display:"flex",alignItems:"center",gap:0,overflowX:"auto",paddingBottom:4}}>
                         {eventos.map((ev,ei)=>{
-                          const isLast=ei===eventos.length-1;
-                          const bgColor=ev.isIngreso?"#22c55e22":ev.isRen?(ev.tipo==="Capital+Interés"?"#3b82f622":"#f59e0b22"):`${C.bg}`;
-                          const borderColor=ev.isIngreso?"#22c55e":ev.isRen?(ev.tipo==="Capital+Interés"?C.blue:C.orange):(ev.pagado?"#22c55e44":C.border);
-                          const textColor=ev.isIngreso?"#22c55e":ev.isRen?(ev.tipo==="Capital+Interés"?C.blue:C.orange):C.red;
+                          const pag = ev.estado==="pagada", venc = ev.estado==="vencida";
+                          const col = ev.isIngreso?"#22c55e":venc?C.red:ev.isRen?C.orange:C.red;
                           return (
                             <React.Fragment key={ev.id}>
-                              <div style={{flexShrink:0,background:bgColor,borderRadius:8,
-                                padding:"6px 10px",border:`1px solid ${borderColor}`,
-                                opacity:ev.pagado?0.45:1,minWidth:70,textAlign:"center"}}>
+                              <div title={ev.comp?`Capital ${$$(ev.comp.capital)} · Interés ${$$(ev.comp.interes)} · Cargos ${$$(ev.comp.cargos)}${ev.comp.sinDesglose?` · Sin desglose ${$$(ev.comp.sinDesglose)}`:""}`:""}
+                                style={{flexShrink:0,background:ev.isIngreso?"#22c55e22":venc?"#fee2e2":C.bg,borderRadius:8,
+                                padding:"6px 10px",border:`1px solid ${ev.isIngreso?"#22c55e":pag?"#22c55e44":venc?C.red:C.border}`,
+                                opacity:pag?0.45:1,minWidth:74,textAlign:"center"}}>
                                 {ev.isIngreso&&<div style={{fontSize:8,color:"#22c55e",fontWeight:700,marginBottom:1}}>💰 INGRESO</div>}
-                                {ev.isRen&&!ev.isIngreso&&<div style={{fontSize:8,color:ev.tipo==="Capital+Interés"?C.blue:C.orange,fontWeight:700,marginBottom:1}}>🔄 {ev.tipo==="Capital+Interés"?"CAP+INT":"INT"}</div>}
+                                {ev.isRen&&<div style={{fontSize:8,color:C.orange,fontWeight:700,marginBottom:1}}>🔄 RENOV.</div>}
+                                {venc&&<div style={{fontSize:8,color:C.red,fontWeight:700,marginBottom:1}}>VENCIDA</div>}
                                 <div style={{fontSize:10,fontWeight:700,color:C.yellow}}>{ev.label}</div>
-                                <div style={{fontSize:11,fontWeight:800,color:textColor}}>{$$(ev.monto)}</div>
-                                {ev.pagado&&<div style={{fontSize:8,color:"#22c55e"}}>✓</div>}
+                                <div style={{fontSize:11,fontWeight:800,color:col}}>{$$(ev.monto)}</div>
+                                {ev.estado==="parcial"||(venc&&ev.pend<ev.monto)?<div style={{fontSize:8,color:C.blue}}>pend. {$$(ev.pend)}</div>:null}
+                                {pag&&<div style={{fontSize:8,color:"#22c55e"}}>✓</div>}
                               </div>
-                              {!isLast&&<div style={{width:16,height:1,background:`${C.border}`,flexShrink:0,marginTop:8}}>
-                                <div style={{width:"100%",height:"100%",background:C.muted2}}/>
-                              </div>}
+                              {ei<eventos.length-1&&<div style={{width:16,height:1,background:C.muted2,flexShrink:0}}/>}
                             </React.Fragment>
                           );
                         })}
@@ -8310,18 +9736,19 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
       {/* Modal nuevo / editar crédito */}
       {modal&&(()=>{
         const esSocio = form.tipo_credito === "socio";
+        const esContratoF = form.tipo_credito === "contrato";
         const socioCuotas = (form.cuotas_socio||[]).filter(cu=>cu.fecha_vencimiento);
         const amort = esSocio ? calcularAmortizacionSocio(form.monto, form.tasa_efectiva_anual, form.fecha_desembolso, socioCuotas) : null;
         return (
         <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.6)",zIndex:400,
           display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:C.bg2,border:`1px solid ${C.blue}55`,borderRadius:16,
-            width:esSocio?900:520,maxWidth:"95vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(16,24,40,0.4)"}}>
+            width:esSocio?900:esContratoF?1000:620,maxWidth:"95vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(16,24,40,0.4)"}}>
             <div style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,
               display:"flex",alignItems:"center",gap:10}}>
-              <span style={{fontSize:20}}>{esSocio?"🤝":"🏦"}</span>
+              <span style={{fontSize:20}}>{esSocio?"🤝":esContratoF?"📑":"🏦"}</span>
               <span style={{fontSize:13,fontWeight:800,color:C.text}}>
-                {editId?"Editar":"Nuevo"} {esSocio?"Crédito de Socio":"Crédito"}
+                {editId?"Editar":"Nuevo"} {esSocio?"Crédito de Socio":esContratoF?"Crédito con calendario contractual":"Crédito"}
               </span>
               <button onClick={()=>setModal(false)}
                 style={{marginLeft:"auto",background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:20}}>×</button>
@@ -8329,7 +9756,9 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
             {/* Selector tipo de crédito */}
             <div style={{padding:"12px 20px 0",display:"flex",gap:8,alignItems:"center"}}>
               <span style={{fontSize:11,fontWeight:700,color:C.muted}}>Tipo de crédito:</span>
-              {[["banco","🏦 Bancario / Privado"],["socio","🤝 De Socio"]].map(([v,lbl])=>(
+              {[["contrato","📑 Con calendario (recomendado)"],["banco","🏦 Vencimiento único / registro simple"],["socio","🤝 De Socio"]]
+                .filter(([v])=>!editId||v===form.tipo_credito||(v==="contrato"&&form.tipo_credito!=="socio"&&!(form.pagos||[]).length))
+                .map(([v,lbl])=>(
                 <button key={v} type="button" onClick={()=>setForm(p=>({...p,tipo_credito:v,
                   cuotas_socio: v==="socio" && !(p.cuotas_socio||[]).length ? [CUOTA_SOCIO_VACIA(),CUOTA_SOCIO_VACIA()] : (p.cuotas_socio||[]),
                   tasa_efectiva_anual: v==="socio" && !p.tasa_efectiva_anual ? "12.6" : p.tasa_efectiva_anual }))}
@@ -8339,7 +9768,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                     background:form.tipo_credito===v?`${C.blue}22`:"transparent",color:form.tipo_credito===v?C.blue:C.muted}}>{lbl}</button>
               ))}
             </div>
-            <div style={{padding:"16px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            {esContratoF && <CamposContrato form={form} setForm={setForm} EMP_SELECT={EMP_SELECT}/>}
+            {!esContratoF&&<div style={{padding:"16px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               {(esSocio?[
                 ["Empresa","empresa","select",EMP_SELECT],
                 ["Acreedor / Socio","acreedor","text",null],
@@ -8350,9 +9780,9 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                 ["Empresa","empresa","select",EMP_SELECT],
                 ["Acreedor / Institución","acreedor","text",null],
                 ["Tipo institución","tipo_inst","text",null],
-                ["Tipo crédito","tipo_cr","select",["Bullet","Cuotas Mensuales","Leasing","Crédito Hipotecario","Inversión","Otro"]],
-                ["Monto total (USD)","monto","number",null],
-                ["Cuota (USD)","cuota","number",null],
+                ["Tipo crédito","tipo_cr","select",TIPOS_CREDITO],
+                [`Monto total (${form.moneda||"USD"})`,"monto","number",null],
+                [`Cuota (${form.moneda||"USD"})`,"cuota","number",null],
                 ["Fecha desembolso","f_inicio","date",null],
                 ["Fecha vencimiento","f_venc","date",null],
                 ["Tasa (%)","tasa","text",null],
@@ -8375,9 +9805,16 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                   )}
                 </div>
               ))}
-            </div>
+            </div>}
+            {!esSocio&&!esContratoF&&(
+              <div style={{margin:"0 20px 10px",fontSize:10,color:C.muted}}>
+                Registro simple: la cuota se proyecta completa en su vencimiento y, si no se desglosa (en 📅 Pagos), no separa capital de intereses.
+                Para cuotas con capital e intereses, gracia o prepagos, usa "Con calendario".
+              </div>
+            )}
+            <CamposComunesCredito form={form} setForm={setForm} sinMoneda={esSocio}/>
 
-            {!esSocio && form.tipo_cr==="Cuotas Mensuales" && (
+            {!esSocio && !esContratoF && form.tipo_cr==="Cuotas Mensuales" && (
               <div style={{margin:"0 20px 12px",padding:"8px 12px",background:`${C.blue}12`,
                 border:`1px solid ${C.blue}33`,borderRadius:8,fontSize:10.5,color:C.text}}>
                 💡 En <b>Cuotas Mensuales</b>, la <b>Fecha desembolso</b> es obligatoria: define desde qué mes arrancan las cuotas, que se reparten mes a mes hasta el vencimiento. Sin ella, todo el crédito caería en el mes de vencimiento.
@@ -8478,8 +9915,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
               );
             })()}
 
-            {/* Sección Renovación (solo créditos no-socio) */}
-            {!esSocio&&(
+            {/* Sección Renovación (solo registros simples) */}
+            {!esSocio&&!esContratoF&&(
             <div style={{padding:"12px 20px",borderTop:`1px solid ${C.border}`}}>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
                 <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12,fontWeight:700,color:C.text}}>
@@ -8658,92 +10095,94 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
 
 // ─────────────────────────────────────────────────────────────────
 // SALDO DE DEUDA POR MES — subvista de Créditos
-// Filas: meses desde el mes actual hasta el último vencimiento.
-// Columnas: una por empresa + Total Grupo. Saldo al cierre del mes M =
-// suma de cuotas (cuota/monto) con f_venc posterior al último día de M,
-// de créditos no pagados (+ cuotas de renovación Capital+Interés).
-// Montos en USD; toggle a CLP convierte con TC editable.
+// Filas: HOY (misma cifra que Análisis CFO) + cierre de cada mes posterior
+// hasta el último vencimiento. Usa saldosAlCorte (creditos.js): capital
+// identificado y cuotas sin clasificar por separado, por conciliar aparte,
+// mismos TC y avisos (incompleto / estimado / desactualizado / UF) que Análisis.
+// La vista CLP usa el USD-CLP de Maestros al corte (manual prevalece).
 // ─────────────────────────────────────────────────────────────────
 const MESES_ABR_SD = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-const MES2NUM_SD = {Ene:'01',Feb:'02',Mar:'03',Abr:'04',May:'05',Jun:'06',Jul:'07',Ago:'08',Sep:'09',Oct:'10',Nov:'11',Dic:'12'};
 function isoFinMes(y,m){ const d=new Date(y,m+1,0); return `${y}-${String(m+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
-// Fecha (día 28) de una cuota de renovación, para comparar con cierres.
-function fechaCuotaRenov(cq){
-  if(!cq?.anio||!cq?.mes) return '';
-  return `${cq.anio}-${MES2NUM_SD[cq.mes]||'06'}-28`;
-}
-// Saldo de un crédito al cierre de fechaISO.
-function saldoCreditoAt(c, fechaISO){
-  let d = (!c.pagado && c.f_venc && c.f_venc>fechaISO) ? (Number(c.cuota)||0) : 0;
-  if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
-    if((cq.tipo||'Solo Interés')==='Capital+Interés'){
-      const f = fechaCuotaRenov(cq);
-      if(f && f>fechaISO) d += Number(cq.monto)||0;
-    }
-  });
-  return d;
+
+// Avisos de valorización compartidos por Análisis CFO y Saldo por Mes: misma
+// fuente (saldosAlCorte) → mismas advertencias para la misma fecha de corte.
+function AvisosValorizacion({s}){
+  if(!s) return null;
+  const caja = (bg,bd,children,key)=><div key={key} style={{background:bg,border:`1px solid ${bd}`,borderRadius:8,padding:"6px 12px",fontSize:11,lineHeight:1.5}}>{children}</div>;
+  const out=[];
+  if(s.incompleto) out.push(caja(C.warningBg||"#fef3c7",`${C.warning}66`,<>⚠ <strong>Total en US$ INCOMPLETO</strong>: sin tipo de cambio al {fmtDate(s.corte)} — {s.sinTC.map(x=>`${x.empresa} · ${x.acreedor}: capital ${$c(x.capital,x.moneda)}${x.sinClasificar?`, sin clasificar ${$c(x.sinClasificar,x.moneda)}`:""}${x.porConciliar?`, por conciliar ${$c(x.porConciliar,x.moneda)}`:""}`).join(" · ")}. No están en ninguna cifra en US$.</>,"inc"));
+  if(s.estimado) out.push(caja("#fee2e2","#fca5a5",<>⚠ <strong>Total ESTIMADO</strong>: al menos un crédito se valoriza con el TC declarado en el propio crédito (hipótesis), porque Maestros no tiene el par a esa fecha.</>,"est"));
+  if(s.desactualizado) out.push(caja(`${C.yellow}14`,`${C.yellow}55`,<>⚠ TC con más de {TC_ANTIGUEDAD_AVISO_DIAS} días de antigüedad respecto del corte (o sin fecha): {s.valorizacion.filter(v=>v.desactualizado).map(v=>`${valorTC(v)} · ${v.fecha?fmtDate(v.fecha):"sin fecha"} · ${v.fuente}`).join(" | ")}. Actualízalo en Maestros → Tipo de Cambio.</>,"des"));
+  if(s.ufHipotesis){ const u=s.valorizacion.find(v=>v.ufCLP!=null);
+    out.push(caja("#e0f2fe","#7dd3fc",<>Los vencimientos en UF que aún no tienen valor publicado para su fecha se valorizan con la última UF disponible
+      {u?<> (<strong>UF {fmtN(u.ufCLP,2)} CLP del {fmtDate(u.ufFecha)}</strong>, fuente {u.ufFuente})</>:""} como <strong>hipótesis de proyección</strong>, sin reajuste por IPC.
+      Si ya existe la UF publicada para la fecha exacta del vencimiento, se usa ese valor.</>,"uf")); }
+  if(s.valorizacion.length) out.push(<div key="tcs" style={{fontSize:10,color:C.muted}}>TC usados al {fmtDate(s.corte)}: {s.valorizacion.map(v=>`${valorTC(v)} · ${v.fecha?fmtDate(v.fecha):"sin fecha"} · ${v.fuente}${v.estimado?" (estimado)":""}`).join(" | ")}</div>);
+  return out.length?<div style={{display:"flex",flexDirection:"column",gap:6}}>{out}</div>:null;
 }
 
-function SaldoDeudaPorMes({creditos=[], empresas={}}){
+function SaldoDeudaPorMes({creditos=[], empresas={}, tcData}){
   const [moneda,setMoneda]=useState("USD"); // USD | CLP
-  const [tc,setTc]=useState(950);
+  const hoy = hoyISO();
+  // TC de visualización CLP: USD-CLP de Maestros al corte de hoy (manual prevalece)
+  const tcCLP = useMemo(()=>infoTC({moneda:"CLP"}, tcData, hoy),[tcData,hoy]);
 
-  // Meses: desde el mes actual hasta el último vencimiento registrado.
-  const meses = useMemo(()=>{
+  // Cortes: HOY (= Análisis CFO) + cierre de cada mes posterior hasta el último vencimiento.
+  const cortes = useMemo(()=>{
     let maxISO="";
     creditos.forEach(c=>{
-      if(c.f_venc && c.f_venc>maxISO) maxISO=c.f_venc;
-      if(c.renovable)getRenovaciones(c).flatMap(r=>r.cuotas||[]).forEach(cq=>{
-        const f=fechaCuotaRenov(cq); if(f&&f>maxISO) maxISO=f;
-      });
+      if(c.anulado) return;
+      vencimientosCredito(c).forEach(v=>{ if(v.fecha>maxISO) maxISO=v.fecha; });
     });
-    const now=new Date(); let y=now.getFullYear(), m=now.getMonth();
-    const out=[];
+    const out=[{label:`Hoy ${fmtDate(hoy)}`, endISO:hoy, hoy:true}];
+    let [y,m]=hoy.split("-").map(Number); m-=1;
     const maxY = maxISO?Number(maxISO.slice(0,4)):y;
     const maxM = maxISO?Number(maxISO.slice(5,7))-1:m;
     let cy=y, cm=m, guard=0;
     while((cy<maxY || (cy===maxY && cm<=maxM)) && guard<240){
-      out.push({label:`${MESES_ABR_SD[cm]}-${String(cy).slice(2)}`, endISO:isoFinMes(cy,cm)});
+      const fin=isoFinMes(cy,cm);
+      if(fin>hoy) out.push({label:`${MESES_ABR_SD[cm]}-${String(cy).slice(2)}`, endISO:fin});
       cm++; if(cm>11){cm=0;cy++;} guard++;
     }
-    if(out.length===0) out.push({label:`${MESES_ABR_SD[m]}-${String(y).slice(2)}`, endISO:isoFinMes(y,m)});
     return out;
-  },[creditos]);
+  },[creditos,hoy]);
 
-  const emps = useMemo(()=>[...new Set(creditos.map(c=>c.empresa).filter(Boolean))].sort(),[creditos]);
-  // matriz[empIndex][mesIndex] = saldo en USD
-  const matriz = useMemo(()=> emps.map(emp=>{
-    const ec = creditos.filter(c=>c.empresa===emp);
-    return meses.map(mm=> ec.reduce((s,c)=>s+saldoCreditoAt(c,mm.endISO),0));
-  }),[emps,meses,creditos]);
+  const saldos = useMemo(()=>cortes.map(k=>saldosAlCorte(creditos, k.endISO, hoy)),[cortes,creditos,hoy]);
+  const emps = useMemo(()=>[...new Set(creditos.filter(c=>!c.anulado).map(c=>c.empresa).filter(Boolean))].sort(),[creditos]);
+  const sHoy = saldos[0];
 
-  const factor = moneda==="CLP" ? (Number(tc)||0) : 1;
-  const sym = moneda==="CLP" ? "$" : "US$";
-  const conv = (usd)=> usd*factor;            // a moneda de visualización
-  const fmtK = (usd)=>{ const v=conv(usd); return v ? `${sym} ${Math.round(v/1000).toLocaleString("es-CL")} K` : "—"; };
-  const totalMes = (i)=> emps.reduce((s,_,e)=>s+matriz[e][i],0);
+  const factor = moneda==="CLP" ? (tcCLP?tcCLP.tc:null) : 1;
+  const sym = moneda==="CLP" ? "CLP" : "US$";
+  const fmtK = (usd)=>{ if(factor==null) return "—"; const v=usd*factor; return v ? `${sym} ${Math.round(v/1000).toLocaleString("es-CL")} K` : "—"; };
 
   function exportarExcel(){
-    const aoa = [["Mes", ...emps, "Total Grupo"]];
-    meses.forEach((mm,i)=>{
-      const row=[mm.label];
-      emps.forEach((_,e)=> row.push(Math.round(conv(matriz[e][i]))));
-      row.push(Math.round(conv(totalMes(i))));
+    if(factor==null){ alert("No hay TC USD-CLP en Maestros; no se puede exportar en CLP."); return; }
+    const head=["Corte"]; emps.forEach(e=>{ head.push(`${e} · capital`, `${e} · sin clasificar`); });
+    head.push("Total capital identificado","Total sin clasificar","Por conciliar (fuera)","Incompleto (sin TC)","Estimado","TC desactualizado","UF hipótesis");
+    const aoa=[[`Saldo de deuda al corte · ${moneda}${moneda==="CLP"?` · TC ${tcCLP.tc} CLP/US$ del ${tcCLP.fecha} (${tcCLP.fuente})`:""}`],head];
+    cortes.forEach((k,i)=>{
+      const x=saldos[i]; const row=[k.endISO];
+      emps.forEach(e=>{ const p=x.porEmpresa[e]||{capital:0,sinClasificar:0}; row.push(Math.round(p.capital*factor*100)/100, Math.round(p.sinClasificar*factor*100)/100); });
+      row.push(Math.round(x.total.capital*factor*100)/100, Math.round(x.total.sinClasificar*factor*100)/100, k.hoy?Math.round(x.total.porConciliar*factor*100)/100:"",
+        x.incompleto?x.sinTC.map(z=>`${z.acreedor} ${z.moneda} ${z.capital+z.sinClasificar}`).join("; "):"", x.estimado?"sí":"", x.desactualizado?"sí":"", x.ufHipotesis?"sí":"");
       aoa.push(row);
     });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Saldo por Mes");
-    const now=new Date(); const mm=String(now.getMonth()+1).padStart(2,'0'); const yyyy=now.getFullYear();
-    XLSX.writeFile(wb, `Saldo_Deuda_Grupo_${mm}${yyyy}.xlsx`);
+    XLSX.writeFile(wb, `Saldo_Deuda_Grupo_${hoy}.xlsx`);
   }
 
   return (
+    <div style={{display:"flex",flexDirection:"column",gap:10,minWidth:0}}>
+    <AvisosValorizacion s={sHoy}/>
     <Card style={{padding:0,overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"12px 16px",borderBottom:`1px solid ${C.border}`}}>
         <div style={{flex:1,minWidth:160}}>
           <SectionTitle>Saldo de Deuda por Mes</SectionTitle>
-          <div style={{fontSize:10,color:C.muted}}>Saldo pendiente al cierre de cada mes · valores en miles ({moneda})</div>
+          <div style={{fontSize:10,color:C.muted}}>Capital identificado y cuotas sin clasificar por separado · valores en miles ({moneda}).
+            La fila "Hoy" es la misma cifra del Análisis CFO; las siguientes suponen pagado lo que vence hasta cada cierre (igual que el flujo).
+            "Por conciliar" se informa solo en "Hoy": son cuotas históricas no confirmadas, fuera de todas las cifras.</div>
         </div>
         <div style={{display:"flex",gap:4}}>
           {["USD","CLP"].map(mo=>(
@@ -8752,13 +10191,9 @@ function SaldoDeudaPorMes({creditos=[], empresas={}}){
                 background:moneda===mo?C.blue:"transparent",color:moneda===mo?"#fff":C.muted,cursor:"pointer",fontSize:11,fontWeight:700}}>{mo}</button>
           ))}
         </div>
-        {moneda==="CLP"&&(
-          <label style={{fontSize:10,color:C.muted,display:"flex",alignItems:"center",gap:5}}>
-            TC (CLP/USD)
-            <InputNumero formato="monto" value={tc} onChange={n=>setTc(n)}
-              style={{width:70,padding:"4px 7px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:11,outline:"none"}}/>
-          </label>
-        )}
+        {moneda==="CLP"&&<div style={{fontSize:10,color:tcCLP?.desactualizado||tcCLP?.estimado?C.red:C.muted}}>
+          {tcCLP?`TC ${fmtN(tcCLP.tc,2)} CLP/US$ · ${tcCLP.fecha?fmtDate(tcCLP.fecha):"sin fecha"} · ${tcCLP.fuente}${tcCLP.desactualizado?` · ⚠ ${tcCLP.antiguedadDias} días de antigüedad`:""}`
+            :"⚠ Sin TC USD-CLP en Maestros: no se puede mostrar en CLP."}</div>}
         <button onClick={exportarExcel}
           style={{padding:"6px 14px",borderRadius:8,background:C.green,border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>
           📥 Exportar a Excel
@@ -8768,42 +10203,39 @@ function SaldoDeudaPorMes({creditos=[], empresas={}}){
         <table style={{borderCollapse:"collapse",fontSize:11,whiteSpace:"nowrap"}}>
           <thead>
             <tr style={{background:C.primary}}>
-              <th style={{padding:"8px 14px",fontWeight:700,fontSize:10,color:C.text,textAlign:"left",
-                borderBottom:`1px solid ${C.border}`,position:"sticky",left:0,background:C.bg2,zIndex:1,minWidth:90}}>Mes</th>
+              <th style={{...CR_TH,position:"sticky",left:0,background:C.primary,zIndex:1,minWidth:90,textAlign:"left"}}>Corte</th>
               {emps.map(emp=>{ const e=empresas[emp]||{emoji:"🏢"}; return (
-                <th key={emp} style={{padding:"8px 14px",fontWeight:600,fontSize:10,color:C.muted,textAlign:"right",
-                  borderBottom:`1px solid ${C.border}`,textTransform:"uppercase"}}>{e.emoji} {emp}</th>
+                <th key={emp} style={{...CR_TH,textAlign:"right"}}>{e.emoji} {emp}<div style={{fontSize:8,fontWeight:400}}>capital · sin clasif.</div></th>
               );})}
-              <th style={{padding:"8px 14px",fontWeight:800,fontSize:10,color:C.text,textAlign:"right",
-                borderBottom:`1px solid ${C.border}`,borderLeft:`1px solid ${C.border}`}}>Total Grupo</th>
+              <th style={{...CR_TH,textAlign:"right"}}>Total capital</th>
+              <th style={{...CR_TH,textAlign:"right"}}>Total sin clasificar</th>
+              <th style={{...CR_TH,textAlign:"right"}}>Por conciliar (fuera)</th>
+              <th style={{...CR_TH,textAlign:"left"}}>Avisos</th>
             </tr>
           </thead>
           <tbody>
-            {meses.map((mm,i)=>(
-              <tr key={mm.endISO} style={{borderBottom:`1px solid ${C.border}22`}}>
-                <td style={{padding:"7px 14px",fontWeight:700,color:C.text,position:"sticky",left:0,
-                  background:C.card,zIndex:1,borderRight:`1px solid ${C.border}22`}}>{mm.label}</td>
-                {emps.map((emp,e)=>{
-                  const usd=matriz[e][i];
-                  const sube = i>0 && usd>matriz[e][i-1]; // saldo aumentó (refinanciamiento / nueva deuda)
+            {cortes.map((k,i)=>{ const x=saldos[i]; return (
+              <tr key={k.endISO} style={{borderBottom:`1px solid ${C.border}22`,background:k.hoy?`${C.yellow}10`:"transparent"}}>
+                <td style={{padding:"7px 14px",fontWeight:700,color:C.text,position:"sticky",left:0,background:C.card,zIndex:1}}>{k.label}</td>
+                {emps.map(emp=>{ const p=x.porEmpresa[emp]||{capital:0,sinClasificar:0};
+                  const prev = i>0 ? (saldos[i-1].porEmpresa[emp]?.capital||0) : null;
+                  const sube = prev!=null && p.capital>prev+0.005;
                   return (
-                    <td key={emp} style={{padding:"7px 14px",textAlign:"right",
-                      color:usd?C.text:C.muted2, fontWeight:usd?600:400,
-                      background:sube?`${C.yellow}22`:"transparent"}}>
-                      {fmtK(usd)}{sube&&<span title="Saldo subió respecto al mes anterior" style={{color:C.yellow,marginLeft:3}}>▲</span>}
-                    </td>
-                  );
+                    <td key={emp} style={{padding:"7px 14px",textAlign:"right",color:p.capital?C.text:C.muted2,fontWeight:p.capital?600:400,background:sube?`${C.yellow}22`:"transparent"}}>
+                      {fmtK(p.capital)}{sube&&<span title="Saldo subió respecto del corte anterior" style={{color:C.yellow,marginLeft:3}}>▲</span>}
+                      {p.sinClasificar>0.005&&<div style={{fontSize:9,color:C.yellow}}>+ {fmtK(p.sinClasificar)} sin clasif.</div>}
+                    </td>);
                 })}
-                <td style={{padding:"7px 14px",textAlign:"right",fontWeight:800,
-                  color:totalMes(i)?C.red:C.green,borderLeft:`1px solid ${C.border}`}}>
-                  {totalMes(i)?fmtK(totalMes(i)):"✓"}
-                </td>
-              </tr>
-            ))}
+                <td style={{padding:"7px 14px",textAlign:"right",fontWeight:800,color:x.total.capital?C.red:C.green}}>{x.total.capital?fmtK(x.total.capital):"✓"}</td>
+                <td style={{padding:"7px 14px",textAlign:"right",color:x.total.sinClasificar?C.yellow:C.muted2}}>{x.total.sinClasificar?fmtK(x.total.sinClasificar):"—"}</td>
+                <td style={{padding:"7px 14px",textAlign:"right",color:k.hoy&&x.total.porConciliar?"#5b21b6":C.muted2}}>{k.hoy&&x.total.porConciliar?fmtK(x.total.porConciliar):"—"}</td>
+                <td style={{padding:"7px 14px",fontSize:9,color:C.red}}>{[x.incompleto&&"incompleto (sin TC)",x.estimado&&"estimado",x.desactualizado&&"TC desactualizado",x.ufHipotesis&&"UF hipótesis"].filter(Boolean).join(" · ")}</td>
+              </tr>);})}
           </tbody>
         </table>
       </div>
     </Card>
+    </div>
   );
 }
 
@@ -10155,13 +11587,17 @@ function reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBan
   // Función getProySemana idéntica a FlujoEmpresa
   function getProySemana(cat, lineLabel, idx, semIdx, isLastInMonth) {
     const ov = overridesDeLinea(proyOverrides, empData, cat, lineLabel, realData?.[empNombre]?._resolucionesOverride)?.[idx];
-    let base = 0;
+    let base = 0, lockFrom = null, semProy = null;
     {
       const sec = (empData.sections || []).find(x=>x.cat===cat);
       const l = sec && sec.lines.find(x=>x.label===lineLabel);
-      if(l) base = l.proy?.[idx]||0;
+      if(l){ base = l.proy?.[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; if(l._semProy) semProy=l._semProy; }
     }
-    if(ov === undefined) return semIdx === 0 ? base : 0;
+    // Igual que FlujoEmpresa: Créditos manda y reparte por semana de vencimiento.
+    if(ov === undefined || (lockFrom !== null && idx >= lockFrom)) {
+      if(semProy) return (semProy[idx]?.[semIdx]) || 0;
+      return semIdx === 0 ? base : 0;
+    }
     if(typeof ov === "number") return isLastInMonth ? ov : 0;
     if(typeof ov === "object" && ov !== null) {
       const k = `_sem${semIdx}`;
@@ -12073,7 +13509,22 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // paramsEmp: { empresa: { seasonKey: { prodId: defaultProducto() } } }
   const [paramsEmp,setParamsEmp]=useState({});
   // CREDITOS: dinámico — se puede agregar, editar y marcar como pagado
-  const [creditosData,setCreditosData]=useState(CREDITOS_DEFAULT);
+  const [creditosData,setCreditosData]=useState(()=>asegurarUids(CREDITOS_DEFAULT).lista);
+  // Saldos informados por cada acreedor (conciliación capital vs capital).
+  const [saldosInformados,setSaldosInformados]=useState([]);
+  // Configuración de Créditos (tolerancias de redondeo por moneda, etc.).
+  const [creditosConfig,setCreditosConfig]=useState({});
+  // Histórico de TC de Maestros (solo lectura). Si no carga, los créditos en
+  // otra moneda usan su TC declarado (hipótesis) o quedan sin convertir.
+  const [tcData,setTcData]=useState(null);
+  const [tcEstado,setTcEstado]=useState("cargando");
+  useEffect(()=>{
+    dbLoadGeneric("maestro_tc")
+      .then(v=>{ setTcData(v||{}); setTcEstado(v&&Object.keys(v).length?"ok":"vacio"); })
+      .catch(e=>{ console.warn("[Créditos] No se pudo leer maestro_tc:", e); setTcEstado("error"); });
+  },[]);
+  // Créditos valorizados a hoy (copias con _tc: TC, fecha, fuente). NUNCA se guardan así.
+  const creditosVal = useMemo(()=>valorizarCreditos(creditosData, tcData, hoyISO()),[creditosData, tcData]);
   // paramsAS: parámetros específicos Allegria Service
   const [paramsAS,setParamsAS]=useState(defaultParamsAllegriaService);
   // paramsIF: parámetros específicos Integrity Farms
@@ -12157,42 +13608,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   const empresas=useMemo(()=>{
     const base = buildEmpresas(params, allegraComisionArandanos);
-    // Recalculate Préstamos + Renovaciones proy using current creditosData
-    Object.keys(base).forEach(empNombre=>{
-      const emp = base[empNombre];
-      base[empNombre] = {
-        ...emp,
-        sections: emp.sections.map(sec=>{
-          // egr_nop: Pago Préstamos + Renovaciones (egresos)
-          if(sec.cat==="egr_nop") {
-            return {
-              ...sec,
-              lines: sec.lines.map(l=>{
-                if(l.label==="Pago Préstamos - Total")
-                  return {...l, proy: calcPrestamosEmpresa(empNombre, creditosData)};
-                if(l.label==="Renovaciones")
-                  return {...l, proy: calcRenovacionesEmpresa(empNombre, creditosData)};
-                return l;
-              })
-            };
-          }
-          // ing_nop: Ingreso Renovación + Ingresos Financiamiento (ingresos)
-          if(sec.cat==="ing_nop") {
-            return {
-              ...sec,
-              lines: sec.lines.map(l=>{
-                if(l.label==="Ingreso Renovación")
-                  return {...l, proy: calcIngresoRenovacionEmpresa(empNombre, creditosData)};
-                if(l.label==="Ingresos Financiamiento")
-                  return {...l, proy: calcIngresosPrestamosEmpresa(empNombre, creditosData)};
-                return l;
-              })
-            };
-          }
-          return sec;
-        })
-      };
-    });
+    // Préstamos, Renovaciones e Ingresos Financiamiento desde Créditos
+    aplicarCreditosAEmpresas(base, creditosVal);
     // Inject Allegria Service calculated projections
     const {ingCerezas,ingCiruelas} = calcAllegriaService(paramsAS);
     const as = base["Allegria Service"];
@@ -12324,7 +13741,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       base["Osiris"] = nextOsi;
     }
     return base;
-  },[params,allegraComisionArandanos,paramsAS,paramsIF,paramsAF,paramsAP,paramsOsiris,creditosData,paramsFrisku]);
+  },[params,allegraComisionArandanos,paramsAS,paramsIF,paramsAF,paramsAP,paramsOsiris,creditosVal,paramsFrisku]);
 
   // Empresas con overrides aplicados — para Dashboard y cualquier otro consumer que no sea Consolidado
   const empresasConOverridesMain = useMemo(
@@ -12432,6 +13849,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
 
   // ── Carga inicial de datos ────────────────────────────────────────
   function applyData(d) {
+    // Créditos tal como vinieron del servidor: hasta que el usuario haga una
+    // acción explícita sobre Créditos, el auto-guardado los reescribe IGUAL
+    // (sin los uid agregados al cargar ni claves nuevas vacías).
+    credCargadoRef.current = { creditos: d?.creditos_data, saldos: d?.creditos_saldos_informados, config: d?.creditos_config, tocados: new Set() };
     if(!d) return;
     if(d?.finanzas_real) setRealData(d.finanzas_real);
     else if(d?.calendario_data) setRealData(d.calendario_data);
@@ -12549,7 +13970,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     if(d?.sub_lines)    setSubLines(d.sub_lines);
     if(d?.added_lines)  setAddedLinesGlobal(d.added_lines);
     if(d?.intercompany)   setIntercompany(d.intercompany||[]);
-    if(d?.creditos_data && Array.isArray(d.creditos_data) && d.creditos_data.length>0) setCreditosData(d.creditos_data);
+    if(Array.isArray(d?.creditos_saldos_informados)) setSaldosInformados(d.creditos_saldos_informados);
+    if(d?.creditos_config && typeof d.creditos_config==="object") setCreditosConfig(d.creditos_config);
+    // uid estable por crédito (los `n` históricos se repiten). Se persiste con el próximo guardado.
+    if(d?.creditos_data && Array.isArray(d.creditos_data) && d.creditos_data.length>0) setCreditosData(asegurarUids(d.creditos_data).lista);
     if(d?.params_frisku) setParamsFrisku(prev=>d.params_frisku||prev);
   }
 
@@ -12694,11 +14118,34 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const subLinesRef      = React.useRef(subLines);
   const addedLinesRef    = React.useRef(addedLinesGlobal);
   const intercompanyRef  = React.useRef(intercompany);
+  const saldosInformadosRef = React.useRef(saldosInformados);
+  const creditosConfigRef = React.useRef(creditosConfig);
+  const credCargadoRef = React.useRef({ creditos: undefined, saldos: undefined, config: undefined, tocados: new Set() });
+  // Valores de Créditos que van al blob. Abrir la app NO modifica registros
+  // antiguos: mientras no haya una acción explícita (registrar pago, editar,
+  // conciliar, guardar tolerancias…) se escribe lo cargado, byte a byte.
+  const valoresCreditosBlob = (overrides={}) => {
+    const k = credCargadoRef.current;
+    const pick = (clave, ov, ref, cargado) => {
+      if(ov !== undefined){ k.tocados.add(clave); return ov; }
+      if(k.tocados.has(clave)) return ref;
+      return cargado !== undefined ? cargado : (clave==="creditos" ? ref : undefined);
+    };
+    return {
+      creditos_data: pick("creditos", overrides.creditos_data, creditosRef.current, k.creditos),
+      creditos_saldos_informados: pick("saldos", overrides.creditos_saldos_informados, saldosInformadosRef.current, k.saldos),
+      creditos_config: pick("config", overrides.creditos_config, creditosConfigRef.current, k.config),
+    };
+  };
   // GUARD anti-borrado: solo se permite guardar tras una carga EXITOSA desde
   // Supabase. Si dbLoad() falla (red/timeout), queda en false y persistAll no
   // escribe nada → un parpadeo de conexión no puede sobrescribir Finanzas con
   // los defaults vacíos en memoria.
   const cargaOkRef       = React.useRef(false);
+  // Créditos tal como los tiene el SERVIDOR (última lectura o escritura confirmada de
+  // `finanzas`). Es contra esto que se clasifican los cambios sin confirmar: el estado
+  // local puede traer un cambio que el servidor nunca recibió.
+  const creditosServidorRef = React.useRef(null);
   // Hay un cambio con debounce agendado y todavía sin escribir. Si el módulo se
   // desmonta en esa ventana, el guardado se COMPLETA en vez de descartarse
   // (antes el cleanup hacía clearTimeout y la operación se perdía en silencio).
@@ -12722,6 +14169,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   useEffect(()=>{ subLinesRef.current     = subLines;     },[subLines]);
   useEffect(()=>{ addedLinesRef.current   = addedLinesGlobal; },[addedLinesGlobal]);
   useEffect(()=>{ intercompanyRef.current = intercompany; },[intercompany]);
+  useEffect(()=>{ saldosInformadosRef.current = saldosInformados; },[saldosInformados]);
+  useEffect(()=>{ creditosConfigRef.current = creditosConfig; },[creditosConfig]);
 
   // ─── Handlers para Reporte Semanal ───
   // Guarda configuración en realData._reporteSemanal._<seccion>
@@ -12806,7 +14255,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       allegria_comision_arandanos: overrides.allegria_comision_arandanos !== undefined ? overrides.allegria_comision_arandanos : allegraComisionArandanosRef.current,
       // saldos_bancos ya NO va en el blob (fila dedicada compartida finanzas_bancos)
       params_emp:      overrides.params_emp      !== undefined ? overrides.params_emp      : paramsEmpRef.current,
-      creditos_data:   overrides.creditos_data !== undefined ? overrides.creditos_data : creditosRef.current,
+
       params_as:       overrides.params_as       !== undefined ? overrides.params_as       : paramsASRef.current,
       params_frisku:   overrides.params_frisku !== undefined ? overrides.params_frisku : paramsFriskuRef.current,
       params_if:       overrides.params_if       !== undefined ? overrides.params_if       : paramsIFRef.current,
@@ -12817,6 +14266,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       sub_lines:       overrides.sub_lines       !== undefined ? overrides.sub_lines       : subLinesRef.current,
       added_lines:     overrides.added_lines     !== undefined ? overrides.added_lines     : addedLinesRef.current,
       intercompany:    overrides.intercompany    !== undefined ? overrides.intercompany    : intercompanyRef.current,
+      ...valoresCreditosBlob(overrides),
     };
     // Base: guarda el blob completo y actualiza el cache del base vivo.
     const rowId = activeRowRef.current;
@@ -12843,10 +14293,11 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     // Estado VISIBLE. "guardado" solo cuando el servidor confirmó. Un conflicto
     // pendiente NO es un error de red: deja la fila bloqueada hasta que se elija
     // una de las dos salidas (recuperar el servidor o conservar lo local).
-    if(res && res.motivo === persist.MOTIVOS.CONFLICTO_PENDIENTE){
+    if(res && !res.ok && (res.conflictoPendiente || res.motivo === persist.MOTIVOS.CONFLICTO_PENDIENTE)){
       setEstadoPersist("conflicto");
       setConflictoFila({ rowId, valorServidor: res.valorServidor, version: res.version });
     } else if(res && res.ok){
+      if(rowId==="finanzas") creditosServidorRef.current = blob.creditos_data;
       setEstadoPersist("ok");
       setConflictoFila(null);
       setTimeout(()=>setEstadoPersist(p=>p==="ok"?"idle":p),2000);
@@ -13029,7 +14480,6 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     allegria_params: paramsRef.current,
     allegria_comision_arandanos: allegraComisionArandanosRef.current,
     params_emp: paramsEmpRef.current,
-    creditos_data: creditosRef.current,
     params_as: paramsASRef.current,
     params_frisku: paramsFriskuRef.current,
     params_if: paramsIFRef.current,
@@ -13040,6 +14490,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     sub_lines: subLinesRef.current,
     added_lines: addedLinesRef.current,
     intercompany: intercompanyRef.current,
+    ...valoresCreditosBlob(),
   }),[]); // eslint-disable-line
 
   // Cambiar de escenario (id=null → Base).
@@ -13178,6 +14629,46 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // servidor retira el mes de la clave antigua. Si el segundo paso falla, el
   // lector ignora igualmente ese mes en la clave vieja (mesesResueltos), así
   // que no se duplica ni se pierde.
+  // Conciliar un valor manual ANTIGUO de Pago Préstamos / Renovaciones contra
+  // el calendario de Créditos. Una sola escritura (atómica en la fila):
+  //   decision "creditos" → se retira el valor manual de ese mes y queda el de Créditos;
+  //   decision "mantener" → el valor manual sigue aplicando, con la decisión y su motivo.
+  // En ambos casos queda el registro en _resolucionesCreditos (montos, usuario, fecha).
+  const handleConciliarOverrideCredito = useCallback(async (empresa, datos) => {
+    const { cat, label, idx, decision, manual, creditos, nota } = datos || {};
+    if(!label || idx == null || !["creditos","mantener"].includes(decision)) return { ok:false, motivo:"datos incompletos" };
+    if(decision==="mantener" && !(nota||"").trim()) return { ok:false, motivo:"mantener el valor manual requiere motivo" };
+    const antes = realDataRef.current || {};
+    const base = JSON.parse(JSON.stringify(antes));
+    if(!base[empresa]) base[empresa] = {};
+    const ov = base[empresa]._proyOverrides || {};
+    if(decision==="creditos"){
+      [claveLinea(cat, label), label].forEach(k=>{
+        if(ov[k] && ov[k][String(idx)] !== undefined){
+          delete ov[k][String(idx)];
+          if(Object.keys(ov[k]).length===0) delete ov[k];
+        }
+      });
+      base[empresa]._proyOverrides = ov;
+    }
+    if(!Array.isArray(base[empresa]._resolucionesCreditos)) base[empresa]._resolucionesCreditos = [];
+    base[empresa]._resolucionesCreditos.push({
+      id: `rc_${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`,
+      linea: label, cat, idx, mes: MESES_65[idx], decision,
+      valorManual: manual, valorCreditos: creditos, diferencia: (Number(manual)||0)-(Number(creditos)||0),
+      nota: (nota||"").trim(), usuario: usuarioActual?.nombre || "", ts: new Date().toISOString(),
+    });
+    setRealData(base); realDataRef.current = base;
+    const r = await persistAll({ finanzas_real: base });
+    if(!r || !r.ok){
+      if(realDataRef.current === base){ setRealData(antes); realDataRef.current = antes; }
+      setSaved("⚠️ No se guardó la conciliación"); setTimeout(()=>setSaved(null),3000);
+      return { ok:false, motivo: r?.motivo || "error al guardar" };
+    }
+    setSaved("✅ Conciliado"); setTimeout(()=>setSaved(null),2000);
+    return { ok:true };
+  },[persistAll, usuarioActual]);
+
   const handleResolverOverride = useCallback(async (empresa, datos) => {
     const { label, idx, mes, cat, cats, valor, montoResumen, reemplaza } = datos || {};
     if(!label || cat == null || idx == null) return { ok:false, motivo:"datos incompletos" };
@@ -13255,18 +14746,129 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     // 2. Preservar intactos los créditos de empresas fuera del subset del usuario.
     const anterior = creditosRef.current || [];
     const permitidas = getEmpresasPermitidasUsuario(usuarioActual);
+    // Las copias valorizadas traen `_tc` (TC del día): no se persiste.
     const nextValidado = (Array.isArray(newList)?newList:[])
-      .filter(c => permitidas.includes(c?.empresa));
+      .filter(c => permitidas.includes(c?.empresa)).map(sinValorizacion);
     const preservados = anterior.filter(c => !permitidas.includes(c?.empresa));
     const final = [...preservados, ...nextValidado];
 
     setCreditosData(final);
     creditosRef.current = final;
-    setTimeout(()=>{
-      persistAll({ creditos_data: final })
-        .then(r=>{ setSaved(r&&r.ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000); });
-    }, 0);
+    // Flujo de main + confirmación real del servidor:
+    //  · se guarda en el siguiente ciclo (como el resto de handlers de main), y la
+    //    promesa devuelve el resultado REAL ({ok,…}) para que Créditos no confirme
+    //    un pago que el servidor no recibió;
+    //  · un `superseded` del contrato NO es confirmación: mi valor viaja en un
+    //    guardado posterior, así que se espera el resultado real de la fila (flush);
+    //  · si el servidor RECHAZÓ (http, sin permiso, sin carga: no aplicó nada), se
+    //    vuelve al estado anterior SOLO si nadie cambió los créditos entretanto
+    //    (una reversión nunca borra ediciones posteriores). Ante red/respuesta
+    //    perdida, sin confirmación o conflicto NO se revierte: el servidor pudo
+    //    haberlo aplicado, y lo local tiene que seguir vivo para las dos salidas
+    //    del conflicto y para que el reintento reenvíe EXACTAMENTE lo mismo (el
+    //    contrato lo da por guardado si ya está). Los pagos llevan clave de origen
+    //    estable (registrarPagoIdempotente): reintentar nunca duplica.
+    //  · conflicto, aviso y estado visible los resuelve persistAll (main).
+    // Antes de enviar: se anota qué créditos cambian. La anotación se borra solo
+    // cuando el servidor confirma; si no, queda (aunque el módulo ya se haya
+    // cerrado) con aviso persistente y para recuperarla (creditosPendientes.js).
+    const cambiosPend = activeRowRef.current==="finanzas" ? diffCreditos(anterior, final) : [];
+    const idPend = cambiosPend.length ? pendientesCreditos.registrar({ usuario: usuarioActual?.nombre || "", cambios: cambiosPend }) : null;
+    if(idPend) pendVivosCreditos.add(idPend);
+    return new Promise(r=>setTimeout(r,0))
+      .then(()=>persistAll({ creditos_data: final }))
+      .then(async res=>{
+        let r = res || { ok:false, motivo:"sin_respuesta" };
+        if(r.ok && r.superseded){
+          const f = await persist.flush(activeRowRef.current);
+          r = f.ok ? { ...r, ok:true }
+                   : { ok:false, superseded:true, motivo: f.conflicto ? persist.MOTIVOS.CONFLICTO_PENDIENTE : (f.motivo || persist.MOTIVOS.SIN_CONFIRMACION) };
+        }
+        const ok = !!r.ok;
+        const rechazoDefinitivo = !ok && ["http","sin_permiso","sin_carga"].includes(r.motivo);
+        const revierte = rechazoDefinitivo && creditosRef.current===final;
+        if(revierte){ setCreditosData(anterior); creditosRef.current = anterior; }
+        // Sin confirmar pero NO revertido (red, conflicto, o ya hubo otra edición
+        // encima): el cambio sigue en pantalla y viajará en el próximo guardado.
+        if(!ok && !revierte) r = { ...r, conservado:true };
+        if(idPend){
+          pendVivosCreditos.delete(idPend);
+          if(ok){ pendientesCreditos.confirmar(idPend); pendientesCreditos.depurar(final); }
+          else pendientesCreditos.fallar(idPend, r.motivo);
+        }
+        setSaved(ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000);
+        return r;
+      });
   },[persistAll, usuarioActual]);
+
+  // Saldos informados por los acreedores (conciliación). No se borran: se anulan.
+  const handleSaveSaldosInformados = useCallback(async (newList) => {
+    const anterior = saldosInformadosRef.current || [];
+    setSaldosInformados(newList); saldosInformadosRef.current = newList;
+    const res = await persistAll({ creditos_saldos_informados: newList });
+    if(!res?.ok && saldosInformadosRef.current === newList){ setSaldosInformados(anterior); saldosInformadosRef.current = anterior; }
+    setSaved(res?.ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000);
+    return res;
+  },[persistAll]);
+
+  const handleSaveCreditosConfig = useCallback(async (cfg) => {
+    const anterior = creditosConfigRef.current || {};
+    setCreditosConfig(cfg); creditosConfigRef.current = cfg;
+    const res = await persistAll({ creditos_config: cfg });
+    if(!res?.ok && creditosConfigRef.current === cfg){ setCreditosConfig(anterior); creditosConfigRef.current = anterior; }
+    setSaved(res?.ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000);
+    return res;
+  },[persistAll]);
+
+  // Cobertura explícita de un valor manual antiguo de Pago Préstamos /
+  // Renovaciones: qué cuotas por conciliar cubre (lista de vencKeys, puede
+  // ser vacía = "no cubre ninguna"). Sin registro = cobertura PENDIENTE.
+  // Una sola escritura en finanzas_real; historial conservado (se anula).
+  const handleGuardarCobertura = useCallback(async (empresa, datos) => {
+    const { linea, idx, vencKeys, nota } = datos || {};
+    if(!linea || idx == null || !Array.isArray(vencKeys)) return { ok:false, motivo:"datos incompletos" };
+    if(!(nota||"").trim()) return { ok:false, motivo:"indica el respaldo o motivo de la cobertura" };
+    const antes = realDataRef.current || {};
+    const base = JSON.parse(JSON.stringify(antes));
+    if(!base[empresa]) base[empresa] = {};
+    const lista = Array.isArray(base[empresa]._coberturasManual) ? base[empresa]._coberturasManual : [];
+    const ts = new Date().toISOString();
+    base[empresa]._coberturasManual = [
+      ...lista.map(x=>x.linea===linea && x.idx===idx && !x.anulado ? {...x, anulado:true, anuladoTs:ts, anuladoPor:usuarioActual?.nombre||"", motivoAnulacion:"reemplazada"} : x),
+      { id:`cb_${Date.now().toString(36)}`, linea, idx, mes:MESES_65[idx], vencKeys, nota:nota.trim(), usuario:usuarioActual?.nombre||"", ts },
+    ];
+    setRealData(base); realDataRef.current = base;
+    const r = await persistAll({ finanzas_real: base });
+    if(!r?.ok){ if(realDataRef.current===base){ setRealData(antes); realDataRef.current = antes; } return { ok:false, motivo:r?.motivo||"no se guardó" }; }
+    return { ok:true };
+  },[persistAll, usuarioActual]);
+
+  // Pago de un vencimiento de crédito confirmado desde una línea de nómina.
+  // "registrar": idempotente por la clave de la línea (reintentar no duplica).
+  // "anular": anula ese pago con motivo (queda en el historial del crédito).
+  // La nómina no se modifica aquí: su estado se lee desde Créditos.
+  const handlePagoCreditoNomina = useCallback(async (accion, d) => {
+    const lista = creditosRef.current || [];
+    const c = lista.find(x => uidCredito(x) === d?.uid);
+    if(!c) return { ok:false, motivo:"el crédito vinculado no existe o no tienes acceso" };
+    let nuevo, pagoId = null;
+    try {
+      if(accion === "registrar"){
+        // Con `duplicado` también se guarda: estar en pantalla no prueba que el
+        // servidor lo tenga (un intento anterior pudo quedar sin confirmar). Si ya
+        // está, el contrato lo da por guardado sin escribir.
+        const r = registrarPagoIdempotente(c, d.pago, usuarioActual?.nombre || "");
+        nuevo = r.credito; pagoId = r.pagoId;
+      } else if(accion === "anular" || accion === "anotar"){
+        const p = pagosVigentes(c).find(x => x.id === d.pagoId);
+        if(!p || !p.origen || p.origen.clave !== d.clave) return { ok:false, motivo:"el pago no corresponde a esta línea" };
+        nuevo = accion === "anular" ? anularPago(c, d.pagoId, d.motivo, usuarioActual?.nombre || "")
+                                    : anotarPago(c, d.pagoId, d.motivo, usuarioActual?.nombre || "");
+      } else return { ok:false, motivo:"acción desconocida" };
+    } catch(e){ return { ok:false, motivo:e.message }; }
+    const res = await handleSaveCreditos(lista.map(x => uidCredito(x) === d.uid ? nuevo : x));
+    return res?.ok ? { ok:true, pagoId } : { ok:false, motivo: res?.motivo || "no se guardó en el servidor" };
+  },[handleSaveCreditos, usuarioActual]);
 
   // Guardar transferencias intercompany
   const handleSaveIntercompany = useCallback((newList) => {
@@ -13468,6 +15070,31 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     return ()=>clearTimeout(t);
   },[params,saldosBancos,loading]); // eslint-disable-line
 
+  // ── Créditos sin confirmar de una sesión/montaje anterior ─────────────────────
+  // Tras la carga: lo que quedó "en vuelo" sin nadie que lo espere pasa a "sin
+  // confirmar", y se retira solo lo que el servidor ya tiene (clasificación).
+  useEffect(()=>{
+    if(loading || !cargaOkRef.current || activeRowRef.current!=="finanzas") return;
+    creditosServidorRef.current = creditosRef.current || [];   // recién leído del servidor
+    pendientesCreditos.marcarHuerfanos(pendVivosCreditos);
+    pendientesCreditos.depurar(creditosServidorRef.current);
+  },[loading]); // eslint-disable-line
+
+  // Reintentar un cambio sin confirmar que sigue siendo aplicable (el crédito en el
+  // servidor está como estaba antes). Pasa por el guardado normal: confirmación
+  // real, sin duplicar (los pagos llevan clave de origen).
+  const reintentarPendienteCredito = useCallback(async (cambio)=>{
+    if(activeRowRef.current!=="finanzas") return { ok:false, motivo:"escenario" };
+    if(puedoEditRef.current && !puedoEditRef.current("creditos")) return { ok:false, motivo:"sin_permiso" };
+    if(!getEmpresasPermitidasUsuario(usuarioActual).includes(cambio.despues?.empresa)) return { ok:false, motivo:"sin_permiso" };
+    const lista = creditosRef.current || [];
+    const existe = lista.some(c=>uidCredito(c)===cambio.uid);
+    const next = existe ? lista.map(c=>uidCredito(c)===cambio.uid ? cambio.despues : c) : [...lista, cambio.despues];
+    const r = await handleSaveCreditos(next);
+    if(r && r.ok) pendientesCreditos.depurar(creditosServidorRef.current || []);
+    return r;
+  },[handleSaveCreditos, usuarioActual]);
+
   // ── Salir del módulo con una operación pendiente ──────────────────────────────
   // El efecto de arriba hace clearTimeout en su cleanup. Eso está bien cuando se
   // re-ejecuta por otro cambio (el nuevo timer lo reemplaza), pero al DESMONTAR
@@ -13540,6 +15167,9 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       overflowX:"hidden",
     }}>
       <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
+      {activeRowRef.current==="finanzas" && <PanelCreditosPendientes creditosServidor={loading ? null : creditosServidorRef.current}
+        canEdit={!loading && cargaOkRef.current && (!puedoEditRef.current || puedoEditRef.current("creditos"))}
+        onReintentar={reintentarPendienteCredito} usuario={usuarioActual?.nombre||""} />}
       {/* Fallo al LEER los saldos de bancos. No es "no se guardó": es que la
           posición de caja que se está viendo puede estar incompleta. Antes el
           `.catch(()=>{})` de la carga lo tragaba y la caja aparecía en cero como
@@ -13847,7 +15477,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                 onResolverOverride={handleResolverOverride} usuario={usuarioActual?.nombre||""}
                 subLines={subLines?.[empTab]||{}} onSaveSubLines={(lineLabel,list)=>handleSaveSubLines(empTab,lineLabel,list)}
                 addedLinesInit={addedLinesGlobal?.[empTab]||{}} onSaveAddedLines={(al)=>handleSaveAddedLines(empTab,al)}
-                creditosData={creditosData}/>
+                creditosData={creditosVal}/>
             </div>
           )}
           {flujoSubTab==="params"&&(()=>{
@@ -13913,11 +15543,16 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         // nextCreditId calculado sobre el BLOB COMPLETO (no sobre el subset visible)
         // para evitar colisión de IDs cuando un usuario restringido crea un crédito.
         const maxNFull = (creditosData||[]).reduce((m,c)=> Math.max(m, typeof c.n==='number' && c.n<100000 ? c.n : 0), 0);
-        return <Creditos empresas={empresasVisibles} creditosData={creditosData} onSaveCreditos={handleSaveCreditos} canEdit={puedoEdit('creditos')} empresasPermitidas={empresasPermitidas} nextCreditId={maxNFull+1}/>;
+        return <Creditos empresas={empresasVisibles} creditosData={creditosVal} tcEstado={tcEstado}
+          saldosInformados={saldosInformados} onSaveSaldosInformados={handleSaveSaldosInformados}
+          creditosConfig={creditosConfig} onSaveCreditosConfig={handleSaveCreditosConfig} tcData={tcData}
+          onGuardarCobertura={handleGuardarCobertura} onSaveCreditos={handleSaveCreditos} canEdit={puedoEdit('creditos')} empresasPermitidas={empresasPermitidas} nextCreditId={maxNFull+1} usuario={usuarioActual?.nombre||""}
+          realData={realData} onConciliarOverride={handleConciliarOverrideCredito}/>;
       })()}
 
       {tab==="nominas"&&puedoVer("nominas")&&(
-        <NominasModule usuario={usuarioActual} canEdit={puedoEdit("nominas")} saldosBancos={saldosBancos} empresasPermitidas={empresasPermitidas}/>
+        <NominasModule usuario={usuarioActual} canEdit={puedoEdit("nominas")} saldosBancos={saldosBancos} empresasPermitidas={empresasPermitidas}
+          creditosData={creditosVal} puedePagarCredito={puedoEdit("creditos")} onPagoCredito={handlePagoCreditoNomina}/>
       )}
 
       {tab==="reporte"&&puedoVer("reporte")&&accesoCompletoEmpresas&&(
@@ -13926,7 +15561,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           params={params}
           empresas={empresas}
           saldosBancos={saldosBancos}
-          creditosData={creditosData}
+          creditosData={creditosVal}
           addedLinesGlobal={addedLinesGlobal}
           subLinesGlobal={subLines}
           intercompany={intercompany}
@@ -14119,7 +15754,8 @@ function entradaHistorialNom(accion, usuario, extra = {}) {
 
 // Etiqueta legible para una acción del historial de nómina.
 function labelAccionNom(accion) {
-  return ({ creada:"Creada", avance:"Avanzó estado", devolucion:"Devuelta", inactivada:"Inactivada" })[accion] || accion;
+  return ({ creada:"Creada", avance:"Avanzó estado", devolucion:"Devuelta", inactivada:"Inactivada",
+    pago_credito_conservado:"Pago de crédito conservado", pago_credito_anulado:"Pago de crédito anulado" })[accion] || accion;
 }
 
 // Fase 4 — Validación de respaldo documental obligatorio para avanzar de estado.
@@ -14267,108 +15903,117 @@ function slugEmpresaNom(empresa) {
 
 // Cache en memoria del estado de migración (null=desconocido, true/false=conocido)
 let _cacheNominasMigrado = null;
+// ¿Las nóminas ya están particionadas por empresa (fila nominas_v2_done)?
+// Si la consulta FALLA (red/HTTP) se LANZA: antes se fijaba "no migrado" para toda
+// la sesión y la app cargaba y guardaba en la fila antigua `nominas`.
 async function dbNominasMigrado() {
   if (_cacheNominasMigrado !== null) return _cacheNominasMigrado;
-  try {
-    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas_v2_done&select=id`,{
-      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
-    });
-    const rows = await res.json();
-    _cacheNominasMigrado = Array.isArray(rows) && rows.length > 0;
-  } catch { _cacheNominasMigrado = false; }
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas_v2_done&select=id`,{
+    headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+  });
+  if (!res.ok) throw new Error(`nominas_v2_done HTTP ${res.status}`);
+  const rows = await res.json();
+  if (!Array.isArray(rows)) throw new Error("nominas_v2_done: respuesta inesperada");
+  _cacheNominasMigrado = rows.length > 0;
   return _cacheNominasMigrado;
 }
 
-// Carga nóminas: si migrado → carga solo las filas de empresasPermitidas;
-// si no migrado → carga blob legacy id="nominas" y filtra en memoria.
+// ── Transporte de las filas nominas_<empresa> (texto JSON dentro del jsonb) ──
+// Guardado CONDICIONADO (docs/nominas-guardado-condicionado.md):
+//   leer     → { existe, valor, version }   · LANZA ante red/HTTP (regla 9)
+//   patch    → PATCH …&updated_at=eq.<versión leída>; 0 filas = "conflicto"
+//   insertar → POST SIN merge-duplicates: si la fila ya existe, 409 = "existe"
+// No necesita nada en la base. La función nominas_guardar (propuesta, NO aplicada:
+// supabase/propuesta_nominas_version_obligatoria.sql, src/nominasTransporteRpc.js)
+// queda para una entrega posterior.
+// keepalive solo para cuerpos chicos: el navegador rechaza keepalive > 64 KiB.
+const LIMITE_KEEPALIVE_NOM = 60000;
+const _bytesNom = (t) => { try { return new TextEncoder().encode(t).length; } catch(e) { return t.length * 2; } };
+async function _falloEscrituraNomina(res) {
+  let texto = "";
+  try { texto = await res.text(); } catch(e) {}
+  return { ok:false, motivo: /MEDITERRA_SELLO/.test(texto) ? "sello" : (res.status === 409 ? "existe" : "http"), status: res.status, detalle: texto.slice(0,300) };
+}
+const transporteNominas = {
+  async leer(fila) {
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${encodeURIComponent(fila)}&select=value,updated_at`,{
+      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Cache-Control":"no-cache"}
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rows = await res.json();
+    if (!Array.isArray(rows)) throw new Error("respuesta inesperada");
+    if (!rows.length) return { existe:false, valor:null, version:null };
+    const v = rows[0].value;
+    const valor = typeof v === "string" ? JSON.parse(v) : v;
+    if (!valor || !Array.isArray(valor.nominas)) throw new Error("contenido inesperado en la fila");
+    return { existe:true, valor, version: rows[0].updated_at || null };
+  },
+  async patch(fila, version, texto, o={}) {
+    const body = JSON.stringify({ value:texto, updated_at:new Date().toISOString() });
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${encodeURIComponent(fila)}&updated_at=eq.${encodeURIComponent(version)}`,{
+      method:"PATCH", keepalive: !!o.keepalive && _bytesNom(body) < LIMITE_KEEPALIVE_NOM,
+      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"}, body });
+    if (!res.ok) return await _falloEscrituraNomina(res);
+    const filas = await res.json().catch(()=>null);
+    if (!Array.isArray(filas)) return { ok:false, motivo:"http", status:res.status, detalle:"el servidor no confirmó la escritura" };
+    if (!filas.length) return { ok:false, motivo:"conflicto" };
+    if (!filas[0].updated_at) return { ok:false, motivo:"http", status:res.status, detalle:"el servidor no confirmó la versión" };
+    return { ok:true, version: filas[0].updated_at };
+  },
+  async insertar(fila, texto, o={}) {
+    const body = JSON.stringify({ id:fila, value:texto, updated_at:new Date().toISOString() });
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+      method:"POST", keepalive: !!o.keepalive && _bytesNom(body) < LIMITE_KEEPALIVE_NOM,
+      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"}, body });
+    if (!res.ok) return await _falloEscrituraNomina(res);
+    const filas = await res.json().catch(()=>null);
+    if (!Array.isArray(filas) || !filas[0] || !filas[0].updated_at) return { ok:false, motivo:"http", status:res.status, detalle:"el servidor no confirmó la creación" };
+    return { ok:true, version: filas[0].updated_at };
+  },
+};
+const filaNominaDe = (empresa) => `nominas_${slugEmpresaNom(empresa)}`;
+
+// Carga nóminas POR EMPRESA. Cada fila queda con su estado:
+//   "ok"          → leída; se guarda condicionada a su versión;
+//   "inexistente" → el servidor confirmó que NO existe; se puede crear;
+//   "error"       → no se pudo leer: esa empresa NO se muestra y NO se puede crear
+//                   ni guardar en ella hasta cargarla bien. Las demás siguen operando.
+// Si no se puede saber si las nóminas están particionadas, se LANZA (carga fallida).
+// Formato antiguo (fila única `nominas`, sin nominas_v2_done): solo lectura.
 async function dbLoadNominas(empresasPermitidas) {
-  try {
-    const migrado = await dbNominasMigrado();
-    if (!migrado) {
-      // Legacy: blob único
-      const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas&select=value`,{
-        headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
-      });
-      const data = await res.json();
-      if (!data?.[0]?.value) return null;
-      const blob = JSON.parse(data[0].value);
-      // Aplicar filtro en memoria para usuarios restringidos
-      if (empresasPermitidas?.length) {
-        blob.nominas = (blob.nominas||[]).filter(n => empresasPermitidas.includes(n.empresa));
-      }
-      return blob;
-    }
-    // v2: cargar por empresa
-    const empresasTarget = (!empresasPermitidas?.length)
-      ? EMPRESAS_NOM
-      : EMPRESAS_NOM.filter(e => empresasPermitidas.includes(e));
-    const resultados = await Promise.all(empresasTarget.map(async emp => {
-      const slug = slugEmpresaNom(emp);
-      const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas_${slug}&select=value`,{
-        headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
-      });
-      const data = await res.json();
-      return data?.[0]?.value ? JSON.parse(data[0].value).nominas || [] : [];
-    }));
-    return { nominas: resultados.flat() };
-  } catch(e) {
-    // Propagar: el caller debe distinguir "carga falló" de "vacío" para no
-    // habilitar el guardado y sobrescribir las nóminas con una lista vacía.
-    console.error("[Nominas] Error cargando:", e);
-    throw e;
+  const migrado = await dbNominasMigrado();
+  if (!migrado) {
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.nominas&select=value`,{
+      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+    });
+    if (!res.ok) throw new Error(`nominas HTTP ${res.status}`);
+    const data = await res.json();
+    const blob = data?.[0]?.value ? JSON.parse(data[0].value) : { nominas:[] };
+    if (empresasPermitidas?.length) blob.nominas = (blob.nominas||[]).filter(n => empresasPermitidas.includes(n.empresa));
+    return { nominas: blob.nominas || [], filas: {}, legado: true };
   }
+  const empresasTarget = (!empresasPermitidas?.length)
+    ? EMPRESAS_NOM
+    : EMPRESAS_NOM.filter(e => empresasPermitidas.includes(e));
+  const filas = {};
+  const porEmpresa = await Promise.all(empresasTarget.map(async emp => {
+    const fila = filaNominaDe(emp);
+    try {
+      const r = await transporteNominas.leer(fila);
+      if (!r.existe) { filas[fila] = { empresa:emp, estado:"inexistente", version:null, base:[] }; return []; }
+      filas[fila] = { empresa:emp, estado:"ok", version:r.version, base:r.valor.nominas };
+      return r.valor.nominas;
+    } catch(e) {
+      console.error(`[Nominas] No se pudo cargar ${emp}:`, e);
+      filas[fila] = { empresa:emp, estado:"error", error:String((e&&e.message)||e) };
+      return [];
+    }
+  }));
+  return { nominas: porEmpresa.flat(), filas, legado: false };
 }
 
-// ⚠️ F0-B DEUDA (NO migrado al contrato compartido, a propósito): las filas
-// `nominas` (blob legacy) y `nominas_<slug>` (v2 por empresa) se dejan en la ruta
-// actual porque el contrato `persist` no replica dos garantías de las que depende
-// nóminas: (1) `keepalive:true` en beforeunload (flushNominas) para que el save
-// del debounce sobreviva a recarga/cierre — el contrato usa fetch normal sin
-// keepalive; y (2) el particionado runtime legacy↔v2 (dbNominasMigrado) escribe N
-// filas por empresa, y esas MISMAS filas las escribe además el one-shot de
-// migración (~línea 15036, con verificación de conteo read-back). Migrar la mitad
-// rompería el optimistic lock por-fila (regla de completitud). La v2 ya verifica
-// res.ok. Migración limpia = incremento dedicado (extender el contrato con
-// keepalive + saveConfirmed por fila nominas_<slug>).
-// Guarda nóminas: si migrado → upsert por empresa;
-// si no migrado → sobreescribe blob legacy.
-// Devuelve true si TODOS los upserts respondieron ok; false si alguno falló.
-// opts.keepalive=true permite que el request sobreviva a un beforeunload (flush en recarga/cierre).
-async function dbSaveNominas(nominas, opts={}) {
-  const keepalive = !!opts.keepalive;
-  try {
-    const migrado = await dbNominasMigrado();
-    if (!migrado) {
-      const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-        method:"POST", keepalive,
-        headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
-          "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-        body:JSON.stringify({id:"nominas",value:JSON.stringify({nominas}),updated_at:new Date().toISOString()})
-      });
-      return res.ok;
-    }
-    // v2: agrupar por empresa y upsert cada fila
-    const grupos = {};
-    for (const n of nominas) {
-      const emp = n.empresa;
-      if (emp) { if (!grupos[emp]) grupos[emp]=[]; grupos[emp].push(n); }
-    }
-    const resultados = await Promise.all(Object.entries(grupos).map(([emp, noms]) => {
-      const slug = slugEmpresaNom(emp);
-      return fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-        method:"POST", keepalive,
-        headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
-          "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-        body:JSON.stringify({
-          id:`nominas_${slug}`,
-          value:JSON.stringify({nominas:noms, empresa:emp}),
-          updated_at:new Date().toISOString()
-        })
-      });
-    }));
-    return resultados.every(r=>r.ok);
-  } catch(e){console.error(e);return false;}
-}
+// Nóminas: la escritura ya NO es upsert sin condición (antes `dbSaveNominas`). Ver
+// transporteNominas + nominasPersistencia.js y ejecutarGuardado en NominasModule.
 
 // ─── Catálogo GLOBAL de tipos de documento (persistente) ───────────
 // Los tipos que el usuario agrega con "+ Agregar nuevo..." se guardan en la
@@ -14418,9 +16063,184 @@ function BadgeEstado({estado}) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// VÍNCULO LÍNEA DE NÓMINA ↔ VENCIMIENTO DE CRÉDITO
+// Vincular NO paga nada. El pago se registra en Créditos solo al confirmar
+// el pago efectivo de la línea (nómina Aprobada CFO), con fecha, monto y
+// desglose. Clave `nomina:<nominaId>:<itemId>`: reintentar no duplica.
+// El estado se lee de Créditos (fuente de verdad), no de la línea.
+// ─────────────────────────────────────────────────────────────────
+const claveOrigenNomina = (nominaId, itemId) => `nomina:${nominaId}:${itemId}`;
+function monedaLineaNomina(it, moneda){
+  if(moneda==="usd") return {mon:"USD", monto:Number(it.montoUSD)||0};
+  if(moneda==="pen") return {mon:"PEN", monto:Number(it.montoPEN)||0};
+  if(moneda==="clp") return {mon:"CLP", monto:Number(it.montoCLP)||0};
+  return Number(it.montoUSD) ? {mon:"USD", monto:Number(it.montoUSD)} : {mon:"CLP", monto:Number(it.montoCLP)||0};
+}
+// Pagos vigentes en Créditos originados por líneas de una nómina.
+function pagosCreditoDeNomina(nom, creditosData, soloItemId=null){
+  return (nom?.items||[]).filter(it=>it.creditoVinculo && (!soloItemId || it.id===soloItemId)).map(it=>{
+    const cred = (creditosData||[]).find(c=>uidCredito(c)===it.creditoVinculo.uid);
+    const pago = cred ? pagoPorOrigen(cred, claveOrigenNomina(nom.id, it.id)) : null;
+    return pago ? {it, cred, pago, clave:claveOrigenNomina(nom.id, it.id)} : null;
+  }).filter(Boolean);
+}
+// Anular una nómina o una línea NO demuestra que el pago bancario se revirtió:
+// cada pago vinculado se resuelve explícitamente (conservar o anular) con motivo.
+function ResolverPagosVinculados({vinculos, contexto, onPagoCredito, onCancel, onResuelto}){
+  const [dec,setDec]=useState(()=>Object.fromEntries(vinculos.map(v=>[v.pago.id,""])));
+  const [motivo,setMotivo]=useState("");
+  const [enviando,setEnviando]=useState(false);
+  const listo = vinculos.every(v=>dec[v.pago.id]) && motivo.trim();
+  async function confirmar(){
+    setEnviando(true);
+    const hechos=[];
+    for(const v of vinculos){
+      const anular = dec[v.pago.id]==="anular";
+      const r = await onPagoCredito(anular?"anular":"anotar", {uid:uidCredito(v.cred), pagoId:v.pago.id, clave:v.clave,
+        motivo: anular ? `${contexto} anulada: ${motivo.trim()}` : `Pago conservado al anular ${contexto}: ${motivo.trim()}`});
+      if(!r?.ok){ setEnviando(false); alert(`No se pudo resolver el pago de ${v.cred.acreedor}: ${r?.motivo||"error"}.\nNo se anuló la ${contexto}. ${hechos.length?"Los pagos ya resueltos quedaron registrados.":""}`); return; }
+      hechos.push({pagoId:v.pago.id, decision:anular?"anulado":"conservado", acreedor:v.cred.acreedor});
+    }
+    setEnviando(false);
+    onResuelto(hechos, motivo.trim());
+  }
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.5)",zIndex:460,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:C.bg2,border:`1px solid ${C.red}`,borderRadius:10,padding:16,width:620,maxWidth:"95vw",fontSize:11}}>
+        <div style={{fontWeight:800,fontSize:13,marginBottom:6}}>La {contexto} tiene pagos registrados en Créditos</div>
+        <div style={{color:C.text,marginBottom:10,lineHeight:1.6}}>
+          Anular la {contexto} no demuestra que el pago bancario se haya revertido. Decide para cada pago:
+          <strong> conservarlo</strong> (el pago se hizo; queda una anotación en el crédito) o <strong>anularlo en Créditos</strong> (la cuota vuelve a quedar pendiente).
+        </div>
+        {vinculos.map(v=>(
+          <div key={v.pago.id} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
+            <div style={{fontWeight:700}}>🏦 {v.cred.acreedor} · cuota {fmtDate(v.it.creditoVinculo.fecha)} · pago {fmtDate(v.pago.fecha)} · {$c(totalPago(v.pago),v.cred.moneda)}</div>
+            <div style={{color:C.muted}}>Línea: {v.it.proveedor||"—"} · {v.it.concepto||""}</div>
+            <div style={{display:"flex",gap:14,marginTop:4}}>
+              <label><input type="radio" name={`d-${v.pago.id}`} checked={dec[v.pago.id]==="conservar"} onChange={()=>setDec(p=>({...p,[v.pago.id]:"conservar"}))}/> Conservar el pago</label>
+              <label><input type="radio" name={`d-${v.pago.id}`} checked={dec[v.pago.id]==="anular"} onChange={()=>setDec(p=>({...p,[v.pago.id]:"anular"}))}/> Anular el pago en Créditos</label>
+            </div>
+          </div>
+        ))}
+        <CampoCr label="Motivo (obligatorio; queda en el crédito y en la nómina)"><input value={motivo} onChange={e=>setMotivo(e.target.value)} style={CR_INP}/></CampoCr>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+          <button onClick={onCancel} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:12}}>Cancelar (no anular)</button>
+          <button disabled={!listo||enviando} onClick={confirmar} style={{padding:"6px 14px",borderRadius:8,border:"none",background:listo?C.red:C.border,color:"#fff",cursor:listo?"pointer":"not-allowed",fontSize:12,fontWeight:700}}>{enviando?"Guardando…":`Resolver y anular la ${contexto}`}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, estadoNomina, canEdit, puedePagar, moneda, onVincular, onPagoCredito, usuario}){
+  const [modo,setModo]=useState(null); // "vincular" | "pagar"
+  const [sel,setSel]=useState("");
+  const [f,setF]=useState(null);
+  const [enviando,setEnviando]=useState(false);
+  const vin = it.creditoVinculo;
+  const cred = vin ? (creditosData||[]).find(c=>uidCredito(c)===vin.uid) : null;
+  const clave = claveOrigenNomina(nominaId, it.id);
+  const pago = cred ? pagoPorOrigen(cred, clave) : null;
+  const est = cred ? estadoCredito(cred) : null;
+  const venc = est ? est.vencimientos.find(v=>v.key===vin.vencKey) : null;
+  const linea = monedaLineaNomina(it, moneda);
+  const opciones = useMemo(()=>{
+    if(modo!=="vincular") return [];
+    return (creditosData||[]).filter(c=>c.empresa===empresa&&!c.anulado).flatMap(c=>
+      estadoCredito(c).vencimientos.filter(v=>v.pendienteTotal>0).map(v=>({key:`${uidCredito(c)}|${v.key}`, c, v})));
+  },[modo, creditosData, empresa]);
+  const btn = (color)=>({padding:"2px 7px",borderRadius:5,border:`1px solid ${color}`,background:"transparent",color,cursor:"pointer",fontSize:10,fontWeight:700,whiteSpace:"nowrap"});
+  function abrirPago(){
+    const mon = cred.moneda||"USD";
+    // Prefill: monto de la línea si es la misma moneda (tope: pendiente),
+    // imputado cargos → intereses → capital. Se puede corregir.
+    let monto = linea.mon===mon ? Math.min(linea.monto, venc.pendienteTotal) : 0;
+    const d = {cargos:0, interes:0, capital:0, sinDesglose:0};
+    [["sinDesglose"],["cargos"],["interes"],["capital"]].forEach(([k])=>{ const q=Math.min(monto, venc.pendiente[k]||0); d[k]=Math.round(q*100)/100; monto-=q; });
+    setF({fecha:hoyISO(), ...d, nota:`${nombreNomina}${it.nDoc?` · doc ${it.nDoc}`:""}`});
+    setModo("pagar");
+  }
+  async function confirmarPago(){
+    const tot = ["capital","interes","cargos","sinDesglose"].reduce((a,k)=>a+(Number(f[k])||0),0);
+    if(!(tot>0)){ alert("Indica el monto pagado."); return; }
+    if(tot - venc.pendienteTotal > 0.005 && !window.confirm(`El pago (${$c(tot,cred.moneda)}) supera lo pendiente del vencimiento (${$c(venc.pendienteTotal,cred.moneda)}). ¿Registrar igual? El exceso quedará informado.`)) return;
+    setEnviando(true);
+    const r = await onPagoCredito("registrar", {uid:vin.uid, pago:{vencKey:vin.vencKey, fecha:f.fecha, capital:f.capital, interes:f.interes, cargos:f.cargos, sinDesglose:f.sinDesglose,
+      nota:f.nota, origen:{tipo:"nomina", clave, nominaId, itemId:it.id, nombreNomina}}});
+    setEnviando(false);
+    if(!r?.ok){ alert(`No se registró el pago: ${r?.motivo||"error"}. Puedes reintentar: no se duplica.`); return; }
+    setModo(null);
+  }
+  async function anular(){
+    const motivo = window.prompt(`Anular el pago registrado en Créditos desde esta línea (${fmtDate(pago.fecha)} · ${$c(totalPago(pago),cred.moneda)}).\nQueda en el historial como anulado y la cuota vuelve a quedar pendiente. Motivo:`);
+    if(motivo===null) return;
+    const r = await onPagoCredito("anular", {uid:vin.uid, pagoId:pago.id, motivo, clave});
+    if(!r?.ok) alert(`No se anuló: ${r?.motivo||"error"}`);
+  }
+  return (
+    <div style={{fontSize:10,minWidth:130,position:"relative"}}>
+      {!vin&&canEdit&&modo!=="vincular"&&<button onClick={()=>setModo("vincular")} style={btn(C.blue)} title="Vincular a un vencimiento de crédito (no registra pago)">🏦 Vincular</button>}
+      {vin&&(
+        <div>
+          <div style={{fontWeight:700,color:C.blue}}>🏦 {vin.acreedor}</div>
+          <div style={{color:C.muted}}>cuota {fmtDate(vin.fecha)}{venc?` · pend. ${$c(venc.pendienteTotal,cred?.moneda)}`:" · ⚠ ya no existe"}</div>
+          {pago
+            ? <div style={{color:C.green,fontWeight:700}}>✓ Pago registrado {fmtDate(pago.fecha)} {$c(totalPago(pago),cred.moneda)}</div>
+            : <div style={{color:C.orange}}>Pago no registrado{estadoNomina!=="aprobada"?" (se confirma con la nómina aprobada)":""}</div>}
+          <div style={{display:"flex",gap:4,marginTop:2,flexWrap:"wrap"}}>
+            {!pago&&canEdit&&<button onClick={()=>onVincular(it.id,null)} style={btn(C.muted)}>Desvincular</button>}
+            {!pago&&puedePagar&&estadoNomina==="aprobada"&&venc&&venc.pendienteTotal>0&&<button onClick={abrirPago} style={btn(C.green)}>Confirmar pago efectivo</button>}
+            {pago&&puedePagar&&<button onClick={anular} style={btn(C.red)}>Anular pago</button>}
+          </div>
+        </div>
+      )}
+      {modo==="vincular"&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{background:C.bg2,border:`1px solid ${C.blue}`,borderRadius:10,padding:14,width:380,maxWidth:"94vw",boxShadow:"0 12px 32px rgba(0,0,0,0.3)",fontSize:11}}>
+          <div style={{fontWeight:700,marginBottom:6}}>Vincular a vencimiento de crédito ({empresa})</div>
+          <select value={sel} onChange={e=>setSel(e.target.value)} style={{...CR_INP,fontSize:11}}>
+            <option value="">— elegir vencimiento pendiente —</option>
+            {opciones.map(o=><option key={o.key} value={o.key}>{o.c.acreedor} · {fmtDate(o.v.fecha)} · {$c(o.v.pendienteTotal,o.c.moneda||"USD")}{o.v.porConciliar?" · por conciliar":o.v.vencida?" · vencida":""}</option>)}
+          </select>
+          {opciones.length===0&&<div style={{color:C.muted,marginTop:4}}>No hay vencimientos pendientes de créditos de {empresa}.</div>}
+          <div style={{color:C.muted,marginTop:6}}>Vincular no registra ningún pago.</div>
+          <div style={{display:"flex",gap:6,justifyContent:"flex-end",marginTop:8}}>
+            <button onClick={()=>setModo(null)} style={btn(C.muted)}>Cancelar</button>
+            <button disabled={!sel} onClick={()=>{ const o=opciones.find(x=>x.key===sel); onVincular(it.id,{uid:uidCredito(o.c), vencKey:o.v.key, acreedor:o.c.acreedor, fecha:o.v.fecha, vinculadoPor:usuario?.nombre||"", ts:new Date().toISOString()}); setModo(null); }} style={btn(C.blue)}>Vincular</button>
+          </div>
+        </div>
+        </div>
+      )}
+      {modo==="pagar"&&f&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{background:C.bg2,border:`1px solid ${C.green}`,borderRadius:10,padding:14,width:420,maxWidth:"94vw",boxShadow:"0 12px 32px rgba(0,0,0,0.3)",fontSize:11}}>
+          <div style={{fontWeight:700,marginBottom:4}}>Confirmar pago efectivo · {vin.acreedor} cuota {fmtDate(vin.fecha)}</div>
+          <div style={{color:C.muted,marginBottom:6}}>Pendiente {$c(venc.pendienteTotal,cred.moneda)} · línea {linea.mon} {linea.monto.toLocaleString("en-US")}
+            {linea.mon!==(cred.moneda||"USD")&&<span style={{color:C.red}}> · moneda distinta: ingresa el monto en {cred.moneda||"USD"}</span>}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+            <CampoCr label="Fecha efectiva del pago"><input type="date" value={f.fecha} onChange={e=>setF(p=>({...p,fecha:e.target.value}))} style={CR_INP}/></CampoCr>
+            {[["capital","Capital"],["interes","Intereses"],["cargos","Otros cargos"],["sinDesglose","Sin desglose"]].map(([k,l])=>(
+              <CampoCr key={k} label={l}><InputNumero formato="monto" value={f[k]||""} onChange={n=>setF(p=>({...p,[k]:n}))} style={CR_INP}/></CampoCr>
+            ))}
+            <CampoCr label="Nota"><input value={f.nota} onChange={e=>setF(p=>({...p,nota:e.target.value}))} style={CR_INP}/></CampoCr>
+          </div>
+          <div style={{color:C.muted,marginTop:6}}>Total {$c(["capital","interes","cargos","sinDesglose"].reduce((a,k)=>a+(Number(f[k])||0),0),cred.moneda)}. Un pago parcial deja pendiente la diferencia.</div>
+          <div style={{display:"flex",gap:6,justifyContent:"flex-end",marginTop:8}}>
+            <button onClick={()=>setModo(null)} style={btn(C.muted)}>Cancelar</button>
+            <button disabled={enviando} onClick={confirmarPago} style={btn(C.green)}>{enviando?"Guardando…":"Registrar en Créditos"}</button>
+          </div>
+        </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
 // TABLA ITEMS (por sección)
 // ─────────────────────────────────────────────────────────────────
-function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", semanaNomina, tiposDocExtra=[], onAddTipoDoc, usuario, nominaId, empresa, anioNom, fechaNom}) {
+function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", semanaNomina, tiposDocExtra=[], onAddTipoDoc, usuario, nominaId, empresa, anioNom, fechaNom,
+  creditosData=[], estadoNomina, nombreNomina="", puedePagarCredito=false, onPagoCredito}) {
   // Vista de edición: solo líneas activas (las inactivadas quedan en data y se ven en Vista Auditoría — Fase 3).
   const rows = items.filter(it=>it.seccion===seccion && lineaActiva(it));
   // Modal de documentos de respaldo (Expediente Digital — Fase 1).
@@ -14458,14 +16278,21 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
   }
   // Soft-delete (Fase 0): nunca se borra físicamente. Se marca inactiva,
   // se excluye de totales/export y queda registrada en el historial de la línea.
-  function delItem(id) {
-    if(!window.confirm("¿Inactivar esta línea?\n\nNo se elimina: queda registrada en el historial y se excluye de los totales. Podrás verla en la Vista Auditoría."))return;
+  const [resolverLinea,setResolverLinea]=useState(null); // {id, vinculos}
+  function inactivarLinea(id, extraHist=[]){
     const nombreUsr = usuario?.nombre || "—";
     const ahora = new Date().toISOString();
     onChange(items.map(it=>it.id===id
       ? {...it, estadoLinea:"inactiva",
-          historial:[...(it.historial||[]), {accion:"linea_inactivada", usuario:nombreUsr, fecha:ahora}]}
+          historial:[...(it.historial||[]), ...extraHist.map(h=>({...h, usuario:nombreUsr, fecha:ahora})), {accion:"linea_inactivada", usuario:nombreUsr, fecha:ahora}]}
       : it));
+  }
+  function delItem(id) {
+    // Si la línea tiene un pago vigente en Créditos, se resuelve explícitamente primero.
+    const vinculos = pagosCreditoDeNomina({id:nominaId, items}, creditosData, id);
+    if(vinculos.length){ setResolverLinea({id, vinculos}); return; }
+    if(!window.confirm("¿Inactivar esta línea?\n\nNo se elimina: queda registrada en el historial y se excluye de los totales. Podrás verla en la Vista Auditoría."))return;
+    inactivarLinea(id);
   }
 
   const totalCLP = rows.reduce((s,it)=>s+(Number(it.montoCLP)||0),0);
@@ -14491,7 +16318,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
   const montoLabel = soloUSD ? "Monto USD" : soloPEN ? "Monto PEN" : soloCLP ? "Monto CLP" : null;
   const headers = ["Tipo Doc","Proveedor / Nombre","RUT","N° Doc","F. Doc","F. Venc","Sem","Concepto",
     ...(soloUSD ? ["Monto USD"] : soloPEN ? ["Monto PEN"] : soloCLP ? ["Monto CLP"] : ["Monto CLP","Monto USD"]),
-    "Anticipo","Saldo a Pagar","Comentario",""];
+    "Anticipo","Saldo a Pagar","Comentario","Crédito",""];
   const colSpanTotal = 8;
   const colSpanEnd = soloUSD||soloCLP ? 2 : 2;
 
@@ -14502,6 +16329,9 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
 
   return (
     <div style={{marginBottom:20}}>
+      {resolverLinea&&<ResolverPagosVinculados vinculos={resolverLinea.vinculos} contexto="línea" onPagoCredito={onPagoCredito}
+        onCancel={()=>setResolverLinea(null)}
+        onResuelto={(hechos,motivo)=>{ inactivarLinea(resolverLinea.id, hechos.map(h=>({accion:`pago_credito_${h.decision}`, detalle:`${h.acreedor} · ${h.pagoId} · ${motivo}`}))); setResolverLinea(null); }}/>}
       <div style={{overflowX:"auto",borderRadius:8,border:`1px solid ${C.border}`}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
           <thead>
@@ -14684,6 +16514,14 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                         style={inputSt} placeholder="Obs."/>
                     : <span style={{color:C.muted,fontSize:10}}>{it.comentario||""}</span>}
                 </td>
+                <td style={{padding:"3px 6px"}}>
+                  <CeldaCreditoNomina it={it} creditosData={creditosData} empresa={empresa} nominaId={nominaId} nombreNomina={nombreNomina}
+                    estadoNomina={estadoNomina} canEdit={canEdit} puedePagar={puedePagarCredito} moneda={moneda} usuario={usuario}
+                    onPagoCredito={onPagoCredito}
+                    onVincular={(id,vinc)=>onChange(items.map(x=>x.id===id?{...x, creditoVinculo:vinc||undefined,
+                      historial:[...(x.historial||[]),{accion:vinc?"credito_vinculado":"credito_desvinculado",usuario:usuario?.nombre||"—",fecha:new Date().toISOString(),
+                        detalle:vinc?`${vinc.acreedor} cuota ${vinc.fecha}`:`${x.creditoVinculo?.acreedor||""} cuota ${x.creditoVinculo?.fecha||""}`}]}:x))}/>
+                </td>
                 <td style={{padding:"3px 6px",textAlign:"center",whiteSpace:"nowrap"}}>
                   <button onClick={()=>setDocsItemId(it.id)}
                     title={tieneRespaldo(it)?`${docsActivos(it).length} documento(s) de respaldo`:"Sin respaldo — adjuntar documento"}
@@ -14747,7 +16585,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                     <>{totalSaldoCLP?<span style={{color:C.green}}>{$$clp(totalSaldoCLP)}</span>:null}{totalSaldoCLP&&totalSaldoUSD?" / ":""}{totalSaldoUSD?<span style={{color:C.green}}>{$$usd(totalSaldoUSD)}</span>:null}{!totalSaldoCLP&&!totalSaldoUSD?"—":""}</>
                   ):(!soloPEN&&!totalSaldoCLP&&!totalSaldoUSD?"—":null)}
                 </td>
-                <td colSpan={2}/>
+                <td colSpan={3}/>
               </tr>
             </tfoot>
           )}
@@ -15197,10 +17035,12 @@ function PanelBancosNomina({empresa, saldosBancos}) {
 // ─────────────────────────────────────────────────────────────────
 // VISTA NÓMINA DETALLE
 // ─────────────────────────────────────────────────────────────────
-function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos, nominasHermanas=[], onSwitchNomina, onCrearYAbrir, onCrearNueva, onAplazar}) {
+function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos, nominasHermanas=[], onSwitchNomina, onCrearYAbrir, onCrearNueva, onAplazar,
+  creditosData=[], puedePagarCredito=false, onPagoCredito}) {
   const nom = nomina;
   const esCFO = usuario?.rol==="admin" || usuario?.esCFO;
   const [soloVer, setSoloVer] = useState(false);
+  const [transicionando, setTransicionando] = useState(false); // guardando un cambio de estado
   const [showAudit, setShowAudit] = useState(false);   // Vista Auditoría (Fase 3)
   const [descExpediente, setDescExpediente] = useState(false); // Descargar Expediente ZIP (Fase 6)
   const [genPdf, setGenPdf] = useState(false);          // Expediente PDF consolidado
@@ -15691,7 +17531,22 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
       descripcion:`Exportó ${nombreFormal} a Excel`,registroId:nom.id});
   }
 
-  function avanzarEstado() {
+  // Transiciones: se GUARDAN primero (esperando la confirmación del servidor) y
+  // recién entonces se notifica por correo y se audita. Si el servidor no
+  // confirma, la nómina vuelve en pantalla a su estado anterior, no se envía
+  // ningún correo y el aviso de Nóminas explica qué pasó y qué hacer.
+  async function confirmarTransicion(patch, detalle, notifs, auditar) {
+    if(transicionando) return false;
+    setTransicionando(true);
+    const r = await onUpdate({...nom,...patch}, {inmediato:true, contexto:"transicion", detalleContexto:detalle});
+    setTransicionando(false);
+    if(!r || !r.ok){ await onUpdate(nom, {soloLocal:true}); return false; }
+    notifs.forEach(n=>{ if(window._enviarNotificacion) window._enviarNotificacion(...n).catch(()=>{}); });
+    auditar();
+    return true;
+  }
+
+  async function avanzarEstado() {
     const flujo = ["borrador","preparada","revision","aprobada1","aprobada"];
     const idx = flujo.indexOf(nom.estado);
     if(idx >= flujo.length-1) return;
@@ -15706,6 +17561,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
         return;
       }
     }
+    const notifs = [];
     const ahora = new Date().toISOString().slice(0,10);
     let patch = {estado: next};
     if(next==="preparada")  patch.preparadoPor  = usuario?.nombre||"";
@@ -15720,8 +17576,8 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
       patch.revisorAsignado = destNombre;
       if(window._enviarNotificacion) {
         const notifMsg = `${usuario?.nombre||"Un usuario"} ha enviado a revisión la ${nombreFormal} (${nom.empresa}).\n\nPor favor ingresa al sistema para revisar y dar tu V°B°.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
-        window._enviarNotificacion(destEmail, destNombre,
-          `📋 Nómina pendiente de revisión — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
+        notifs.push([destEmail, destNombre,
+          `📋 Nómina pendiente de revisión — ${nom.empresa} S${nom.semana}`, notifMsg]);
       }
     }
     if(next==="aprobada1") {
@@ -15730,8 +17586,8 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
       // Carol/Michelle envían a CFO para aprobación final
       if(window._enviarNotificacion) {
         const notifMsg = `${usuario?.nombre||"Un autorizador"} ha dado V°B° a la ${nombreFormal} (${nom.empresa}).\n\nEstá lista para tu aprobación final.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
-        window._enviarNotificacion("ahuerta@grupomediterra.cl","Angelo Huerta",
-          `✅ Nómina lista para aprobación CFO — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
+        notifs.push(["ahuerta@grupomediterra.cl","Angelo Huerta",
+          `✅ Nómina lista para aprobación CFO — ${nom.empresa} S${nom.semana}`, notifMsg]);
       }
     }
     if(next==="aprobada") {
@@ -15740,33 +17596,35 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
       // CFO aprueba → notificar a Carol y Milagros
       if(window._enviarNotificacion) {
         const notifMsg = `${usuario?.nombre||"CFO"} ha aprobado la ${nombreFormal} (${nom.empresa}).\n\nLa nómina está lista para cargar a banco.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
-        window._enviarNotificacion("cmachuca@grupomediterra.cl","Carol Machuca",
-          `🏆 Nómina APROBADA — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
-        window._enviarNotificacion("Mbecerra@grupomediterra.cl","Milagros Becerra",
-          `🏆 Nómina APROBADA — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
+        notifs.push(["cmachuca@grupomediterra.cl","Carol Machuca",
+          `🏆 Nómina APROBADA — ${nom.empresa} S${nom.semana}`, notifMsg]);
+        notifs.push(["Mbecerra@grupomediterra.cl","Milagros Becerra",
+          `🏆 Nómina APROBADA — ${nom.empresa} S${nom.semana}`, notifMsg]);
       }
     }
     // Trazabilidad (Fase 2): historial de la nómina + log de auditoría central.
     patch.historial = [...(nom.historial||[]), entradaHistorialNom("avance", usuario, {estadoDesde: nom.estado, estadoHacia: next})];
-    window.auditLog && window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
-      descripcion:`${nombreFormal}: ${nom.estado} → ${next}`, registroId:nom.id,
-      campo:"estado", valorAnterior:nom.estado, valorNuevo:next});
-    onUpdate({...nom,...patch});
+    await confirmarTransicion(patch, `${nom.estado} → ${next}`, notifs, ()=>{
+      window.auditLog && window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
+        descripcion:`${nombreFormal}: ${nom.estado} → ${next}`, registroId:nom.id,
+        campo:"estado", valorAnterior:nom.estado, valorNuevo:next});
+    });
   }
 
-  function retrocederEstado() {
+  async function retrocederEstado() {
     const flujo = ["borrador","preparada","revision","aprobada1","aprobada"];
     const idx = flujo.indexOf(nom.estado);
     if(idx <= 0) return;
     const comentario = window.prompt("Motivo de la devolución (obligatorio):");
     if(!comentario || !comentario.trim()) { alert("Debe ingresar un motivo para devolver la nómina."); return; }
     const prev = flujo[idx-1];
+    const notifs = [];
     const patch = {estado: prev, ultimaDevolucion: {por: usuario?.nombre||"", fecha: new Date().toISOString(), motivo: comentario.trim(), desdeEstado: nom.estado}};
     // Trazabilidad (Fase 2): historial de la nómina + log de auditoría central.
     patch.historial = [...(nom.historial||[]), entradaHistorialNom("devolucion", usuario, {estadoDesde: nom.estado, estadoHacia: prev, motivo: comentario.trim()})];
-    window.auditLog && window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
+    const auditar = ()=>{ window.auditLog && window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
       descripcion:`${nombreFormal}: devuelta ${nom.estado} → ${prev}. Motivo: ${comentario.trim()}`, registroId:nom.id,
-      campo:"estado", valorAnterior:nom.estado, valorNuevo:prev});
+      campo:"estado", valorAnterior:nom.estado, valorNuevo:prev}); };
 
     // Notificaciones según quién devuelve
     if(window._enviarNotificacion) {
@@ -15777,26 +17635,26 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
         const preparador = nom.preparadoPor || "el preparador";
         const notifMsg = `${usuario?.nombre} ha devuelto la ${nombreFormal} (${nom.empresa}) con comentarios.\n\n${motivoTxt}\n\nPor favor revisa y corrige.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
         // Notificar a Milagros y Pablo
-        window._enviarNotificacion("Mbecerra@grupomediterra.cl","Milagros Becerra",
-          `🔄 Nómina devuelta — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
-        window._enviarNotificacion("pduran@grupomediterra.cl","Pablo Duran",
-          `🔄 Nómina devuelta — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
+        notifs.push(["Mbecerra@grupomediterra.cl","Milagros Becerra",
+          `🔄 Nómina devuelta — ${nom.empresa} S${nom.semana}`, notifMsg]);
+        notifs.push(["pduran@grupomediterra.cl","Pablo Duran",
+          `🔄 Nómina devuelta — ${nom.empresa} S${nom.semana}`, notifMsg]);
       }
       
       if(nom.estado === "aprobada" || nom.estado === "aprobada1") {
         // CFO devuelve → notificar a Carol/Michelle + CC Milagros
         if(esAdmin) {
           const notifMsg = `${usuario?.nombre} (CFO) ha devuelto la ${nombreFormal} (${nom.empresa}) con comentarios.\n\n${motivoTxt}\n\nPor favor revisa y corrige.\n\nhttps://gestion-grupo-mediterra.vercel.app`;
-          window._enviarNotificacion("cmachuca@grupomediterra.cl","Carol Machuca",
-            `🔄 Nómina devuelta por CFO — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
-          window._enviarNotificacion("mgarcia@grupomediterra.cl","Michelle Garcia",
-            `🔄 Nómina devuelta por CFO — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
-          window._enviarNotificacion("Mbecerra@grupomediterra.cl","Milagros Becerra",
-            `🔄 Nómina devuelta por CFO — ${nom.empresa} S${nom.semana}`, notifMsg).catch(()=>{});
+          notifs.push(["cmachuca@grupomediterra.cl","Carol Machuca",
+            `🔄 Nómina devuelta por CFO — ${nom.empresa} S${nom.semana}`, notifMsg]);
+          notifs.push(["mgarcia@grupomediterra.cl","Michelle Garcia",
+            `🔄 Nómina devuelta por CFO — ${nom.empresa} S${nom.semana}`, notifMsg]);
+          notifs.push(["Mbecerra@grupomediterra.cl","Milagros Becerra",
+            `🔄 Nómina devuelta por CFO — ${nom.empresa} S${nom.semana}`, notifMsg]);
         }
       }
     }
-    onUpdate({...nom,...patch});
+    await confirmarTransicion(patch, `devolución ${nom.estado} → ${prev}`, notifs, auditar);
   }
 
   // Totales
@@ -15960,14 +17818,14 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
           </span>
         )}
         {puedeAvanzar&&(
-          <button onClick={avanzarEstado}
+          <button onClick={avanzarEstado} disabled={transicionando}
             style={{background:nom.estado==="aprobada1"?"#16a34a":"#3b82f6",border:"none",color:"#fff",borderRadius:8,
-              padding:"7px 16px",cursor:"pointer",fontWeight:700,fontSize:12}}>
-            {textoAvanzar}
+              padding:"7px 16px",cursor:transicionando?"wait":"pointer",fontWeight:700,fontSize:12,opacity:transicionando?0.6:1}}>
+            {transicionando ? "Guardando…" : textoAvanzar}
           </button>
         )}
         {nom.estado!=="borrador"&&puedeRetroceder&&!soloVer&&(
-          <button onClick={retrocederEstado}
+          <button onClick={retrocederEstado} disabled={transicionando}
             style={{background:"#fef3c7",border:`1px solid #fde68a`,color:"#92400e",
               borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11,fontWeight:600}}>
             {textoRetroceder}
@@ -16257,6 +18115,11 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                 empresa={nom.empresa}
                 anioNom={nom.año}
                 fechaNom={nom.fecha}
+                creditosData={creditosData}
+                estadoNomina={nom.estado}
+                nombreNomina={nombreFormal}
+                puedePagarCredito={puedePagarCredito && !soloVer}
+                onPagoCredito={onPagoCredito}
               />
             </div>
           );
@@ -16655,7 +18518,7 @@ function MigracionNominasPanel({usuario}) {
           setEstado('completada');
         });
       } else { setEstado('pendiente'); }
-    });
+    }).catch(()=>setEstado('error'));
   },[]);
 
   function addLog(msg){ setLog(prev=>[...prev,`${new Date().toLocaleTimeString('es-CL')} — ${msg}`]); }
@@ -16741,7 +18604,149 @@ function MigracionNominasPanel({usuario}) {
   );
 }
 
-function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermitidas}) {
+// ─── Nóminas: cambios no guardados ──────────────────────────────────
+// Si el servidor no confirma un guardado, la edición queda en pantalla y una
+// COPIA de las nóminas cambiadas se guarda en este navegador (localStorage),
+// para revisarla o recuperarla aunque se cierre la pestaña. No se re-aplica
+// sola: re-aplicar datos viejos es justamente lo que puede pisar a otros.
+const CLAVE_BORRADOR_NOMINAS = "mediterra_nominas_sin_guardar";
+const SESION_NOMINAS = Math.random().toString(36).slice(2);   // para no borrar la copia de OTRA sesión
+function nominasConCambiosLocales(locales, servidor) {
+  const S = new Map((servidor||[]).map(n=>[n.id, JSON.stringify(n)]));
+  return (locales||[]).filter(n=>S.get(n.id) !== JSON.stringify(n));
+}
+function guardarBorradorNominas(locales, servidor, r, usuario) {
+  const cambiadas = nominasConCambiosLocales(locales, servidor);
+  if(!cambiadas.length) return { ok:true, n:0 };
+  const borrador = { sesion:SESION_NOMINAS, ts:new Date().toISOString(), usuario:usuario?.nombre||"", motivo:r?.motivo||"", status:r?.status||null,
+    empresasFallidas:r?.empresasFallidas||[], nominas:cambiadas };
+  try { localStorage.setItem(CLAVE_BORRADOR_NOMINAS, JSON.stringify(borrador)); return { ok:true, n:cambiadas.length }; }
+  catch(e) { return { ok:false, n:cambiadas.length, error:String(e&&e.message||e) }; }
+}
+function leerBorradorNominas() {
+  try { const t = localStorage.getItem(CLAVE_BORRADOR_NOMINAS); return t ? JSON.parse(t) : null; } catch(e) { return null; }
+}
+function borrarBorradorNominas(soloDeEstaSesion=false) {
+  try { if(!soloDeEstaSesion || (leerBorradorNominas()||{}).sesion === SESION_NOMINAS) localStorage.removeItem(CLAVE_BORRADOR_NOMINAS); } catch(e) {}
+}
+function descargarCambiosNominas(nominas, extra={}) {
+  const contenido = JSON.stringify({ tipo:"nominas-cambios-no-guardados", generado:new Date().toISOString(), ...extra, nominas }, null, 2);
+  const url = URL.createObjectURL(new Blob([contenido], { type:"application/json" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = `nominas_cambios_no_guardados_${new Date().toISOString().slice(0,16).replace(/[:T]/g,"-")}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+// Qué pasó y qué hacer, según el motivo. `recargar`: si hace falta recargar los
+// datos del servidor (con datos desactualizados, reintentar no sirve).
+function explicarFalloNominas(r, o={}) {
+  const queda = o.transicion ? `El cambio de estado NO se hizo${o.detalle ? ` (${o.detalle})` : ""}: la nómina sigue en su estado anterior y no se envió ninguna notificación. Para reintentar, vuelve a usar el botón del cambio de estado.`
+    : o.revertido ? "El cambio se revirtió en pantalla (no quedó a medias)."
+    : "Tu edición sigue en pantalla y hay una copia en este navegador.";
+  const parcial = r && r.empresasGuardadas && r.empresasGuardadas.length && r.empresasFallidas && r.empresasFallidas.length
+    ? ` Sí se guardaron: ${r.empresasGuardadas.join(", ")}. No se guardaron: ${r.empresasFallidas.join(", ")}.` : (r?.empresasFallidas?.length ? ` Empresa(s): ${r.empresasFallidas.join(", ")}.` : "");
+  if(r?.motivo === "sello") return { recargar:true, reintentar:false,
+    titulo:"No se guardó: tus datos de nóminas están desactualizados",
+    texto:`Después de que abriste esta pantalla, otra persona (o la conciliación de créditos) cambió estas nóminas, y el servidor rechazó tu guardado para no deshacer ese cambio.${parcial} ${queda} Hace falta RECARGAR: descarga tus cambios, recarga los datos del servidor y vuelve a aplicarlos sobre la versión actual.` };
+  if(r?.motivo === "red") return { recargar:false, reintentar:true,
+    titulo:"No se guardó: sin conexión con el servidor",
+    texto:`El servidor no respondió.${parcial} ${queda} NO recargues ni cierres la pestaña: reintenta cuando vuelva la conexión.` };
+  if(r?.motivo === "legado") return { recargar:false, reintentar:false,
+    titulo:"No se guardó: las nóminas están en el formato antiguo (fila única)",
+    texto:`El guardado está deshabilitado en ese formato para no reemplazar nóminas de otras empresas. ${queda} Avisa al administrador.` };
+  if(r?.motivo === "bloqueada") {
+    const MOT = { carga_fallida:"no se pudo cargar (no se puede guardar hasta cargarla)", conflicto_pendiente:"tiene un conflicto pendiente de resolver",
+      quedaria_vacia:"quedaría sin nóminas (no se guarda vacía)", sin_lectura:"no fue leída en esta sesión" };
+    const det = (r.filas||[]).filter(f=>f.motivo==="bloqueada").map(f=>`${f.empresa||f.fila}: ${MOT[f.motivoBloqueo]||f.motivoBloqueo}`).join(" · ");
+    return { recargar:false, reintentar:false, titulo:"No se guardó: empresa bloqueada para guardar",
+      texto:`${det}.${parcial} ${queda}` };
+  }
+  if(r?.motivo === "http" && (r.status === 401 || r.status === 403)) return { recargar:true, reintentar:true,
+    titulo:`No se guardó: el servidor rechazó el permiso (HTTP ${r.status})`,
+    texto:`Puede que tu sesión haya vencido.${parcial} Descarga tus cambios antes de recargar o volver a ingresar.` };
+  return { recargar:false, reintentar:true,
+    titulo:`No se guardó: el servidor respondió con error${r?.status ? ` (HTTP ${r.status})` : ""}`,
+    texto:`${parcial} ${queda} Reintenta en unos minutos; no hace falta recargar. Si el error persiste, descarga tus cambios y avisa.` };
+}
+const ETIQ_CONFLICTO = { campo:"mismo campo", linea:"misma línea", transicion:"cambio de estado", anulacion_nomina:"anulación de la nómina",
+  anulacion_linea:"anulación de una línea", nomina_creada_por_ambos:"nómina creada por ambos", nomina_quitada_y_editada:"nómina quitada y editada",
+  linea_creada_por_ambos:"línea creada por ambos", linea_quitada_y_editada:"línea quitada y editada" };
+const breveNom = (v) => { if(v===undefined || v===null) return "—"; if(typeof v!=="object") return String(v);
+  if(v.items || v.estado) return `estado ${v.estado||"?"}`; const t = [v.proveedor, v.concepto, v.montoUSD!=null?`US$ ${v.montoUSD}`:"", v.montoCLP?`$ ${v.montoCLP}`:"", v.estadoLinea==="inactiva"?"ANULADA":""].filter(Boolean).join(" · ");
+  return t || JSON.stringify(v).slice(0,80); };
+function AvisoGuardadoNominas({aviso, onReintentar, onDescargar, onRecargar, onCerrar, onEliminarCopia, onResolver, reintentando}) {
+  if(!aviso) return null;
+  const btn = (color, solido)=>({padding:"5px 12px",borderRadius:7,border:`1px solid ${color}`,background:solido?color:"transparent",color:solido?"#fff":color,cursor:"pointer",fontSize:12,fontWeight:700});
+  if(aviso.tipo === "info") return (
+    <div role="status" data-aviso-nominas="info" style={{border:`1px solid ${C.yellow}`,background:C.yellow+"18",borderRadius:10,padding:"10px 14px",margin:"8px 0",fontSize:12,color:C.text}}>
+      <div style={{lineHeight:1.6}}>{aviso.texto}</div>
+      <button onClick={onCerrar} style={{...btn(C.muted), marginTop:8}}>Ocultar</button>
+    </div>);
+  if(aviso.tipo === "conflicto"){
+    const r = aviso.r || {};
+    const porFila = {};
+    (r.conflictos||[]).forEach(c=>{ (porFila[c.fila] = porFila[c.fila] || { empresa:c.empresa, lista:[] }).lista.push(c); });
+    (r.filas||[]).filter(f=>!f.ok && f.motivo==="conflicto" && !porFila[f.fila]).forEach(f=>{ porFila[f.fila] = { empresa:f.empresa, lista:[], agotado:true }; });
+    const transicion = aviso.contexto === "transicion";
+    return (
+      <div role="alert" data-aviso-nominas="conflicto" data-motivo="conflicto" style={{border:`2px solid ${C.red}`,background:C.red+"14",borderRadius:10,padding:"10px 14px",margin:"8px 0",fontSize:12,color:C.text}}>
+        <div style={{fontWeight:800,fontSize:13,color:C.red,marginBottom:4}}>No se guardó: otra persona cambió lo mismo que tú</div>
+        <div style={{lineHeight:1.6}}>
+          Lo que no chocaba se combinó y guardó solo; estos puntos NO se combinaron y requieren tu decisión.
+          {r.empresasGuardadas?.length ? ` Sí se guardaron: ${r.empresasGuardadas.join(", ")}.` : ""}
+          {transicion ? ` El cambio de estado NO se hizo${aviso.detalleContexto?` (${aviso.detalleContexto})`:""} y no se envió ninguna notificación.` : " Tu edición sigue en pantalla y hay una copia en este navegador."}
+        </div>
+        {Object.entries(porFila).map(([fila, g])=>(
+          <div key={fila} data-conflicto-fila={fila} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",marginTop:8,background:C.bg2||"transparent"}}>
+            <div style={{fontWeight:800,marginBottom:4}}>{g.empresa}</div>
+            {g.agotado && <div>Otra persona siguió guardando mientras se combinaba: no se pudo completar. Elige una opción.</div>}
+            {g.lista.map((c,i)=>(
+              <div key={i} style={{marginBottom:4}}>
+                <strong>{c.etiqueta}</strong> · {ETIQ_CONFLICTO[c.tipo]||c.tipo}{c.campo?` (${c.campo})`:""}{c.linea?` · línea ${c.linea}`:""}
+                <div style={{color:C.muted}}>Tuyo: {breveNom(c.mio)} · Servidor: {breveNom(c.servidor)}{c.base!==undefined?` · Antes: ${breveNom(c.base)}`:""}</div>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:8,marginTop:6,flexWrap:"wrap"}}>
+              <button onClick={()=>onResolver&&onResolver(fila,"servidor")} style={btn(C.blue,true)}>Usar la versión del servidor</button>
+              <button onClick={()=>onResolver&&onResolver(fila,"mio")} style={btn(C.red)}>Mantener la mía…</button>
+            </div>
+          </div>
+        ))}
+        <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+          <button onClick={onDescargar} style={btn(C.blue)}>Descargar mis cambios (JSON)</button>
+          <button onClick={onCerrar} style={btn(C.muted)}>Ocultar</button>
+        </div>
+      </div>);
+  }
+  if(aviso.tipo === "borrador"){
+    const b = aviso.borrador || {};
+    return (
+      <div role="alert" data-aviso-nominas="borrador" style={{border:`1px solid ${C.yellow}`,background:C.yellow+"18",borderRadius:10,padding:"10px 14px",margin:"8px 0",fontSize:12,color:C.text}}>
+        <div style={{fontWeight:800,marginBottom:4}}>Hay cambios de nóminas que NO se guardaron en el servidor</div>
+        <div style={{lineHeight:1.6}}>Copia en este navegador del {b.ts ? new Date(b.ts).toLocaleString("es-CL") : "—"} ({(b.nominas||[]).length} nómina(s){b.usuario?`, ${b.usuario}`:""}). No se aplicó automáticamente: lo que hay en pantalla es lo que está en el servidor. Descárgala para revisarla y vuelve a cargar a mano lo que corresponda.</div>
+        <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+          <button onClick={onDescargar} style={btn(C.blue,true)}>Descargar mis cambios (JSON)</button>
+          <button onClick={onEliminarCopia} style={btn(C.muted)}>Eliminar la copia</button>
+        </div>
+      </div>);
+  }
+  const ex = explicarFalloNominas(aviso.r, { revertido: aviso.contexto === "aplazar", transicion: aviso.contexto === "transicion", detalle: aviso.detalleContexto });
+  return (
+    <div role="alert" data-aviso-nominas="error" data-motivo={aviso.r?.motivo||""} style={{border:`2px solid ${C.red}`,background:C.red+"14",borderRadius:10,padding:"10px 14px",margin:"8px 0",fontSize:12,color:C.text}}>
+      <div style={{fontWeight:800,fontSize:13,color:C.red,marginBottom:4}}>{ex.titulo}</div>
+      <div style={{lineHeight:1.6}}>{ex.texto}</div>
+      {aviso.copiaLocal && !aviso.copiaLocal.ok && <div style={{marginTop:4,color:C.red,fontWeight:700}}>No se pudo guardar la copia en este navegador ({aviso.copiaLocal.error}): descarga tus cambios ahora.</div>}
+      <div style={{color:C.muted,marginTop:4}}>Mientras haya cambios sin guardar, la lista no se actualiza con el servidor y cerrar la pestaña pedirá confirmación.</div>
+      <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+        {ex.reintentar && aviso.contexto !== "transicion" && <button disabled={reintentando} onClick={onReintentar} style={btn(C.green,true)}>{reintentando?"Guardando…":"Reintentar guardar"}</button>}
+        <button onClick={onDescargar} style={btn(C.blue,!ex.reintentar)}>Descargar mis cambios (JSON)</button>
+        <button onClick={onRecargar} style={btn(ex.recargar?C.red:C.muted)}>Recargar datos del servidor…</button>
+        <button onClick={onCerrar} style={btn(C.muted)}>Ocultar</button>
+      </div>
+    </div>);
+}
+
+function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermitidas, creditosData=[], puedePagarCredito=false, onPagoCredito}) {
   const [nominas, setNominas] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [selNomina, setSelNomina] = useState(null); // id nomina abierta
@@ -16762,9 +18767,12 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   // Load — dbLoadNominas aplica el filtro por empresa (legacy en memoria, v2 en consulta)
   useEffect(()=>{
     dbLoadNominas(empresasPermitidas).then(d=>{
-      if(d?.nominas) setNominas(d.nominas);
+      setNominas(d.nominas); nominasRef.current = d.nominas;
+      aplicarFilas(d.filas, d.legado);
       cargaOkRef.current = true;
       setCargando(false);
+      const previo = leerBorradorNominas();
+      if(previo) setAvisoGuardado({ tipo:"borrador", borrador:previo });
     }).catch(e=>{
       console.error("[Nominas] Carga falló — GUARDADO DESHABILITADO esta sesión:", e);
       setCargando(false);
@@ -16783,17 +18791,14 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   // Auto-refresh nóminas cada 30s para sincronizar cambios de otros usuarios
   useEffect(()=>{
     const interval = setInterval(()=>{
+      // Con cambios locales sin confirmar por el servidor NO se refresca: el
+      // refresco reemplazaría la lista y se perdería la edición (ver aviso).
+      if(sinGuardarRef.current || saveTimer.current) return;
       dbLoadNominas(empresasPermitidas).then(d=>{
-        if(d?.nominas) {
-          const fresh = d.nominas;
-          setNominas(prev=>{
-            // Solo actualizar si hay cambios reales (evitar re-render innecesario)
-            const prevJSON = JSON.stringify(prev.map(n=>({id:n.id,estado:n.estado,aprobado1Por:n.aprobado1Por,aprobadoPor:n.aprobadoPor})));
-            const newJSON = JSON.stringify(fresh.map(n=>({id:n.id,estado:n.estado,aprobado1Por:n.aprobado1Por,aprobadoPor:n.aprobadoPor})));
-            if(prevJSON !== newJSON) return fresh;
-            return prev;
-          });
-        }
+        if(sinGuardarRef.current || saveTimer.current) return;
+        // Sin cambios locales pendientes: se toma el servidor completo (líneas,
+        // vínculos y versiones de TODAS las filas), no solo los estados.
+        aplicarRefresco(d);
       }).catch(()=>{});
     }, 30000);
     return ()=>clearInterval(interval);
@@ -16803,8 +18808,10 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   useEffect(()=>{
     function onVisibility(){
       if(document.visibilityState === "visible"){
+        if(sinGuardarRef.current || saveTimer.current) return;   // no pisar cambios sin guardar
         dbLoadNominas(empresasPermitidas).then(d=>{
-          if(d?.nominas) setNominas(d.nominas);
+          if(sinGuardarRef.current || saveTimer.current) return;
+          aplicarRefresco(d);
         }).catch(()=>{});
       }
     }
@@ -16812,17 +18819,194 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
     return ()=>document.removeEventListener("visibilitychange", onVisibility);
   },[]);
 
-  // Save (debounce 800ms) — dbSaveNominas agrupa por empresa en v2
+  // ── Guardado CONDICIONADO por empresa (debounce 800ms) ─────────────────
+  // docs/nominas-guardado-condicionado.md. Cada fila nominas_<empresa> se escribe
+  // SOLO si cambió, condicionada a la versión leída (o creándola si el servidor
+  // confirmó que no existía). Si otro guardó entretanto, se combina lo
+  // independiente; lo que choca (mismo campo/línea, transición, anulación) NO se
+  // escribe y pide resolución explícita. Si el servidor no confirma: la edición se
+  // CONSERVA en pantalla, hay copia en este navegador y aviso con qué hacer.
   const saveTimer = useRef(null);
   const pendingSaveRef = useRef(null); // última lista pendiente de guardar (para flush en recarga/cierre)
+  const sinGuardarRef = useRef(false); // hay cambios locales que el servidor aún no confirmó
+  const genRef = useRef(0);            // generación de la edición local (para saber si lo guardado es lo último)
+  const colaGuardadoRef = useRef(Promise.resolve());
+  const servidorRef = useRef([]);      // lo último confirmado por el servidor (todas las filas cargadas)
+  const filasRef = useRef({});         // fila -> { empresa, estado:"ok"|"inexistente"|"error", version, base, conflicto? }
+  const legadoRef = useRef(false);     // formato antiguo (fila única): solo lectura
+  const [avisoGuardado, setAvisoGuardado] = useState(null);
+  const [erroresCarga, setErroresCarga] = useState([]);   // empresas que no se pudieron cargar
+  function recalcularServidor() {
+    servidorRef.current = Object.values(filasRef.current).filter(f=>f.estado==="ok").flatMap(f=>f.base||[]);
+  }
+  function aplicarFilas(filas, legado) {
+    filasRef.current = filas || {}; legadoRef.current = !!legado;
+    recalcularServidor();
+    setErroresCarga(Object.entries(filasRef.current).filter(([,f])=>f.estado==="error").map(([fila,f])=>({ fila, empresa:f.empresa, error:f.error })));
+  }
+  // Refresco de fondo (30 s / volver a la pestaña). Si UNA empresa ya cargada no se
+  // pudo releer esta vez, se conserva lo último leído bien de ella (filas y
+  // nóminas): un fallo transitorio no debe hacer desaparecer de la pantalla la
+  // nómina que se está mirando ni bloquear la empresa. Solo una empresa que nunca
+  // se cargó queda en "error".
+  function aplicarRefresco(d) {
+    const filas = { ...(d.filas||{}) };
+    const conservadas = new Set();
+    Object.entries(filas).forEach(([fila, f])=>{
+      const previa = filasRef.current[fila];
+      if(f.estado === "error" && previa && previa.estado !== "error"){ filas[fila] = previa; conservadas.add(f.empresa); }
+    });
+    aplicarFilas(filas, d.legado);
+    let lista = d.nominas;
+    if(conservadas.size){   // mismo orden que la pantalla actual
+      const nuevas = new Map(d.nominas.filter(n=>!conservadas.has(n.empresa)).map(n=>[n.id, n]));
+      lista = [];
+      nominasRef.current.forEach(n=>{
+        if(conservadas.has(n.empresa)) lista.push(n);
+        else if(nuevas.has(n.id)){ lista.push(nuevas.get(n.id)); nuevas.delete(n.id); }
+      });
+      lista.push(...nuevas.values());
+    }
+    if(!igualesNom(lista, nominasRef.current)) { setNominas(lista); nominasRef.current = lista; avisoTrasRefresco(conservadas); }
+  }
+  // Un aviso de "no se guardó" sin cambios locales pendientes (p. ej. una transición
+  // cuya respuesta se perdió y no se pudo verificar) queda desactualizado cuando la
+  // lista se refresca con el servidor: se reemplaza por un aviso informativo.
+  // Si alguna empresa del aviso NO se pudo releer en este refresco (se conservó lo
+  // anterior), el aviso sigue vigente: decir "la lista se actualizó" sería falso.
+  function avisoTrasRefresco(conservadas = new Set()) {
+    setAvisoGuardado(a => (a && (a.tipo === "error" || a.tipo === "conflicto")
+        && !((a.r && a.r.empresasFallidas) || []).some(e => conservadas.has(e)))
+      ? { tipo:"info", texto: a.contexto === "transicion"
+          ? `La lista se actualizó con el servidor. Revisa el estado de la nómina: el cambio de estado${a.detalleContexto?` (${a.detalleContexto})`:""} que figuraba como NO hecho pudo haberse aplicado en el servidor; si es así, sus correos de notificación NO se enviaron.`
+          : "La lista se actualizó con el servidor. Revisa que lo que figuraba como no guardado esté como esperabas." }
+      : a);
+  }
+  function hayCambiosLocales() { return nominasConCambiosLocales(nominasRef.current, servidorRef.current).length > 0; }
+  // ¿Se puede crear o guardar en esta empresa?
+  function empresaOperable(empresa) {
+    if(legadoRef.current) return { ok:false, texto:"Las nóminas están en el formato antiguo: guardado deshabilitado." };
+    const f = filasRef.current[filaNominaDe(empresa)];
+    if(!f) return { ok:false, texto:`No se cargaron las nóminas de ${empresa}.` };
+    if(f.estado === "error") return { ok:false, texto:`No se pudieron cargar las nóminas de ${empresa} (${f.error}). No se puede crear ni guardar en esa empresa hasta cargarla: usa "Reintentar carga".` };
+    if(f.conflicto) return { ok:false, texto:`${empresa} tiene un conflicto pendiente de resolver (ver aviso arriba).` };
+    return { ok:true };
+  }
+  // Reemplaza en la lista local las nóminas de UNA empresa, conservando el orden.
+  function reemplazarEmpresaLocal(empresa, nuevas) {
+    const porId = new Map((nuevas||[]).map(n=>[n.id, n]));
+    const puestas = new Set();
+    const next = [];
+    nominasRef.current.forEach(n=>{
+      if(n.empresa !== empresa){ next.push(n); return; }
+      if(porId.has(n.id)){ next.push(porId.get(n.id)); puestas.add(n.id); }
+    });
+    (nuevas||[]).forEach(n=>{ if(!puestas.has(n.id)) next.push(n); });
+    nominasRef.current = next; setNominas(next);
+  }
+  function ejecutarGuardado(list, opts={}) {
+    const gen = genRef.current;
+    const corrida = colaGuardadoRef.current.then(async ()=>{
+      let r;
+      if(legadoRef.current){
+        r = resumirGuardado([], [{ fila:"nominas", empresa:null, motivo:"legado" }]);
+      } else {
+        const plan = planGuardado(list, filasRef.current, filaNominaDe);
+        const resultados = [];
+        for(const e of plan.escrituras){   // una fila a la vez
+          const g = await guardarFila({ ...e, transporte: transporteNominas, opciones:{ keepalive: !!opts.keepalive } });
+          resultados.push(g);
+          if(g.ok){
+            filasRef.current = { ...filasRef.current, [e.fila]: { empresa:e.empresa, estado:"ok", version:g.version, base:g.base } };
+            // Si quedó combinado con cambios de otros, la pantalla los incorpora.
+            if(!igualesNom(g.base, e.mio)){
+              const actual = nominasRef.current.filter(n=>n.empresa===e.empresa);
+              if(igualesNom(actual, e.mio)) reemplazarEmpresaLocal(e.empresa, g.base);
+              else {
+                // Editaste mientras se guardaba: tus cambios nuevos se aplican sobre lo combinado.
+                const f = fusionarNominas(e.mio, actual, g.base);
+                if(f.ok) reemplazarEmpresaLocal(e.empresa, f.valor);
+                else filasRef.current = { ...filasRef.current, [e.fila]: { ...filasRef.current[e.fila], base:e.mio,
+                  conflicto:{ conflictos:f.conflictos, servidor:{ nominas:g.base, version:g.version, existe:true } } } };
+              }
+            }
+          } else if(g.motivo === "conflicto"){
+            filasRef.current = { ...filasRef.current, [e.fila]: { ...filasRef.current[e.fila], conflicto:{ conflictos:g.conflictos||[], servidor:g.servidor, reintentosAgotados:!!g.reintentosAgotados } } };
+          }
+        }
+        r = resumirGuardado(resultados, plan.bloqueadas);
+      }
+      recalcularServidor();
+      if(r.ok){
+        if(genRef.current === gen && !saveTimer.current){
+          sinGuardarRef.current = hayCambiosLocales();
+          if(!sinGuardarRef.current) borrarBorradorNominas(true);
+          setAvisoGuardado(a => (a && (a.tipo === "error" || a.tipo === "conflicto")) ? null : a);
+        }
+      } else {
+        sinGuardarRef.current = true;
+        const copia = guardarBorradorNominas(nominasRef.current, servidorRef.current, r, usuario);
+        setAvisoGuardado({ tipo: r.motivo === "conflicto" ? "conflicto" : "error", r, copiaLocal: copia, ts: new Date().toISOString() });
+      }
+      return r;
+    });
+    colaGuardadoRef.current = corrida.catch(()=>{});
+    return corrida;
+  }
+  // Resolución EXPLÍCITA de un conflicto, por empresa.
+  async function resolverConflicto(fila, decision) {
+    const f = filasRef.current[fila];
+    if(!f || !f.conflicto) return;
+    const srv = f.conflicto.servidor || { nominas:[], version:null, existe:false };
+    const resumen = (f.conflicto.conflictos||[]).map(c=>`• ${c.etiqueta}${c.linea?` · línea ${c.linea}`:""}${c.campo?` · ${c.campo}`:""}`).join("\n") || "• (sin detalle)";
+    if(decision === "servidor"){
+      if(!window.confirm(`Usar la versión del servidor en ${f.empresa}.\n\nSe descartan de la pantalla tus cambios no guardados en esa empresa (quedan en la copia de este navegador y en "Descargar mis cambios").\n\n¿Continuar?`)) return;
+      filasRef.current = { ...filasRef.current, [fila]: { empresa:f.empresa, estado: srv.existe ? "ok" : "inexistente", version: srv.version, base: srv.nominas||[] } };
+      reemplazarEmpresaLocal(f.empresa, srv.nominas||[]);
+      recalcularServidor();
+      sinGuardarRef.current = hayCambiosLocales();
+      setAvisoGuardado(a=>{
+        const quedan = (a?.r?.conflictos||[]).filter(c=>c.fila !== fila);
+        if(a?.tipo === "conflicto" && quedan.length) return { ...a, r:{ ...a.r, conflictos:quedan } };
+        const previo = leerBorradorNominas();
+        return previo ? { tipo:"borrador", borrador:previo } : null;
+      });
+      return;
+    }
+    if(!window.confirm(`Mantener TU versión en ${f.empresa}.\n\nEn estos puntos se sobrescribirá lo que guardó la otra persona:\n${resumen}\n\nLo que la otra persona cambió en otros campos y líneas se conserva. ¿Continuar?`)) return;
+    const mioActual = nominasRef.current.filter(n=>n.empresa===f.empresa);
+    const fus = fusionarNominas(f.base||[], mioActual, srv.nominas||[], { preferir:"mio" });
+    filasRef.current = { ...filasRef.current, [fila]: { empresa:f.empresa, estado: srv.existe ? "ok" : "inexistente", version: srv.version, base: srv.nominas||[] } };
+    reemplazarEmpresaLocal(f.empresa, fus.valor);
+    recalcularServidor();
+    clearTimeout(saveTimer.current); saveTimer.current = null; pendingSaveRef.current = null;
+    sinGuardarRef.current = true; genRef.current += 1;
+    await ejecutarGuardado(nominasRef.current);
+  }
+  // Reintenta leer las empresas que no se pudieron cargar (no toca las demás).
+  async function reintentarCarga() {
+    const pendientes = Object.entries(filasRef.current).filter(([,f])=>f.estado==="error");
+    const filas = { ...filasRef.current };
+    const agregar = [];
+    for(const [fila, f] of pendientes){
+      try {
+        const r = await transporteNominas.leer(fila);
+        if(!r.existe) filas[fila] = { empresa:f.empresa, estado:"inexistente", version:null, base:[] };
+        else { filas[fila] = { empresa:f.empresa, estado:"ok", version:r.version, base:r.valor.nominas }; agregar.push(...r.valor.nominas); }
+      } catch(e) { filas[fila] = { ...f, error:String((e&&e.message)||e) }; }
+    }
+    aplicarFilas(filas, legadoRef.current);
+    if(agregar.length){ const next = [...nominasRef.current, ...agregar]; nominasRef.current = next; setNominas(next); }
+  }
   function saveNominas(list) {
     if(!cargaOkRef.current){ console.warn("[Nominas] save bloqueado — la carga inicial falló."); return; }
+    sinGuardarRef.current = true; genRef.current += 1;
     clearTimeout(saveTimer.current);
     pendingSaveRef.current = list;
     saveTimer.current = setTimeout(()=>{
       saveTimer.current = null;
       pendingSaveRef.current = null;
-      dbSaveNominas(list);
+      ejecutarGuardado(list);
     }, 800);
   }
   // Fuerza el guardado pendiente del debounce (si lo hay) antes de recargar/cerrar/desmontar.
@@ -16834,12 +19018,36 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
       saveTimer.current = null;
       const list = pendingSaveRef.current;
       pendingSaveRef.current = null;
-      if(list) dbSaveNominas(list, {keepalive});
+      if(list) ejecutarGuardado(list, {keepalive});
+    }
+  }
+  // Recargar desde el servidor descartando lo local (siempre con confirmación explícita).
+  async function recargarDesdeServidor() {
+    const n = nominasConCambiosLocales(nominasRef.current, servidorRef.current).length;
+    if(!window.confirm(`Recargar las nóminas desde el servidor.\n\n${n ? `Se perderán de esta pantalla los cambios NO guardados de ${n} nómina(s). Quedan en la copia de este navegador (botón "Descargar mis cambios").` : "No hay cambios sin guardar en pantalla."}\n\n¿Recargar?`)) return;
+    clearTimeout(saveTimer.current); saveTimer.current = null; pendingSaveRef.current = null;
+    try {
+      const d = await dbLoadNominas(empresasPermitidas);
+      setNominas(d.nominas); nominasRef.current = d.nominas;
+      aplicarFilas(d.filas, d.legado);
+      sinGuardarRef.current = false; genRef.current += 1;
+      const previo = leerBorradorNominas();
+      setAvisoGuardado(previo ? { tipo:"borrador", borrador:previo } : null);
+    } catch(e) {
+      alert("No se pudo recargar desde el servidor (sin conexión). Tus cambios siguen en pantalla.");
     }
   }
   // Flush ante recarga/cierre de pestaña (beforeunload) y ante desmontaje del módulo.
+  // Con cambios sin confirmar, el navegador pide confirmación antes de salir.
   useEffect(()=>{
-    const onBeforeUnload = ()=>flushNominas(true);
+    const onBeforeUnload = (e)=>{
+      flushNominas(true);
+      if(sinGuardarRef.current){
+        guardarBorradorNominas(nominasRef.current, servidorRef.current, {motivo:"cierre"}, usuario);
+        e.preventDefault(); e.returnValue = "";
+        return "";
+      }
+    };
     window.addEventListener("beforeunload", onBeforeUnload);
     return ()=>{
       window.removeEventListener("beforeunload", onBeforeUnload);
@@ -16848,7 +19056,28 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   // eslint-disable-next-line
   },[]);
 
-  function updNomina(nom) {
+  // opts.inmediato: guarda YA y devuelve la promesa del resultado (lo usan las
+  //   transiciones de estado: no se notifica ni se audita hasta que el servidor confirma).
+  // opts.soloLocal: cambia solo la pantalla (revertir una transición no guardada).
+  function updNomina(nom, opts={}) {
+    if(opts.inmediato || opts.soloLocal){
+      const prev = nominasRef.current;
+      const next = prev.some(n=>n.id===nom.id) ? prev.map(n=>n.id===nom.id?nom:n) : [...prev, nom];
+      nominasRef.current = next; setNominas(next);
+      if(opts.soloLocal){
+        sinGuardarRef.current = hayCambiosLocales() || !!saveTimer.current;
+        if(sinGuardarRef.current) guardarBorradorNominas(next, servidorRef.current, { motivo:"revertido" }, usuario);
+        else borrarBorradorNominas(true);
+        return Promise.resolve({ ok:true, soloLocal:true });
+      }
+      if(!cargaOkRef.current) return Promise.resolve({ ok:false, motivo:"sin_carga" });
+      clearTimeout(saveTimer.current); saveTimer.current = null; pendingSaveRef.current = null;
+      sinGuardarRef.current = true; genRef.current += 1;
+      return ejecutarGuardado(next).then(r=>{
+        if(!r.ok && opts.contexto) setAvisoGuardado(a=>a && (a.tipo==="error" || a.tipo==="conflicto") ? {...a, contexto:opts.contexto, detalleContexto:opts.detalleContexto} : a);
+        return r;
+      });
+    }
     setNominas(prev=>{
       const anterior = prev.find(n=>n.id===nom.id);
       const next = prev.some(n=>n.id===nom.id)
@@ -16915,6 +19144,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
   }
 
   function crearNomina(empresa, semanaOverride, añoOverride) {
+    const op = empresaOperable(empresa);
+    if(!op.ok){ alert(`No se puede crear la nómina: ${op.texto}`); return; }
     const s = semanaOverride || filtroSemana || semanaActual();
     const a = añoOverride || filtroAño || añoActualNom();
     // Calcular N° secuencial: contar cuántas ya existen para esta empresa/semana/año
@@ -16930,12 +19161,20 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
 
   // Soft-delete (Fase 2): la nómina no se borra físicamente. Se marca inactiva,
   // se oculta de las listas/totales y se conserva para auditoría.
+  const [resolverNomina,setResolverNomina]=useState(null); // {id, vinculos}
   function eliminarNomina(id) {
+    // Pagos vigentes en Créditos originados por esta nómina: resolver primero.
+    const nomX = nominas.find(n=>n.id===id);
+    const vinculos = pagosCreditoDeNomina(nomX, creditosData);
+    if(vinculos.length){ setResolverNomina({id, vinculos}); return; }
     if(!window.confirm("¿Inactivar esta nómina?\n\nNo se elimina: se oculta de las listas y queda registrada para auditoría.")) return;
+    inactivarNomina(id);
+  }
+  function inactivarNomina(id, extraHist=[]) {
     setNominas(prev=>{
       const nom = prev.find(n=>n.id===id);
       const next = prev.map(n=>n.id===id
-        ? {...n, estadoNomina:"inactiva", historial:[...(n.historial||[]), entradaHistorialNom("inactivada", usuario)]}
+        ? {...n, estadoNomina:"inactiva", historial:[...(n.historial||[]), ...extraHist.map(h=>entradaHistorialNom(h.accion, usuario, {detalle:h.detalle})), entradaHistorialNom("inactivada", usuario)]}
         : n);
       saveNominas(next);
       if(nom) window.auditLog&&window.auditLog("eliminar", {modulo:"finanzas", seccion:"nóminas",
@@ -16989,6 +19228,28 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
     return()=>{document.getElementById('nominas-print-css')?.remove();};
   },[]);
 
+  const [reintentando, setReintentando] = useState(false);
+  const avisoNominas = (<>
+    {erroresCarga.length>0 && (
+      <div role="alert" data-aviso-carga-nominas style={{border:`2px solid ${C.red}`,background:C.red+"14",borderRadius:10,padding:"10px 14px",margin:"8px 0",fontSize:12,color:C.text}}>
+        <div style={{fontWeight:800,fontSize:13,color:C.red,marginBottom:4}}>No se pudieron cargar las nóminas de: {erroresCarga.map(e=>e.empresa).join(", ")}</div>
+        <div style={{lineHeight:1.6}}>Sus nóminas no se muestran y no se puede crear ni guardar en esas empresas hasta cargarlas bien (así no se reemplaza lo que hay en el servidor con una lista incompleta). Las demás empresas funcionan normal.</div>
+        <div style={{color:C.muted,marginTop:4}}>{erroresCarga.map(e=>`${e.empresa}: ${e.error}`).join(" · ")}</div>
+        <button onClick={reintentarCarga} style={{marginTop:8,padding:"5px 12px",borderRadius:7,border:`1px solid ${C.green}`,background:C.green,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>Reintentar carga</button>
+      </div>
+    )}
+    <AvisoGuardadoNominas aviso={avisoGuardado} reintentando={reintentando} onResolver={resolverConflicto}
+      onReintentar={async ()=>{ setReintentando(true); clearTimeout(saveTimer.current); saveTimer.current=null; pendingSaveRef.current=null; await ejecutarGuardado(nominasRef.current); setReintentando(false); }}
+      onDescargar={()=>{
+        if(avisoGuardado?.tipo === "borrador") descargarCambiosNominas(avisoGuardado.borrador?.nominas||[], { copiaDel: avisoGuardado.borrador?.ts, motivo: avisoGuardado.borrador?.motivo });
+        else descargarCambiosNominas(nominasConCambiosLocales(nominasRef.current, servidorRef.current), { motivo: avisoGuardado?.r?.motivo, status: avisoGuardado?.r?.status });
+      }}
+      onRecargar={recargarDesdeServidor}
+      onCerrar={()=>setAvisoGuardado(null)}
+      onEliminarCopia={()=>{ if(window.confirm("¿Eliminar la copia local de los cambios no guardados? No se puede recuperar después.")){ borrarBorradorNominas(); setAvisoGuardado(null); } }}
+    />
+  </>);
+
   if(cargando) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",
       height:"40vh",color:C.muted,fontFamily:"sans-serif"}}>
@@ -17003,7 +19264,8 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
     ? nominas.filter(n=>n.semana===nominaAbierta.semana && n.año===nominaAbierta.año)
         .sort((a,b)=>EMPRESAS_NOM.indexOf(a.empresa)-EMPRESAS_NOM.indexOf(b.empresa))
     : [];
-  if(nominaAbierta) return (
+  if(nominaAbierta) return (<>
+    {avisoNominas}
     <NominaDetalle
       nomina={nominaAbierta}
       onUpdate={updNomina}
@@ -17013,8 +19275,13 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
       saldosBancos={saldosBancos}
       nominasHermanas={nominasHermanas}
       onSwitchNomina={id=>setSelNomina(id)}
+      creditosData={creditosData}
+      puedePagarCredito={puedePagarCredito}
+      onPagoCredito={onPagoCredito}
       onCrearYAbrir={(empresa, semDest, añoDest, itemAplazado)=>{
         if(semDest && añoDest) {
+          const op = empresaOperable(empresa);
+          if(!op.ok){ alert(`No se puede crear la nómina: ${op.texto}`); return; }
           // Aplazamiento: buscar o crear nómina en semana destino
           let nomDest = nominas.find(n=>n.empresa===empresa&&n.semana===semDest&&n.año===añoDest);
           if(!nomDest) {
@@ -17064,11 +19331,18 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
         }
         // Cancelar cualquier guardado debounced pendiente para que no pise este guardado.
         clearTimeout(saveTimer.current); saveTimer.current=null; pendingSaveRef.current=null;
-        setNominas(base);
-        const ok = await dbSaveNominas(base);
-        if(!ok) {
-          // Revertir el cambio local: el guardado no se confirmó.
-          setNominas(prevList);
+        const op = empresaOperable(empresa);
+        if(!op.ok){ alert(`No se puede aplazar: ${op.texto}`); return false; }
+        setNominas(base); nominasRef.current = base;
+        sinGuardarRef.current = true; genRef.current += 1;
+        const r = await ejecutarGuardado(base);
+        if(!r.ok) {
+          // Revertir el movimiento: el guardado no se confirmó (no puede quedar a medias).
+          setNominas(prevList); nominasRef.current = prevList;
+          sinGuardarRef.current = hayCambiosLocales();
+          if(sinGuardarRef.current) guardarBorradorNominas(prevList, servidorRef.current, { motivo:"revertido" }, usuario);
+          else borrarBorradorNominas(true);
+          setAvisoGuardado(a => a && (a.tipo === "error" || a.tipo === "conflicto") ? { ...a, contexto:"aplazar" } : a);
           return false;
         }
         window.auditLog&&window.auditLog("editar", {modulo:"finanzas", seccion:"nóminas",
@@ -17077,7 +19351,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
         return true;
       }}
     />
-  );
+  </>);
 
   // Filtrar
   const nominasFiltradas = nominas.filter(n=>{
@@ -17103,7 +19377,11 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
 
   return (
     <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",color:C.text,padding:"20px 24px"}}>
+      {avisoNominas}
 
+      {resolverNomina&&<ResolverPagosVinculados vinculos={resolverNomina.vinculos} contexto="nómina" onPagoCredito={onPagoCredito}
+        onCancel={()=>setResolverNomina(null)}
+        onResuelto={(hechos,motivo)=>{ inactivarNomina(resolverNomina.id, hechos.map(h=>({accion:`pago_credito_${h.decision}`, detalle:`${h.acreedor} · ${h.pagoId} · ${motivo}`}))); setResolverNomina(null); }}/>}
       {/* Panel de migración v2 — solo admin */}
       {usuario?.rol==='admin' && <MigracionNominasPanel usuario={usuario}/>}
 

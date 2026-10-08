@@ -13,11 +13,13 @@ import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
 import { crearUsuariosStore } from "./permisos/permisosUsuariosStore.js";
 import { crearAplicadorUsuarios } from "./permisos/usuariosGlue.js";
 import AvisoPersistencia from "./AvisoPersistencia.jsx";
+import AvisoCreditosPendientes from "./AvisoCreditosPendientes.jsx";
 import PanelConflictoFila from "./PanelConflictoFila.jsx";
 import { crearResolucionConflicto } from "./persistencia/conflictoFila.js";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
 import { credencialPreservada } from "./data/credencialPreservada";
+import { restaurarFilas, mensajeRestauracion } from './restaurarRespaldo.js';
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
 // En vez de pantalla blanca, muestra botón de actualizar
@@ -1594,19 +1596,16 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
                     alert("❌ Archivo inválido. No es un respaldo de Mediterra Hub.");
                     return;
                   }
-                  let restauradas = 0;
-                  const tablas = Object.entries(backup.tablas);
-                  for(const [id, tabla] of tablas) {
-                    const value = typeof tabla.data === "string" ? tabla.data : JSON.stringify(tabla.data);
-                    await fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-                      method:"POST",
-                      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
-                        "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-                      body:JSON.stringify({id, value, updated_at:new Date().toISOString()})
-                    });
-                    restauradas++;
-                  }
-                  alert(`✅ Respaldo restaurado exitosamente.\n\n${restauradas} tablas restauradas.\nFecha del respaldo: ${backup.fecha}\n\nLa página se recargará ahora.`);
+                  // Cada fila se comprueba: se informa cuáles quedaron y cuáles no
+                  // (src/restaurarRespaldo.js). Nunca "exitoso" ante un resultado parcial.
+                  const r = await restaurarFilas(backup, (id, value) => fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+                    method:"POST",
+                    headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
+                      "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
+                    body:JSON.stringify({id, value, updated_at:new Date().toISOString()})
+                  }));
+                  if(r.fallidas.length) console.error("[Restaurar] filas NO restauradas:", r.fallidas);
+                  alert(mensajeRestauracion(r, backup.fecha));
                   window.location.reload();
                 } catch(err) {
                   alert("❌ Error al restaurar: " + err.message);
@@ -3534,6 +3533,9 @@ Equipo Mediterra`);
   const avisosPersistencia = (
     <>
       <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
+      {/* Cambios de Créditos que el servidor no confirmó, aunque Finanzas ya se haya
+          cerrado (creditosPendientes.js). Persistente: no se cierra desde acá. */}
+      <AvisoCreditosPendientes usuario={usuarioActual?.nombre} />
       {Object.keys(conflictos).map(rowId=>(
         <PanelConflictoFila key={rowId} conflicto={conflictos[rowId]}
           ocupado={resolviendoConflicto}
