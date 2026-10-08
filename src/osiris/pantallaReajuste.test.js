@@ -1167,8 +1167,16 @@ describe("B-2 · con la antigua operando, la primera activación se rechaza", ()
     expect(prev.diferenciaAplicada).toBe(0);
     const res = activarlo(ct);
     expect(res.ok).toBe(false);
-    expect(res.motivo).toMatch(/transicion entre modelos/);
-    expect(res.motivo).toMatch(/No se registra nada/);
+    // El motivo depende de la versión: en el candidato corta la guarda de la
+    // transición entre modelos; en la recuperación corta antes la bandera.
+    // Lo económico -que no se escriba nada- es lo mismo en las dos.
+    if (sePuedeCrear) {
+      expect(res.motivo).toMatch(/transicion entre modelos/);
+      expect(res.motivo).toMatch(/No se registra nada/);
+    } else {
+      expect(res.motivo).toMatch(/no permite crear nuevas/);
+    }
+    expect(ct.reajusteActivacion).toBe(undefined);
   });
 
   test("no se escribe sello ni historial con impacto cero", () => {
