@@ -14,15 +14,21 @@ Correcciones a entregas anteriores:
 - El rollback se había verificado contra `8df9862`. `main` avanzó a **`3a9d33e`** el 07-10-2026 a las 12:07 UTC (otra sesión). La rama ya lo integró y el rollback se repitió contra ese commit (sección 6).
 - "Osiris marca cuotas pagadas sin control de rol" era **falso**: el cambio queda en borrador y "Guardar" exige el permiso del módulo.
 
-**Novedades (matriz confirmada implementada, 08-10-2026):**
-- **Después de desplegar, nadie podrá marcar rendiciones pagadas hasta que apliques la matriz** desde ⚙️ Permisos. La facultad nueva no existe todavía en los datos. Es un paso del despliegue, no un efecto colateral (§4.10 C).
-- Implementada en la rama la matriz del 08-10, salvo sueldos (§4.10). Nóminas no se modificó: separar sueldos exige decisiones que no están definidas (§4.11).
-- Los cambios de permisos se ven en la app y el aplicador los escribe en la fila `usuarios`. **No protegen frente a acceso directo a la base**: sigue abierta a la llave pública. RLS y login sin cambios (§5).
+**Novedades (remuneraciones, transición de pagos y Frisku, 08-10-2026, segunda entrega):**
+- **Corregido el periodo sin pagos de la entrega anterior.** Las facultades pasan a una fila propia (`permisos_facultades`). La regla de pago tiene dos modos:
+  - **transición**: paga quien paga hoy en producción;
+  - **matriz**: solo quien tiene la facultad. Se activa a mano, no se puede activar sin pagadores y se revierte con motivo (§4.12).
+- **Hallazgo:** la versión publicada reescribe la ficha de los usuarios base al iniciar sesión. Por eso las facultades no podían quedar en `usuarios`: un rollback las habría borrado y, al volver, nadie habría podido pagar.
+- **Remuneraciones separadas**, con clasificación explícita: sueldo, anticipo, descuento, bono y finiquito (§4.11).
+  - Viven en su propia fila, que solo se pide desde la sesión de Angelo, Lucía o Cristobal.
+  - Los registros existentes ambiguos se listan para revisión, sin reclasificarlos solos. Mientras no se decidan, quien no puede ver remuneraciones no los ve.
+- **Frisku:** sin acceso a Liquidaciones, los montos aparecen como «restringido» o se omiten, nunca como cero (§4.13).
+- **Sigue siendo control de la aplicación.** Se encontró además un canal de tiempo real sin filtro que puede llevar filas completas a cualquier navegador con sesión (§4.11 F). Nada de esto es confidencial frente a acceso directo a la base.
 - Evidencia local:
-  - jest 1.783/1.783 en UTC y en hora de Chile;
-  - e2e de permisos 30/30 en la rama y 30/30 sobre `main` 3fd03d9;
-  - contra el código anterior fallan 13 pruebas jest y 2 comprobaciones e2e, y el aplicador no existe: cada falla corresponde a una regla nueva.
-- Sin merge ni despliegue. El archivo de permisos no está en la rama.
+  - jest 1.817/1.817 en UTC y en hora de Chile;
+  - e2e de permisos 31/31 y de remuneraciones 33/33, en la rama y sobre `main` 3fd03d9;
+  - contra el código anterior fallan 6 pruebas jest y el e2e de remuneraciones.
+- Sin merge, despliegue ni RLS. El archivo de permisos no está en la rama.
 
 **Novedades (propuesta perfil + facultades):**
 - El conjunto preparado no se integra. Se reemplaza por la propuesta §4.7: perfil para ver y editar, más facultades explícitas por acción (aprobar asignadas, pagar, V°B°, aprobación final), independientes de la edición del módulo. Lucía conserva exactamente lo de hoy.
@@ -310,7 +316,7 @@ Prueba con datos ficticios en formato v1, con PIN, hashes, tokens, correos y tel
 1. Con tu cuenta de GitHub abre:
    `https://github.com/mediterra-finanzas/gestion-grupo-mediterra/blob/claude/fervent-bell-uu6ae8/scripts/datos/extraer-permisos.html`
 2. Usa el botón **"Download raw file"** (ícono de descarga, arriba a la derecha del archivo). Guárdalo con extensión **`.html`**. Si el navegador lo guarda como `.txt`, renómbralo.
-3. Opcional, para comprobar que es el mismo archivo: SHA-256 `1b5ebf81e15aea2a30c1fb9843b134d7561ba3499555b85cbb22bb6919fd4d11` (versión que además exporta `rendPagar` y `contabEditar`; la anterior, `fc287e0e…` del commit `2e19143`, sigue sirviendo para lo demás).
+3. Opcional, para comprobar que es el mismo archivo: SHA-256 `7d651d9f0823992a7ec65d39fb13bb2d9443aaf644903d6c8bc990c5a0cd5952` (versión que además exporta la regla de pago y las facultades de la fila `permisos_facultades`; la anterior, `fc287e0e…` del commit `2e19143`, sigue sirviendo para lo demás).
    - Windows: `certutil -hashfile extraer-permisos.html SHA256`
    - Mac: `shasum -a 256 extraer-permisos.html`
 4. Doble clic para abrirlo en Chrome, Edge, Safari o Firefox. No necesita internet.
@@ -458,6 +464,11 @@ Hallazgo: Documentos muestra a quien tenga el módulo los clientes y exportadora
 
 ### 4.10 Matriz confirmada (08-10-2026): implementación
 
+> **Actualizado en la segunda entrega:**
+> - Las facultades ya no van en la ficha de `usuarios`: van en la fila `permisos_facultades` (§4.12).
+> - El aplicador suma remuneraciones y la decisión de Frisku: 13 cambios, 14 reglas que ya se cumplen y 11 nombres verificados.
+> - El orden de despliegue de C quedó reemplazado por la transición de §4.12 D.
+
 Commits `fe9470f`, `2f9da34` y el del extractor. **Control de la aplicación, no del servidor** (§5).
 
 **A. Qué cambia en el código** [Seguro, por prueba]
@@ -495,14 +506,7 @@ Commits `fe9470f`, `2f9da34` y el del extractor. **Control de la aplicación, no
 - Las 12 que ya se cumplen: "ver todas las rendiciones" (4), Lucía Flujo y Parámetros (2), Nóminas "editar" de Carol y Milagros (2) y Configuración de Tareas (4).
 - En el panel se agregaron las casillas "Marca rendiciones pagadas" y "Edita en Contabilidad", con registro de auditoría. Las facultades valen solo si están guardadas como `true`.
 
-**C. Orden de despliegue (cuando lo autorices)**
-1. Desplegar.
-2. Antes de que alguien necesite pagar, entrar como admin → ⚙️ Permisos → vista previa → aplicar.
-
-Entre el paso 1 y el 2:
-- nadie puede marcar rendiciones pagadas;
-- Michelle y Pablo siguen sin editar Contabilidad, como hoy;
-- Denise y José Tomás siguen viendo Liquidaciones, como hoy.
+**C. Orden de despliegue:** reemplazado por §4.12 D. Ya no queda ningún periodo sin pagos.
 
 **D. Evidencia** (todo local: build de la rama, Supabase falso, datos ficticios, solo Chromium)
 
@@ -525,46 +529,137 @@ Entre el paso 1 y el 2:
 
 **F. Limitaciones**
 - **Servidor:** la llave pública sigue leyendo y escribiendo todas las filas. Esto incluye `frisku_liquidaciones`, `frisku_po`, `usuarios` (con sus facultades) y `pins`. Quien abra las herramientas del navegador o llame a la API directamente no está limitado por nada de esto.
-- **Frisku:** Michelle Garcia y Lucía Corbetto tienen hoy Liquidaciones en "ver" configurado. Se conservó, por la regla "conservan los demás accesos actuales". Si "acceso para Angelo, Raimundo y Carolina" significa **solo** ellos tres, hay que pasarlas a "sin acceso": confírmalo.
+- **Frisku:** decidido el 08-10. Michelle Garcia y Lucía Corbetto conservan la consulta sin edición; la matriz las verifica en "ver".
 - **Frisku · Documentos:** sigue mostrando clientes con documentos faltantes a quien tenga Clientes en "sin acceso" (hallazgo §4.8, sin cambio).
 - **Pagos:** quien tiene la facultad de pagar pero no "ver todas" ve la lista de rendiciones aprobadas por pagar: nombre, monto y respaldos. Es lo mínimo para pagar.
 - **Prueba de Lucía en navegador:** usa un usuario ficticio con su configuración, no su ficha real.
 
-### 4.11 Sueldos en Nóminas: decisión pendiente antes de modificar
+### 4.11 Remuneraciones separadas (decisión del 08-10-2026): implementación
 
-No se modificó nada. Separar sueldos exige definir **qué es un sueldo** y **dónde vive**, y la matriz tiene un conflicto de flujo. [Seguro, por lectura del código]
+**A. Qué se implementó** [Seguro, por prueba]
 
-**1. Hoy no hay una clasificación confiable de "sueldo".**
-- Las secciones de la nómina son: Proveedores, **Anticipos de Sueldo**, Rendiciones, Servipag, empresas relacionadas CLP/USD, Pagos USD, más secciones libres que crea el usuario.
-- Cada línea tiene un "tipo de documento" que puede ser **"Remuneraciones"**, pero es **opcional, editable y ampliable**. Una línea de sueldo sin ese tipo, o cargada en una sección libre, quedaría a la vista.
+| Regla decidida | Implementación |
+|---|---|
+| Remuneración = sueldos, anticipos, descuentos, bonos y finiquitos; honorarios siguen como proveedores | Cada línea lleva `clase` de esa lista cerrada; no se envía a aprobación sin clase, trabajador y monto (`src/remuneraciones/modelo.js`) |
+| Solo Angelo, Lucía y Cristobal ven el detalle y sus respaldos | Facultades `remPreparar` (Angelo) y `remAprobar` (Lucía, Cristobal) en la fila de facultades. El rol admin **no** las da |
+| Fila separada, que no llegue a navegadores sin autorización | `nominas_remuneraciones` se pide **solo** desde la pantalla de quien tiene la facultad (`src/RemuneracionesNomina.jsx`). Comprobado en navegador: el de Carol y el de Michelle nunca la piden |
+| Angelo prepara; Lucía **o** Cristobal aprueban; sin V°B° | borrador → preparada → aprobada. Devolver exige motivo y vuelve a borrador; anular exige motivo. Quien prepara o editó no aprueba. Cada guarda se revisa dentro de la acción |
+| Respaldos | Se suben al bucket privado `nominas-docs` con el prefijo `remuneraciones/` y se abren con URL firmada |
+| Exportación | CSV de cada nómina y del listado de revisión, solo dentro de la pantalla restringida |
+| Nóminas no salariales sin cambios | Carol y Milagros siguen igual. Las líneas **nuevas** de la nómina general ya no pueden ir a "Anticipos de Sueldo" ni llevar el tipo "Remuneraciones" |
+| Totales agregados en Flujo y Contabilidad | Sin cambios: siguen visibles según los permisos existentes |
 
-**2. Toda la fila `nominas` llega al navegador** de quien tiene la pestaña.
-- Ocultar líneas en pantalla no impide verlas con las herramientas del navegador.
-- El total de la nómina, la impresión, el Excel, el expediente ZIP, la vista de auditoría, la búsqueda de líneas y el aplazamiento entre semanas recorren **todas** las líneas.
-- Si se oculta un monto pero se deja el total, la diferencia revela el sueldo.
+**B. Registros existentes: listado, sin reclasificar solos**
+- **Candidatas:** líneas antiguas de la nómina general en la sección "Anticipos de Sueldo", con tipo "Remuneraciones", en una sección libre con nombre salarial, o con palabras como sueldo, remuneración, finiquito, bono, gratificación, aguinaldo, indemnización, anticipo o descuento. "Boleta de Honorarios" sola no cuenta.
+- **No se asume que sean no salariales.** Hasta que se decidan, quien no tiene la facultad no las ve en pantalla, totales, búsquedas, impresiones, exportación ni expediente: se calculan desde la misma vista.
+  - Ve un aviso con la **cantidad**, sin montos.
+  - Al guardar la nómina se reponen en la base: comprobado en navegador.
+- **Revisión** (Nómina de remuneraciones → Revisión de registros existentes): Angelo decide cada línea. El listado se exporta a CSV.
+  - **Trasladar** (eligiendo la clase), en dos pasos:
+    1. Se copia la línea completa, con historial y respaldos, a la fila de remuneraciones y se confirma en el servidor.
+    2. Recién entonces, en la nómina general queda un rastro sin montos, nombres ni documentos.
+  - Si el paso 2 se interrumpe, la línea aparece como «ya copiada» con un botón para completar, sin duplicar.
+  - **No es remuneración:** queda registrado quién y cuándo, y la línea vuelve a la vista normal.
+- **Auditoría:** el traslado y la clasificación se registran sin montos ni nombres de trabajadores.
+- **Cuántas hay en producción:** no lo sé. El archivo de permisos no trae nóminas, así que el listado se verá en la app al desplegar.
 
-**3. Conflicto con la matriz.**
-- Preparan Carol y Milagros, y Carol da el V°B°, pero ninguna de las dos puede ver sueldos.
-- Michelle (V°B° por nombre) tampoco puede verlos.
-- Con la regla actual, quien prepara o visa una nómina con sueldos los vería.
+**C. Efectos que tienes que conocer**
+- **Nóminas ya aprobadas:** al trasladar una línea, el total visible de esa nómina general baja en ese monto. La aprobación original queda en su historial y la línea en la fila de remuneraciones, como "histórica", con su origen.
+- **Líneas antiguas con palabras ambiguas** ("anticipo a proveedor", "descuento comercial") quedan ocultas a Carol y Milagros hasta tu revisión. Es el costo de no asumir que no son salariales.
+- **Mientras no se aplique la matriz** (§4.12 D), nadie ve remuneraciones, ni siquiera Angelo. La fila nueva parte vacía, así que esto no frena pagos.
 
-**4. Fuera de Nóminas** (confirmar si cuentan como "sueldos"):
-- Flujo de Caja tiene líneas agregadas "Remuneración Administración" / "Remuneración Operacional" por empresa. Hoy solo las ven Angelo, Lucía y Cristobal, porque Flujo está "sin acceso" para los demás.
-- Contabilidad: Michelle y Pablo (editan) y Carol (consulta) ven el libro diario y los auxiliares, donde se contabilizan las remuneraciones.
+**D. Evidencia** (local, Supabase falso, datos ficticios, solo Chromium)
 
-**Opciones:**
+| Prueba | Qué comprueba | Resultado |
+|---|---|---|
+| `remuneracionesModelo.test.js` (nuevo) | Acceso, circuito completo con Lucía y con Cristobal, autor no aprueba, devolver/anular con motivo, candidatas, vista sin facultad, reposición al guardar, traslado idempotente, rastro sin montos, CSV | 16/16 |
+| `scripts/e2e/remuneraciones.mjs` (nuevo, navegador) | Recorrido completo; detalle en §4.11 E | **33/33** en la rama y sobre `main` |
+| Control: el mismo e2e contra el build anterior (`28bb0df`) | Carol veía «Juan Pérez» y los montos, y el total los incluía; el panel no existía | Falla, como corresponde |
 
-| | Qué es sueldo | Dónde vive | Quién prepara y visa | Protege frente a la pantalla | Costo |
-|---|---|---|---|---|---|
-| **A (recomendada)** | Toda línea de una **nómina de remuneraciones** separada (tipo de nómina fijo, no editable por línea) | Fila propia `nominas_sueldos`, que no se carga para quien no puede ver (mismo patrón que Frisku Liquidaciones) | Angelo prepara y aprueba; sin V°B° de Carol/Michelle, o con un V°B° de alguien autorizado a ver (Lucía/Cristobal, hoy consulta) | Sí, en la app. No frente a acceso directo a la base | Medio: nueva fila, migrar líneas existentes, totales separados en el flujo semanal |
-| B | Líneas marcadas "sueldo" (obligatorio al crear) + sección "Anticipos de Sueldo" | Misma fila `nominas` | Igual que hoy | **No**: la fila completa sigue llegando al navegador | Bajo, pero solo oculta |
-| C | Igual que A, pero los anticipos de sueldo siguen en la nómina general | Fila propia solo para sueldos | Como A | Sí, salvo anticipos | Medio |
+**E. Recorrido del e2e de remuneraciones**
+1. Carol: ve el aviso y no ve nombres ni montos, tampoco en los campos editables. El total no los incluye. Agrega una línea y las ocultas siguen en la base. Su navegador nunca pide la fila de remuneraciones.
+2. Angelo: aplica la matriz; activa, revierte y reactiva la regla de pago; revisa los registros existentes y traslada 2 líneas. La nómina general queda sin el detalle y la auditoría sin montos. Prepara y envía una nómina nueva, y no puede aprobarla.
+3. Lucía aprueba esa nómina; Cristobal aprueba otra.
+4. Al final, Carol y Michelle no tienen acceso.
 
-**Necesito que decidas:**
-1. ¿Qué cuenta como sueldo: remuneraciones, anticipos de sueldo, finiquitos, honorarios?
-2. ¿Opción A, B o C?
-3. ¿Quién prepara y quién da el V°B° de la nómina de sueldos, si Carol y Milagros no pueden verla?
-4. ¿Las líneas agregadas de remuneración en el Flujo y la contabilidad de remuneraciones cuentan como "ver sueldos"?
+**F. Limitaciones, sin maquillaje**
+- **Servidor:** la llave pública lee y escribe `nominas_remuneraciones`, `nominas`, `permisos_facultades` y el bucket de respaldos. **No hay confidencialidad frente a acceso directo** hasta tener autorización en el servidor (§5).
+- **Canal de tiempo real sin filtro (hallazgo nuevo):**
+  - `App.jsx` (cualquier usuario con sesión) y `FinanzasModule.jsx` se suscriben a `realtime:public:calendario_data` **sin filtro de fila**.
+  - Si el Realtime de producción publica esa tabla, cada navegador abierto recibe **completa** cada fila que cambie, incluidas `nominas_remuneraciones`, `nominas` y `frisku_liquidaciones`. No se muestra, pero llega a la memoria del navegador.
+  - **No lo cambié:** no puedo probar el protocolo de Realtime de producción desde acá, y filtrar mal deja sin sincronización. Propuesta: suscripción por fila (`id=eq.main`, `id=eq.usuarios`, `id=eq.finanzas`), o canal autorizado en el servidor. Queda como decisión D13.
+- **Líneas pendientes de clasificar:** se ocultan en pantalla, pero **siguen en la fila `nominas`, que sí llega al navegador** de quien prepara nóminas. Solo el traslado saca el detalle de esa fila.
+- **Respaldos trasladados:** el archivo sigue en el bucket en su ruta original (`nominas/...`). Lo que se traslada es la referencia. En la app ya no se llega a él desde la nómina general.
+- **Historial de auditoría anterior:** el `audit_log` ya registró, antes de este cambio, ediciones de líneas de anticipos con nombres y montos. No se modificó: el historial no se reescribe.
+- **Consultas de todas las filas** (respaldo manual y resumen diario): las ejecuta solo el rol admin, hoy solo Angelo. Otro admin traería todas las filas, incluidas las de remuneraciones.
+- **Vale interno de anticipo:** el documento interno autogenerado de "Anticipos de Sueldo" no se trasladó a la nueva pantalla. En remuneraciones, el respaldo se sube como archivo.
+
+### 4.12 Facultades en fila propia y transición de permisos sin periodo sin pagos
+
+**A. Por qué cambió** [Seguro, por lectura del código de `main` 3fd03d9]
+- `main` reconstruye la ficha de los usuarios base (`...wb` más una lista cerrada de campos) y la guarda al iniciar sesión.
+- Si las facultades vivieran en la ficha, bastaría abrir la versión anterior (rollback) para borrarlas. Al volver a la nueva, nadie podría pagar.
+- La fila `permisos_facultades` (por correo) no la toca ninguna versión anterior.
+
+**B. Modelo** (`src/permisos/facultades.js`)
+- Facultades: `rendPagar`, `contabEditar`, `remPreparar`, `remAprobar`. Solo cuentan si están en la fila como `true`; lo que diga la ficha se ignora.
+- La fila se lee con el contrato de persistencia: la carga lanza ante un fallo de red (Regla 9) y el guardado lo confirma el servidor.
+- Si la fila no se pudo leer, la sesión queda sin facultades y nadie paga (falla cerrada). El panel lo avisa.
+- Casillas por persona en ⚙️ Permisos, con auditoría. Sin correo no hay facultad.
+
+**C. Regla de pago con modo**
+
+| Modo | Quién marca pagada (solo rendiciones aprobadas) | Cuándo |
+|---|---|---|
+| transición | Quien ve todas: admin, CFO o `rendVerTodas`. **Es exactamente la regla publicada hoy**: no amplía nada | Fila inexistente o recién creada |
+| matriz | Solo `rendPagar`: Carol, Milagros y Angelo | Lo activa el admin. **No se puede activar si ninguna persona activa tiene la facultad** |
+
+Volver a transición exige motivo, y cada cambio de modo queda en el historial de la fila.
+
+**D. Pasos de transición** (cuando autorices el despliegue)
+1. **Desplegar.** La fila de facultades no existe, así que rige la transición: pagan los mismos que hoy.
+   - Contabilidad sigue como hoy (edita solo el CFO).
+   - Denise y José Tomás siguen viendo Liquidaciones hasta el paso 2.
+   - Remuneraciones: nadie las ve todavía.
+2. **⚙️ Permisos → Ver vista previa → Aplicar** (13 cambios con los datos reales). Primero se guarda la fila de facultades, confirmada por el servidor; después la ficha de usuarios.
+   - Pagos: siguen pagando los mismos.
+   - Desde aquí: Michelle y Pablo editan Contabilidad, Angelo, Lucía y Cristobal entran a remuneraciones, y Denise y José Tomás pierden Liquidaciones.
+3. **Ver vista previa otra vez:** debe decir 0 cambios. Si un paso falló, ahí aparece lo que falta.
+4. **Activar regla de la matriz.** Desde este momento pagan solo Carol, Milagros y Angelo.
+5. **Revisión de registros existentes** de remuneraciones (§4.11 B).
+
+**Reversa:**
+- Del paso 4: "Volver a la regla de transición", con motivo.
+- De código (volver a `main`): `main` ignora la fila de facultades y paga con su regla. Al volver a desplegar, la fila sigue intacta y no queda ningún periodo sin pagos.
+- Antes de un rollback de código conviene volver primero a transición, para que el historial lo refleje. No es obligatorio.
+
+**E. Evidencia**
+
+| Prueba | Qué comprueba | Resultado | Contra `28bb0df` |
+|---|---|---|---|
+| `facultades.test.js` (nuevo) | Identidad por correo, ficha ignorada, falla cerrada, pasos 1-3 sin periodo sin pagos, no activar sin pagadores, reversa con motivo, persistencia que lanza | 13/13 | no existía |
+| `permisosAcciones.test.js` | Modo matriz, modo transición, falla cerrada, llamadas directas | 29/29 | 3 fallan |
+| `rendicionesPermisosPantalla.test.js` | Pantalla: transición (Michelle paga como hoy), matriz, falla cerrada | 11/11 | 2 fallan |
+| `matrizPermisos.test.js` | Plan 13/14, facultades en la fila y no en la ficha, idempotencia (0 cambios, 27 cumplen) | 15/15 | — |
+| `scripts/e2e/permisos.mjs` | Además: la casilla de Contabilidad de la ficha se ignora y vale la de la fila; aplicar no activa | **31/31** (rama y `main`) | — |
+| `scripts/e2e/remuneraciones.mjs` | Aplicar, activar, revertir con motivo y reactivar, sobre la fila real del Supabase falso | incluido en 33/33 | — |
+| Extractor de permisos | Exporta la regla de pago y las facultades de la fila, por nombre | 13/13 | — |
+
+### 4.13 Frisku sin acceso a Liquidaciones: «restringido», nunca cero
+
+- **Motor BI** (`friskuBI.js`): sin acceso, las métricas de dinero (venta destino, comisión cliente, comisión Frisku y %) valen `null` y se muestran «restringido».
+  - Quedan fuera de los selectores de medidas, de los KPIs fijos y de las columnas de tablas, pivotes y desgloses.
+  - El dinero de cada contenedor es desconocido (`null`), no cero.
+- **Resumen ejecutivo:** los tres paneles de comisión se reemplazan por un aviso «Restringido».
+  - El Excel omite las columnas de dinero.
+  - El PDF reemplaza las tablas de comisión por una línea «restringido».
+- **Tablero:** desaparecen las fuentes Liquidaciones y Cobranza (PO).
+- **Reportes:** se omiten Ingreso, Rentabilidad, Ranking de exportadoras y Cobranza, con una línea que los nombra como restringidos. Quedan Programa vs Real y Pipeline, y la exportación solo corre para un reporte permitido.
+- **Evidencia:** `friskuLiquidacionesAcceso.test.js`, 3/3.
+  - Sin acceso: en Resumen, Reportes y Análisis no aparece ningún «$0», ni las medidas de dinero, ni los reportes de dinero.
+  - Con acceso: se ven los paneles de comisión.
+  - Contra `28bb0df`, el caso restringido falla (mostraba «$0»).
+- **Limitación:** no reviso píxel a píxel cada gráfico del espacio de Análisis; la comprobación es sobre el texto de la página.
 
 ## 5. Protección del servidor
 
@@ -711,22 +806,25 @@ Probada en Postgres local: corre completa y rechaza una escritura.
 
 | # | Decisión |
 |---|---|
-| D1–D6 | ~~Matriz §4.3~~: confirmada el 08-10 e implementada en la rama (§4.10), salvo sueldos |
-| D11 | **Sueldos en Nóminas**: qué es sueldo, opción A/B/C, quién prepara y visa (§4.11) |
-| D12 | Frisku Liquidaciones: ¿Michelle y Lucía conservan su "ver" configurado o pasan a "sin acceso"? (§4.10 F) |
+| D1–D6 | ~~Matriz §4.3~~: confirmada el 08-10 e implementada en la rama (§4.10) |
+| D11 | ~~Sueldos~~: decidido e implementado (§4.11). Pendiente tuyo: revisar el listado de registros existentes al desplegar |
+| D12 | ~~Frisku Michelle/Lucía~~: conservan consulta (§4.10 F) |
+| D13 | **Canal de tiempo real sin filtro** (§4.11 F): suscripción por fila o canal autorizado en el servidor. Requiere probar contra el Realtime real |
+| D14 | Despliegue con los pasos de transición de §4.12 D |
 | D7 | Etapa 1 de RLS: **pendiente**. Antes: confirmar el commit desplegado y correr la consulta de metadatos |
 | D8 | Migración de claves del calendario (11 meses): **pendiente**, con los mismos requisitos previos |
-| D9 | Permisos como primer grupo de integración: verificado sobre `main` 3fd03d9 (§4.10 E). Sin merge ni despliegue hasta tu aprobación; al desplegar, aplicar la matriz (§4.10 C) |
+| D9 | Permisos y remuneraciones como primer grupo de integración: verificado sobre `main` 3fd03d9 (§4.10 E y §4.11 D). Sin merge ni despliegue hasta tu aprobación |
 | D10 | Confirmar el SHA desplegado y correr la consulta de metadatos |
 
 ## 11. Riesgos vigentes
 
 1. Producción no verificada: ni el SHA desplegado, ni los metadatos, ni los permisos reales de `usuarios`.
-2. La base sigue abierta a la llave pública (lectura, escritura y hashes de PIN) hasta las etapas 2–3. Las restricciones de la matriz (§4.10) son de la aplicación: no protegen frente a acceso directo.
+2. La base sigue abierta a la llave pública (lectura, escritura y hashes de PIN) hasta las etapas 2–3. Las restricciones de la matriz y de remuneraciones (§4.10–4.13) son de la aplicación: **no hay confidencialidad frente a acceso directo**. El canal de tiempo real sin filtro puede llevar filas completas a cualquier navegador con sesión (§4.11 F).
 3. Zona horaria y leasing sin datos reales: falta la copia mínima.
 4. Calendario: 11 meses con etiquetas corridas, sin migrar.
 5. Regla S1: los importes mensuales sin desglose generan saltos semanales. Se distinguen, pero la regla sigue vigente.
 6. Fechas de Osiris, Frisku y Contabilidad siguen en UTC.
 7. Respaldo sin copia externa; secretos sin copia documentada.
 8. Prototipo de experiencia: A y B siguen como alternativas; falta tu revisión de capturas y recorridos, y pruebas en Safari, Firefox y dispositivos reales. La matriz confirmada será la base de sus vistas por perfil.
-9. Entre el despliegue de la matriz y su aplicación desde el panel, nadie puede marcar rendiciones pagadas (§4.10 C).
+9. ~~Periodo sin pagos al desplegar~~: corregido con la regla de transición (§4.12).
+10. Remuneraciones: las líneas antiguas pendientes de clasificar siguen en la fila `nominas` hasta que se trasladen (§4.11 F).

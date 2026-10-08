@@ -23,6 +23,7 @@ const respaldo = { fecha: new Date().toISOString(), usuario: 'Persona Admin', ve
   rendiciones_config: { data: { aprobadores: { 'pagos@ficticio.cl': 'admin@ficticio.cl', 'ext:7': 'pagos@ficticio.cl', 'consulta@ficticio.cl': 'desconocido@x.cl' },
     personasExternas: [{ id: 7, nombre: 'Externo Uno', rut: '11.111.111-1', email: 'ext@x.cl' }] } },
   finanzas: { data: { creditos_data: [{ monto: 1 }], secreto: 'flujo ficticio' } },
+  permisos_facultades: { data: JSON.stringify({ v: 1, modo: 'matriz', porCorreo: { 'pagos@ficticio.cl': { rendPagar: true, remAprobar: true }, 'otro@externo.cl': { contabEditar: true } }, historial: [{ correo: 'admin@ficticio.cl' }] }) },
 } };
 const archR = path.join(DIR, 'respaldo.json'); fs.writeFileSync(archR, JSON.stringify(respaldo));
 
@@ -49,6 +50,7 @@ check('cadena de aprobación como nombres (correo ajeno anonimizado)', JSON.stri
 const ap = Object.fromEntries(r.aprobadoresRendiciones.map(a => [a.persona, a.aprobador]));
 check('aprobadores de rendiciones como nombres (incluido externo)', ap['Persona Pagos'] === 'Persona Admin' && ap['Externo Uno (externo)'] === 'Persona Pagos' && /^correo no registrado/.test(ap['Persona Consulta']), JSON.stringify(ap));
 check('declara las reglas de nóminas fijas en el código', /V°B° de nóminas/.test(r.advertencia));
+check('facultades de la fila propia, por nombre, y regla de pago', r.reglaPago === 'matriz' && r.facultades.some(f => f.persona === 'Persona Pagos' && f.rendPagar && f.remAprobar) && r.facultades.some(f => /^correo no registrado/.test(f.persona) && f.contabEditar), JSON.stringify(r.facultades));
 check('la página no hizo pedidos de red', pedidos.length === 0, pedidos.join(' '));
 fs.rmSync(DIR, { recursive: true, force: true });   // datos ficticios de la prueba
 console.log(`\n${ok} correctas, ${fallos} fallas · datos ficticios`);
