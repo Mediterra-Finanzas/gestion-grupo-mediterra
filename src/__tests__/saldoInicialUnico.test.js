@@ -49,7 +49,7 @@ global.WebSocket = WSFalso; WSFalso.OPEN = 1;
 
 const React = require('react');
 const { render, act, fireEvent } = require('@testing-library/react');
-const { saldoBancoEmpresaUSD, notasSaldoInicial, usdDeSaldo } = require('../saldosBancosUSD.js');
+const { saldoBancoEmpresaUSD, notasSaldoInicial, usdDeSaldo, avisoSaldoIncompleto } = require('../saldosBancosUSD.js');
 const { exportarFlujoEmpresa } = require('../flujoExportExcel.js');
 
 // ── Datos sintéticos, con fechas relativas a hoy ─────────────────────────────
@@ -106,6 +106,45 @@ describe('criterio único del saldo en US$', () => {
 
   test('sin cuentas vigentes devuelve null (el llamador usa el saldo base)', () => {
     expect(saldoBancoEmpresaUSD({}, EMP).total).toBeNull();
+  });
+
+  test('cuenta sin TC: visible, monto excluido y aviso de total INCOMPLETO (pantalla y Excel)', () => {
+    const r = saldoBancoEmpresaUSD(saldosSinteticos(), EMP);
+    const av = avisoSaldoIncompleto(r, EMP);
+    expect(av).toContain('INCOMPLETO');
+    expect(av).toContain('Security CLP 1.000.000,00');
+    expect(r.total).toBe(ESPERADO);                       // el monto sin TC NO entra
+    const notas = notasSaldoInicial(saldosSinteticos(), EMP, { mesLabel: MES_HOY });
+    expect(notas[0]).toContain('INCOMPLETO');
+    expect(notas[1]).toContain('(INCOMPLETO)');
+    // sin cuentas sin TC no hay aviso
+    const s = saldosSinteticos(); delete s[`${EMP}||Security||clp`];
+    expect(avisoSaldoIncompleto(saldoBancoEmpresaUSD(s, EMP))).toBeNull();
+  });
+});
+
+// ── 1b. Reporte semanal con la misma base ────────────────────────────────────
+describe('reporte semanal: mismo saldo que el flujo', () => {
+  const FM = require('../FinanzasModule.jsx');
+  test('«Saldo actual» = saldo inicial del flujo, con la misma cuenta excluida y su aviso', () => {
+    const saldos = saldosSinteticos();
+    const empresas = FM.buildEmpresas({}, {});
+    const d = FM.reporte_armarDatosEmpresa(EMP, {}, empresas, saldos, 0, '', 950, {}, {});
+    expect(d.saldoTotal).toBe(ESPERADO);
+    expect(d.saldoTotal).toBe(FM.getSaldoBancoInicial(saldos, EMP, empresas[EMP].saldo_ini));
+    expect(d.saldos.incompleto).toContain('INCOMPLETO');
+    const sec = d.saldos.lineas.find(l => l.banco === 'Security');
+    expect(sec.estado).toBe('sin_tc');
+    expect(d.saldos.lineas.some(l => l.banco === 'Santander')).toBe(false); // fecha futura
+    // el TC del parámetro del reporte (950) ya no cambia el saldo
+    const d2 = FM.reporte_armarDatosEmpresa(EMP, {}, empresas, saldos, 0, '', 700, {}, {});
+    expect(d2.saldoTotal).toBe(ESPERADO);
+  });
+  test('sin saldos bancarios: saldo base de la empresa, igual que el flujo (antes 0)', () => {
+    const empresas = FM.buildEmpresas({}, {});
+    const d = FM.reporte_armarDatosEmpresa(EMP, {}, empresas, {}, 0, '', 950, {}, {});
+    expect(d.saldoTotal).toBe(FM.getSaldoBancoInicial({}, EMP, empresas[EMP].saldo_ini));
+    expect(d.saldoTotal).toBe(empresas[EMP].saldo_ini);
   });
 });
 
@@ -216,12 +255,19 @@ describe('módulo completo: pestaña Saldos Bancos = flujo en pantalla = Excel d
     });
     await correr();
 
+    // Dashboard: KPI con la misma fuente y el aviso de incompleto
+    expect(document.querySelector('[data-testid="dashboard-saldo-incompleto"]').textContent).toContain('Security CLP 1.000.000,00');
+
     await clic(/Saldos Bancos/);
     const enSaldos = Number(document.querySelector(`[data-testid="saldo-empresa"][data-empresa="${EMP}"]`).getAttribute('data-usd'));
+    expect(document.body.textContent).toContain('Total INCOMPLETO: 1 cuenta(s) sin TC guardado quedan excluidas (Security CLP 1.000.000,00)');
 
     await clic(/Flujo Empresas/);
+    // Consolidado (vista por defecto): aviso de saldo inicial incompleto
+    expect(document.querySelector('[data-testid="consolidado-saldo-incompleto"]').textContent).toContain(`(${EMP})`);
     await clic(/Allegria Foods/);
     const enFlujo = Number(document.querySelector('[data-testid="flujo-saldo-banco"]').getAttribute('data-usd'));
+    expect(document.querySelector('[data-testid="flujo-saldo-incompleto"]').textContent).toContain('INCOMPLETO');
 
     mockCapturas.length = 0;
     await clic(/📥 Excel$/);
@@ -231,7 +277,10 @@ describe('módulo completo: pestaña Saldos Bancos = flujo en pantalla = Excel d
     expect(enSaldos).toBe(ESPERADO);
     expect(enFlujo).toBe(ESPERADO);
     expect(celda.v).toBe(ESPERADO);
-    expect(notas.some(n => n.startsWith(`Saldo inicial ${MES_HOY} = US$`))).toBe(true);
+    expect(notas.some(n => n.startsWith(`Saldo inicial ${MES_HOY} = US$`) && n.includes('(INCOMPLETO)'))).toBe(true);
+    // el aviso también va arriba (subtítulo), no solo al pie
+    const hoja = mockCapturas[0].wb.Sheets[mockCapturas[0].wb.SheetNames.find(n => n !== 'Parametros')];
+    expect(String(hoja.F1?.v || '')).toContain('Saldo bancario INCOMPLETO');
     // y no se escribió nada por abrir y exportar
     expect(SRV.filas.finanzas.updated_at).toBe('v0');
     expect(SRV.filas.finanzas_bancos.updated_at).toBe('v0');

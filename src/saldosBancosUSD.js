@@ -115,8 +115,10 @@ export function notasSaldoInicial(saldosBancos, empNombre, { hoy = new Date(), m
   if (r.total == null) {
     return [`Saldo inicial${mesLabel ? ` ${mesLabel}` : ""}: sin saldos bancarios vigentes al ${corte}; se usa el saldo base de la empresa (US$ ${fmt(Number(fallback) || 0, 2)}).`];
   }
+  const incompleto = avisoSaldoIncompleto(r);
   const notas = [
-    `Saldo inicial${mesLabel ? ` ${mesLabel}` : ""} = US$ ${fmt(r.total, 2)}: saldos bancarios vigentes al ${corte} (último saldo de cada cuenta). ` +
+    ...(incompleto ? [incompleto] : []),
+    `Saldo inicial${mesLabel ? ` ${mesLabel}` : ""} = US$ ${fmt(r.total, 2)}${incompleto ? " (INCOMPLETO)" : ""}: saldos bancarios vigentes al ${corte} (último saldo de cada cuenta). ` +
     `Cuentas en otra moneda al TC guardado al registrar cada saldo (open.er-api), el mismo valor que muestran Saldos Bancos y el flujo en pantalla.`,
   ];
   r.cuentas.forEach(c => {
@@ -127,4 +129,16 @@ export function notasSaldoInicial(saldosBancos, empNombre, { hoy = new Date(), m
     else notas.push(`${base} → TC ${fmt(c.tc, 4)} ${c.moneda === "eur" ? "US$/EUR" : `${mon}/US$`} → US$ ${fmt(c.usd, 2)}`);
   });
   return notas;
+}
+
+// Advertencia de saldo INCOMPLETO: hay cuentas vigentes sin conversión válida a
+// US$ (sin `usd` guardado). Su monto queda fuera del total, así que el total no
+// es el saldo real de la empresa. Se nombra cada cuenta con su monto en la moneda
+// original para que se vea qué falta. null si el total está completo.
+export function avisoSaldoIncompleto(r, empNombre = "") {
+  const sin = r?.sinTC || [];
+  if (!sin.length) return null;
+  const det = sin.map(c => `${c.banco} ${String(c.moneda).toUpperCase()} ${fmt(c.monto, 2)} al ${c.fecha}`).join("; ");
+  return `Saldo bancario INCOMPLETO${empNombre ? ` (${empNombre})` : ""}: ${sin.length} cuenta(s) sin TC guardado quedan excluidas del total en US$ (${det}). ` +
+    `Vuelva a guardar esos saldos con la paridad cargada.`;
 }

@@ -5,7 +5,7 @@ import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
 import { theme } from './theme';
 import { exportarFlujoConsolidado, exportarFlujoEmpresa } from './flujoExportExcel.js';
-import { saldoBancoEmpresaUSD, usdAParidadVivo, usdDeSaldo, motivoExclusion, notasSaldoInicial } from './saldosBancosUSD.js';
+import { saldoBancoEmpresaUSD, usdAParidadVivo, usdDeSaldo, motivoExclusion, notasSaldoInicial, avisoSaldoIncompleto } from './saldosBancosUSD.js';
 import { buildAllpaPeruLineas, ALLPA_PERU_KG_2026, ALLPA_PERU_PRECIO_2026, ALLPA_PERU_RATES_2026 } from './allpaPeruPpto.js';
 import { calcularAmortizacionSocio, generarInteresPeriodico } from './creditoSocio.js';
 import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
@@ -4758,6 +4758,17 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
     });
     return res;
   },[saldosBancos,empresas,onChile,onPeru,pctChile,pctPeru]); // eslint-disable-line
+  // Empresas cuyo saldo inicial excluye cuentas sin TC guardado: el consolidado
+  // también queda incompleto y se dice (pantalla y Excel).
+  const avisosSaldoIncompleto=useMemo(()=>{
+    const res={};
+    if(!saldosBancos) return res;
+    empNames.forEach(n=>{
+      const av=avisoSaldoIncompleto(saldoBancoEmpresaUSD(saldosBancos,n), n);
+      if(av) res[n]=av;
+    });
+    return res;
+  },[saldosBancos]); // eslint-disable-line
 
   // Acumulado por empresa. El saldo banco es la posición REAL de HOY, así que
   // el acumulado arranca en el mes actual (mesIdxHoy), no en el inicio del horizonte.
@@ -4920,7 +4931,10 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
     <tr style={{background:`${C.blue}15`,borderBottom:`2px solid ${C.border2}`}}>
       <td style={{padding:"7px 14px",position:"sticky",left:0,zIndex:1,background:`${C.blue}15`,borderRight:`1px solid ${C.border}`}}>
         <div style={{fontSize:11,fontWeight:700,color:C.blue}}>🏦 Saldo Banco USD</div>
-        <div style={{fontSize:9,color:C.muted}}>{nombre==="_consolidado"?`Suma ${empNamesConsolidado.length} empresas · último registro previo al período`:"último registro previo al período"}</div>
+        <div style={{fontSize:9,color:C.muted}}>{nombre==="_consolidado"?`Suma ${empNamesConsolidado.length} empresas · último saldo de cada cuenta a hoy`:"último saldo de cada cuenta a hoy"}</div>
+        {(nombre==="_consolidado"?Object.keys(avisosSaldoIncompleto).length>0:!!avisosSaldoIncompleto[nombre])&&(
+          <div style={{fontSize:9,color:C.orange,fontWeight:700}}>⚠ incompleto: hay cuentas sin TC guardado excluidas</div>
+        )}
       </td>
       {cols.map(col=>{
         // Solo mostrar saldo banco en el mes actual. Pasados y futuros → "—"
@@ -5014,6 +5028,13 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
         <KPI label="Saldo Final Jun-31" value={$$(acumConsolidado[acumConsolidado.length-1])} color={cf(acumConsolidado[acumConsolidado.length-1])}/>
         <KPI label="Empresas" value={empNamesConsolidado.length} color={C.yellow}/>
       </div>
+      {Object.keys(avisosSaldoIncompleto).length>0&&(
+        <div data-testid="consolidado-saldo-incompleto" style={{padding:"8px 12px",borderRadius:8,
+          border:`1px solid ${C.orange}`,background:`${C.orange}18`,fontSize:11,color:C.orange}}>
+          <div style={{fontWeight:800}}>⚠ El saldo inicial consolidado está INCOMPLETO: excluye cuentas sin TC guardado.</div>
+          {Object.values(avisosSaldoIncompleto).map((t,i)=><div key={i} style={{marginTop:2}}>{t}</div>)}
+        </div>
+      )}
       {/* Flujo al cierre de cada temporada */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
         {SEASONS.map(s=>{
@@ -5107,6 +5128,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
                 const avisosPorEmp={};
                 empNamesConsolidado.forEach(n=>{
                   const av=avisosDeEmpresa(realData, empresasConOverrides, n);
+                  if(avisosSaldoIncompleto[n]) av.push(avisosSaldoIncompleto[n]);
                   if(av.length) avisosPorEmp[n]=av;
                 });
                 // De qué cuentas, fechas y paridades sale cada saldo inicial
@@ -5401,10 +5423,12 @@ function sumCatWF(emp, cat, indices) {
 }
 
 // Saldo banco en USD por empresa (suma todas las monedas convertidas)
+// null si no hay ninguna cuenta vigente: el llamador cae al saldo base de la
+// empresa, igual que el flujo en pantalla y el Excel. Antes devolvía 0 y el
+// reporte semanal partía de 0 donde el flujo partía del saldo base.
 function getSaldoBancoUSD(saldosBancos, empNombre) {
-  if(!saldosBancos) return 0;
-  const { total } = saldoBancoEmpresaUSD(saldosBancos, empNombre);
-  return total != null ? total : 0;
+  if(!saldosBancos) return null;
+  return saldoBancoEmpresaUSD(saldosBancos, empNombre).total;
 }
 
 // Vista compacta: filas = empresas, columnas = meses
@@ -6104,6 +6128,9 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     // el total de la empresa en Saldos Bancos.
     return saldoBancoEmpresaUSD(saldosBancos, empNombre).total;
   },[saldosBancos, empNombre]);
+  const avisoSaldoBanco = useMemo(()=>(
+    saldosBancos ? avisoSaldoIncompleto(saldoBancoEmpresaUSD(saldosBancos, empNombre)) : null
+  ),[saldosBancos, empNombre]);
 
   // Mes en MESES_65 desde el cual arranca el saldo banco = mes ACTUAL (hoy)
   // El saldo banco (con fecha histórica) se aplica en la semana en curso, no en su fecha
@@ -6621,6 +6648,11 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     ? `${mesHoyLabel} ${semanaHoy} · desde Saldos Bancos`
                     : `sin saldo registrado`}
                 </div>
+                {avisoSaldoBanco&&(
+                  <div data-testid="flujo-saldo-incompleto" style={{fontSize:9,color:C.orange,fontWeight:700,maxWidth:260,whiteSpace:"normal"}}>
+                    ⚠ {avisoSaldoBanco}
+                  </div>
+                )}
               </td>
               {colStructure.map(({season:s,collapsed,cols})=>{
                 if(collapsed) return (
@@ -7658,25 +7690,17 @@ function Dashboard({empresas, empresasConOverrides, saldosBancos}) {
   },[empresasConOverrides]);
   const EMPRESAS_CHILE = ["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Allpa Farms","Osiris","Integrity Farms"];
   const EMPRESAS_PERU  = ["Allpa Farms Perú"];
-  const HOY_DASH = new Date();
+  // Fuente única (src/saldosBancosUSD.js), la misma de Saldos Bancos, flujo,
+  // consolidado, reporte y Excel. Antes era una copia propia de la regla.
+  const incompletasDash = [];
   function saldoDeEmpresas(empList) {
     if(!saldosBancos) return 0;
     let total = 0;
     empList.forEach(empNombre=>{
-      const porCuenta = {};
-      Object.entries(saldosBancos).forEach(([key,rec])=>{
-        const parts = key.split("||");
-        if(parts[0]!==empNombre||!rec?.monto||!rec?.fecha) return;
-        const f = new Date(rec.fecha);
-        if(f>HOY_DASH) return;
-        const cuentaKey=`${parts[1]}||${parts[2]||rec.moneda||"usd"}`;
-        if(!porCuenta[cuentaKey]||new Date(porCuenta[cuentaKey].fecha)<f) porCuenta[cuentaKey]=rec;
-      });
-      Object.values(porCuenta).forEach(rec=>{
-        const moneda = rec.moneda||"usd";
-        if(moneda==="usd") total+=Number(rec.monto)||0;
-        else if(rec.usd!=null) total+=Number(rec.usd)||0;
-      });
+      const r = saldoBancoEmpresaUSD(saldosBancos, empNombre);
+      total += r.total || 0;
+      const av = avisoSaldoIncompleto(r, empNombre);
+      if(av) incompletasDash.push(av);
     });
     return total;
   }
@@ -7693,6 +7717,13 @@ function Dashboard({empresas, empresasConOverrides, saldosBancos}) {
         <KPI label="Mínimo Acum. (65m)"     value={$$(Math.min(...gmAcum))}     color={C.red}/>
         <KPI label="Saldo Final Jun-31"     value={$$(gmAcum[gmAcum.length-1])} color={cf(gmAcum[gmAcum.length-1])}/>
       </div>
+      {incompletasDash.length>0&&(
+        <div data-testid="dashboard-saldo-incompleto" style={{padding:"8px 12px",borderRadius:8,
+          border:`1px solid ${C.orange}`,background:`${C.orange}18`,fontSize:11,color:C.orange}}>
+          <div style={{fontWeight:800}}>⚠ Saldo Banco Chile/Perú INCOMPLETO: excluye cuentas sin TC guardado.</div>
+          {incompletasDash.map((t,i)=><div key={i} style={{marginTop:2}}>{t}</div>)}
+        </div>
+      )}
       <Card>
         <SectionTitle>Flujo Acumulado Consolidado — Mar-26 → Jun-31 (6 Temporadas)</SectionTitle>
         <LineChart months={MESES_65} values={gmAcum} color={C.accentL}/>
@@ -9185,7 +9216,7 @@ export function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
                   })()}
                   {(saldoPorEmpresa[emp]?.sinTC||[]).length>0&&(
                     <div style={{fontSize:10,color:C.orange,marginTop:1}}>
-                      ⚠ {saldoPorEmpresa[emp].sinTC.length} cuenta(s) sin TC guardado: no suman al saldo inicial. Vuelva a guardar el saldo con la paridad cargada.
+                      ⚠ Total INCOMPLETO: {saldoPorEmpresa[emp].sinTC.length} cuenta(s) sin TC guardado quedan excluidas ({saldoPorEmpresa[emp].sinTC.map(c=>`${c.banco} ${String(c.moneda).toUpperCase()} ${Number(c.monto).toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}`).join("; ")}). Vuelva a guardar el saldo con la paridad cargada.
                     </div>
                   )}
                 </div>
@@ -9678,34 +9709,25 @@ function _formatCLP(v) {
 }
 
 // Saldo bancos por moneda para una empresa específica
-function reporte_calcSaldosPorMoneda(empNombre, saldosBancos, tcUSDtoCLP = REPORTE_TC_DEFAULT_CLP) {
-  const resultado = { usd: 0, clp: 0, equivCLPenUSD: 0, totalUSD: 0, lineas: [] };
+// Saldo bancario del reporte con la FUENTE ÚNICA (src/saldosBancosUSD.js):
+// mismas cuentas, misma fecha de corte y mismo US$ guardado que Saldos Bancos,
+// el flujo, el consolidado y el Excel. Antes convertía CLP con un TC fijo
+// (950 o el del parámetro del reporte) y PEN a 3,75, sin mirar la fecha del
+// saldo: el «Saldo actual» del reporte no era el saldo inicial del flujo.
+// `fallback` = saldo base de la empresa, igual que el flujo cuando no hay saldos.
+export function reporte_calcSaldosPorMoneda(empNombre, saldosBancos, fallback = 0) {
+  const resultado = { totalUSD: Number(fallback) || 0, lineas: [], incompleto: null, desdeSaldos: false };
   if(!saldosBancos) return resultado;
-  Object.keys(saldosBancos).forEach(key => {
-    // key formato: "Empresa||Banco||moneda"
-    const partes = key.split("||");
-    if(partes.length < 3) return;
-    const [emp, banco, moneda] = partes;
-    if(emp !== empNombre) return;
-    const monto = Number(saldosBancos[key]?.monto) || 0;
-    if(monto === 0) return;
-    const monedaLower = (moneda || "").toLowerCase();
-    if(monedaLower === "usd") {
-      resultado.usd += monto;
-      resultado.lineas.push({moneda:"USD", banco, monto, descripcion:`${banco} USD`});
-    } else if(monedaLower === "clp") {
-      resultado.clp += monto;
-      resultado.lineas.push({moneda:"CLP", banco, monto, descripcion:`${banco} CLP`});
-    } else if(monedaLower === "pen") {
-      // PEN convertido a USD directamente (no se separa)
-      const enUSD = monto / REPORTE_TC_DEFAULT_PEN;
-      resultado.usd += enUSD;
-      resultado.lineas.push({moneda:"PEN", banco, monto, descripcion:`${banco} PEN (equiv. USD)`, enUSD});
-    }
-  });
-  // Equivalente CLP en USD
-  resultado.equivCLPenUSD = resultado.clp / (tcUSDtoCLP || REPORTE_TC_DEFAULT_CLP);
-  resultado.totalUSD = resultado.usd + resultado.equivCLPenUSD;
+  const r = saldoBancoEmpresaUSD(saldosBancos, empNombre);
+  if(r.total == null) return resultado;
+  resultado.totalUSD = r.total;
+  resultado.desdeSaldos = true;
+  resultado.incompleto = avisoSaldoIncompleto(r);
+  resultado.lineas = r.cuentas.map(c => ({
+    moneda: String(c.moneda).toUpperCase(), banco: c.banco, monto: c.monto, fecha: c.fecha,
+    usd: c.usd, estado: c.estado, tc: c.tc,
+    descripcion: `${c.banco} ${String(c.moneda).toUpperCase()} al ${c.fecha}`,
+  }));
   return resultado;
 }
 
@@ -10481,8 +10503,8 @@ function reporte_calcKPIsGrupo(datosEmpresas) {
 }
 
 // Función maestra: arma los datos de UNA empresa para el reporte
-function reporte_armarDatosEmpresa(empNombre, realData, empresas, saldosBancos, umbralMin, comentarioCFO, tcUSDtoCLP, subLinesGlobal, addedLinesGlobal) {
-  const saldos = reporte_calcSaldosPorMoneda(empNombre, saldosBancos, tcUSDtoCLP);
+export function reporte_armarDatosEmpresa(empNombre, realData, empresas, saldosBancos, umbralMin, comentarioCFO, tcUSDtoCLP, subLinesGlobal, addedLinesGlobal) {
+  const saldos = reporte_calcSaldosPorMoneda(empNombre, saldosBancos, Number(empresas?.[empNombre]?.saldo_ini)||0);
   const proyecciones = reporte_getProyeccionesEmpresa(empNombre, realData, empresas, saldosBancos, subLinesGlobal, addedLinesGlobal);
 
   const movs = reporte_getMovimientos4Semanas(empNombre, realData, empresas, saldosBancos, subLinesGlobal, addedLinesGlobal);
@@ -11324,26 +11346,33 @@ function _renderEmpresaEnPDF(doc, emp, idx, startY, semana, fechaStr, logo) {
     doc.text("Saldos bancos por moneda", 12, y);
     y += 1;
     const monRows = [];
+    // Monto en su moneda + US$ al TC guardado (el mismo del saldo inicial).
     for(const ln of (emp.saldos?.lineas || [])) {
-      if(ln.moneda === "USD") monRows.push(["USD", ln.descripcion, _formatUSD(ln.monto)]);
-      else if(ln.moneda === "CLP") monRows.push(["CLP", ln.descripcion, _formatCLP(ln.monto)]);
-      else if(ln.moneda === "PEN") monRows.push(["PEN", ln.descripcion, _formatUSD(ln.enUSD)]);
-    }
-    if(emp.saldos?.equivCLPenUSD > 0) {
-      monRows.push(["—", "Equivalente CLP en USD", _formatUSD(emp.saldos.equivCLPenUSD)]);
+      const original = ln.moneda === "USD" ? _formatUSD(ln.monto)
+        : ln.moneda === "CLP" ? _formatCLP(ln.monto)
+        : `${ln.moneda} ${Number(ln.monto).toLocaleString("es-CL",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+      const enUSD = ln.estado === "sin_tc" ? "sin TC: excluido" : _formatUSD(ln.usd);
+      monRows.push([ln.moneda, ln.descripcion, original, enUSD]);
     }
     doc.autoTable({
       startY: y,
-      head: [["Mon.", "Descripción", "Monto"]],
+      head: [["Mon.", "Descripción", "Monto", "US$"]],
       body: monRows,
       theme: "grid",
       headStyles: {fillColor: _PDF_COLORS.TEAL, textColor: 255, fontSize: 7.5, halign: "center"},
       bodyStyles: {fontSize: 7.5, cellPadding: 1},
-      columnStyles: {0: {halign: "center", cellWidth: 14}, 2: {halign: "right"}},
+      columnStyles: {0: {halign: "center", cellWidth: 14}, 2: {halign: "right"}, 3: {halign: "right"}},
       alternateRowStyles: {fillColor: _PDF_COLORS.BG_SOFT},
       margin: {left: 12, right: 12},
     });
     y = doc.lastAutoTable.finalY + 3;
+  }
+  if(emp.saldos?.incompleto) {
+    doc.setTextColor(..._PDF_COLORS.RED);
+    doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+    const lineasAv = doc.splitTextToSize(emp.saldos.incompleto, 186);
+    doc.text(lineasAv, 12, y + 2);
+    y += 2 + lineasAv.length * 3.2 + 2;
   }
 
   // Saldo Caja Proyectado - dos vistas lado a lado (compacto)
@@ -11778,6 +11807,7 @@ function ReporteSemanalModule({
                     <span style={{fontWeight:700,color:C.text}}>{e.nombre}</span>
                     <span style={{fontFamily:"monospace",color:colorEstado,fontWeight:700}}>
                       {_formatUSD(e.saldoTotal)} / {_formatUSD(e.umbralMin)}
+                      {e.saldos?.incompleto && <span title={e.saldos.incompleto} style={{marginLeft:8,fontSize:9,padding:"2px 6px",background:C.orange+"33",color:C.orange,borderRadius:10}}>saldo incompleto</span>}
                       {e.alertas.length > 0 && <span style={{marginLeft:8,fontSize:9,padding:"2px 6px",background:C.red+"33",color:C.red,borderRadius:10}}>{e.alertas.length} alerta{e.alertas.length>1?"s":""}</span>}
                     </span>
                   </div>
@@ -13780,7 +13810,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                     const hoyX=new Date();
                     const mesX=`${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][hoyX.getMonth()]}-${String(hoyX.getFullYear()).slice(2)}`;
                     const notasSaldo=notasSaldoInicial(saldosBancos, empTab, {hoy:hoyX, mesLabel:mesX, fallback:empresas[empTab]?.saldo_ini});
-                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}, avisos:avisosDeEmpresa(realData, empresasConOverridesMain, empTab), notasSaldo});
+                    const avisoSaldo=saldosBancos?avisoSaldoIncompleto(saldoBancoEmpresaUSD(saldosBancos,empTab)):null;
+                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}, avisos:[...avisosDeEmpresa(realData, empresasConOverridesMain, empTab), ...(avisoSaldo?[avisoSaldo]:[])], notasSaldo});
                     setEmpExportMsg("✓ "+f);
                   }catch(e){ console.error(e); setEmpExportMsg("✗ Error al exportar"); }
                   setTimeout(()=>setEmpExportMsg(null),5000);

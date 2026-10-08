@@ -235,8 +235,18 @@ guardado = «sin TC», no suma y se avisa. Antes Saldos Bancos convertía con la
 vivo** y el flujo/Excel con la guardada (Allegria Foods: ~US$142 de diferencia), y el Excel
 no excluía fechas futuras. La paridad de hoy se muestra aparte, solo como referencia, con la
 diferencia por TC. El Excel lleva al pie las cuentas, fechas y TC del saldo inicial. Al
-guardar un saldo no-US$ se registra `tc`, `tcFuente`, `tcTs`. Prueba:
-`src/__tests__/saldoInicialUnico.test.js`.
+guardar un saldo no-US$ se registra `tc`, `tcFuente`, `tcTs`.
+
+Dos copias que quedaban fuera y se cerraron: el **reporte semanal**
+(`reporte_calcSaldosPorMoneda`) convertía CLP con un TC fijo (950 o el parámetro del
+reporte) y PEN a 3,75, sin mirar fechas, y `getSaldoBancoUSD` devolvía 0 sin saldos donde el
+flujo usa el saldo base de la empresa; el **Dashboard** tenía su propia copia del criterio.
+Ahora los dos leen `saldoBancoEmpresaUSD`. **Total incompleto**: si una cuenta vigente no
+tiene `usd` guardado, `avisoSaldoIncompleto` lo dice con la cuenta y su monto en moneda
+original en Saldos Bancos, flujo, consolidado (aviso + fila Saldo Banco), Dashboard, reporte
+(vista previa y PDF) y los dos Excel (subtítulo y pie). Prueba:
+`src/__tests__/saldoInicialUnico.test.js`. Esto es la corrección funcional; la diferencia
+histórica de US$142 **no** está reconstruida (falta el detalle por cuenta).
 
 #### Allpa Farms: subtotales inflados por etiquetas repetidas (ARREGLADO)
 
