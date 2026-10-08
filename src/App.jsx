@@ -21,7 +21,7 @@ import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash
 import { credencialPreservada } from "./data/credencialPreservada";
 // Modo "autenticación en el servidor" (REACT_APP_AUTH_SERVER==='true'). Apagado = sin cambios.
 import { AUTH_SERVER, servidor as authSrv, mensajeErrorLogin, mensajeErrorCambioPin,
-  crearGuardadorMain, crearSincroUsuarios, sanearUsuarios, diffMain, CLAVES_MAIN, CLAVES_CONFIG_MAIN, FILAS_SOLO_SERVIDOR } from "./authServidor";
+  crearGuardadorMain, crearSincroUsuarios, sanearUsuarios, diffMain, aplicarCambiosServidor, CLAVES_MAIN, CLAVES_CONFIG_MAIN, FILAS_SOLO_SERVIDOR } from "./authServidor";
 import { restaurarFilas, mensajeRestauracion } from './restaurarRespaldo.js';
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
@@ -148,7 +148,13 @@ let _usuarioSesionSrv = null;
 // (seg_administradores), nunca el `rol` del roster ni nada que venga del navegador.
 let _adminServidor = false;
 // Modo servidor: guardado de `main` por PATCH con versión y sincro de `usuarios` por PUT.
-const guardadorMainSrv = AUTH_SERVER ? crearGuardadorMain({ persist, alFusionar: (v) => { if (window._aplicarCamposMainSrv) window._aplicarCamposMainSrv(v); } }) : null;
+const guardadorMainSrv = AUTH_SERVER ? crearGuardadorMain({ persist, alFusionar: (srv, baseAnt) => { if (window._aplicarFusionMainSrv) window._aplicarFusionMainSrv(srv, baseAnt); } }) : null;
+// Modo servidor: copia local de cambios de Tareas que no se pudieron confirmar al
+// cerrar la sesión (Salir o inactividad). No se re-aplica sola: se descarga o se
+// descarta a mano (mismo criterio que la copia de Nóminas).
+const CLAVE_COPIA_TAREAS = "mediterra_tareas_sin_guardar";
+function leerCopiasTareas(){ try { const v = JSON.parse(localStorage.getItem(CLAVE_COPIA_TAREAS) || "[]"); return Array.isArray(v) ? v : []; } catch(e){ return []; } }
+function escribirCopiasTareas(l){ try { if(l.length) localStorage.setItem(CLAVE_COPIA_TAREAS, JSON.stringify(l)); else localStorage.removeItem(CLAVE_COPIA_TAREAS); return true; } catch(e){ return false; } }
 const usuariosSrv = AUTH_SERVER ? crearSincroUsuarios() : null;
 
 async function dbLoad() {
@@ -187,7 +193,10 @@ async function dbSave(value, opcionesSrv) {
     // PATCH /api/datos/main con SOLO las claves cambiadas + versión. El espejo
     // `usuarios` lo mantiene el servidor: nunca sale del navegador.
     const { usuarios: _espejo, ...resto } = value || {};
-    return guardadorMainSrv.guardar(resto, { sinConfig: !!(opcionesSrv && opcionesSrv.sinConfig) });
+    // `leerLocal` (si viene) lee el estado AL ESCRIBIR: un guardado que esperó en la
+    // cola no manda una copia vieja.
+    const local = opcionesSrv && typeof opcionesSrv.leerLocal === "function" ? opcionesSrv.leerLocal : resto;
+    return guardadorMainSrv.guardar(local, { sinConfig: !!(opcionesSrv && opcionesSrv.sinConfig) });
   }
   try {
     // osirisData ya no se guarda en main — tiene su propia fila 'osiris'
@@ -914,6 +923,42 @@ function CadenaAprobEditor({ u, usuarios, onChange }) {
         <option value="">+ Agregar aprobador…</option>
         {disponibles.map(x=>(<option key={x.email||x.nombre} value={(x.email||"").toLowerCase()}>{x.nombre}{x.cargo?` · ${x.cargo}`:""}</option>))}
       </select>
+    </div>
+  );
+}
+
+// Modo servidor: copia de cambios de Tareas que quedaron sin guardar al cerrar sesión.
+// Se descarga (JSON) o se descarta con confirmación; nunca se re-aplica sola.
+function AvisoCopiaTareas({ usuario }) {
+  const [lista, setLista] = useState(() => leerCopiasTareas());
+  const mias = lista.filter(c => usuario && c.usuario === usuario);
+  if (!mias.length) return null;
+  const descargar = (c) => {
+    try {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(c, null, 2)], { type: "application/json" }));
+      const a = document.createElement("a"); a.href = url; a.download = `tareas-sin-guardar-${c.ts.slice(0,19).replace(/[:T]/g,"-")}.json`;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {}
+  };
+  const descartar = (c) => {
+    if (!window.confirm("¿Descartar esta copia? Los cambios que contiene no se guardaron en el servidor y no se podrán recuperar.")) return;
+    const resto = leerCopiasTareas().filter(x => x.id !== c.id);
+    escribirCopiasTareas(resto); setLista(resto);
+    try { window.auditLog && window.auditLog("descartar_copia_tareas", { modulo:"tareas", seccion:"persistencia",
+      descripcion:`Descartó la copia local de cambios de Tareas sin guardar (${c.ts}, ${c.motivo})`, registroId:c.id }); } catch (e) {}
+  };
+  return (
+    <div role="alert" data-aviso-copia-tareas style={{ background:"#fef2f2", border:"1px solid #dc2626", color:"#7f1d1d",
+      borderRadius:10, padding:"10px 14px", margin:"0 0 12px", fontSize:12, lineHeight:1.45 }}>
+      {mias.map(c => (
+        <div key={c.id} style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+          <span><b>Tareas: cambios NO guardados</b> al cerrar la sesión ({new Date(c.ts).toLocaleString("es-CL")}
+            {c.conflicto ? ", en conflicto con otra persona" : ""}): {Object.keys(c.cambios||{}).join(", ") || "sin detalle"}.
+            Se conservan en este navegador; no se aplican solos.</span>
+          <button onClick={() => descargar(c)} style={{ fontSize:11, padding:"3px 8px", cursor:"pointer" }}>Descargar copia</button>
+          <button onClick={() => descartar(c)} style={{ fontSize:11, padding:"3px 8px", cursor:"pointer" }}>Descartar…</button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -2349,6 +2394,9 @@ export default function App(){
   // Si la fila quedó bloqueada por conflicto, el panel con las dos salidas se pinta y
   // el estado visible queda en "conflicto" (no se auto-limpia: sigue sin guardarse).
   const trasGuardarMain=useCallback((r)=>{
+    // Modo servidor: un guardado reemplazado por otro posterior no confirma nada;
+    // el estado visible lo fija el guardado que sí llega al servidor.
+    if(AUTH_SERVER && r && r.superseded) return r;
     if(r && r.ok===false){
       if(resolucionMainRef.current && resolucionMainRef.current.detectar(r)) return r;
       setGuardado("error"); setTimeout(()=>setGuardado("idle"),3000);
@@ -2709,6 +2757,18 @@ export default function App(){
         if (v.tareasOverrides) setTareasOverrides(prev=>({...prev,...v.tareasOverrides}));
       };
       window._aplicarCamposMainSrv = aplicarSrv;
+      // Tras un 409 fusionable: solo lo que el servidor cambió, sobre el estado ACTUAL
+      // de cada campo (lo editado mientras tanto no se pisa).
+      const SETTERS_MAIN = { estados:setEstados, comentarios:setComentarios, tareasConfig:setTareasConfig,
+        supervisores:setSupervisores, tareasExtra:setTareasExtra, tareasOverrides:setTareasOverrides,
+        recsDone:setRecsDone, recsComentarios:setRecsComentarios, mes:setMes, anio:setAnio };
+      window._aplicarFusionMainSrv = (srv, baseAnt) => {
+        Object.entries(SETTERS_MAIN).forEach(([k, set]) => {
+          const b = (baseAnt || {})[k], sv = (srv || {})[k];
+          if (JSON.stringify(b) === JSON.stringify(sv)) return;
+          set(prev => aplicarCambiosServidor({ [k]: prev }, { [k]: sv }, { [k]: b }, [k])[k]);
+        });
+      };
       const hayCambiosLocales = () => {
         if (guardadorMainSrv.ocupado() || persist.isDirty("main")) return true;
         return Object.keys(diffMain(persist.estado("main").base, localMainSrv(),
@@ -3120,7 +3180,7 @@ export default function App(){
   // Guardar siempre con los valores más recientes (sin stale closure)
   const guardarAhora = useCallback(()=>{
     setGuardado("guardando");
-    return dbSave(payloadMain(), { sinConfig: !puedeConfigSrvRef.current })
+    return dbSave(payloadMain(), { sinConfig: !puedeConfigSrvRef.current, leerLocal: localMainSrv })
     .then(trasGuardarMain)
     .catch((e)=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);return {ok:false,motivo:"red",detalle:String((e&&e.message)||e)};});
   },[trasGuardarMain,payloadMain]); // eslint-disable-line
@@ -3131,7 +3191,7 @@ export default function App(){
   // y lo borraba de la fila.
   const guardar=useCallback(()=>{
     setGuardado("guardando");
-    return dbSave(payloadMain(), { sinConfig: !puedeConfigSrvRef.current })
+    return dbSave(payloadMain(), { sinConfig: !puedeConfigSrvRef.current, leerLocal: localMainSrv })
       .then(trasGuardarMain)
       .catch((e)=>{setGuardado("error");setTimeout(()=>setGuardado("idle"),3000);return {ok:false,motivo:"red",detalle:String((e&&e.message)||e)};});
   },[trasGuardarMain,payloadMain]);
@@ -3194,8 +3254,54 @@ export default function App(){
   // Helper central de logout con auditoría
   // opts.revocar === false: cierre automático por inactividad (no cierra las sesiones de
   // esta persona en otros equipos). "Salir" (sin opts o con un evento) sí las revoca todas.
+  // Modo servidor: ¿quedan cambios de Tareas sin confirmar o en conflicto?
+  function tareasPendientesSrv(){
+    if(!AUTH_SERVER || !cargaOkRef.current) return null;
+    const conflicto = !!guardadorMainSrv.conflictoPendiente();
+    const cambios = diffMain(persist.estado("main").base, localMainSrv(),
+      puedeConfigSrvRef.current ? CLAVES_MAIN : CLAVES_MAIN.filter(k=>!CLAVES_CONFIG_MAIN.includes(k)));
+    // Un campo ausente en el servidor y vacío en la pantalla no es un cambio pendiente.
+    const vacio = (x)=> x==null || (typeof x==="object" && Object.keys(x).length===0);
+    const base = persist.estado("main").base || {};
+    Object.keys(cambios).forEach(k=>{ if(vacio(base[k]) && vacio(cambios[k])) delete cambios[k]; });
+    const sucio = conflicto || guardadorMainSrv.ocupado() || persist.isDirty("main") || Object.keys(cambios).length>0;
+    return sucio ? { conflicto, cambios } : null;
+  }
+  function guardarCopiaTareasSrv(p, motivo){
+    const u = usuarioActual && usuarioActual.nombre;
+    const copia = { id:`ct-${Date.now().toString(36)}`, usuario:u||"", ts:new Date().toISOString(), motivo,
+      conflicto:p.conflicto, versionServidor: persist.estado("main").version || null, cambios:p.cambios };
+    return escribirCopiasTareas([...leerCopiasTareas(), copia]);
+  }
+  // Antes de cerrar la sesión en modo servidor: sin cambios pendientes → sigue. Con
+  // "Salir" se pide confirmación; por inactividad se intenta guardar y, si no se
+  // puede (conflicto, red), se deja una copia en este navegador. Nunca se pierde en
+  // silencio.
+  async function prepararSalidaSrv(revocar){
+    let p = tareasPendientesSrv();
+    if(!p) return true;
+    if(revocar){
+      const txt = p.conflicto
+        ? "Tus cambios de Tareas están en conflicto con los de otra persona y NO se han guardado.\n\nCancela para resolverlo con el panel (\"Recuperar la del servidor\" o \"Conservar la mía\"). Si sales igual, se guardará una copia en este navegador para recuperarla después."
+        : "Tienes cambios de Tareas que el servidor todavía no confirmó.\n\nCancela y espera a que diga \"Guardado\". Si sales igual, se guardará una copia en este navegador para recuperarla después.";
+      if(!window.confirm(txt)) return false;
+    } else if(!p.conflicto) {
+      try { await Promise.race([guardarAhora(), new Promise(r=>setTimeout(r,10000))]); } catch(e){}
+      p = tareasPendientesSrv();
+      if(!p) return true;
+    }
+    const ok = guardarCopiaTareasSrv(p, revocar ? "salir" : "inactividad");
+    if(!revocar){ try{ window.alert(ok
+      ? "Se cerró la sesión por inactividad. Tus cambios de Tareas no se pudieron guardar: quedó una copia en este navegador. Al volver a ingresar podrás descargarla."
+      : "Se cerró la sesión por inactividad. Tus cambios de Tareas no se pudieron guardar y este navegador no permitió dejar una copia."); }catch(e){} }
+    return true;
+  }
   function doLogout(opts) {
     const revocar = !(opts && opts.revocar === false);
+    if(AUTH_SERVER && !(opts && opts._listo)){
+      prepararSalidaSrv(revocar).then(seguir=>{ if(seguir) doLogout({ revocar, _listo:true }); });
+      return;
+    }
     const u = usuarioActual;
     if(u) window.auditLog("logout", {modulo:"sistema", seccion:"autenticación",
       descripcion:`${u.nombre} cerró sesión`});
@@ -3915,6 +4021,7 @@ Equipo Mediterra`);
       {/* Cambios de Créditos que el servidor no confirmó, aunque Finanzas ya se haya
           cerrado (creditosPendientes.js). Persistente: no se cierra desde acá. */}
       <AvisoCreditosPendientes usuario={usuarioActual?.nombre} />
+      {AUTH_SERVER && <AvisoCopiaTareas usuario={usuarioActual?.nombre} />}
       {Object.keys(conflictos).map(rowId=>(
         <PanelConflictoFila key={rowId} conflicto={conflictos[rowId]}
           ocupado={resolviendoConflicto}

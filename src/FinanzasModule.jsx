@@ -22,6 +22,7 @@ import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya inst
 import { uploadDocNomina, urlFirmadaNomina, dbLoadGeneric } from './friskuHelpers';
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
 import { USE_GUARD, pollRow } from './guardClient';
+import { AUTH_SERVER } from './authServidor';
 import { persist, construirAvisoDesde } from './persistencia/instancia.js';
 import { planGuardado, guardarFila, fusionarNominas, resumirGuardado, iguales as igualesNom } from './nominasPersistencia.js';
 import AvisoPersistencia from './AvisoPersistencia.jsx';
@@ -14041,6 +14042,34 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         if(dec.apply) applyData(dec.value);
       });
       return () => stop();
+    }
+
+    // Modo servidor (authServidor.js): sin WebSocket anónimo. El canal de realtime
+    // entrega los cambios de TODA la tabla (incluidas pins/usuarios/main) a quien se
+    // suscribe con la llave pública; este modo no se suscribe. Se sondea solo la fila
+    // `finanzas`: primero su versión (liviano) y la fila completa solo si cambió.
+    if (AUTH_SERVER) {
+      let vivo = true;
+      const hdr = { apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}`, "Cache-Control":"no-cache" };
+      const tick = async () => {
+        if(!vivo || activeRowRef.current!=="finanzas") return;
+        try {
+          const rv = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.finanzas&select=updated_at`, { headers:hdr, cache:"no-store" });
+          if(!rv.ok) return;
+          const ver = (await rv.json())?.[0]?.updated_at || null;
+          if(!ver || ver === persist.estado("finanzas").version) return;
+          const rf = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.finanzas&select=value,updated_at`, { headers:hdr, cache:"no-store" });
+          if(!rf.ok || !vivo || activeRowRef.current!=="finanzas") return;
+          const row = (await rf.json())?.[0];
+          if(!row || !row.value) return;
+          const d = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+          // F0-B: reconcileIncoming protege la edición local sin confirmar.
+          const dec = persist.reconcileIncoming("finanzas", d, row.updated_at || null);
+          if(dec.apply) applyData(dec.value);
+        } catch(err) { /* red: se reintenta en el próximo ciclo */ }
+      };
+      const iv = setInterval(tick, 30000);
+      return () => { vivo = false; clearInterval(iv); };
     }
 
     // ── Supabase Realtime — sincronización instantánea entre usuarios ──

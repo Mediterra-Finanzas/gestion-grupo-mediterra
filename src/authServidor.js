@@ -144,10 +144,15 @@ export function diffMain(base, local, claves = CLAVES_MAIN) {
   return patch;
 }
 
+// Claves de vista (mes/año que se está mirando): no son trabajo de nadie, así que
+// gana la última escritura y nunca abren un conflicto.
+export const CLAVES_VISTA_MAIN = ["mes", "anio"];
+
 // Fusión a tres bandas tras un 409. Para claves objeto se compara por sub-clave
 // (p. ej. cada estado de tarea); para el resto, la clave completa. Lo que cambié
 // yo y el servidor no tocó → gana lo mío. Lo que cambiaron los dos distinto →
-// CONFLICTO y se conserva lo del servidor (nunca se pisa trabajo ajeno).
+// CONFLICTO: el guardador NO escribe ni descarta nada y deja la fila en conflicto
+// pendiente (ver crearGuardadorMain).
 export function fusionarMain(base, local, servidor, claves = CLAVES_MAIN) {
   const b = base || {}, l = local || {}, s = servidor || {};
   const valor = { ...s };
@@ -155,6 +160,7 @@ export function fusionarMain(base, local, servidor, claves = CLAVES_MAIN) {
   for (const k of claves) {
     if (!Object.prototype.hasOwnProperty.call(l, k) || l[k] === undefined) continue;
     if (igual(b[k], l[k])) continue; // no lo cambié yo
+    if (CLAVES_VISTA_MAIN.includes(k)) { valor[k] = l[k]; continue; }
     if (igual(s[k], l[k])) continue; // el servidor ya tiene lo mío
     if (igual(b[k], s[k])) { valor[k] = l[k]; continue; } // solo lo cambié yo
     if (esObj(l[k]) && esObj(s[k]) && (b[k] === undefined || esObj(b[k]))) {
@@ -176,6 +182,29 @@ export function fusionarMain(base, local, servidor, claves = CLAVES_MAIN) {
     conflictos.push(k);
   }
   return { valor, conflictos };
+}
+
+// Aplica sobre `actual` (la pantalla) solo lo que el servidor cambió desde
+// `baseAnterior`, y solo donde la pantalla sigue como en esa base (lo editado
+// después no se toca). Claves objeto por sub-clave; el resto, la clave completa.
+export function aplicarCambiosServidor(actual, servidor, baseAnterior, claves = CLAVES_MAIN) {
+  const a = actual || {}, s = servidor || {}, b = baseAnterior || {};
+  const out = { ...a };
+  for (const k of claves) {
+    if (igual(b[k], s[k])) continue;
+    if (esObj(s[k]) && (b[k] === undefined || esObj(b[k])) && (a[k] === undefined || esObj(a[k]))) {
+      const bk = b[k] || {}, sk = s[k], ak = { ...(a[k] || {}) };
+      for (const sub of new Set([...Object.keys(bk), ...Object.keys(sk)])) {
+        if (igual(bk[sub], sk[sub])) continue;
+        if (!igual(ak[sub], bk[sub])) continue; // editado en la pantalla después
+        if (sk[sub] === undefined) delete ak[sub]; else ak[sub] = sk[sub];
+      }
+      out[k] = ak;
+      continue;
+    }
+    if (igual(a[k], b[k])) out[k] = s[k];
+  }
+  return out;
 }
 
 // Usuario → solo los campos del contrato (nunca pin/_h/_tel).
@@ -208,15 +237,22 @@ export function crearGuardadorMain({ cliente = servidor, persist, id = "main", a
   const bloqueado = () => ({ ok: false, motivo: "conflicto_pendiente", conflictoPendiente: true,
     conflictos: pendiente.conflictos, version: pendiente.version, valorServidor: pendiente.valorServidor });
 
-  async function unaVez(local, opts) {
+  // `localDe` puede ser un valor o una función: con función, el estado local se lee
+  // RECIÉN al escribir (un guardado que esperó en la cola no envía una copia vieja).
+  async function unaVez(localDe, opts) {
     const est = persist.estado(id);
     if (!est.cargaOk) return { ok: false, motivo: "sin_carga" };
     if (pendiente) { persist.marcarSucio(id); return bloqueado(); }
+    let local = typeof localDe === "function" ? localDe() : localDe;
     const claves = opts.sinConfig ? CLAVES_MAIN.filter((k) => !CLAVES_CONFIG_MAIN.includes(k)) : CLAVES_MAIN;
+    // Cambios de configuración que esta sesión no puede enviar: no se pierden en
+    // silencio, se informa que quedaron sin guardar.
+    const configNoEnviada = !!opts.sinConfig && Object.keys(diffMain(est.base || {}, local, CLAVES_CONFIG_MAIN)).length > 0;
+    const conAviso = (r) => (configNoEnviada && r && r.ok ? { ...r, sinPermisoConfig: true } : r);
     let base = est.base || {};
     let version = est.version || null;
     let patch = diffMain(base, local, claves);
-    if (Object.keys(patch).length === 0) return { ok: true, sinCambios: true };
+    if (Object.keys(patch).length === 0) { persist.marcarLimpio(id); return conAviso({ ok: true, sinCambios: true }); }
     persist.marcarSucio(id);
     let fusionado = false, conflictos = [];
     for (let intento = 0; intento < 3; intento++) {
@@ -224,7 +260,7 @@ export function crearGuardadorMain({ cliente = servidor, persist, id = "main", a
         const r = await cliente.patchMain(patch, version);
         const nuevaBase = { ...base, ...patch };
         persist.registrarCarga(id, nuevaBase, r.version || null, "object");
-        return { ok: true, version: r.version, fusionado, conflictos };
+        return conAviso({ ok: true, version: r.version, fusionado, conflictos });
       } catch (e) {
         if (e && e.codigo === "conflicto") {
           const fresco = await cliente.leerMain();
@@ -239,11 +275,14 @@ export function crearGuardadorMain({ cliente = servidor, persist, id = "main", a
           }
           conflictos = conflictos.concat(f.conflictos);
           fusionado = true;
+          const baseAnterior = base;
           base = fresco.valor || {};
           version = fresco.version || null;
           persist.registrarCarga(id, base, version, "object");
           persist.marcarSucio(id);
-          if (alFusionar) { try { alFusionar(f.valor); } catch (_) {} }
+          // A la pantalla va SOLO lo que cambió el servidor (base anterior → servidor),
+          // nunca la fusión completa: así no se pisa lo que se editó mientras tanto.
+          if (alFusionar) { try { alFusionar(base, baseAnterior); } catch (_) {} }
           local = f.valor;
           patch = diffMain(base, local, claves);
           if (Object.keys(patch).length === 0) { persist.marcarLimpio(id); return { ok: true, fusionado, conflictos }; }
@@ -257,7 +296,7 @@ export function crearGuardadorMain({ cliente = servidor, persist, id = "main", a
         return { ok: false, motivo: motivoDe(e), status: e && e.status, codigo: e && e.codigo };
       }
     }
-    return { ok: false, motivo: "reintentos" };
+    return { ok: false, motivo: "reintentos_agotados" };
   }
 
   // Salida (a): trae lo vigente del servidor y DESCARTA lo local.
@@ -295,6 +334,8 @@ export function crearGuardadorMain({ cliente = servidor, persist, id = "main", a
     const mio = ++gen;
     enVuelo++;
     const corrida = cadena.then(async () => {
+      // Reemplazado por un guardado posterior: NO es una confirmación (el que sigue
+      // informa el resultado real).
       if (mio !== gen) return { ok: true, superseded: true };
       try { return await unaVez(local, opts); }
       catch (e) { return { ok: false, motivo: "red", detalle: String((e && e.message) || e) }; }

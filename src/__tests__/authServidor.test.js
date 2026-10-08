@@ -1,6 +1,6 @@
 /* eslint-disable */
 import {
-  crearClienteServidor, ErrorServidor, diffMain, fusionarMain, sanearUsuarios,
+  crearClienteServidor, ErrorServidor, diffMain, fusionarMain, sanearUsuarios, aplicarCambiosServidor,
   mensajeErrorLogin, crearGuardadorMain, crearSincroUsuarios,
 } from "../authServidor";
 import { crearPersistencia } from "../persistencia/persistContract";
@@ -72,7 +72,7 @@ describe("guardador de main", () => {
       },
       leerMain: async () => ({ valor: { estados: { a: "g", b: "r" } }, version: "v2" }),
     };
-    const g = crearGuardadorMain({ cliente, persist, alFusionar: (v) => { aplicado = v; } });
+    const g = crearGuardadorMain({ cliente, persist, alFusionar: (srv, baseAnt) => { aplicado = aplicarCambiosServidor({ estados: { a: "v", b: "g" } }, srv, baseAnt); } });
     const r = await g.guardar({ estados: { a: "v", b: "g" }, usuarios: undefined });
     expect(r.ok).toBe(true);
     expect(r.conflictos).toEqual([]);
@@ -174,6 +174,47 @@ describe("guardador de main: conflicto pendiente (mismo contrato que main)", () 
     const r = await g3.comoPersist().recuperarDelServidor("main");
     expect(r).toMatchObject({ ok: false, motivo: "red" });
     expect(g3.conflictoPendiente()).not.toBe(null);
+  });
+});
+
+describe("guardador de main: correcciones de la revisión", () => {
+  function persistFalso() { return crearPersistencia({ fetch: async () => { throw new Error("no debe usarse"); }, logger: { info() {}, warn() {}, error() {} } }); }
+  test("aplicarCambiosServidor: solo lo que cambió el servidor y no lo editado después", () => {
+    const base = { comentarios: { x: 1, y: 1 }, estados: { a: "g" } };
+    const srv  = { comentarios: { x: 1, y: 2 }, estados: { a: "g" } };
+    const pantalla = { comentarios: { x: 1, y: 1, z: 9 }, estados: { a: "v" } }; // z y a editados después
+    expect(aplicarCambiosServidor(pantalla, srv, base)).toEqual({ comentarios: { x: 1, y: 2, z: 9 }, estados: { a: "v" } });
+    // si la pantalla ya cambió la misma sub-clave, no se pisa
+    expect(aplicarCambiosServidor({ comentarios: { y: 5 } }, srv, base).comentarios.y).toBe(5);
+  });
+  test("mes/anio: gana la última escritura, nunca abren conflicto", () => {
+    const f = fusionarMain({ mes: 1, anio: 2026 }, { mes: 3, anio: 2026 }, { mes: 5, anio: 2026 });
+    expect(f.conflictos).toEqual([]);
+    expect(f.valor.mes).toBe(3);
+  });
+  test("sin cambios efectivos deja la fila limpia; cambios de config no enviados se informan", async () => {
+    const persist = persistFalso();
+    persist.registrarCarga("main", { estados: {}, tareasConfig: {} }, "v1", "object");
+    persist.marcarSucio("main");
+    const cliente = { patchMain: async () => ({ version: "v2" }) };
+    const g = crearGuardadorMain({ cliente, persist });
+    const r = await g.guardar({ estados: {}, tareasConfig: {} });
+    expect(r.sinCambios).toBe(true);
+    expect(persist.isDirty("main")).toBe(false);
+    const r2 = await g.guardar({ estados: {}, tareasConfig: { t: 1 } }, { sinConfig: true });
+    expect(r2).toMatchObject({ ok: true, sinPermisoConfig: true });
+  });
+  test("con una función, el estado local se lee al escribir (no la copia de la cola)", async () => {
+    const persist = persistFalso();
+    persist.registrarCarga("main", { comentarios: {} }, "v1", "object");
+    const patches = [];
+    const cliente = { patchMain: async (patch, version) => { patches.push(patch); return { version: version + "x" }; } };
+    const g = crearGuardadorMain({ cliente, persist });
+    let estado = { comentarios: { a: 1 } };
+    const p = g.guardar(() => estado);
+    estado = { comentarios: { a: 1, b: 2 } };
+    await p;
+    expect(patches[0]).toEqual({ comentarios: { a: 1, b: 2 } });
   });
 });
 
