@@ -24,10 +24,23 @@ otro módulo o fila.
 
 ---
 
-## 2 · Comprobar qué versión está corriendo tu pestaña (solo lectura)
+## 2 · Comprobar que corre la versión correcta (solo lectura)
 
-En la app abierta, consola del navegador. Hace un GET de un archivo estático y
-no escribe nada:
+Dos pruebas, y hacen falta las dos:
+
+1. **El deployment de producción asociado al SHA.** Vercel → proyecto
+   `gestion-grupo-mediterra` → Deployments: el último con la etiqueta
+   **Production**, estado **Ready** y como commit **el SHA final que Claude
+   informó antes del push** (el último de `main`). Claude lo confirma también
+   por la API de GitHub. Un deployment de un commit anterior no sirve.
+2. **El marcador de build en la cabecera de Finanzas.** Es un texto chico junto
+   al breadcrumb que **no existe en `3a9d33e`**: si no aparece, la pestaña corre
+   el código anterior → Ctrl+Shift+R. Muestra el SHA si Vercel expone las
+   variables de sistema; si no, el nombre del bundle.
+
+La comparación del bundle cargado contra `asset-manifest.json` **no basta sola**:
+solo prueba que tu pestaña corre lo mismo que publica el servidor, no que eso sea
+el commit nuevo. Sirve como complemento:
 
 ```js
 const m = await (await fetch('/asset-manifest.json', {cache:'no-store'})).json();
@@ -36,9 +49,6 @@ const cargado = [...document.querySelectorAll('script[src]')]
   .map(s => s.src.split('/').pop()).find(n => /^main\./.test(n));
 console.table([{ cargado, servidor, mismo: cargado === servidor }]);
 ```
-
-- `mismo: true` → estás en el código que el servidor publica. Sigue al paso 3.
-- `mismo: false` → tu pestaña corre un bundle viejo. Ctrl+Shift+R y repite.
 
 ---
 
@@ -113,6 +123,22 @@ cerezas:
   (850.000 kg × 0,44).
 - El campo para declarar la sustitución queda habilitado. **No lo toques.** Eso
   es carga comercial y va después de que apruebes su antes/después.
+
+---
+
+## 6 · Saldos bancarios con una sola base (solo lectura)
+
+Finanzas → Saldos Bancos → Allegria Foods: anota el total en US$. Luego Flujo
+Empresas → Allegria Foods: la fila «Saldo Banco (USD)» del mes en curso debe
+mostrar **el mismo número**, y el Excel del botón «📥 Excel» también (celda
+«Saldo inicial caja» del mes en curso; al pie, cuentas, fechas y TC).
+
+- La paridad de hoy aparece aparte, como referencia, con su diferencia por TC.
+- Si alguna cuenta no tiene TC guardado, las tres salidas dicen **INCOMPLETO**
+  y nombran la cuenta y su monto en la moneda original. Ese monto no está en el
+  total.
+- Este paso comprueba la corrección funcional. **No** explica la diferencia
+  histórica de US$142: para eso falta el detalle por cuenta.
 
 ---
 
