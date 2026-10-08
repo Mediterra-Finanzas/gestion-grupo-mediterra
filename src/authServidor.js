@@ -127,9 +127,17 @@ export function mensajeErrorCambioPin(e) {
 }
 
 // ── Utilidades puras ───────────────────────────────────────────────────
+// Serialización con claves ordenadas: la base (jsonb) reordena las claves de los
+// objetos, así que comparar con JSON.stringify daba "distinto" para valores iguales
+// (y un conflicto falso al abrir Tareas en dos sesiones a la vez).
+export function canonico(v) {
+  if (Array.isArray(v)) return `[${v.map(canonico).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonico(v[k])}`).join(",")}}`;
+  return JSON.stringify(v === undefined ? null : v);
+}
 function igual(a, b) {
   if (a === b) return true;
-  try { return JSON.stringify(a) === JSON.stringify(b); } catch (e) { return false; }
+  try { return canonico(a) === canonico(b); } catch (e) { return false; }
 }
 const esObj = (x) => x != null && typeof x === "object" && !Array.isArray(x);
 
@@ -356,12 +364,12 @@ export function crearGuardadorMain({ cliente = servidor, persist, id = "main", a
 export function crearSincroUsuarios({ cliente = servidor } = {}) {
   let base = null;     // JSON saneado de lo último confirmado
   let version = null;
-  function registrar(lista, v) { base = JSON.stringify(sanearUsuarios(lista)); version = v == null ? null : v; }
-  function cambio(lista) { return base !== null && JSON.stringify(sanearUsuarios(lista)) !== base; }
+  function registrar(lista, v) { base = canonico(sanearUsuarios(lista)); version = v == null ? null : v; }
+  function cambio(lista) { return base !== null && canonico(sanearUsuarios(lista)) !== base; }
   async function guardar(lista) {
     if (base === null) return { ok: false, motivo: "sin_carga" };
     const valor = sanearUsuarios(lista);
-    const txt = JSON.stringify(valor);
+    const txt = canonico(valor);
     if (txt === base) return { ok: true, sinCambios: true };
     try {
       const r = await cliente.guardarUsuarios(valor, version);

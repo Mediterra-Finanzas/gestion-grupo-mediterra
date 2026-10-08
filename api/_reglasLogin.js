@@ -376,7 +376,14 @@ function puedeEditarConfig(usuario, esAdmin) {
   return !!(usuario && usuario.tab_permisos && usuario.tab_permisos.tareas &&
     usuario.tab_permisos.tareas.config === "editar");
 }
-function igualJSON(a, b) { return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b); }
+// Claves ordenadas: jsonb reordena las claves, y un valor idéntico enviado por el
+// navegador en otro orden no debe tratarse como cambio de configuración.
+function canonicoJSON(v) {
+  if (Array.isArray(v)) return `[${v.map(canonicoJSON).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonicoJSON(v[k])}`).join(",")}}`;
+  return JSON.stringify(v === undefined ? null : v);
+}
+function igualJSON(a, b) { return canonicoJSON(a) === canonicoJSON(b); }
 // Aplica un patch a `main`. Claves de configuración: solo con permiso, salvo que el
 // valor enviado sea idéntico al guardado (el navegador manda el estado completo).
 //  → { ok:true, valor } | { ok:false, status, error }

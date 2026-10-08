@@ -205,6 +205,10 @@ console.log("Recuperación, padrón y main:");
   const actual = { estados: { a: 1 }, tareasConfig: { t: 1 }, pinsPersonalizados: { x: 1 } };
   eq(R.aplicarPatchMain(actual, { tareasConfig: { t: 2 } }, { puedeConfig: false }).error, "sin_permiso", "config sin permiso → 403");
   ok(R.aplicarPatchMain(actual, { tareasConfig: { t: 1 }, estados: { a: 2 } }, { puedeConfig: false }).ok, "config idéntica sin permiso → se acepta (no cambia)");
+  {
+    const act2 = { tareasConfig: { t: { a: 1, b: 2 } } };
+    ok(R.aplicarPatchMain(act2, { tareasConfig: { t: { b: 2, a: 1 } } }, { puedeConfig: false }).ok, "config idéntica en otro orden de claves (jsonb) sin permiso → se acepta");
+  }
   ok(R.aplicarPatchMain(actual, { tareasConfig: { t: 2 } }, { puedeConfig: true }).ok, "config con permiso → ok");
   eq(R.aplicarPatchMain(actual, { usuarios: [] }, { puedeConfig: true }).error, "campos_no_permitidos", "patch de usuarios en main → rechazado");
   eq(Object.keys(R.mainParaCliente({ ...actual, usuarios: [] })).sort(), ["estados", "tareasConfig"], "main al cliente sin pinsPersonalizados ni usuarios");

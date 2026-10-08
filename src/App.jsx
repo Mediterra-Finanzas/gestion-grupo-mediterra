@@ -2495,6 +2495,10 @@ export default function App(){
                 // en sin_acceso), las pestañas nuevas se inicializan bloqueadas para no
                 // filtrarle acceso al agregar pestañas a futuro (preserva el fix de Reporte).
                 let defNivel = "editar";
+                // Modo servidor: la configuración de Tareas solo se edita con permiso
+                // EXPLÍCITO (regla del servidor, api/_reglasLogin.js puedeEditarConfig);
+                // sin definir, la pantalla la muestra en solo lectura igual que el servidor.
+                const defConfigTareas = AUTH_SERVER && mod === "tareas" ? "ver" : null;
                 if(mod === "finanzas"){
                   const tp = merged_u.tab_permisos.finanzas || {};
                   const core = ["dashboard","flujo","bancos","creditos","nominas","params","auditoria","eeff"];
@@ -2503,7 +2507,7 @@ export default function App(){
                 }
                 tabsDef.forEach(t=>{
                   if(merged_u.tab_permisos[mod] && merged_u.tab_permisos[mod][t.id] === undefined) {
-                    merged_u.tab_permisos[mod][t.id] = defNivel;
+                    merged_u.tab_permisos[mod][t.id] = (defConfigTareas && t.id==="config") ? defConfigTareas : defNivel;
                   }
                 });
               });

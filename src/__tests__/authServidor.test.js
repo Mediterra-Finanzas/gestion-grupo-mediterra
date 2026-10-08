@@ -187,6 +187,11 @@ describe("guardador de main: correcciones de la revisión", () => {
     // si la pantalla ya cambió la misma sub-clave, no se pisa
     expect(aplicarCambiosServidor({ comentarios: { y: 5 } }, srv, base).comentarios.y).toBe(5);
   });
+  test("el orden de las claves (jsonb) no produce un conflicto falso", () => {
+    const local = { estados: { x: { estadoResp: "gris", estadoSup: "gris", aprobado: false } } };
+    const serv  = { estados: { x: { aprobado: false, estadoSup: "gris", estadoResp: "gris" } } };
+    expect(fusionarMain({}, local, serv).conflictos).toEqual([]);
+  });
   test("mes/anio: gana la última escritura, nunca abren conflicto", () => {
     const f = fusionarMain({ mes: 1, anio: 2026 }, { mes: 3, anio: 2026 }, { mes: 5, anio: 2026 });
     expect(f.conflictos).toEqual([]);
