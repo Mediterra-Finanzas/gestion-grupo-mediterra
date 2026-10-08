@@ -936,19 +936,34 @@ describe("Barrido · ninguna ruta de escritura evita las guardas", () => {
     expect((texto.match(/res\.contrato\.reajusteActivacion/g) || []).length).toBe(2);
   });
 
-  test("la configuración antigua solo se escribe desde upAntigua", () => {
+  test("la configuración antigua y la base solo se escriben desde upProtegido", () => {
     // En la ficha. El alta usa `setF`, que escribe un formulario local: ahí
     // no hay registro de activación por definición.
+    const campos = /"royaltyInflacion"|"rcInflacionPct"|"valorRoyaltyComercial"/;
     const w = lineas
       .map((l, i) => ({ n: i + 1, l }))
-      .filter(({ l }) => /"royaltyInflacion"|"rcInflacionPct"/.test(l) && !/^\s*\/\//.test(l));
+      .filter(({ l }) => campos.test(l) && !/^\s*\/\//.test(l));
+    expect(w.length).toBeGreaterThan(0);
     w.forEach(({ l }) => {
       const esAlta = /setF\(/.test(l) || /campo="/.test(l);
-      const esGuardada = /upAntigua\(/.test(l) || /const upAntigua=/.test(l);
+      const esGuardada = /upProtegido\(/.test(l) || /const upProtegido=/.test(l) ||
+        /const MOT_(ANTIGUA|BASE)=/.test(l);
       expect(esAlta || esGuardada).toBe(true);
     });
-    expect(src).toMatch(/const upAntigua=\(r,campo,val\)=>\{ if\(!can\) return;/);
-    expect(src).toMatch(/if\(hayRegistroDeActivacion\(r\)\)\{/);
+    expect(src).toMatch(/const upProtegido=\(r,campo,val,motivo\)=>\{ if\(!can\) return;/);
+    expect(src).toMatch(/if\(hayRegistroDeActivacion\(r\)\)\{ window\.alert\(motivo\); return; \}/);
+  });
+
+  test("las guardas miran si el registro EXISTE, no si está vigente", () => {
+    // Mirar la vigencia dejaba abierto desactivar → editar → reactivar como
+    // vía de modificación económica, que no está autorizada.
+    expect(src).toMatch(/const hayRegistro = hayRegistroDeActivacion\(r\);/);
+    expect(src).not.toMatch(/const hayRegistro = hayRegistroVigente\(r\);/);
+    // Y la base por hectárea se bloquea con el mismo criterio.
+    const lineaBase = lineas.find((l) => l.indexOf("valorRoyaltyComercial") >= 0 &&
+      l.indexOf("upProtegido(") >= 0);
+    expect(lineaBase).toBeTruthy();
+    expect(lineaBase.indexOf("can={can&&!hayRegistroDeActivacion(r)}")).toBeGreaterThan(-1);
   });
 
   test("los tres helpers con guarda siguen siendo de una sola línea", () => {
