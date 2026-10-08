@@ -5,7 +5,7 @@ import {
   antAcordado, antRealizado, antPendiente, antDescuentoLiq,
   resumenAnticipos, agregarRealizacion, anularRealizacion,
   puedeBorrarAnticipo, normalizarAnticipo,
-  clasificarRealizacionVsSaldos, conciliacionRealizaciones,
+  clasificarRealizacionVsSaldos, conciliacionRealizaciones, nuevoIdAnticipo,
 } from './anticipos.js';
 
 let fallos = 0;
@@ -124,8 +124,15 @@ const ant = (usd_kg, reas = [], cerrado = false) =>
 
 // ── (10) Trazabilidad: alta, anulación y borrado protegido ───────
 {
-  let a = normalizarAnticipo({ mes:"Oct-26", usd_kg:0.10 });
-  check("(10) normalizar: crea id",           !!a.id);
+  // Normalizar NO acuña identidad: corre en cada render y en cada cálculo, así
+  // que un id nuevo por pasada dejaba sin destino a las sustituciones
+  // declaradas contra la fila (y el mismo dinero se proyectaba dos veces).
+  // La identidad se asigna al CREAR, o una sola vez con `normalizarIdentidades`.
+  check("(10) normalizar: NO inventa id",     normalizarAnticipo({ mes:"Oct-26" }).id === "");
+  check("(10) normalizar: id estable entre pasadas",
+        normalizarAnticipo(normalizarAnticipo({ mes:"Oct-26", id:"ant_1" })).id === "ant_1");
+  let a = normalizarAnticipo({ id: nuevoIdAnticipo(), mes:"Oct-26", usd_kg:0.10 });
+  check("(10) al crear: lleva id",            !!a.id);
   check("(10) borrable sin realizaciones",    puedeBorrarAnticipo(a));
   a = agregarRealizacion(a, { fecha:"2026-09-18", usd:60000, nota:"Transf. BICE", usuario:"angelo" });
   check("(10) alta: realizado 60.000",        aprox(antRealizado(a), 60000));

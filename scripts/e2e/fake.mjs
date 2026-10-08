@@ -11,6 +11,13 @@
      PATCH ?id=eq.X&updated_at=eq.V  (return=representation)
               → [] si la versión no coincide (conflicto), si no la fila escrita
      POST  (merge-duplicates, return=representation) → fila creada/actualizada
+   Por defecto se comporta como PRODUCCIÓN HOY: no existe la función
+   nominas_guardar (404, como PostgREST) ni el trigger que exige versión. La app
+   guarda nóminas con PATCH condicionado a updated_at y POST sin merge-duplicates.
+   Con `store.__propuestaNominas = true` emula además la propuesta NO aplicada
+   (supabase/propuesta_nominas_version_obligatoria.sql): la función (PARTE 1) y la
+   regla del trigger (PARTE 2), que rechaza con 400 la escritura directa de una
+   fila nominas_<empresa> o de la fila antigua `nominas`.
    ───────────────────────────────────────────────────────────────────────── */
 import fs from 'fs';
 
@@ -42,6 +49,12 @@ export function nuevoStore() {
   };
 }
 
+// Igual que public.nominas_fila_protegida (PARTE 1 de la propuesta SQL).
+export function filaNominaProtegida(id) {
+  return typeof id === 'string' && id.startsWith('nominas_')
+    && !['nominas_v2_done', 'nominas_tipos_doc', 'nominas_correlativos'].includes(id) && !id.startsWith('nominas_respaldo');
+}
+
 export function leerFila(store, id) {
   const f = store[id];
   if (!f) return null;
@@ -56,28 +69,94 @@ export async function instalarFake(context, store, log = () => {}) {
     const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json',
       headers: { 'content-range': '0-0/1', 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
 
+    let body = null;
+    try { body = JSON.parse(req.postData() || 'null'); } catch (_) {}
+    const registrar = (rid, m) => { (store.__escrituras = store.__escrituras || []).push({ metodo: m || metodo, id: rid }); };
+    const error400 = (message) => route.fulfill({ status: 400, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
+      body: JSON.stringify({ code: 'P0001', details: null, hint: null, message }) });
+    // Interceptor opcional por prueba: (metodo, id, body) → null (seguir) |
+    // 'red' (sin respuesta) | { status, body } (respuesta de error simulada) |
+    // 'perdida' (el servidor APLICA la escritura pero la respuesta no llega).
+    // La llamada a nominas_guardar se le presenta como PATCH (con versión) o POST (creación).
+    const interceptar = (m, rid) => {
+      if (store.__interceptar) {
+        const x = store.__interceptar(m, rid, body);
+        if (x === 'perdida') return { perder: true };
+        if (x === 'red') { log(`${m} ${rid} → SIN RED (simulado)`); return { respuesta: route.abort('failed') }; }
+        if (x) { log(`${m} ${rid} → HTTP ${x.status} (simulado)`); return { respuesta: route.fulfill({ status: x.status, contentType: 'application/json',
+          headers: { 'access-control-allow-origin': '*' }, body: typeof x.body === 'string' ? x.body : JSON.stringify(x.body || {}) }) }; }
+      }
+      if (store.__fallarEscrituras) {
+        log(`${m} ${rid} → RECHAZADO (simulado)`);
+        return { respuesta: route.fulfill({ status: 500, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"message":"fallo simulado"}' }) };
+      }
+      return {};
+    };
+
+    if (url.pathname === '/rest/v1/rpc/nominas_guardar' && metodo === 'POST' && !store.__propuestaNominas) {
+      (store.__llamadasRpcInexistente = store.__llamadasRpcInexistente || []).push(body && body.p_id);
+      log('POST  rpc/nominas_guardar → 404 (la función no existe, como en producción)');
+      return route.fulfill({ status: 404, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
+        body: '{"code":"PGRST202","message":"Could not find the function public.nominas_guardar"}' });
+    }
+    if (url.pathname === '/rest/v1/rpc/nominas_guardar' && metodo === 'POST') {
+      const rid = body && body.p_id, ver = (body && body.p_version_leida) || null;
+      const mEq = ver ? 'PATCH' : 'POST';
+      const ic = interceptar(mEq, rid);
+      if (ic.respuesta) return ic.respuesta;
+      if (!filaNominaProtegida(rid)) return error400(`MEDITERRA_NOMINAS_FILA_NO_VALIDA: "${rid}" no es una fila de nóminas por empresa`);
+      let contenido = null;
+      try { contenido = typeof body.p_value === 'string' ? JSON.parse(body.p_value) : null; } catch (_) {}
+      if (!contenido || !Array.isArray(contenido.nominas)) return error400('MEDITERRA_NOMINAS_FORMATO: el valor debe ser el texto JSON de la fila');
+      let r;
+      if (!ver) {
+        if (store[rid]) r = { resultado: 'existe' };
+        else { const v = new Date().toISOString(); store[rid] = { value: body.p_value, updated_at: v }; registrar(rid, mEq); r = { resultado: 'ok', version: v }; }
+      } else {
+        const f = store[rid];
+        if (!f) r = { resultado: 'no_existe' };
+        else if (f.updated_at !== ver) r = { resultado: 'conflicto', version_actual: f.updated_at };
+        else {
+          const v = new Date(Math.max(Date.now(), new Date(ver).getTime() + 1)).toISOString();
+          f.value = body.p_value; f.updated_at = v; registrar(rid, mEq); r = { resultado: 'ok', version: v };
+        }
+      }
+      log(`RPC nominas_guardar ${rid} (${ver ? 'con versión' : 'crear'}) → ${r.resultado}`);
+      if (ic.perder && r.resultado === 'ok') { log(`RPC ${rid} → respuesta PERDIDA (simulado)`); return route.abort('failed'); }
+      return json(r);
+    }
+
     if (!url.pathname.startsWith('/rest/v1/calendario_data')) return json({});
 
     const idm = /id=eq\.([^&]+)/.exec(url.search);
     const id = idm ? decodeURIComponent(idm[1]) : null;
     const verm = /updated_at=eq\.([^&]+)/.exec(url.search);
     const version = verm ? decodeURIComponent(verm[1]) : null;
-    let body = null;
-    try { body = JSON.parse(req.postData() || 'null'); } catch (_) {}
 
+    // Lecturas fallidas simuladas por fila: (id) → null | 'red' | { status, body }.
+    if (store.__interceptarLectura && metodo === 'GET') {
+      const x = store.__interceptarLectura(id);
+      if (x === 'red') return route.abort('failed');
+      if (x) return route.fulfill({ status: x.status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(x.body || {}) });
+    }
     if (metodo === 'GET') {
       const f = id ? store[id] : null;
       log(`GET   ${id} → ${f ? 'fila' : 'vacío'}`);
       return json(f ? [{ id, value: f.value, updated_at: f.updated_at }] : []);
     }
 
-    // Interruptor de prueba: simular que el servidor rechaza las escrituras
-    // (para verificar que un guardado fallido no pierde ni marca nada).
-    if (store.__fallarEscrituras && metodo !== 'GET') {
-      log(`${metodo} ${id} → RECHAZADO (simulado)`);
-      return route.fulfill({ status: 500, contentType: 'application/json',
-        headers: { 'access-control-allow-origin': '*' }, body: '{"message":"fallo simulado"}' });
+    // Regla del trigger (PARTE 2): sin pasar por nominas_guardar no se escribe una fila de nóminas.
+    const ridDirecto = id || (body && !Array.isArray(body) && body.id) || (Array.isArray(body) && body[0] && body[0].id) || null;
+    if (store.__propuestaNominas && (filaNominaProtegida(ridDirecto) || ridDirecto === 'nominas')) {
+      (store.__rechazosTrigger = store.__rechazosTrigger || []).push({ metodo, id: ridDirecto });
+      log(`${metodo} ${ridDirecto} → 400 SIN VERSIÓN (regla del trigger)`);
+      return error400(ridDirecto === 'nominas'
+        ? 'MEDITERRA_NOMINAS_LEGADO: la fila antigua "nominas" es de solo lectura. Recarga la página.'
+        : `MEDITERRA_NOMINAS_SIN_VERSION: "${ridDirecto}" solo se guarda indicando la versión leída. Tu página tiene una versión antigua de la app: recárgala.`);
     }
+    const ic = interceptar(metodo, ridDirecto);
+    if (ic.respuesta) return ic.respuesta;
+    const perderRespuesta = !!ic.perder;
 
     if (metodo === 'PATCH') {
       const f = id ? store[id] : null;
@@ -85,22 +164,47 @@ export async function instalarFake(context, store, log = () => {}) {
       if (version && f.updated_at !== version) { log(`PATCH ${id} → CONFLICTO`); return json([]); }
       f.value = body?.value !== undefined ? body.value : f.value;
       f.updated_at = body?.updated_at || new Date().toISOString();
+      registrar(id);
       log(`PATCH ${id} ← guardado`);
+      if (perderRespuesta) { log(`PATCH ${id} → respuesta PERDIDA (simulado)`); return route.abort('failed'); }
       return json([{ id, value: f.value, updated_at: f.updated_at }]);
     }
 
     if (metodo === 'POST' || metodo === 'PUT') {
       const filas = Array.isArray(body) ? body : body ? [body] : [];
+      // Como PostgREST: sin "resolution=merge-duplicates", insertar una fila que ya
+      // existe es un error de clave duplicada (409).
+      const prefer = String(req.headers()['prefer'] || '');
+      if (metodo === 'POST' && !/merge-duplicates|ignore-duplicates/.test(prefer) && filas.some(fl => store[fl.id || id])) {
+        log(`POST ${filas.map(fl => fl.id).join(',')} → 409 ya existe`);
+        return route.fulfill({ status: 409, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"code":"23505","message":"duplicate key value violates unique constraint"}' });
+      }
       const out = filas.map(fl => {
         const rid = fl.id || id;
         const updated_at = fl.updated_at || new Date().toISOString();
         store[rid] = { value: fl.value, updated_at };
+        registrar(rid);
         log(`${metodo}  ${rid} ← guardado`);
         return { id: rid, value: fl.value, updated_at };
       });
+      if (perderRespuesta) return route.abort('failed');
       return json(out, 201);
     }
     return json([]);
+  });
+
+  // El tiempo real de Supabase (WebSocket) apunta a PRODUCCIÓN y context.route
+  // no intercepta WebSockets: se reemplaza por un socket inerte en la página.
+  await context.addInitScript(() => {
+    const WSReal = window.WebSocket;
+    window.WebSocket = function (url, prot) {
+      if (String(url).includes('bywovqayuzodbzwsriet.supabase.co')) {
+        window.__WS_BLOQUEADOS = (window.__WS_BLOQUEADOS || 0) + 1;
+        return { readyState: 0, url: String(url), send() {}, close() { this.readyState = 3; }, addEventListener() {}, removeEventListener() {} };
+      }
+      return prot !== undefined ? new WSReal(url, prot) : new WSReal(url);
+    };
+    ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach((k, i) => { window.WebSocket[k] = i; });
   });
 
   // Endpoints propios (/api/*) y correo: fuera del alcance de esta prueba.

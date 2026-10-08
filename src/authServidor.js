@@ -35,6 +35,9 @@ export const CLAVES_MAIN = ["estados", "comentarios", "recsDone", "recsComentari
   "tareasConfig", "supervisores", "tareasExtra", "tareasOverrides"];
 // Claves de configuración: el servidor exige admin o Config = "editar".
 export const CLAVES_CONFIG_MAIN = ["tareasConfig", "supervisores", "tareasExtra", "tareasOverrides"];
+// Filas que en modo servidor el navegador NUNCA lee ni escribe con la llave pública
+// (ni para restaurar un respaldo): se gestionan por /api/auth/* y /api/datos/*.
+export const FILAS_SOLO_SERVIDOR = ["pins", "usuarios", "main"];
 // Campos de usuario que viajan por /api/datos/usuarios (jamás credenciales).
 export const CAMPOS_USUARIO = ["nombre", "email", "cargo", "rol", "esCFO", "desactivado", "modulos",
   "tab_permisos", "empresas_permitidas", "cadenaAprobacion", "rendVerTodas", "rendPorOtros"];
@@ -189,14 +192,26 @@ export function sanearUsuarios(lista) {
 // `persist` = instancia del contrato F0 (se usa su base/versión/dirty de la fila
 // "main" para no duplicar estado). `alFusionar(valor)` aplica a la pantalla el
 // resultado de una fusión tras 409.
+//
+// Conflicto (oct-2026, igual que el contrato de main para las filas-blob): tras un
+// 409 se intenta la fusión a tres bandas. Si los cambios no se cruzan, se guarda la
+// fusión. Si los dos tocaron lo MISMO, no se escribe nada, no se descarta lo local
+// y la fila queda en CONFLICTO PENDIENTE hasta que la persona elija una de las dos
+// salidas (`recuperarDelServidor` / `reconciliarConservandoLocal`); ningún
+// auto-guardado la resuelve. Las salidas usan /api/datos/main, nunca la llave pública.
 export function crearGuardadorMain({ cliente = servidor, persist, id = "main", alFusionar } = {}) {
   let cadena = Promise.resolve();
   let gen = 0;
   let enVuelo = 0;
+  let pendiente = null; // { version, valorServidor, conflictos, ts }
+  const motivoDe = (e) => (e && e.codigo === "sin_conexion" ? "red" : "http");
+  const bloqueado = () => ({ ok: false, motivo: "conflicto_pendiente", conflictoPendiente: true,
+    conflictos: pendiente.conflictos, version: pendiente.version, valorServidor: pendiente.valorServidor });
 
   async function unaVez(local, opts) {
     const est = persist.estado(id);
     if (!est.cargaOk) return { ok: false, motivo: "sin_carga" };
+    if (pendiente) { persist.marcarSucio(id); return bloqueado(); }
     const claves = opts.sinConfig ? CLAVES_MAIN.filter((k) => !CLAVES_CONFIG_MAIN.includes(k)) : CLAVES_MAIN;
     let base = est.base || {};
     let version = est.version || null;
@@ -214,6 +229,14 @@ export function crearGuardadorMain({ cliente = servidor, persist, id = "main", a
         if (e && e.codigo === "conflicto") {
           const fresco = await cliente.leerMain();
           const f = fusionarMain(base, local, fresco.valor || {}, claves);
+          if (f.conflictos.length) {
+            // Los dos cambiaron lo mismo: no se fusiona ni se escribe. Lo local se
+            // conserva (base y versión NO avanzan, así el diff lo sigue llevando).
+            pendiente = { version: fresco.version || null, valorServidor: fresco.valor || {},
+              conflictos: conflictos.concat(f.conflictos), ts: Date.now() };
+            persist.marcarSucio(id);
+            return { ...bloqueado(), motivo: "conflicto" };
+          }
           conflictos = conflictos.concat(f.conflictos);
           fusionado = true;
           base = fresco.valor || {};
@@ -231,10 +254,39 @@ export function crearGuardadorMain({ cliente = servidor, persist, id = "main", a
           const r2 = await unaVez(local, { ...opts, sinConfig: true });
           return { ...r2, sinPermisoConfig: true };
         }
-        return { ok: false, motivo: e && e.codigo === "sin_conexion" ? "red" : "http", status: e && e.status, codigo: e && e.codigo };
+        return { ok: false, motivo: motivoDe(e), status: e && e.status, codigo: e && e.codigo };
       }
     }
     return { ok: false, motivo: "reintentos" };
+  }
+
+  // Salida (a): trae lo vigente del servidor y DESCARTA lo local.
+  // Si falla, el conflicto sigue puesto.
+  async function recuperarDelServidor() {
+    try {
+      const r = await cliente.leerMain();
+      const value = (r && r.valor) || {};
+      persist.registrarCarga(id, value, (r && r.version) || null, "object");
+      pendiente = null;
+      return { ok: true, value, version: (r && r.version) || null, existe: true, descartaLocal: true };
+    } catch (e) {
+      return { ok: false, motivo: motivoDe(e), status: e && e.status, codigo: e && e.codigo };
+    }
+  }
+  // Salida (b): toma la versión VIGENTE como base, así el próximo guardado escribe lo
+  // local sobre ella (por PATCH con esa versión). Si el servidor se mueve otra vez en
+  // el medio, el PATCH da 409 y el conflicto vuelve a quedar pendiente.
+  async function reconciliarConservandoLocal() {
+    try {
+      const r = await cliente.leerMain();
+      const v = (r && r.valor) || {};
+      persist.registrarCarga(id, v, (r && r.version) || null, "object");
+      persist.marcarSucio(id);
+      pendiente = null;
+      return { ok: true, desbloqueado: true, version: (r && r.version) || null, valorServidor: v };
+    } catch (e) {
+      return { ok: false, motivo: motivoDe(e), status: e && e.status, codigo: e && e.codigo };
+    }
   }
 
   // Serializa y coalesce: si llega un guardado nuevo mientras otro espera, solo
@@ -251,7 +303,12 @@ export function crearGuardadorMain({ cliente = servidor, persist, id = "main", a
     return corrida;
   }
 
-  return { guardar, ocupado: () => enVuelo > 0 };
+  return { guardar, ocupado: () => enVuelo > 0, conflictoPendiente: () => pendiente,
+    recuperarDelServidor, reconciliarConservandoLocal,
+    // Interfaz que espera crearResolucionConflicto (las dos salidas del panel).
+    comoPersist: () => ({ conflictoPendiente: () => pendiente,
+      recuperarDelServidor: () => recuperarDelServidor(),
+      reconciliarConservandoLocal: () => reconciliarConservandoLocal() }) };
 }
 
 // ── Usuarios: diff contra lo último cargado/guardado + PUT con versión ─

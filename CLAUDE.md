@@ -44,6 +44,7 @@ Aplicación web interna para la gestión financiera y operativa de **Grupo Medit
 - `AllegriaModule.jsx` — módulo Allegria
 - `FriskuModule.jsx` (~1.500 L) — **Maestros globales de Frisku** (a pesar del nombre del archivo, internamente es `FriskuMaestrosModule`): 11 tabs — Países, Ciudades, Puertos, Aeropuertos, Shipping Lines, Tipos Embarque, **Especies** (Fase 2), Tipos Embalaje, Mercados, Monedas, **Tipo de Cambio histórico** (Fase 2, con APIs), Checklist Docs
 - `FriskuComercialModule.jsx` (~5.900 L) — módulo comercial: Dashboard, **Clientes**/**Exportadoras** (CRUD), Contratos (Business Closure), **Programa** (semanal; cada semana define **semana de ETD (despacho)** y **semana de ETA (llegada)** por N°+año —ambas con rango de fechas y días de tránsito—, **vía marítimo/aéreo** —marítimo lleva **Contenedores/FCL**, aéreo lleva **Pallets**—, y cajas por formato; `fechaSemana`=lunes de la semana ETD. Etiqueta de semana con año ISO. Toolbar con filtros buscables temp/exp/cli/especie + lista desplegable para saltar a un closure), **Embarques** (OE + Packing List + COMEX), **Liquidaciones** + PO, **📈 Reportes** (Fase 8) y embed de Maestros + TC. **Tab Reportes** (`ReportesTab`): selector con 6 reportes BI, todos con export **Excel (ExcelJS, con logo Frisku)** + **PDF (jsPDF/autoTable, con logo)** — (1) Ingreso Frisku por temporada, (2) Rentabilidad por especie/mercado/cliente, (3) Programa vs Real en **FCL** (plan = `contenedoresFCL` del programa por especie del closure; real = OEs marítimas no canceladas, 1 OE = 1 contenedor; agrupa por especie/cliente/ambos), (4) Pipeline de embarques, (5) Ranking de exportadoras, (6) Cobranza/aging de comisión (sobre PO, buckets 0–30/31–60/61–90/>90 días desde emisión). Tabla de hechos = liquidaciones (comisión ya en USD). Helpers de export/logo con prefijo `fr_*` (fr_loadExcelJS, fr_sheetTabla, fr_logoPDF/Excel). **Nota**: el resto del módulo aún exporta el Packing List con XML SpreadsheetML manual; solo el tab Reportes usa ExcelJS.
+- `creditos.js` (**nuevo oct-2026**) — modelo puro de créditos: calendario (capital/intereses/cargos), pagos, flujo pendiente, análisis de cartera y simulación de prepago. Ver "Créditos — una sola fuente de verdad".
 - `anticipos.js` (**nuevo sep-2026**) — modelo puro de anticipos con realizaciones (acordado/realizado/pendiente/descuento de liquidación, trazabilidad de cobros y pagos, conciliación contra los saldos bancarios). Lo usan `FinanzasModule.jsx` (pantalla + `calcAllegria`) y `flujoExportExcel.js`.
 - `friskuHelpers.js` (~290 L, **nuevo Fase 2**) — helpers compartidos: persistencia genérica, modelo de comisión Frisku, formateo de montos, búsqueda TC, conversión multimoneda, integración mindicador.cl + frankfurter.app
 - `RendicionesModule.jsx` — **Rendiciones de gasto del personal**: cada trabajador carga sus propios gastos con respaldos (boletas/facturas en Supabase Storage) y workflow de aprobación (borrador → enviada → aprobada/rechazada → pagada). Se renderiza como **pestaña "🧾 Rendiciones" DENTRO de FinanzasModule** (no es un tile aparte del hub). Sub-tabs internos: Mis Rendiciones (todos), Por Aprobar / Pagos / Reportes (solo aprobadores = admin o `esCFO`). Reutiliza `dbLoadGeneric/dbSaveGeneric` y `uploadArchivoFrisku` (bucket `frisku-docs`, prefijo `rendiciones/`) de `friskuHelpers.js`. Persiste en `calendario_data` id=`rendiciones`. Independiente del flujo de caja. **Multimoneda con conversión para pago**: cada rendición tiene `monedaPago` (default CLP) y `fechaTC`; cada gasto se convierte a la moneda de pago **triangulando vía USD** (`convertir()` usa `buscarTC` de `friskuHelpers`, con par inverso). Ej. soles: `PEN→USD→CLP`. Las APIs gratis NO cubren PEN, así que el par `USD-PEN` debe cargarse manual en Maestros → Tipo de Cambio; los gastos sin TC se marcan ⚠ y se excluyen del total. Reportes totaliza en CLP equivalente. **Acceso**: en el merge de usuarios de `App.jsx`, a quien no tenga el módulo `finanzas` se le otorga, pero con TODAS las pestañas financieras en `sin_acceso` y solo `rendiciones` en `editar` → así todo el personal puede cargar gastos sin ver datos financieros sensibles. Quienes ya tenían Finanzas (Angelo, Carol) conservan acceso completo.
@@ -109,7 +110,7 @@ Sub-tabs dentro de FinanzasModule:
 1. **Dashboard** — KPIs grupo
 2. **Flujo Empresas** — flujo de caja proyectado por empresa + consolidado
 3. **Saldos Bancos** — saldos por banco/cuenta
-4. **Créditos** — créditos por empresa, cuotas, renovaciones
+4. **Créditos** — registro por empresa (contrato con calendario, registro simple, socio), 📅 pagos por vencimiento, 📊 Análisis CFO, 🧮 Simular prepago, Saldo por Mes
 5. **Nóminas** — nóminas de pago semanales con workflow autorización. **Expediente Digital (Fases 0-6, jun-2026)**: respaldo documental por línea (bucket privado `nominas-docs` + URLs firmadas; helpers en `friskuHelpers.js` y `expedienteHelpers.js`), soft-delete de líneas/documentos/nóminas (nunca borrado físico: `estadoLinea`/`doc.estado`/`estadoNomina="inactiva"`), hash SHA-256 por documento, semáforo 🟢/🔴 + % cobertura por nómina, documento interno autogenerado para líneas de empresas relacionadas (`emp_rel_clp`/`emp_rel_usd`: correlativo `DI-{COD}-{AAAA}-{NNNNN}` + UUID + PDF), trazabilidad (`nomina.historial[]` + `window.auditLog` en transiciones), Vista Auditoría (`AuditoriaNominaModal`), validación de respaldo obligatorio al avanzar a "revision" (`VALIDACION_RESPALDO`, exime `anticipos`), y "Descargar Expediente" (ZIP resumen + documentos). La impresión incluye cobertura, respaldos por línea y anexos.
 6. **Reporte Semanal** — PDF ejecutivo del flujo grupo
 7. **Auditoría** — log de cambios
@@ -144,14 +145,161 @@ Esta lógica está implementada en:
 
 **IMPORTANTE**: no romper esta lógica en cambios futuros. Si necesitas modificar el cálculo, hay logs de debug históricos comentados que ayudan a diagnosticar.
 
-#### Sublines de "Préstamos" — caso especial
+#### Créditos — una sola fuente de verdad (oct-2026)
 
-Las líneas con `formula:true` y "Préstamos" en el label:
-- Cuotas calculadas automáticamente desde `creditosData` (módulo Créditos)
-- `proy[i]` ya incluye las cuotas mensuales
-- `calcPrestamosSemanasEmpresa()` calcula las cuotas por semana exacta
-- Las sublines visibles vienen de `calcPrestamosDesglose()` (por acreedor)
-- Mantienen consistencia con el módulo Créditos: una sola fuente de verdad
+`src/creditos.js` (puro, testeado con `node src/creditos.test.mjs`) calcula el
+calendario de cada crédito, aplica los pagos y entrega al flujo SOLO lo
+pendiente. Pantalla (mensual y semanal), consolidado, reporte semanal y Excel
+leen de ahí vía `flujoCredEmpresa()` / `aplicarCreditosAEmpresas()` en
+`FinanzasModule.jsx`.
+
+Tipos de registro (conviven, sin migración forzada):
+
+- **legacy** (`tipo_credito` vacío o "banco"): 1 fila = 1 vencimiento con `cuota`
+  total (o cuotas mensuales `f_inicio`→`f_venc`). No separa capital de interés:
+  va como **"sin desglose"** hasta que se cargue `desglose:{capital,interes,cargos}`
+  (botón "Desglosar cuota" en 📅 Pagos). Nunca se inventa la división.
+- **socio**: tabla de `creditoSocio.js` (interés efectivo compuesto).
+- **contrato**: calendario generado (cuota fija, capital constante, bullet con
+  intereses periódicos, capital+interés al vencimiento; gracia; tasa fija o
+  variable = referencia hipótesis + margen; base Act/360, Act/365 o 30/360;
+  cargos por cuota y únicos) o **calendario manual** del acreedor.
+- `renovaciones` siguen alimentando la línea "Renovaciones".
+
+Reglas que no hay que romper:
+
+- `total = capital + intereses + otros cargos (+ sin desglose)`.
+- **Pagos** en `c.pagos[]` con fecha, desglose y `vencKey` (`uid@AAAA-MM-DD`).
+  No se borran ni editan: se anulan con motivo. El saldo de capital baja solo
+  por capital pagado. Un pago "sin desglose" se imputa cargos → intereses →
+  capital (art. 1595 CC). `pagado:true` antiguo = pagado sin registro.
+- **Créditos** no se borran: `anulado:true` con motivo; no se puede anular uno
+  con pagos vigentes. Cada crédito tiene `uid` (los `n` históricos se repetían).
+- **Vencido impago confirmado** (fecha < hoy, saldo por pagar) se arrastra al
+  **mes y semana en curso** del flujo con aviso y su fecha original.
+- **Por conciliar**: cuota vencida ANTES de `control_desde` (fecha desde la que
+  el crédito se controla en la app; legacy no la tiene, un alta nueva la fija)
+  y sin pago registrado. NO entra a la deuda confirmada ni al flujo; se informa
+  aparte con su impacto potencial. Se concilia registrando el pago real o con
+  `confirmarImpaga` (exige respaldo; anulable con motivo en `c.conciliaciones`).
+- **Fechas** ISO leídas como texto: `new Date("2027-01-01")` en Chile caía en
+  diciembre.
+- **Pago Préstamos - Total** y **Renovaciones** tienen `_fuenteCreditos`: no se
+  editan en el flujo. Un valor manual ANTIGUO sigue aplicando hasta decidir mes a
+  mes en Créditos → 🔎 Conciliación ("Usar Créditos" lo retira; "Mantener" exige
+  motivo). Cada decisión queda en `realData[emp]._resolucionesCreditos`
+  (`handleConciliarOverrideCredito`, una sola escritura). `_semProy` da la semana
+  exacta: celda, subtotal, flujo neto y saldo semanal leen lo mismo.
+- **Cuota sin desglosar** (legacy): fuera del saldo de capital identificado,
+  dentro del servicio de deuda. `desglose` exige respaldo contractual.
+- **Tasa variable** = referencia (hipótesis constante) + margen: su interés se
+  marca como proyección (`v.tasaVariable`, columna aparte en servicio de deuda).
+- Moneda ≠ USD sin `tc_flujo` (moneda por 1 US$) **no entra** al flujo y se avisa.
+- **Prepago**: `simularPrepago` no modifica nada; `aplicarPrepago` registra el
+  pago (capital + devengado + comisión) y, en contratos, un evento en
+  `c.prepagos[]` que recalcula el calendario (anular el pago lo revierte).
+  Sin tasa, base o condición de prepago → dato faltante / hipótesis explícita.
+- `handleSaveCreditos` (flujo de main: un ciclo diferido + persistAll) devuelve el
+  resultado REAL; `superseded` no es confirmación (espera `persist.flush`). Solo
+  revierte ante rechazo definitivo (http/sin_permiso/sin_carga) y si nadie editó
+  después; ante red/respuesta perdida/conflicto CONSERVA lo local (`conservado`).
+  El pago manual lleva `origen.clave` estable desde que se abre el formulario
+  (`registrarPagoIdempotente`) y un `duplicado` se guarda igual: reintentar nunca
+  duplica. `dbLoad` espera los guardados en vuelo de la fila antes de leer.
+  Prueba: `scripts/e2e/creditos-guardado-fallas.mjs`.
+- **Cambios de Créditos sin confirmar** (`src/creditosPendientes.js`, `AvisoCreditosPendientes.jsx`):
+  antes de enviar, `handleSaveCreditos` anota en localStorage qué créditos cambian
+  ({uid, antes, despues}); se borra solo con confirmación del servidor. Si falla o la
+  pestaña/módulo se cierra antes: aviso persistente (Hub/Tareas en App.jsx y Finanzas),
+  pago marcado "⏳ sin confirmar", y en Finanzas cada cambio se clasifica contra el
+  servidor: confirmado (se retira solo), reaplicable ("Reintentar", sin duplicar) o
+  conflicto (revisar a mano). Descartar exige motivo y queda en auditoría.
+  Tests: `node src/creditosPendientes.test.mjs` y el escenario 6 del E2E de fallas.
+- **Nóminas ↔ Créditos**: una línea guarda `creditoVinculo {uid, vencKey}`
+  (vincular NO paga). "Confirmar pago efectivo" solo con la nómina "aprobada" y
+  permiso de Créditos; registra el pago con `origen.clave = nomina:<id>:<línea>`
+  vía `registrarPagoIdempotente` (reintentar no duplica). Anular desde la línea
+  = `anularPago` con motivo. El estado de la línea se LEE de Créditos.
+- Registrar un pago NO escribe en el flujo real (ingreso manual, sin conciliación).
+- **Conciliación con el acreedor** (`conciliacionAcreedores`): por empresa+acreedor+
+  moneda ORIGINAL, capital app al corte (pagos con fecha ≤ corte) vs capital
+  informado (`creditos_saldos_informados` en el blob finanzas, con respaldo,
+  anulables). Intereses/cargos/sin clasificar/por conciliar van APARTE y nunca se
+  suman al capital; si existen → "conciliación incompleta". Diferencia EXACTA y
+  tolerancia por moneda (`creditos_config.tolerancias`, inicial CLP 1, USD/EUR/PEN
+  0,01, UF 0,0001) que SOLO absorbe redondeo: con cualquier dato/respaldo/desglose faltante el
+  estado es "incompleta". US$ con el TC DE LA FECHA DE CORTE (nunca posterior).
+  "Ver movimientos" = `movimientosCapitalAlCorte` (los intereses no tocan el capital).
+- **Escenario "incl. por conciliar"** (`escenarioPorConciliar`): fila morada en el
+  flujo. Un valor manual vigente NO excluye cuotas automáticamente: solo las
+  vinculadas en `realData[emp]._coberturasManual` (con nota; reemplazar = anular la
+  anterior). Sin cobertura definida → se suman como "posible superposición" y el
+  escenario es PROVISIONAL.
+- **Saldos al corte** (`saldosAlCorte`): única fuente de Análisis CFO, Saldo por Mes y
+  KPI/tablas de la pestaña Créditos (fila "Hoy" = Análisis). Capital y sin
+  clasificar separados; avisos compartidos (`AvisosValorizacion`): incompleto (sin
+  TC), ESTIMADO (TC declarado), TC > 7 días, UF futura = hipótesis.
+- **UF**: par `UF-CLP` en Maestros (mindicador `uf`, Banco Central; manual prevalece).
+  `ufPorFecha` valoriza cada pago/vencimiento con la UF de su fecha (si ya está
+  publicada para esa fecha exacta, aunque sea futura, se usa y NO es hipótesis); sin
+  valor publicado = última UF al corte, rotulada hipótesis (sin IPC). Montos en UF con
+  4 decimales (`decimalesMoneda`); el resto al centavo. Panel `ContrasteUF` en
+  Conciliación (descarga automática de UF: pendiente de prueba en vivo).
+- **Abrir no modifica**: hasta una acción explícita en Créditos, el auto-guardado
+  escribe los créditos tal como se cargaron (sin los `uid` agregados en memoria) y sin
+  claves nuevas (`valoresCreditosBlob`). Test: `scripts/e2e/apertura-sin-cambios.mjs`.
+- **Vista previa** con datos simulados: `scripts/vista-previa/` (armar.mjs + servir.mjs;
+  Supabase simulado en el navegador, tiempo real bloqueado). La vista previa de Vercel
+  apunta a PRODUCCIÓN: no usarla para probar acciones. Pauta: `docs/creditos-pauta-revision.md`.
+- **Respaldo real en la vista previa LOCAL** (`docs/creditos-respaldo-local.md`): "Cargar
+  respaldo real…" guarda en IndexedDB una copia ORIGINAL intacta (texto + SHA-256) y una de
+  TRABAJO; PIN reales no se cargan; exporta operaciones (`scripts/vista-previa/diff.js`) y
+  detalle CSV. El Artifact no lo ofrece. Aplicar en producción = operaciones con
+  verificación de "antes", nunca restaurar filas: `docs/creditos-aplicar-conciliacion.md`.
+  Script asistido `scripts/conciliacion/aplicar.mjs` (ensayo → decisiones firmadas → aplicar):
+  PATCH condicionado por `updated_at` (atómico), dependencias bloqueantes, duplicados con
+  decisión individual, verificación y auditoría. HOY solo acepta destinos locales (rechaza
+  `*.supabase.co`); probado con `scripts/conciliacion/prueba.mjs` (Postgres+PostgREST locales).
+  Propuestas NO aplicadas: `propuesta-trigger-version.sql` (versión generada por la base) y
+  `propuesta-sellos.sql` (impide que una sesión con datos antiguos deshaga lo aplicado).
+- **Excel**: hoja "Servicio deuda" (individual y consolidado) con capital +
+  intereses + cargos + sin desglosar = servicio; + ajuste manual = línea; control
+  contra la hoja del flujo. Usa `line._compCred` (lo anota `aplicarCreditosAEmpresas`).
+- **Monedas**: `valorizarCreditos` anota `_tc` (Maestros `maestro_tc` a la fecha de
+  corte, manual prevalece; si no, `tc_flujo` declarado = hipótesis; si no, sin TC).
+  `_tc` NO se persiste (`handleSaveCreditos` aplica `sinValorizacion`).
+- **Guardado de Nóminas comprueba la respuesta** (`ejecutarGuardado` → `resumirGuardado`: `{ok, motivo: conflicto|sello|http|red|bloqueada, empresas…}`; `dbSaveNominas` ya no existe):
+  si falla, aviso `AvisoGuardadoNominas` (qué pasó, si hay que recargar), la edición se conserva, copia en
+  localStorage (`mediterra_nominas_sin_guardar`, no se re-aplica sola), los refrescos de 30 s / visibilidad
+  no pisan cambios sin confirmar y cerrar la pestaña pide confirmación. Las transiciones de estado guardan
+  ANTES de notificar/auditar (`confirmarTransicion`); si falla, vuelve al estado anterior sin correos.
+  Test: `scripts/e2e/nomina-guardado.mjs`.
+- **Guardado CONDICIONADO de Nóminas** (rama, sin desplegar; `docs/nominas-guardado-condicionado.md`): por fila
+  `nominas_<empresa>`, PATCH condicionado a `updated_at` leído; fila nueva con POST sin `merge-duplicates` (409 =
+  ya existe → releer y combinar). Fusión a tres bandas en `src/nominasPersistencia.js` (cabecera campo a campo,
+  líneas por id); mismo campo/línea, transición o anulación = conflicto con resolución explícita. Carga por
+  empresa `ok`/`inexistente`/`error` (con error no se crea ni guarda en esa empresa). Respuesta perdida → relee
+  y verifica, sin duplicar. Un refresco fallido conserva lo ya cargado (`aplicarRefresco`). Riesgo abierto:
+  sesiones con código anterior escriben sin condición hasta recargar. Tests: `node src/nominasPersistencia.test.mjs`,
+  `scripts/e2e/nomina-condicionado.mjs`.
+- **Versión obligatoria (SQL NO aplicado en producción)** (`docs/nominas-version-obligatoria.md`): función
+  `nominas_guardar(id, valor, versión|null)` + trigger `trg_nominas_exigir_version` que rechaza a la llave pública (rol de
+  conexión o JWT) cualquier otra escritura de `nominas_<empresa>`. **Camino B (2026-10-07, decisión de Angelo): la app
+  NO usa la función**; guarda con PATCH condicionado a `updated_at` y POST sin `merge-duplicates`, sin nada en la base.
+  La función, el trigger y su cliente (`src/nominasTransporteRpc.js`, hoy sin uso en la app) quedan para una entrega
+  posterior con su activación coordinada (`docs/nominas-activacion.md`). `scripts/e2e/fake.mjs` se comporta como
+  producción (RPC 404, sin trigger); `store.__propuestaNominas = true` emula la propuesta. Pruebas:
+  `scripts/nominas-cas/prueba.mjs` (SQL de la propuesta) y `scripts/e2e/nomina-base-real.mjs` (navegador contra
+  Postgres+PostgREST locales SIN la propuesta, como producción).
+  Consultas de lectura pendientes en producción (listado único V/D/R/P): `docs/consultas-pendientes-produccion.md`.
+- **"📤 Restaurar" comprueba cada fila** (`src/restaurarRespaldo.js`): informa restauradas y fallidas con su motivo;
+  ante un resultado parcial dice "RESTAURACIÓN PARCIAL" (nunca éxito). Tests: `node src/restaurarRespaldo.test.mjs`,
+  `scripts/e2e/restaurar-parcial.mjs` (navegador contra base local con el trigger). Observación NO corregida: restaura
+  las filas objeto como texto JSON (comportamiento previo).
+  Respaldos existentes (solo lectura, sin contenido): `supabase/consulta_respaldos_existentes.sql`.
+- **Anular nómina/línea con pago vigente** → `ResolverPagosVinculados`: conservar
+  (`anotarPago`) o anular el pago, con motivo; si Créditos no confirma, no se anula.
+- Revisión previa al merge y verificación del prepago: `docs/creditos-revision-pre-merge.md`.
 
 #### Anticipos con realizaciones — Allegria Foods (sep-2026)
 
@@ -183,10 +331,13 @@ Reglas que no hay que romper:
   del anticipo y `resumenAnticipos(...).liquidacion` en el mes de liquidación.
 - **Un mes que pasa NO da por cobrado nada.** El pendiente vencido se marca en pantalla
   y se reprograma a mano; nunca se mueve ni se salda solo.
-- **Un anticipo sin mes válido no se proyecta y tampoco descuenta** de la liquidación
-  (se cobra/paga al liquidar): así la caja no desaparece. Es el comportamiento histórico.
-- **Sobre-anticipo:** la liquidación queda en 0 y el excedente se muestra explícito
-  (pantalla y fila propia en el Excel). No se genera devolución automática.
+- **Un anticipo sin mes válido no se proyecta y su PENDIENTE tampoco descuenta** de la
+  liquidación (se cobra/paga al liquidar): así la caja no desaparece. Es el comportamiento
+  histórico. Lo **realizado sí descuenta siempre**, tenga mes o no: esa plata ya se movió.
+- **Sobre-anticipo:** se mide contra el TOTAL (venta o costo neto), nunca contra el
+  calendario de anticipos. Pasarse del calendario no deja la liquidación en cero; recién
+  cuando el descuento supera el total, la liquidación queda en 0 y el excedente se muestra
+  explícito (pantalla y fila propia en el Excel). No se genera devolución automática.
 - **Realizaciones:** no se borran ni se editan. Corregir = anular con motivo (queda en el
   historial) y registrar la correcta. Un anticipo con realizaciones vigentes no se puede
   eliminar.
@@ -222,6 +373,29 @@ pantalla): los meses anteriores muestran su flujo pero quedan **sin** saldo inic
 y el arrastre parte en el mes en curso. Aplica al export individual y al consolidado (que
 además ancla su fórmula de saldo a la columna de ese mes).
 
+#### Saldo bancario en US$: una sola regla (oct-2026)
+
+`src/saldosBancosUSD.js` (`saldoBancoEmpresaUSD`) es la única fuente del saldo en US$ por
+empresa: Saldos Bancos, flujo por empresa, consolidado, KPI, reporte semanal y los dos Excel.
+Criterio: último saldo de cada cuenta (banco+moneda) con monto ≠ 0 y fecha no futura; cuenta
+no-US$ al `usd` **guardado** al registrar el saldo (open.er-api de ese momento). Sin `usd`
+guardado = «sin TC», no suma y se avisa. Antes Saldos Bancos convertía con la paridad **en
+vivo** y el flujo/Excel con la guardada (Allegria Foods: ~US$142 de diferencia), y el Excel
+no excluía fechas futuras. La paridad de hoy se muestra aparte, solo como referencia, con la
+diferencia por TC. El Excel lleva al pie las cuentas, fechas y TC del saldo inicial. Al
+guardar un saldo no-US$ se registra `tc`, `tcFuente`, `tcTs`.
+
+Dos copias que quedaban fuera y se cerraron: el **reporte semanal**
+(`reporte_calcSaldosPorMoneda`) convertía CLP con un TC fijo (950 o el parámetro del
+reporte) y PEN a 3,75, sin mirar fechas, y `getSaldoBancoUSD` devolvía 0 sin saldos donde el
+flujo usa el saldo base de la empresa; el **Dashboard** tenía su propia copia del criterio.
+Ahora los dos leen `saldoBancoEmpresaUSD`. **Total incompleto**: si una cuenta vigente no
+tiene `usd` guardado, `avisoSaldoIncompleto` lo dice con la cuenta y su monto en moneda
+original en Saldos Bancos, flujo, consolidado (aviso + fila Saldo Banco), Dashboard, reporte
+(vista previa y PDF) y los dos Excel (subtítulo y pie). Prueba:
+`src/__tests__/saldoInicialUnico.test.js`. Esto es la corrección funcional; la diferencia
+histórica de US$142 **no** está reconstruida (falta el detalle por cuenta).
+
 #### Allpa Farms: subtotales inflados por etiquetas repetidas (ARREGLADO)
 
 `Allpa Farms` mostraba US$107.783 de Costos Fijos en Apr-26 donde el valor propio
@@ -251,6 +425,402 @@ concepto que existe en dos categorías no dicen a cuál pertenecen. La app:
    con ambos montos y no sobrescribe sin decisión explícita.
 
 Meses distintos del mismo concepto pueden ir a categorías distintas.
+
+#### Liquidación con anticipos y programas por contraparte — Allegria Foods (oct-2026)
+
+Representa la operación entre cliente, exportadora y productor, no un calendario
+de cuotas. Modelo puro en `src/programas.js` (`node src/programas.test.mjs`, 76
+casos), pantalla en `src/ProgramasComerciales.jsx`.
+
+```
+Cliente    → base = kg × FOB
+Productor  → base = kg × MAX(0, FOB×(1−desc%) − mat/kg − srv/kg)   ← retorno NETO
+
+base        = liquidación definitiva si existe, si no el presupuesto
+liquidación = MAX(0, base − realizado − pendientes con mes)
+saldo       = pendientes + liquidación     ·  excedente = MAX(0, realizado+pend − base)
+```
+
+Materiales y servicios se descuentan del precio del productor **y** se pagan en
+sus propias líneas (`dist_mat`/`dist_srv`): no hay duplicación. El descuento de
+exportadora se queda en Allegria y no es salida de caja.
+
+```
+fruta.programas: [{ id, lado:"cliente"|"productor", contraparte, kilos,
+  precio_usd_kg (informativo), fueraPresupuesto, archivado, motivoArchivo,
+  cuotas:[{ id, fecha_prevista, mes, modalidad:"usd_kg"|"monto"|"por_confirmar",
+            usd_kg|monto, extra_acordado, estado:"borrador"|"vigente"|"anulada",
+            sustituye:[{estimacionId, usd}], realizaciones:[...] }] }]
+fruta.liq_definitiva_cliente / _productor : { total, nota, usuario, ts } | null
+fruta.movimientos_sin_asignar : [{ id, fecha, usd, referencia, lado, aplicaciones }]
+```
+
+Las estimaciones son las filas de siempre (`anticipos_cliente` /
+`anticipos_productor`): US$/kg sobre los kilos de la FRUTA, sin contraparte.
+
+Reglas que no hay que romper:
+
+- **Un movimiento real descuenta UNA sola vez**, exista o no la cuota, esté o no
+  completo el programa, supere o no lo acordado. Cambiar kilos, tarifas o meses
+  no mueve el dinero ya cobrado o pagado.
+- **Imputar no modifica el acuerdo.** `cuotaPendiente = total acordado − imputado`.
+  La app pregunta si el movimiento estaba incluido o es adicional y muestra el
+  efecto (`efectoImputacion`) antes de confirmar; lo adicional va a
+  `extra_acordado`, sin tocar la tarifa pactada.
+- **Sustitución parcial por monto declarado**, nunca inferida. `estDisponible` =
+  acordado − realizado originado − sustituido. Una estimación cerrada no se
+  sustituye. Sin `MAX(0)` que esconda el exceso: `estSobreSustituida` lo expone.
+- **Borrador no proyecta ni sustituye**, pero su realizado descuenta igual.
+- **`estRealizadoOriginado` cuenta las realizaciones movidas desde la estimación**,
+  estén donde estén: mover no reabre su pendiente y revertir tampoco.
+- **Nada se borra con historial**: `archivarPrograma` exige motivo; anular una
+  realización sí le quita efecto en todo (realizado global y capacidad de la
+  estimación de origen).
+- **Fuera de presupuesto**: no proyecta ni descuenta de las operaciones
+  presupuestadas; su dinero real se muestra aparte (`realizadoFuera`). Una cuota
+  de un programa fuera de presupuesto **no consume ni sustituye** una estimación
+  presupuestada: su realizado no descuenta del bloque, así que si la estimación lo
+  diera por consumido el mismo monto se contaría dos veces (medido: ingreso
+  proyectado 1.000.000 donde correspondía 600.000). **Archivado es distinto**:
+  deja de proyectar y de sustituir, pero su realizado sigue descontando, y por eso
+  sí consume la estimación de la que salió.
+- **Sin asignar**: la bandeja de conciliación es visible y no descuenta de
+  ninguna liquidación. Registrar la aplicación comercial no toca el saldo
+  bancario.
+- **Vencido aparte**: el pendiente programado antes del mes en curso se proyecta
+  antes del corte y NO entra al saldo acumulado; nunca se llama flujo futuro.
+- **Registro de anticipos históricos** (`cuota.historico`): los anticipos ya
+  cobrados o pagados de una contraparte se guardan en una cuota marcada
+  `historico`, que `normalizarCuota` **fuerza a borrador siempre** (no se
+  activa ni editando el dato). Su realizado descuenta porque ya se movió, no
+  proyecta nada propio y no toca las cuotas del calendario. Se rotula como tal
+  en pantalla y en el Excel. No admite `mes_estimado`.
+- **Estimación de caja** (`cuota.estimacion_caja = {mes, motivo, usuario, ts,
+  historial[]}`): proyecta la cuota en otro mes **sin tocar la fecha
+  contractual**, que sigue en `fecha_prevista` y `mes`. `registrarEstimacionCaja`
+  exige mes y motivo; `quitarEstimacionCaja` la devuelve a su mes contractual
+  dejando el rastro. Un **compromiso vencido sigue vencido**: el vencimiento se
+  mide contra la fecha contractual (`cuotaVencidaContractual`), y
+  `resumenLado()` informa `vencidoContractual` / `vencidosContractuales[]`
+  aparte de las cubetas. `proyeccionEstimada` totaliza cuánto de la proyección
+  descansa en fechas estimadas. Para una cuota SIN fecha pactada está la marca
+  simple `mes_estimado` (ahí no hay dos fechas que preservar). La cuota muestra
+  las cuatro cosas a la vez: fecha contractual, condición de vencida, mes de
+  caja estimado y motivo (con usuario y fecha), en edición y en solo lectura.
+  Fijado con `src/__tests__/cuotaVencidaPantalla.test.js`, que renderiza el
+  panel real con el caso TUNGSHING (contractual Sep-26 vencido + caja estimada
+  en Feb-27): una estimación futura NO puede borrar el vencimiento.
+- **Un compromiso vencido no se traslada solo**: el pendiente con mes anterior
+  al corte se proyecta antes del corte, se lista como vencido y no entra al
+  saldo acumulado. Reprogramar es explícito.
+- **Un compromiso no es un pago**: evidencia de compromiso (pagaré, contrato)
+  justifica una CUOTA; evidencia de movimiento (cartola, comprobante)
+  justifica una REALIZACIÓN. Nada promueve lo primero a lo segundo
+  automáticamente. Un pendiente sin fecha no se traslada solo a la liquidación:
+  o se calendariza, o se declara que la proyección está incompleta por ese
+  monto.
+- **Antecedentes**: un monto informado sin fecha verificada
+  (`programa.antecedentes[]`) existe, se ve y **no** cuenta como realizado, no
+  se proyecta, no descuenta de ninguna liquidación y no se declara conciliado
+  con bancos. `completarAntecedente` exige la fecha real (nunca se inventa) y
+  lo convierte en imputación a una cuota o en movimiento de la bandeja; el
+  antecedente queda marcado como convertido, nunca borrado, así el monto no se
+  registra dos veces. En el Excel va como constante informativa, fuera de los
+  descuentos.
+- **Una sola fuente**: `movimientosLado()` alimenta `calcAllegria`, la pantalla
+  (`ResumenLado`) y el Excel (`bloqueLiquidacionLado`). En el Excel el realizado
+  y lo sustituido van como constantes, nunca como fórmula. `bloqueLiquidacionLado`
+  recibe `modeloVersion` y `decisionesSinFecha` y resuelve el trato de un
+  pendiente sin fecha con `tratoSinFecha`, el MISMO helper de la app: sin eso el
+  archivo mostraba caja que la pantalla declara no proyectable.
+- **Archivar no borra dinero**: un programa archivado deja de proyectar y de
+  sustituir, pero su realizado SIGUE descontando (`realizadoArchivado` lo
+  informa aparte, y el Excel lleva su fila). Antes el realizado desaparecía del
+  cuadre y la liquidación subía por ese monto.
+- **Una posición sale del bloque entera**: `presupuestoRetirado` descuenta el
+  `presupuesto_asignado` y, si no lo hay, el `importe_definitivo`. Si no, la
+  base total crecía en silencio (la posición se sumaba encima del presupuesto
+  completo de la fruta), idéntico en pantalla, flujo y Excel.
+- **El lado no se adivina**: `resumenLado` pone `lado` en cada posición y en el
+  bloque, y `reconocerDesdePosicion` lo exige. Antes todo excedente reconocido
+  nacía como "productor" y un sobrecobro de cliente se proyectaba como
+  recuperación (ingreso) en vez de devolución (egreso).
+- **El exceso de compromisos cuenta lo compensado**:
+  `MAX(0, realizado + compromisos + compensado − base) − excedenteReal`. Sin el
+  compensado la identidad de cuadre no cerraba y el aviso salía en cero.
+- **La versión del modelo se estampa al CREAR** (`v: MODELO_VERSION` en
+  `addCuota`/`addHistorico` de la pantalla y en `addRow` de las estimaciones).
+  Nadie la escribía, así que todo registro nuevo se trataba como antiguo: su
+  pendiente sin fecha se absorbía en la liquidación (justo lo que la regla
+  prohíbe) y la pantalla lo llamaba "registro antiguo". Lo ya guardado NO se
+  migra y conserva su comportamiento.
+- **Mover una realización entre estimaciones está prohibido**: reabriría el
+  pendiente de la de origen (`estRealizadoOriginado` sigue las movidas a una
+  CUOTA, no a otra estimación).
+- **Al mover, el origen pasa a ser el contenedor del que SALE** y el anterior se
+  conserva en `origenesPrevios[]`; `origenesRealizacion(r)` devuelve la cadena
+  completa, y `estRealizadoOriginado`/`aplicadoDeMovimiento` la leen. Antes se
+  hacía `origen: movida.origen || …`, así que una realización nacida en la bandeja
+  o en un antecedente conservaba ESE origen al moverla desde una estimación: la
+  estimación reabría su pendiente y 400.000 de caja se iban al mes equivocado
+  (Nov-26 pasaba de 100.000 a 500.000 y Mar-27 al revés), con el diálogo diciendo
+  «sin cambio» y sin ninguna alerta. Leer la cadena también evita que el
+  movimiento de bandeja quede «sin asignar» y se pueda aplicar dos veces.
+- **Reasignar un movimiento, no volver a registrarlo** (oct-2026): el
+  formulario «Reasignar un movimiento ya registrado» de la tarjeta ofrece
+  origen y destino libres entre **estimación → cuota**, **cuota → estimación**
+  y **cuota → cuota** (antes solo la primera, así que corregir una asignación
+  obligaba a anular y re-registrar, que es lo que se hace cuando el movimiento
+  está MAL registrado, no cuando solo está mal asignado). El movimiento
+  conserva id, monto, fecha, nota e historial (`origen`, `movidaPor`,
+  `movidaTs`), y no queda copia en el contenedor de origen. Antes de confirmar
+  se muestran origen, destino, el pendiente de cada uno antes/después, el
+  efecto en la liquidación y el realizado total, que NO debe cambiar.
+  El efecto se calcula con el **mismo `resumenLado`** que alimenta pantalla,
+  flujo y Excel: no se replica la regla en la pantalla (una copia divergió en
+  el primer intento y mostraba un número que no era el que después aparecía).
+  `pendienteDe` para una estimación pasa `programas` a `estPendiente`, si no
+  una estimación cuyo movimiento se movió aparecería reabriendo su pendiente.
+  Fijado con `src/__tests__/reasignarMovimiento.test.js` (14) y el escenario
+  **H** de `excelRecalcFlujo` (Excel recalculado de verdad en la dirección
+  cuota → estimación).
+- **Aplicar un movimiento de la bandeja NO es reasignar** (oct-2026): un
+  movimiento sin asignar todavía **no descontaba** ninguna liquidación, así que
+  al aplicarlo el **realizado y el saldo económico SÍ cambian**. Lo que no
+  aumenta es el total del dinero registrado: el movimiento se consume, no se
+  duplica. `aplicarMovimiento({movimiento, estimaciones, programas, usd, hacia,
+  usuario})` crea una realización en la estimación o cuota destino con la
+  **fecha y la referencia del movimiento** y `origen:{tipo:"bandeja", id}`.
+  Admite aplicación **parcial**, y la pantalla muestra cada importe **con su
+  efecto**: «aplicado X · ya descuenta en su operación» y «sin asignar Y ·
+  solo este importe no descuenta». Sin esa aclaración el rótulo se leía como
+  si el movimiento entero siguiera sin descontar.
+  **Lo aplicado NO se lleva en un contador aparte**: `aplicadoDeMovimiento`
+  cuenta las realizaciones VIGENTES originadas en el movimiento, estén donde
+  estén. Así el mismo dinero no se aplica dos veces (se valida contra lo que
+  queda), anular la realización **libera el monto solo** y no pueden quedar
+  datos huérfanos. `sinAsignarUsd` de `resumenLado` descuenta lo ya aplicado.
+- **La bandeja se anula con motivo, no se borra**: `anularMovimientoSinAsignar`
+  exige motivo, conserva el dato con `anulada/motivoAnulacion/anuladaPor/
+  anuladaTs`, y **se bloquea si el movimiento tiene importes aplicados**
+  (habría descuentos activos sin su movimiento): primero se anulan esas
+  realizaciones. Reemplaza al botón «quitar», que borraba con un confirm.
+  Fijado con `src/__tests__/bandejaAplicar.test.js` (12), el escenario **I** de
+  `excelRecalcFlujo` y `scripts/e2e/reasignar-bandeja.mjs` (navegador).
+
+- **La identidad no se acuña al normalizar** (oct-2026): los normalizadores
+  (`normalizarAnticipo/Cuota/Programa/Antecedente/Saldo/MovSinAsignar`) corren en
+  cada render y en cada cálculo, así que **no asignan `id`**: lo dejan vacío. La
+  identidad nace al CREAR (`nuevoIdPrograma/Cuota/Anticipo/Antecedente/Movimiento/
+  Saldo/Aplicacion`), y a los registros antiguos se les asigna UNA sola vez con
+  `normalizarIdentidades(allegria_params)`: determinista (hash FNV-1a del
+  contenido y la posición, prefijo `mig_`, sin `Math.random()` ni reloj),
+  idempotente (la segunda pasada devuelve `huboCambios:false` y el mismo objeto),
+  conserva todos los campos sin lista blanca, no toca un id existente y reescribe
+  en la misma pasada solo las referencias inequívocas.
+  Antes, un registro guardado sin `id` recibía uno nuevo en cada render y una
+  sustitución declarada contra él proyectaba el mismo dinero dos veces sin aviso
+  (medido con la estructura real: pendientes del lado 1.122.000 en vez de 748.000,
+  `sobreSustitucion = 0`). En la fila `finanzas` de producción, 29 de las 31
+  estimaciones de Allegria no tenían `id`, incluidas las dos de US$374.000 contra
+  las que había que declarar las sustituciones.
+  La migración es un paso **declarado**, no una escritura silenciosa al abrir: se
+  corre una vez por sesión después de una carga exitosa, pasa por el contrato de
+  concurrencia, tiene estado visible y deja su registro en `window.auditLog`; el
+  banner con su botón queda puesto hasta que el servidor confirma.
+  **`applyData` NO mete el valor normalizado en `params`**: el estado se queda
+  con lo que vino del servidor, sin identidades, y la identidad entra a `params`
+  recién con la confirmación (`r && r.ok`). Eso es lo que desbloquea el control
+  de sustitución, y no puede desbloquearse contra identidades que el servidor no
+  tiene. Lo que decide si se escribe es `normPendiente` —que pone la CARGA—, no
+  un recálculo: antes se recalculaba sobre el estado ya normalizado, `huboCambios`
+  salía false, se limpiaba el aviso y se volvía SIN escribir, y la identidad
+  terminaba guardada, cuando se guardaba, por el auto-save de apertura. Correcto
+  por accidente, sin aviso y sin registro.
+  Hay un **marcador de build de solo lectura** en la cabecera de Finanzas
+  (`marcadorBuild()`): el SHA corto si el entorno lo define, si no el nombre del
+  bundle. Sirve para saber qué versión corre una pestaña sin tocar ningún dato.
+  Mientras un registro no tenga identidad, **la pantalla bloquea el control de
+  sustitución** sobre él y dice que hay que normalizar primero: `normalizarCuota`
+  descarta una `sustituye[].estimacionId` vacía, así que declararla dejaría el
+  monto proyectado dos veces sin dejar rastro. Una referencia a un id que **existió
+  y ya no está** sí se declara en `resumenLado(...).referenciasInvalidas`, y la
+  pantalla y el Excel la muestran como pendiente de resolver.
+
+Guía de carga: `docs/programas-allegria-carga.md`. Guía de revisión en
+pantalla antes de cargar: `docs/revision-estimaciones-pantalla.md`. Propuesta de carga y
+pendientes comerciales (WLH, Don Alberto, fichas Perú / Allegria Service):
+`docs/propuesta-carga-allegria.md`. Pruebas:
+`src/__tests__/programasFlujo.test.js` y `integracionSaldos.test.js` (su
+comparación de Excel lee el valor EN CACHÉ: es control de forma, no prueba de
+las fórmulas), **`src/__tests__/excelRecalcFlujo.test.js`** (`RECALC=1`: Excel
+recalculado en LibreOffice contra `calcAllegria`, mes a mes, en los seis
+escenarios que la comparación en caché no podía ver),
+`src/__tests__/saldosExcelRecalc.test.js` (`RECALC=1`),
+`src/__tests__/cuotaVencidaPantalla.test.js` (RTL: lo que la cuota muestra), y
+`scripts/e2e/programas-allegria.mjs` + `regresion-empresas.mjs` (navegador +
+Excel recalculado, datos sintéticos) y **`scripts/e2e/reasignar-bandeja.mjs`**
+(navegador, dedicado al formulario de reasignación y a la bandeja: cuota →
+estimación, cuota → cuota, bandeja parcial a cuota y a estimación, guardado y
+recarga, cancelación, anulación con motivo y su bloqueo. El caso de SOLO
+LECTURA no se ejercita ahí porque el store de la prueba trae una única
+credencial de administrador; está cubierto en las pruebas de componente).
+
+#### Guardado: conflicto pendiente, confirmación y autorización (oct-2026)
+
+Contrato único en `src/persistencia/persistContract.js`. Cuatro reglas nuevas.
+
+**1. Un conflicto de fila-blob no se puede olvidar.** Antes, ante conflicto el
+contrato hacía `_registrarLectura(...)` y adelantaba `_version` a la del servidor:
+el **segundo intento del auto-save pasaba el PATCH condicionado y pisaba** el
+guardado de la otra sesión, devolviendo `{ok:true}`. `FinanzasModule.dbSave` llama
+`saveConfirmed(rowId, data, {})` con un VALOR, así que caía justo ahí, y
+`reconcileIncoming` hacía lo mismo por la vía del realtime. Ahora la fila queda en
+**conflicto pendiente** (`_conflicto`): `saveConfirmed` no escribe, devuelve
+`MOTIVOS.CONFLICTO_PENDIENTE`, los cambios locales se conservan y `_version`/`_base`
+no se tocan. Se sale SOLO por dos caminos explícitos, nunca por un auto-save:
+`recuperarDelServidor(id)` (trae lo vigente y descarta lo local) o
+`reconciliarConservandoLocal(id[, valor])` (escribe lo local sobre la versión
+vigente). **No se fusionan dos operaciones financieras automáticamente.** Las
+filas-colección siguen fusionando por ítem cuando se puede.
+
+**2. No se escribe sin cambio efectivo.** Guardia canónico contra `_servidor` (el
+último valor CONFIRMADO por el servidor), no contra `_base`: una ruta puede
+registrar como base un valor transformado en memoria (p. ej. `usuarios` fusionado
+con `WORKERS_BASE`) y comparar contra eso se saltaría una migración.
+`registrarCarga` **sin** el 5º argumento `valorServidor` deja el servidor como
+DESCONOCIDO y apaga el guardia para esa fila: un PATCH de más antes que una
+migración perdida. `o.forzar` escribe igual. Complemento en `InputNumero`: entrar
+y salir de un campo sin escribir dejó de ser un cambio (reescribía el blob
+completo por tabular).
+
+**3. Un guardado no se declara hecho sin confirmación del servidor.** Estado
+visible `guardando / guardado / error / conflicto` con el vocabulario de `App.jsx`.
+Doce rutas de `FinanzasModule` hacían `.then(ok => setSaved(ok ? "✅ Guardado" : …))`
+sobre el OBJETO resultado `{ok:false, motivo}`, siempre truthy: decían guardado lo
+que el servidor había rechazado. Y salir del módulo dentro de los 800 ms del
+debounce perdía la operación en silencio (el cleanup hacía `clearTimeout`): ahora
+un efecto con deps `[]` completa el guardado al desmontar, y al cerrar la pestaña
+se avisa en vez de intentar escribir, porque el navegador cancela los requests en
+vuelo. `persist.flush(id)`, `idsSucios()`, `idsEnConflicto()`, `conflictoPendiente(id)`
+y `estado(id)` están para eso.
+
+**4. La autorización también va en la ruta de guardado.** El único gate de
+`persistAll` era `cargaOkRef`: la interfaz escondía los controles de una pestaña en
+`ver`, pero cualquier otro camino que cambiara el estado reescribía la fila
+COMPLETA con los datos de las pestañas que esa sesión no puede ver (alcanzable sin
+devtools: editar un saldo con `bancos:"editar"` y el flujo en `ver`).
+`autorizacionGuardado(overrides, puedoEdit)` + el mapa `CAMPO_PESTANA` exigen el
+permiso de cada campo presente. **No reemplaza RLS ni el guardia del servidor**,
+que siguen pendientes (`supabase/AUDITORIA_SEGURIDAD_2026-06.md`,
+`fase4_cerrar_todo.sql` sin ejecutar, `api/db/[...path].js` en 410): cierra la vía
+accidental desde la propia app. No afecta a Rendiciones, que es fila aparte, ni a
+los escenarios.
+
+Pruebas: `src/__tests__/persistConflictoPendiente.test.js` (la secuencia de 4 pasos
+con dos sesiones aisladas, fallos de red y HTTP), `persistSinCambios.test.js`,
+`autorizacionGuardado.test.js`, `normalizacionControlada.test.js` (carga,
+normalización, guardado por el contrato, carga fallida, conflicto y las dos
+sustituciones de US$374.000), e `inputNumero.test.js`. En navegador,
+`scripts/e2e/reasignar-bandeja.mjs` comprueba la secuencia `Guardando… → Guardado`
+y que salir antes del debounce no pierde la operación.
+
+#### Abrir Finanzas no escribe (oct-2026)
+
+Abrir el módulo produce **0 escrituras** en `finanzas`, `finanzas_bancos` y
+`finanzas_esc_index` cuando no hay nada que migrar. Antes escribía la fila
+completa (~4,4 MB) sin que nadie editara: `applyData` re-defaultea el blob
+(`{...defaultParams(), ...}`, `defaultParamsAllegriaService`, reconstrucción de
+`params_ap`, etc.), así que lo que se escribía no era igual a lo que se leyó y
+el guardia canónico del contrato no podía suprimirlo.
+
+La marca es de **identidad de objeto**, no un flag: `aplicadoRef` guarda los
+objetos exactos de `params` y `saldosBancos` tal como quedaron al APLICAR datos
+del servidor (carga inicial, poll/realtime, `recuperarDelServidor`, cambio de
+escenario), y el efecto de auto-save sale antes de agendar si los objetos son
+los mismos. Se eligió identidad porque no exige conocer los sitios de edición:
+toda edición de `params` pasa por `setParams(prev => JSON.parse(JSON.stringify(
+prev))…)`, así que crea un objeto nuevo y el guardado corre igual que siempre.
+Un flag habría que prenderlo en cada sitio y se rompe en el primero que se
+olvide.
+
+Las migraciones legítimas son ahora **escrituras declaradas**, cada una con su
+propio efecto y su prueba, no un efecto colateral del auto-save:
+
+- `saldos_bancos` del blob a la fila dedicada `finanzas_bancos` (solo si está
+  vacía; se autoextingue). El `.catch(()=>{})` que se comía por igual el fallo
+  de lectura y el de guardado se separó: una lectura caída no migra nada y
+  muestra su propio aviso, que no dice "no se guardó" porque no es eso.
+- la migración de identificadores (ver más abajo);
+- `migrateAllegraComisionArandanos`, que antes solo se guardaba de rebote con
+  el PATCH de apertura.
+
+**Pendiente (camino B)**: sacar el re-defaulteo del estado que se serializa, con
+los defaults en una capa de vista. Eso haría innecesaria la marca. Toca
+`applyData` y todos los consumidores de `params*`. El PATCH de `main` al iniciar
+sesión sigue abierto, en `App.jsx`.
+
+Medido con `scripts/e2e/aislamiento.mjs`, que imprime las escrituras por fila al
+abrir y navegar sin editar nada, y exige 0 en esas tres filas y en cualquier
+`finanzas_esc_*`.
+
+#### Las dos salidas del conflicto están en todas las filas-blob (oct-2026)
+
+`main` (Tareas), `pins`, `allegria` y `finanzas` ofrecen las dos salidas
+explícitas. El cableado pantalla↔contrato vive en
+`src/persistencia/conflictoFila.js` (`crearResolucionConflicto`) y el panel en
+`src/PanelConflictoFila.jsx`, extraídos para poder probarlos sin montar
+`App.jsx`. La política sigue entera en `persistContract.js`.
+
+**En las filas que se reemplazan completas** —`finanzas`, `finanzas_esc_*`,
+`finanzas_bancos`, `allegria`, `eeff`, `nominas`, `main`, `pins`— el panel
+advierte que «Conservar la mía **NO combina** los dos trabajos» y nombra qué se
+reemplaza (los PIN de todas las personas, el flujo de las ocho empresas, los
+saldos de todas las cuentas), porque lo de la otra sesión se reemplaza aunque
+haya tocado algo distinto. Antes de escribir se **revalida** la versión vigente:
+si la otra sesión guardó otra vez en el medio, no se reemplaza nada y el bloqueo
+queda puesto de nuevo. En una fila fusionable por ítem la advertencia no
+aparece, porque ahí sí se combina. `reemplazaFilaCompleta(rowId)` decide.
+
+Dos textos que mentían con el contrato nuevo, y eran peligrosos porque recargar
+DESCARTA lo local: `construirAvisoDesde` mandaba el primer conflicto de una
+fila-blob al mensaje «recarga la página y vuelve a aplicarlo», y
+`AvisoPersistencia` pintaba un botón «Recargar página» que con conflicto
+pendiente ES la salida que descarta el trabajo local, sin decirlo. Los dos
+corregidos.
+
+De paso: la pantalla de Tareas no renderizaba ningún `AvisoPersistencia` (el
+único estaba en el hub), y `App.dbSave` devolvía `undefined` cuando el guardia
+anti-pérdida de usuarios bloqueaba, que el `.then` leía como éxito.
+
+#### La fila `main` se escribe con UN solo payload (oct-2026)
+
+La escritura de `main` REEMPLAZA la fila completa, así que un campo que falte en
+un camino se borra. `payloadMain()` es el único armador, desde los refs, para el
+guardado manual y el auto-save.
+
+El defecto que lo motivó era peor de lo que parecía: `tareasOverridesRef` se
+creaba con `useRef(tareasOverrides)` y **nunca se sincronizaba** —faltaba el
+efecto espejo que sí tienen los otros nueve refs del bloque—, así que el payload
+llevaba el campo pero siempre con el valor inicial `{}`. **Cambiar la frecuencia
+de una tarea no se guardaba nunca**, por ningún camino. Fijado con
+`scripts/e2e/tareas-overrides.mjs`, que comprueba contra el almacén: cambiar la
+frecuencia, dejar transcurrir los dos guardados, recargar, y que la tarea
+aparezca en la pestaña de su frecuencia nueva sin haberse llevado por delante lo
+que ya estaba en la fila.
+
+#### Limitación conocida — pendiente con mes fuera del horizonte
+
+Un pendiente cuyo mes cae fuera del horizonte (`fuera_horizonte`) descuenta de
+la liquidación y no se proyecta en ningún mes, porque no tiene columna. La
+pantalla lo declara («· después del horizonte (no tienen columna en el
+flujo)») y el Excel hace lo mismo, así que pantalla y archivo coinciden; lo que
+pasa es que ese monto sale de la proyección. Hoy **no es alcanzable desde la
+pantalla** (el selector de mes solo ofrece meses del horizonte). Se vuelve
+alcanzable el día que el horizonte se corra hacia adelante. Decisión pendiente
+de Angelo: o no descuenta (se cobra/paga al liquidar, como un sin-fecha
+histórico) o se declara como monto no proyectable aparte. No se cambió en el
+cierre de oct-2026 por no tener dato real con el que validarlo.
 
 #### Limitación conocida — costos de ciruelas
 
@@ -364,6 +934,25 @@ vercel --prod
 
 # Tests
 node src/anticipos.test.mjs                 # modelo de anticipos (puro)
+node src/creditos.test.mjs                  # modelo de créditos (puro)
+node src/creditosPendientes.test.mjs        # cambios de Créditos sin confirmar (puro)
+OUT_DIR=/tmp/e2e node scripts/e2e/creditos.mjs   # Créditos en navegador (Supabase falso)
+OUT_DIR=/tmp/e2e node scripts/e2e/nomina-credito.mjs   # Nómina ↔ crédito en navegador
+OUT_DIR=/tmp/e2e node scripts/e2e/creditos-guardado-fallas.mjs   # pago con 500, respuesta perdida, conflicto (2 salidas), salir/reabrir con guardado en vuelo, reversión vs. edición posterior
+OUT_DIR=/tmp/ng node scripts/e2e/nomina-guardado.mjs   # Nóminas: guardado rechazado (sello / red / 500) y transiciones
+node src/nominasPersistencia.test.mjs       # fusión y guardado condicionado de Nóminas (puro)
+OUT_DIR=/tmp/nc node scripts/e2e/nomina-condicionado.mjs   # Nóminas: dos pestañas, cargas fallidas, 409, respuesta perdida
+POSTGREST_BIN=/ruta/postgrest node scripts/nominas-cas/prueba.mjs   # propuesta: la base exige la versión leída (Postgres+PostgREST locales)
+POSTGREST_BIN=/ruta/postgrest OUT_DIR=/tmp/nbr node scripts/e2e/nomina-base-real.mjs   # Nóminas en navegador contra base local real (sin la propuesta, como producción)
+node src/restaurarRespaldo.test.mjs         # restauración con respuestas comprobadas (puro)
+POSTGREST_BIN=/ruta/postgrest OUT_DIR=/tmp/rp node scripts/e2e/restaurar-parcial.mjs   # "Restaurar" con resultado parcial (navegador + base local)
+OUT_DIR=/tmp/vp node scripts/e2e/vista-previa-creditos.mjs   # vista previa de Créditos con datos simulados (Excel recalculado)
+OUT_DIR=/tmp/e2e node scripts/e2e/apertura-sin-cambios.mjs   # abrir con registros antiguos no los modifica
+node scripts/vista-previa/armar.mjs --build && node scripts/vista-previa/servir.mjs   # vista previa funcional en http://localhost:4180
+VP_URL=http://127.0.0.1:4180 OUT_DIR=/tmp/vpf node scripts/e2e/vista-previa-funcional.mjs   # prueba la vista previa (pauta)
+node scripts/vista-previa/respaldo-prueba.mjs /tmp/rp.json && VP_URL=http://127.0.0.1:4180 RESPALDO=/tmp/rp.json OUT_DIR=/tmp/vpr node scripts/e2e/vista-previa-respaldo.mjs   # modo respaldo real (con respaldo de PRUEBA)
+VP_URL=http://127.0.0.1:4180 OUT_DIR=/tmp/vpu node scripts/e2e/vista-previa-uf.mjs   # mecanismo de descarga de UF (respuesta simulada)
+POSTGREST_BIN=/ruta/postgrest OUT_DIR=/tmp/conc node scripts/conciliacion/prueba.mjs   # script de conciliación (datos de prueba, Postgres 16 + PostgREST 12 locales)
 CI=true npx react-scripts test --watchAll=false     # suite completa (jest)
 CI=true npx react-scripts test --testPathPattern Anticipos --watchAll=false
 node scripts/verif-excel-recalc.mjs         # recálculo REAL del Excel (requiere LibreOffice Calc)
@@ -400,7 +989,10 @@ git push origin main
 ## Pendientes operativos
 
 - Revisar quota Supabase mediterra-calendario (Pro plan, renovación mid-May 2026)
-- RLS Supabase mediterra-calendario (vulnerabilidad de seguridad pendiente de fix sequential)
+- RLS Supabase mediterra-calendario (vulnerabilidad de seguridad pendiente de fix sequential). Verificado 2026-10-02:
+  RLS ACTIVO en `calendario_data` pero con políticas abiertas a `anon` (leer/crear/modificar/BORRAR todo salvo
+  `backup*`/`main_pre_restore*`). Propuesta NO aplicada para quitar DELETE/TRUNCATE: fase D del plan de seguridad (rama `claude/seguridad-main-pins`; puntero en `docs/seguridad-quitar-delete-anon.md`).
+- Nóminas: guardado condicionado por `updated_at` (PATCH/POST) en la rama, sin desplegar: `docs/nominas-guardado-condicionado.md`. La exigencia en la base (`nominas_guardar` + trigger) queda para otra entrega: `docs/nominas-activacion.md`.
 - Módulo EEFF (Etapa 1: carga balance + P&L con análisis comparativo Real vs Ppto vs Año Anterior) — esperar Excel de plantilla de Angelo
 
 ## Estructura típica de un archivo de módulo

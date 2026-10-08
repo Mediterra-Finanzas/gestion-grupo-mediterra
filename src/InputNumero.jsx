@@ -91,6 +91,10 @@ export default function InputNumero({
 
   const confirmar = () => {
     if (txt === null) return;
+    // Entrar y salir sin escribir NO es un cambio: antes se emitía onChange igual,
+    // y en Saldos Bancos eso marcaba la cuenta como editada y, al guardar, la
+    // reescribía con la fecha nueva (un saldo viejo pasaba por actual).
+    if (txt === textoDeEdicion(value, formato)) { setTxt(null); return; }
     const n = parseNumero(txt, formato);
     setTxt(null);
     if (n === null) { if (onChange) onChange(vacio); return; }

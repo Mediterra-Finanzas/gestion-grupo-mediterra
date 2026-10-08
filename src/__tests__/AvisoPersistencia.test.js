@@ -9,6 +9,7 @@ import React from "react";
 import "@testing-library/jest-dom";
 import { render, screen, fireEvent } from "@testing-library/react";
 import AvisoPersistencia, { construirAviso } from "../AvisoPersistencia";
+import { construirAvisoDesde } from "../persistencia/persistContract.js";
 
 describe("construirAviso · traduce el resultado del guardado", () => {
   test("guardado normal no genera aviso", () => {
@@ -143,6 +144,49 @@ describe("AvisoPersistencia · render", () => {
     const a = construirAviso("frisku_embarques", { ok: false, motivo: "conflicto_item", conflictos: ["7"] }, "Embarques");
     render(<AvisoPersistencia aviso={a} onCerrar={() => {}} />);
     expect(screen.getByText(a.texto)).toBeInTheDocument();
+  });
+
+  // ── Conflicto PENDIENTE: la fila quedó bloqueada a propósito ──────────────
+  // Recargar la página descartaría el trabajo local sin decirlo, y es justo una
+  // de las dos salidas explícitas. Así que acá no se ofrece ni se insinúa.
+  describe("conflicto pendiente", () => {
+    const { MOTIVOS } = require("../persistencia/persistContract.js");
+    test("el texto NO dice recargar la página, y sí que hay que elegir", () => {
+      const a = construirAvisoDesde("main", { ok: false, motivo: MOTIVOS.CONFLICTO_PENDIENTE }, "las Tareas");
+      expect(a.conflictoPendiente).toBe(true);
+      expect(a.texto).not.toMatch(/recarg/i);
+      expect(a.texto).toMatch(/Tenés que elegir/);
+      expect(a.texto).toMatch(/NO se están guardando/);
+    });
+
+    test("el PRIMER conflicto de una fila-blob se trata igual que el reintento", () => {
+      // El primer choque llega con motivo CONFLICTO y `conflictoPendiente` en
+      // true. Antes caía en la rama que decía "recarga la página", que con la
+      // fila bloqueada es falso y hace perder lo local.
+      const a = construirAvisoDesde("main", { ok: false, motivo: MOTIVOS.CONFLICTO, conflictoPendiente: true }, "las Tareas");
+      expect(a.conflictoPendiente).toBe(true);
+      expect(a.texto).not.toMatch(/recarg/i);
+      expect(a.texto).toMatch(/Tenés que elegir/);
+    });
+
+    test("un conflicto que NO deja la fila bloqueada sí puede pedir recargar", () => {
+      const a = construirAvisoDesde("main", { ok: false, motivo: MOTIVOS.CONFLICTO }, "las Tareas");
+      expect(a.conflictoPendiente).toBeFalsy();
+      expect(a.texto).toMatch(/recarga la página/);
+    });
+
+    test("en pantalla NO aparece el botón de recargar", () => {
+      const a = construirAvisoDesde("main", { ok: false, motivo: MOTIVOS.CONFLICTO_PENDIENTE }, "las Tareas");
+      render(<AvisoPersistencia aviso={a} onCerrar={() => {}} />);
+      expect(screen.queryByRole("button", { name: /Recargar página/i })).toBeNull();
+      expect(screen.getByRole("button", { name: /Entendido/i })).toBeInTheDocument();
+    });
+
+    test("pero sí aparece en un error de red, donde recargar no pierde nada decidido", () => {
+      const a = construirAvisoDesde("main", { ok: false, motivo: MOTIVOS.RED }, "las Tareas");
+      render(<AvisoPersistencia aviso={a} onCerrar={() => {}} />);
+      expect(screen.getByRole("button", { name: /Recargar página/i })).toBeInTheDocument();
+    });
   });
 
   test("duplicado_oe: el mensaje específico se ve en pantalla", () => {

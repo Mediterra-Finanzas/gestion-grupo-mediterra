@@ -29,18 +29,28 @@ const n = (x) => Number(x) || 0;
 
 // ── Identificadores estables ──────────────────────────────────────
 // Anclan las realizaciones a su anticipo aunque se reordenen las filas.
+//
+// La identidad se asigna AL CREAR el registro (con estos helpers) o UNA sola
+// vez a los registros antiguos, con `normalizarIdentidades` de programas.js.
+// Los normalizadores NO acuñan identidad: se llaman en cada render y en cada
+// cálculo, así que un id nuevo por pasada haría que una sustitución declarada
+// contra el registro apunte a un id que ya no existe, y el mismo dinero se
+// proyectaría dos veces sin ningún aviso.
 function uid(pref) {
   return `${pref}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 }
 export function nuevoIdAnticipo()    { return uid("ant"); }
 export function nuevoIdRealizacion() { return uid("rea"); }
 
-// Asegura que un anticipo tenga id y arreglo de realizaciones (no muta).
+// Asegura la forma de un anticipo (no muta) y DEJA el id como está: si falta,
+// queda vacío de forma estable. Sin identidad, el registro no puede recibir
+// sustituciones ni atribuirse movimientos movidos; eso se ve y se resuelve,
+// no se tapa inventando un id distinto en cada render.
 export function normalizarAnticipo(a) {
   const base = a || {};
   return {
     ...base,
-    id: base.id || nuevoIdAnticipo(),
+    id: base.id || "",
     realizaciones: Array.isArray(base.realizaciones) ? base.realizaciones : [],
     cerrado: !!base.cerrado,
   };

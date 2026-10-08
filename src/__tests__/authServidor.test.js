@@ -100,6 +100,83 @@ describe("guardador de main", () => {
   });
 });
 
+describe("guardador de main: conflicto pendiente (mismo contrato que main)", () => {
+  function persistFalso() { return crearPersistencia({ fetch: async () => { throw new Error("no debe usarse"); }, logger: { info() {}, warn() {}, error() {} } }); }
+  function escenario() {
+    const persist = persistFalso();
+    persist.registrarCarga("main", { estados: { a: "g" } }, "v1", "object");
+    const llamadas = { patch: [], leer: 0 };
+    const srv = { valor: { estados: { a: "r" } }, version: "v2" };
+    const cliente = {
+      patchMain: async (patch, version) => {
+        llamadas.patch.push({ patch, version });
+        if (version !== srv.version) throw new ErrorServidor("conflicto", 409, {});
+        srv.valor = { ...srv.valor, ...patch }; srv.version = "v" + (Number(srv.version.slice(1)) + 1);
+        return { version: srv.version };
+      },
+      leerMain: async () => { llamadas.leer++; return { valor: srv.valor, version: srv.version }; },
+    };
+    let aplicado = null;
+    const g = crearGuardadorMain({ cliente, persist, alFusionar: (v) => { aplicado = v; } });
+    return { persist, g, srv, llamadas, aplicado: () => aplicado };
+  }
+  test("mismo campo cambiado por los dos: no escribe, no descarta lo local y queda pendiente", async () => {
+    const { persist, g, llamadas, aplicado } = escenario();
+    const r = await g.guardar({ estados: { a: "v" } });
+    expect(r).toMatchObject({ ok: false, motivo: "conflicto", conflictoPendiente: true, conflictos: ["estados.a"] });
+    expect(llamadas.patch.length).toBe(1);           // solo el PATCH que dio 409
+    expect(aplicado()).toBe(null);                    // la pantalla no se pisa con lo ajeno
+    expect(persist.estado("main").version).toBe("v1"); // la base no avanza: lo local sigue pendiente
+    expect(persist.isDirty("main")).toBe(true);
+    // Un auto-guardado posterior NO escribe mientras siga pendiente.
+    const r2 = await g.guardar({ estados: { a: "v" } });
+    expect(r2).toMatchObject({ ok: false, motivo: "conflicto_pendiente", conflictoPendiente: true });
+    expect(llamadas.patch.length).toBe(1);
+  });
+  test("salida (a) recuperar: trae lo del servidor y desbloquea", async () => {
+    const { persist, g } = escenario();
+    await g.guardar({ estados: { a: "v" } });
+    const r = await g.comoPersist().recuperarDelServidor("main");
+    expect(r).toMatchObject({ ok: true, value: { estados: { a: "r" } }, version: "v2" });
+    expect(g.conflictoPendiente()).toBe(null);
+    expect(persist.isDirty("main")).toBe(false);
+  });
+  test("salida (b) conservar lo mío: escribe lo local sobre la versión vigente", async () => {
+    const { g, srv, llamadas } = escenario();
+    await g.guardar({ estados: { a: "v" } });
+    const d = await g.comoPersist().reconciliarConservandoLocal("main");
+    expect(d).toMatchObject({ ok: true, desbloqueado: true, version: "v2" });
+    const r = await g.guardar({ estados: { a: "v" } });
+    expect(r.ok).toBe(true);
+    expect(llamadas.patch[llamadas.patch.length - 1]).toEqual({ patch: { estados: { a: "v" } }, version: "v2" });
+    expect(srv.valor.estados.a).toBe("v");
+  });
+  test("salida (b) con el servidor movido otra vez en el medio: vuelve a quedar pendiente, no pisa", async () => {
+    const { g, srv, llamadas } = escenario();
+    await g.guardar({ estados: { a: "v" } });
+    await g.comoPersist().reconciliarConservandoLocal("main");
+    srv.valor = { estados: { a: "x" } }; srv.version = "v9"; // otra sesión guarda de nuevo
+    const r = await g.guardar({ estados: { a: "v" } });
+    expect(r).toMatchObject({ ok: false, conflictoPendiente: true });
+    expect(srv.valor.estados.a).toBe("x");
+    expect(llamadas.patch.filter(p => p.version === "v9").length).toBe(0);
+  });
+  test("una salida que falla por red deja el conflicto puesto", async () => {
+    // La primera lectura (tras el 409) responde; la de la salida falla sin conexión.
+    const persist = persistFalso();
+    persist.registrarCarga("main", { estados: { a: "g" } }, "v1", "object");
+    const cliente = {
+      patchMain: async () => { throw new ErrorServidor("conflicto", 409, {}); },
+      leerMain: (() => { let n = 0; return async () => { n++; if (n > 1) throw new ErrorServidor("sin_conexion", 0, {}); return { valor: { estados: { a: "r" } }, version: "v2" }; }; })(),
+    };
+    const g3 = crearGuardadorMain({ cliente, persist });
+    await g3.guardar({ estados: { a: "v" } });
+    const r = await g3.comoPersist().recuperarDelServidor("main");
+    expect(r).toMatchObject({ ok: false, motivo: "red" });
+    expect(g3.conflictoPendiente()).not.toBe(null);
+  });
+});
+
 describe("sincro de usuarios", () => {
   test("PUT solo si cambió, sin credenciales, y 409 = conflicto", async () => {
     const puts = [];

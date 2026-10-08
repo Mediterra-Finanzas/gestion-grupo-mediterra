@@ -15,6 +15,13 @@
 // Usa xlsx-js-style (fork de SheetJS con soporte de estilos).
 // ═══════════════════════════════════════════════════════════════════
 import { antRealizado, antPendiente } from './anticipos.js';
+import {
+  normalizarPrograma, normalizarCuota, cuotaAcordado, cuotaRealizado, cuotaPendiente,
+  referenciasInvalidas,
+  estAcordado, estSustituido, estPendiente, estRealizadoOriginado, esDato,
+  normalizarSaldo, resumenSaldo, compensacionesPorDestino,
+  tratoSinFecha, mesProyeccion,
+} from './programas.js';
 import * as XLSXns from 'xlsx-js-style';
 const XLSX = XLSXns.utils ? XLSXns : (XLSXns.default || XLSXns);
 
@@ -71,6 +78,7 @@ const thin = { style:'thin', color:{ rgb:BORDERC } };
 const BORD = { top:thin, bottom:thin, left:thin, right:thin };
 const S = {
   avisoPie: { font:{ name:FONT, sz:10, bold:true, color:{rgb:'C00000'} }, alignment:{ horizontal:'left' } },
+  notaPie: { font:{ name:FONT, sz:9, italic:true, color:{rgb:'595959'} }, alignment:{ horizontal:'left' } },
   title:    { font:{ name:FONT, sz:13, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' } },
   titleSub: { font:{ name:FONT, sz:10, italic:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' } },
   seasonHdr:{ font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:BLUE} }, alignment:{ horizontal:'center', vertical:'center' }, border:BORD },
@@ -144,9 +152,11 @@ function fillAdditive(cells, num, r1, cols, sty) {
 // acumularse sobre un saldo que ya los contiene (su saldo queda en blanco).
 // avisos: notas de la app que deben viajar al archivo (p. ej. valores manuales
 // antiguos aplicados con un criterio provisional, sin categoría confirmada).
+// notasPie: notas SOLO al pie (no en el subtítulo), p. ej. de qué cuentas,
+// fechas y paridades sale el saldo inicial.
 function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue,
                           saldoIniMonth0Formula, saldoIniMonth0Number, startAccumIdx = 0,
-                          avisos = [] }) {
+                          avisos = [], notasPie = [] }) {
   // cats: [{ cat, lines:[{label,vals}], monthFormula?(mc)->string }]
   const cells = {}; const rows = []; const merges = []; const num = {};
   let r = 0;
@@ -184,6 +194,7 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
 
   // Categorías
   const catRows = {};
+  const lineRows = {};   // `${cat}::${label}` → fila (para referencias desde otras hojas)
   CAT_ORDER.forEach(cat => {
     const isIng = ING_CATS.includes(cat);
     const natNum  = isIng ? S.catNumIng  : S.catNumEgr;
@@ -194,6 +205,7 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
     const firstLineRow = r + 1;
     catLines.forEach(ln => {
       const isLink = !!ln.cellFormula;
+      lineRows[`${cat}::${ln.label}`] = r + 1;
       cells[ref(r+1,0)] = { t:'s', v:ln.label, s:isLink?S.linkLabel:S.lineLabel };
       monthOrder.forEach((mc,k) => {
         if (isLink) {
@@ -307,8 +319,12 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
     r += 2;
     avisos.forEach(a => { cells[ref(r+1,0)] = { t:'s', v:a, s:S.avisoPie }; rows[r] = { level:0 }; r++; });
   }
+  if (notasPie && notasPie.length) {
+    r += (avisos && avisos.length) ? 1 : 2;
+    notasPie.forEach(a => { cells[ref(r+1,0)] = { t:'s', v:a, s:S.notaPie }; rows[r] = { level:0 }; r++; });
+  }
 
-  return { cells, rows, merges, num, lastRow:r, lastCol:lastColIdx, catRows, saldoIniRow, flujoRow, saldoFinRow, kIni };
+  return { cells, rows, merges, num, lastRow:r, lastCol:lastColIdx, catRows, lineRows, saldoIniRow, flujoRow, saldoFinRow, kIni };
 }
 
 function toSheet({ cells, rows, merges, lastRow, lastCol, cols }) {
@@ -325,6 +341,113 @@ function toSheet({ cells, rows, merges, lastRow, lastCol, cols }) {
   ws['!rows'] = rows.map(rr => rr || { level:0 });
   if (merges.length) ws['!merges'] = merges;
   // congelar: fila de meses (3) + columna concepto (A)
+  ws['!freeze'] = { xSplit:1, ySplit:3, topLeftCell:'B4', activePane:'bottomRight', state:'frozen' };
+  return ws;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HOJA "Servicio deuda" — desglose de Pago Préstamos + Renovaciones.
+// Va en hoja aparte para que los componentes NO entren al subtotal de la hoja
+// del flujo (que suma un rango de filas): se suman una sola vez.
+//   Capital + Intereses + Otros cargos + Cuotas sin desglosar = Servicio según Créditos
+//   + Ajuste por valor manual vigente = Pago Préstamos + Renovaciones del flujo
+//   Control = esa suma − las celdas de la hoja del flujo  (debe ser 0)
+// Las cuotas por conciliar van en una fila informativa: NO están en el flujo.
+// bloques: [{ nombre, emp, sheetName, built }]
+const SD_LINEAS = ['Pago Préstamos - Total', 'Renovaciones'];
+const SD = {
+  hdr:  { font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:BLUE} }, alignment:{ horizontal:'left' }, border:BORD },
+  lbl:  { font:{ name:FONT, sz:10 }, alignment:{ horizontal:'left', indent:1 }, border:BORD },
+  lblB: { font:{ name:FONT, sz:10, bold:true }, alignment:{ horizontal:'left' }, border:BORD },
+  lblI: { font:{ name:FONT, sz:9, italic:true, color:{rgb:'7030A0'} }, alignment:{ horizontal:'left', indent:1 }, border:BORD },
+  num:  { font:{ name:FONT, sz:10 }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  numB: { font:{ name:FONT, sz:10, bold:true }, fill:{ fgColor:{rgb:GRAY} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  numI: { font:{ name:FONT, sz:9, italic:true, color:{rgb:'7030A0'} }, alignment:{ horizontal:'right' }, numFmt:FMT, border:BORD },
+  ctrl: { font:{ name:FONT, sz:9, bold:true, color:{rgb:'C00000'} }, alignment:{ horizontal:'right' }, numFmt:'#,##0.00;-#,##0.00;"OK"', border:BORD },
+};
+export function datosServicioDeuda(emp, months) {
+  const z = () => months.map(() => 0);
+  const out = { capital:z(), interes:z(), cargos:z(), sinDesglose:z(), flujo:z(), porConciliar:z(), tiene:false };
+  const sec = (emp.sections || []).find(x => x.cat === 'egr_nop');
+  (sec ? sec.lines : []).forEach(l => {
+    if (!SD_LINEAS.includes(l.label) || !l._compCred) return;
+    out.tiene = true;
+    months.forEach((mo, k) => {
+      ['capital','interes','cargos','sinDesglose'].forEach(c => { out[c][k] += Number(l._compCred[c]?.[mo.idx]) || 0; });
+      out.flujo[k] += Number(l.proy[mo.idx]) || 0;
+      if (l._porConciliarUSD && mo.idx === l._porConciliarIdx) out.porConciliar[k] += l._porConciliarUSD;
+    });
+  });
+  return out;
+}
+function buildHojaServicioDeuda({ bloques, months, monthOrder, titulo }) {
+  const cells = {}, rows = [], merges = [];
+  const nM = months.length, cTot = nM + 1;
+  let r = 0;
+  const put = (row, c, cell) => { cells[ref(row, c)] = cell; };
+  put(1, 0, { t:'s', v:titulo, s:S.title });
+  for (let c = 1; c <= cTot; c++) put(1, c, { t:'s', v:'', s:S.title });
+  r = 1;
+  put(2, 0, { t:'s', v:'Total servicio de deuda = capital + intereses + otros cargos + cuotas sin desglosar (cada componente se suma una sola vez). Las cuotas por conciliar NO están en el flujo.', s:S.titleSub });
+  r = 2;
+  const hdrRow = 3;
+  put(hdrRow, 0, { t:'s', v:'Concepto', s:S.concept });
+  months.forEach((mo, k) => put(hdrRow, k + 1, { t:'s', v:mo.label, s:S.colHdr }));
+  put(hdrRow, cTot, { t:'s', v:'Total', s:S.colHdr });
+  r = 3;
+  const filasTotales = { capital:[], interes:[], cargos:[], sinDesglose:[], servicio:[], ajuste:[], flujo:[], ctrl:[], porConciliar:[] };
+  const filaNum = (row, label, vals, sl, sn, key) => {
+    put(row, 0, { t:'s', v:label, s:sl });
+    vals.forEach((v, k) => put(row, k + 1, { t:'n', v: Math.round((Number(v)||0)*100)/100, s:sn }));
+    put(row, cTot, { t:'n', f:`SUM(${ref(row,1)}:${ref(row,nM)})`, v: vals.reduce((a,b)=>a+(Number(b)||0),0), s:S.saldoNum });
+    if (key) filasTotales[key].push(row);
+  };
+  const filaFx = (row, label, fx, sl, sn, key, vfn) => {
+    put(row, 0, { t:'s', v:label, s:sl });
+    months.forEach((mo, k) => put(row, k + 1, { t:'n', f:fx(k), v: vfn ? vfn(k) : 0, s:sn }));
+    put(row, cTot, { t:'n', f:`SUM(${ref(row,1)}:${ref(row,nM)})`, s:S.saldoNum });
+    if (key) filasTotales[key].push(row);
+  };
+  bloques.forEach(b => {
+    const d = datosServicioDeuda(b.emp, months);
+    if (!d.tiene) return;
+    r++; put(r + 1, 0, { t:'s', v:b.nombre, s:SD.hdr }); for (let c = 1; c <= cTot; c++) put(r + 1, c, { t:'s', v:'', s:SD.hdr }); r++;
+    const R = {};
+    [['capital','Capital'],['interes','Intereses'],['cargos','Otros cargos'],['sinDesglose','Cuotas sin desglosar']].forEach(([k,l]) => { r++; R[k] = r; filaNum(r, l, d[k], SD.lbl, SD.num, k); });
+    r++; R.serv = r;
+    const credK = (k) => d.capital[k] + d.interes[k] + d.cargos[k] + d.sinDesglose[k];
+    filaFx(r, '= Servicio de deuda según Créditos', (k) => `SUM(${ref(R.capital,k+1)}:${ref(R.sinDesglose,k+1)})`, SD.lblB, SD.numB, 'servicio', credK);
+    r++; R.aj = r;
+    filaNum(r, 'Ajuste: valor manual vigente (flujo − Créditos)', months.map((_, k) => d.flujo[k] - credK(k)), SD.lbl, SD.num, 'ajuste');
+    r++; R.fl = r;
+    filaFx(r, '= Pago Préstamos + Renovaciones en el flujo', (k) => `${ref(R.serv,k+1)}+${ref(R.aj,k+1)}`, SD.lblB, SD.numB, 'flujo', (k) => d.flujo[k]);
+    if (b.sheetName && b.built) {
+      r++;
+      const filasHoja = SD_LINEAS.map(l => b.built.lineRows && b.built.lineRows[`egr_nop::${l}`]).filter(Boolean);
+      filaFx(r, 'Control vs hoja del flujo (debe ser 0)', (k) => {
+        const col = monthOrder[k].c;
+        const refs = filasHoja.map(fr => `'${b.sheetName}'!${ref(fr, col)}`);
+        return `ROUND(${ref(R.fl,k+1)}-(${refs.length ? refs.join('+') : '0'}),2)`;
+      }, SD.lbl, SD.ctrl, 'ctrl', () => 0);
+    }
+    r++;
+    filaNum(r, 'Escenario: cuotas por conciliar (NO incluidas en el flujo)', d.porConciliar, SD.lblI, SD.numI, 'porConciliar');
+  });
+  if (bloques.length > 1 && filasTotales.capital.length > 1) {
+    r++; put(r + 1, 0, { t:'s', v:'TOTAL GRUPO', s:SD.hdr }); for (let c = 1; c <= cTot; c++) put(r + 1, c, { t:'s', v:'', s:SD.hdr }); r++;
+    [['capital','Capital',SD.lbl,SD.num],['interes','Intereses',SD.lbl,SD.num],['cargos','Otros cargos',SD.lbl,SD.num],['sinDesglose','Cuotas sin desglosar',SD.lbl,SD.num],
+     ['servicio','= Servicio de deuda según Créditos',SD.lblB,SD.numB],['ajuste','Ajuste: valor manual vigente',SD.lbl,SD.num],
+     ['flujo','= Pago Préstamos + Renovaciones en el flujo',SD.lblB,SD.numB],['ctrl','Control vs hojas del flujo (debe ser 0)',SD.lbl,SD.ctrl],
+     ['porConciliar','Escenario: cuotas por conciliar (NO incluidas)',SD.lblI,SD.numI]].forEach(([k,l,sl,sn]) => {
+      if (!filasTotales[k].length) return;
+      r++; filaFx(r, l, (kk) => filasTotales[k].map(fr => ref(fr, kk+1)).join('+'), sl, sn, null);
+    });
+  }
+  const ws = {};
+  Object.keys(cells).forEach(a => { ws[a] = cells[a]; });
+  ws['!ref'] = `A1:${L(cTot)}${Math.max(r, 3)}`;
+  ws['!cols'] = [{ wch:52 }, ...months.map(() => ({ wch:11.5 })), { wch:13 }];
+  ws['!merges'] = [{ s:{ r:0, c:0 }, e:{ r:0, c:6 } }, { s:{ r:1, c:0 }, e:{ r:1, c:Math.min(cTot, 14) } }];
   ws['!freeze'] = { xSplit:1, ySplit:3, topLeftCell:'B4', activePane:'bottomRight', state:'frozen' };
   return ws;
 }
@@ -422,21 +545,48 @@ function helpersAnticipo(put, getR, setR) {
       .forEach(([c,t])=>put(rH,c,{ t:'s', v:t, s:PS.colHdr }));
     setR(getR()+1);
   };
-  const filaAnticipo = (a, kgC, kgNum, mesCol, monCol, etiqueta) => {
+  const filaAnticipo = (a, kgC, kgNum, mesCol, monCol, etiqueta, sustituido = 0,
+                       realizadoOriginado = null, trato = "en_liquidacion") => {
     const rA = getR();
-    const cierreC=ref(rA,2), uC=ref(rA,3), acC=ref(rA,4), reC=ref(rA,5), peC=ref(rA,6), mesC=ref(rA,mesCol);
+    const cierreC=ref(rA,2), uC=ref(rA,3), acC=ref(rA,4), reC=ref(rA,5), peC=ref(rA,6), suC=ref(rA,7), mesC=ref(rA,mesCol);
     const usd = Number(a.usd_kg)||0;
-    const acordado = usd*kgNum, realizado = antRealizado(a), pend = antPendiente(a, kgNum);
+    const acordado = usd*kgNum;
+    // El realizado de la columna F es el que esta estimación tiene FÍSICAMENTE:
+    // así el descuento de la liquidación lo cuenta UNA vez (la realización
+    // movida ya la cuenta la cuota donde está).
+    const realizado = antRealizado(a);
+    // Lo MOVIDO a una cuota no reabre el pendiente de la estimación: reduce su
+    // pendiente igual que una sustitución. Sin esto el archivo vuelve a
+    // proyectar plata que ya está en el banco.
+    const movido = realizadoOriginado == null ? 0
+                 : Math.max(0, (Number(realizadoOriginado)||0) - realizado);
+    // Lo que un calendario vigente reemplaza se descuenta del pendiente de la
+    // estimación: columna propia para que se vea de dónde sale.
+    const sus = (Number(sustituido)||0) + movido;
+    const pend = a.cerrado ? 0 : Math.max(0, acordado - realizado - sus);
+    // Sin fecha: si está RESERVADO (pendiente de calendarizar) no se proyecta
+    // pero SÍ sale de la liquidación, igual que en pantalla. Si el trato es
+    // `en_liquidacion` se cobra/paga al liquidar y no descuenta.
+    const reservadoSinFecha = !a.mes && trato === "reservado";
     const proyectable = !!a.mes;
-    put(rA,1,{ t:'s', v:`   ↳ ${etiqueta}`, s:PS.txtSub });
+    put(rA,1,{ t:'s', v:`   ↳ ${etiqueta}${movido>0?` · ${Math.round(movido)} movidos a cuotas`:''}`, s:PS.txtSub });
     put(rA,2,{ t:'s', v:a.cerrado?'Cerrado':'Abierto', s:PS.inTxt });
     put(rA,3,{ t:'n', v:usd, s:PS.inUsd });
     put(rA,4,{ t:'n', f:`${uC}*${kgC}`, v:acordado, s:PS.der });
     put(rA,5,{ t:'n', v:realizado, s:PS.inNum });
-    put(rA,6,{ t:'n', f:`IF(${cierreC}="Cerrado",0,MAX(0,${acC}-${reC}))`, v:pend, s:PS.der });
+    if (sus > 0) {
+      put(rA,7,{ t:'n', v:sus, s:PS.inNum });
+      put(rA,6,{ t:'n', f:`IF(${cierreC}="Cerrado",0,MAX(0,${acC}-${reC}-${suC}))`, v:pend, s:PS.der });
+    } else {
+      put(rA,6,{ t:'n', f:`IF(${cierreC}="Cerrado",0,MAX(0,${acC}-${reC}))`, v:pend, s:PS.der });
+    }
+    if (reservadoSinFecha) put(rA,1,{ t:'s', v:`   ↳ ${etiqueta} · sin fecha, pendiente de calendarizar (no proyecta)`, s:PS.txtSub });
     put(rA,mesCol,{ t:'s', v:a.mes||'', s:PS.inTxt });
     put(rA,monCol,{ t:'n', f:`${peC}`, v:pend, s:PS.movNum });
     setR(getR()+1);
+    // Reservado: descuenta de la liquidación aunque no tenga mes (no proyecta
+    // porque la celda de mes queda vacía y el SUMIF no la encuentra).
+    if (reservadoSinFecha) return { f:`${reC}+${peC}`, v:realizado + pend };
     return { f:`${reC}+IF(${mesC}="",0,${peC})`, v:realizado + (proyectable?pend:0) };
   };
   // ── Fila de liquidación + fila de sobre-anticipo ────────────────
@@ -469,7 +619,227 @@ function helpersAnticipo(put, getR, setR) {
     setR(getR()+1);
   };
 
-  return { hdrAnticipo, filaAnticipo, filasLiquidacion };
+  // ── Fila de cuota de un programa comercial ─────────────────────
+  // Acordado = US$/kg × kilos DEL PROGRAMA, o monto fijo. Nunca se deduce una
+  // tarifa dividiendo un importe por los kilos de la fruta. Una cuota en
+  // borrador no proyecta: aporta solo su realizado al descuento.
+  const filaCuota = (c, kilosC, kilosNum, mesCol, monCol, etiqueta, trato = "en_liquidacion") => {
+    const rA = getR();
+    const cierreC=ref(rA,2), uC=ref(rA,3), acC=ref(rA,4), reC=ref(rA,5), peC=ref(rA,6), mesC=ref(rA,mesCol);
+    const realizado = cuotaRealizado(c);
+    const vigente = c.estado === 'vigente';
+    const acordado = cuotaAcordado(c, kilosNum).valor;
+    const pend = vigente ? (cuotaPendiente(c, kilosNum) || 0) : 0;
+    // Rótulos que tienen que viajar al archivo: un registro de anticipos
+    // históricos no es un acuerdo pendiente, y un mes estimado no es pactado.
+    const est = c.estimacion_caja && c.estimacion_caja.mes ? c.estimacion_caja : null;
+    const rotulo = c.historico ? 'Anticipos históricos (ya en caja · no proyecta)'
+                 : `${etiqueta}${vigente ? '' : ` (${c.estado})`}` +
+                   (est ? ` · contractual ${c.mes} · caja estimada ${est.mes}${est.motivo ? ` (${est.motivo})` : ''}` : '') +
+                   (!est && c.mes_estimado ? ' · mes estimado' : '');
+    put(rA,1,{ t:'s', v:`   ↳ ${rotulo}`, s:PS.txtSub });
+    put(rA,2,{ t:'s', v:c.cerrado?'Cerrado':'Abierto', s:PS.inTxt });
+    if (c.modalidad === 'usd_kg') {
+      put(rA,3,{ t:'n', v:Number(c.usd_kg)||0, s:PS.inUsd });
+      put(rA,4,{ t:'n', f:`${uC}*${kilosC}+${Number(c.extra_acordado)||0}`, v:acordado||0, s:PS.der });
+    } else if (c.modalidad === 'monto') {
+      put(rA,3,{ t:'s', v:'monto fijo', s:PS.txtSub });
+      put(rA,4,{ t:'n', v:acordado||0, s:PS.inNum });
+    } else {
+      put(rA,3,{ t:'s', v:'por confirmar', s:PS.txtSub });
+      // Un 0 NUMÉRICO: si fuera texto, el MAX() de abajo daría #VALUE! y el
+      // error se propagaría a la liquidación, al subtotal y al saldo acumulado.
+      put(rA,4,{ t:'n', v:0, s:PS.der });
+    }
+    put(rA,5,{ t:'n', v:realizado, s:PS.inNum });
+    if (vigente) {
+      const faltaAcordado = acordado === null;
+      const reservadoSinFecha = !c.mes && trato === "reservado";
+      if (faltaAcordado) {
+        // Sin modalidad o sin dato no hay pendiente calculable: la app no lo
+        // proyecta, el archivo tampoco, y se dice por qué.
+        put(rA,1,{ t:'s', v:`   ↳ ${rotulo} · falta dato: no proyecta`, s:PS.txtSub });
+        put(rA,6,{ t:'n', v:0, s:PS.der });
+        put(rA,mesCol,{ t:'s', v:'', s:PS.inTxt });
+        setR(getR()+1);
+        return { f:`${reC}`, v:realizado };
+      }
+      put(rA,6,{ t:'n', f:`IF(${cierreC}="Cerrado",0,MAX(0,${acC}-${reC}))`, v:pend, s:PS.der });
+      // Mes que lee el flujo por SUMIF: el estimado si existe, si no el contractual.
+      put(rA,mesCol,{ t:'s', v:(est && est.mes) || c.mes || '', s:PS.inTxt });
+      put(rA,monCol,{ t:'n', f:`${peC}`, v:pend, s:PS.movNum });
+      setR(getR()+1);
+      if (reservadoSinFecha) {
+        put(rA,1,{ t:'s', v:`   ↳ ${rotulo} · sin fecha, pendiente de calendarizar (no proyecta)`, s:PS.txtSub });
+        return { f:`${reC}+${peC}`, v:realizado + pend };
+      }
+      return { f:`${reC}+IF(${mesC}="",0,${peC})`, v:realizado + (c.mes?pend:0) };
+    }
+    put(rA,6,{ t:'n', v:0, s:PS.der });
+    setR(getR()+1);
+    // En borrador solo descuenta lo ya cobrado o pagado.
+    return { f:`${reC}`, v:realizado };
+  };
+
+  return { hdrAnticipo, filaAnticipo, filaCuota, filasLiquidacion };
+}
+
+// ── Bloque de liquidación de UN lado ───────────────────────────────
+// Estimaciones vigentes + calendarios por contraparte + liquidación, con la
+// MISMA regla que calcAllegria: liquidación = base − realizado − pendientes.
+// Las operaciones fuera de presupuesto se listan aparte y no descuentan.
+function bloqueLiquidacionLado({
+  estimaciones, programas, lado, kgFruta, kgC, helpers, put, getR, setR,
+  mesCol, monCol, baseF, baseV, definitiva, mesLiq, etiqueta, etiquetaTot,
+  saldosFavor = [], temporada = null, fruta = null,
+  modeloVersion = 1, decisionesSinFecha = {},
+}) {
+  const { hdrAnticipo, filaAnticipo, filaCuota, filasLiquidacion } = helpers;
+  // El trato de un pendiente sin fecha lo decide el MISMO helper que usa la
+  // app: sin esto el archivo haría siempre el comportamiento histórico y
+  // mostraría caja que la pantalla declara no proyectable.
+  const ctxTrato = { modeloVersion, decisiones: decisionesSinFecha };
+  const todos = (programas||[]).map(normalizarPrograma).filter(p => p.lado === lado);
+  const progs = todos.filter(p => !p.archivado);
+  const archivados = todos.filter(p => p.archivado);
+  const dentro = progs.filter(p => !p.fueraPresupuesto);
+  const fuera  = progs.filter(p => p.fueraPresupuesto);
+  // Una operación sale del bloque ENTERA cuando tiene presupuesto asignado o
+  // liquidación definitiva: su base, sus cuotas y sus movimientos.
+  const individual = dentro.filter(p => esDato(p.presupuesto_asignado) || esDato(p.importe_definitivo));
+  const delBloque  = dentro.filter(p => !(esDato(p.presupuesto_asignado) || esDato(p.importe_definitivo)));
+  const comp = compensacionesPorDestino(saldosFavor, { temporada, fruta, lado });
+
+  const bloquePrograma = (p, baseFormula, baseValor, etiquetaLiq) => {
+    const rP = getR();
+    const kiC = ref(rP,3);
+    put(rP,1,{ t:'s', v:`↳ ${lado === 'cliente' ? 'Cliente' : 'Productor'} · ${p.contraparte||'sin nombre'}`, s:PS.colHdr });
+    put(rP,2,{ t:'s', v:'kilos →', s:PS.txtSub });
+    put(rP,3,{ t:'n', v:Number(p.kilos)||0, s:PS.inKg });
+    setR(getR()+1);
+    const descs = [];
+    if (p.cuotas.length) hdrAnticipo('   ↳ calendario');
+    p.cuotas.forEach(c => { const cn = normalizarCuota(c); descs.push(
+      filaCuota(cn, kiC, Number(p.kilos)||0, mesCol, monCol, `Cuota ${p.contraparte||''}`.trim(),
+                cn.mes ? "" : tratoSinFecha(cn, ctxTrato))); });
+    const compUsd = Number(comp[p.id]) || 0;
+    if (compUsd > 0) {
+      const rC = getR();
+      put(rC,1,{ t:'s', v:'   ↳ Compensación aplicada', s:PS.txtSub });
+      put(rC,5,{ t:'n', v:compUsd, s:PS.inNum });
+      setR(getR()+1);
+      descs.push({ f:`${ref(rC,5)}`, v:compUsd });
+    }
+    // Montos informados sin fecha verificada: van como constante informativa y
+    // NO entran en `descs`, así que no descuentan de ninguna liquidación.
+    (p.antecedentes||[]).filter(a => a && a.estado !== 'convertido' && a.estado !== 'anulado')
+      .forEach(a => {
+        const rA = getR();
+        put(rA,1,{ t:'s', v:'   ↳ Informado sin fecha verificada', s:PS.txtSub });
+        put(rA,2,{ t:'s', v:'no descuenta · no conciliado', s:PS.txtSub });
+        put(rA,4,{ t:'n', v:Number(a.usd)||0, s:PS.der });
+        setR(getR()+1);
+      });
+    return { descs, baseFormula, baseValor, etiquetaLiq };
+  };
+
+  // ── Posiciones individuales ──────────────────────────────────────
+  let presupuestoRetirado = 0;
+  individual.forEach(p => {
+    const baseValor = esDato(p.importe_definitivo) ? Number(p.importe_definitivo)
+                    : Number(p.presupuesto_asignado) || 0;
+    // Espejo del modelo: si no hay presupuesto asignado se retira el importe
+    // definitivo, si no la base total crecería (doble conteo).
+    presupuestoRetirado += esDato(p.presupuesto_asignado) ? Number(p.presupuesto_asignado)
+                         : (esDato(p.importe_definitivo) ? Number(p.importe_definitivo) : 0);
+    const b = bloquePrograma(p, `${baseValor}`, baseValor, `${etiqueta} · ${p.contraparte||''}`.trim());
+    filasLiquidacion({
+      totalF: b.baseFormula, totalV: b.baseValor, descs: b.descs,
+      mesLiq: p.mes_liquidacion || mesLiq, mesCol, monCol,
+      etiqueta: b.etiquetaLiq, etiquetaTot,
+    });
+    if (esDato(p.presupuesto_asignado) && esDato(p.importe_definitivo)) {
+      const rV = getR();
+      put(rV,1,{ t:'s', v:'   ↳ Variación vs presupuesto asignado', s:PS.txtSub });
+      put(rV,4,{ t:'n', v:Number(p.importe_definitivo) - Number(p.presupuesto_asignado), s:PS.der });
+      setR(getR()+1);
+    }
+  });
+
+  // ── Bloque residual ──────────────────────────────────────────────
+  const descsBloque = [];
+  const ests = estimaciones || [];
+  if (ests.length) hdrAnticipo(`↳ estimaciones ${lado === 'cliente' ? 'de cobro' : 'de pago'}`);
+  ests.forEach(e => {
+    const sus = estSustituido(e, programas);
+    descsBloque.push(filaAnticipo(e, kgC, kgFruta, mesCol, monCol, 'Estimación', sus,
+      estRealizadoOriginado(e, programas), e.mes ? "" : tratoSinFecha(e, ctxTrato)));
+  });
+  delBloque.forEach(p => {
+    const b = bloquePrograma(p, null, 0, null);
+    b.descs.forEach(d => descsBloque.push(d));
+  });
+  // Archivar deja de proyectar, pero el dinero ya movido sigue descontando.
+  const realizadoArchivado = archivados.filter(p => !p.fueraPresupuesto)
+    .reduce((s2,p) => s2 + p.cuotas.reduce((t,c) => t + cuotaRealizado(c), 0), 0);
+  if (realizadoArchivado > 0) {
+    const rAr = getR();
+    put(rAr,1,{ t:'s', v:'   ↳ Programas archivados · ya en caja (siguen descontando)', s:PS.txtSub });
+    put(rAr,5,{ t:'n', v:realizadoArchivado, s:PS.inNum });
+    setR(getR()+1);
+    descsBloque.push({ f:`${ref(rAr,5)}`, v:realizadoArchivado });
+  }
+  // Referencias inválidas: una sustitución que apunta a un id inexistente no
+  // sustituye nada, así que el monto queda proyectado dos veces. Va como fila
+  // informativa (constante, FUERA de los descuentos): el archivo tiene que decir
+  // lo mismo que la pantalla, no esconderlo.
+  const refsInv = referenciasInvalidas({ estimaciones: ests, programas, lado });
+  if (refsInv.length) {
+    const rRi = getR();
+    put(rRi,1,{ t:'s', v:`   ⚠ ${refsInv.length} referencia(s) inválida(s) pendiente(s) de resolver — el monto queda proyectado dos veces`, s:PS.txtSub });
+    setR(getR()+1);
+    refsInv.forEach(x => {
+      const r2 = getR();
+      put(r2,1,{ t:'s', v:`      ↳ ${x.contraparte ? x.contraparte + ' · ' : ''}apunta a ${x.idHuerfano || 'sin identificador'} (no existe)`, s:PS.txtSub });
+      put(r2,5,{ t:'n', v:Number(x.usd)||0, s:PS.inNum });
+      setR(getR()+1);
+    });
+  }
+  const compBloque = Number(comp.__bloque__) || 0;
+  if (compBloque > 0) {
+    const rC = getR();
+    put(rC,1,{ t:'s', v:'   ↳ Compensación aplicada al bloque', s:PS.txtSub });
+    put(rC,5,{ t:'n', v:compBloque, s:PS.inNum });
+    setR(getR()+1);
+    descsBloque.push({ f:`${ref(rC,5)}`, v:compBloque });
+  }
+  const baseBloqueF = definitiva
+    ? `${Number(definitiva)}${presupuestoRetirado ? `-${presupuestoRetirado}` : ''}`
+    : (presupuestoRetirado ? `(${baseF})-${presupuestoRetirado}` : baseF);
+  const baseBloqueV = (definitiva ? Number(definitiva) : baseV) - presupuestoRetirado;
+  filasLiquidacion({
+    totalF: baseBloqueF, totalV: baseBloqueV, descs: descsBloque,
+    mesLiq, mesCol, monCol,
+    etiqueta: individual.length ? `${etiqueta} · bloque presupuestario` : etiqueta,
+    etiquetaTot,
+  });
+
+  if (definitiva) {
+    const rD = getR();
+    put(rD,1,{ t:'s', v:'   ↳ Variación contra presupuesto', s:PS.txtSub });
+    put(rD,4,{ t:'n', f:`${Number(definitiva)}-(${baseF})`, v:Number(definitiva)-baseV, s:PS.der });
+    setR(getR()+1);
+  }
+
+  // Fuera de presupuesto: informativo, sin movimiento ni descuento.
+  fuera.forEach(p => {
+    const rF = getR();
+    const realizado = p.cuotas.reduce((s2,c)=>s2+cuotaRealizado(c),0);
+    put(rF,1,{ t:'s', v:`   ↳ ${p.contraparte||'sin nombre'} — fuera de presupuesto`, s:PS.txtSub });
+    put(rF,2,{ t:'s', v:'no entra al flujo', s:PS.txtSub });
+    put(rF,5,{ t:'n', v:realizado, s:PS.inNum });
+    setR(getR()+1);
+  });
 }
 
 // HOJA "Parametros" — Allpa Farms (Chile). Inputs vivos + fórmulas.
@@ -911,12 +1281,14 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
   const labelByIdx = {}; months.forEach(mo => { labelByIdx[mo.idx] = mo.label; });
   // Movement cols (mes/monto) por línea:
   const AC_M=8,AC_N=9, CO_M=10,CO_N=11, MT_M=12,MT_N=13, SP_M=14,SP_N=15,
-        LC_M=16,LC_N=17, RB_M=18,RB_N=19, AR_M=20,AR_N=21, LAST_COL=21;
+        LC_M=16,LC_N=17, RB_M=18,RB_N=19, AR_M=20,AR_N=21,
+        RE_M=22,RE_N=23, DE_M=24,DE_N=25, LAST_COL=25;
   const { cells, merges, wrows, put, rInicio } = iniciarParamSheet('⚙ Parámetros — Allegria Foods', 7);
   let r = rInicio;
   // sub-encabezado columnas fuente
   [['Ant.Cerezas',AC_M],['Costo Fruta',CO_M],['Materiales',MT_M],['Servicios',SP_M],
-   ['Liq.Ciruelas',LC_M],['Rebate',RB_M],['Arándanos',AR_M]].forEach(([t,c])=>{
+   ['Liq.Ciruelas',LC_M],['Rebate',RB_M],['Arándanos',AR_M],
+   ['Recup.anticipos',RE_M],['Devol.anticipos',DE_M]].forEach(([t,c])=>{
     put(r,c,{ t:'s', v:t, s:PS.colHdr }); put(r,c+1,{ t:'s', v:'US$', s:PS.colHdr });
   });
   r++;
@@ -926,7 +1298,9 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
   const secHdr = (txt) => { put(r,0,{ t:'s', v:txt, s:PS.secHdr }); for(let c=1;c<=7;c++) put(r,c,{ t:'s', v:'', s:PS.secHdr }); merges.push({ s:{r:r-1,c:0}, e:{r:r-1,c:7} }); r++; };
   const colHdrs = (arr) => { arr.forEach((h,c)=>put(r,c,{ t:'s', v:h, s:PS.colHdr })); r++; };
 
-  const { hdrAnticipo, filaAnticipo, filasLiquidacion } = helpersAnticipo(put, ()=>r, (v)=>{ r=v; });
+  const helpersAll = helpersAnticipo(put, ()=>r, (v)=>{ r=v; });
+  const { hdrAnticipo, filaAnticipo, filasLiquidacion } = helpersAll;
+  const getR = ()=>r, setR = (v)=>{ r=v; };
 
   // ══ CEREZAS (4 líneas) ══
   secHdr('① CEREZAS — anticipos cliente/productor (acordado · realizado · pendiente), materiales y packing');
@@ -943,23 +1317,29 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
     put(rH,4,{ t:'n', v:desc, s:PS.inPct }); put(rH,5,{ t:'n', v:matU, s:PS.inUsd }); put(rH,6,{ t:'n', v:srvU, s:PS.inUsd });
     r++;
     // ── cliente → Anticipo Cerezas (AC) ──
-    const antCli = (p.anticipos_cliente||[]);
-    if (antCli.length) hdrAnticipo('↳ anticipos cliente');
-    const descsCli = antCli.map(a => filaAnticipo(a, kgC, kg, AC_M, AC_N, 'Ant. cliente'));
-    filasLiquidacion({
-      totalF:`${kgC}*${fobC}`, totalV:kg*fob, descs:descsCli,
-      mesLiq:p.mes_liquidacion, mesCol:AC_M, monCol:AC_N,
-      etiqueta:'Liquidación', etiquetaTot:'Venta total',
+    // Un solo camino, igual que calcAllegria: estimaciones (menos lo que un
+    // calendario vigente sustituye) + cuotas por contraparte + liquidación.
+    bloqueLiquidacionLado({
+      estimaciones:p.anticipos_cliente||[], programas:p.programas, lado:'cliente',
+      kgFruta:kg, kgC, helpers:helpersAll, put, getR, setR,
+      mesCol:AC_M, monCol:AC_N, baseF:`${kgC}*${fobC}`, baseV:kg*fob,
+      definitiva:p.liq_definitiva_cliente?.total || null,
+      mesLiq:p.mes_liquidacion, etiqueta:'Liquidación', etiquetaTot:'Venta total',
+      saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'cerezas',
+      modeloVersion:p.modelo_version || 1, decisionesSinFecha:p.decisiones_sin_fecha || {},
     });
     // ── productor → Costo Fruta (CO) ──
-    const antProd = (p.anticipos_productor||[]);
-    if (antProd.length) hdrAnticipo('↳ anticipos productor');
-    const descsProd = antProd.map(a => filaAnticipo(a, kgC, kg, CO_M, CO_N, 'Ant. productor'));
+    // Base = retorno neto: FOB × (1 − desc%) − materiales − servicios.
     const netoF = `${kgC}*MAX(0,${fobC}*(1-${descC}/100)-${matC}-${srvC})`;
-    filasLiquidacion({
-      totalF:netoF, totalV:kg*Math.max(0, fob*(1-desc/100)-matU-srvU), descs:descsProd,
-      mesLiq:p.mes_saldo_productor, mesCol:CO_M, monCol:CO_N,
-      etiqueta:'Saldo productor', etiquetaTot:'Costo neto total',
+    const netoV = kg*Math.max(0, fob*(1-desc/100)-matU-srvU);
+    bloqueLiquidacionLado({
+      estimaciones:p.anticipos_productor||[], programas:p.programas, lado:'productor',
+      kgFruta:kg, kgC, helpers:helpersAll, put, getR, setR,
+      mesCol:CO_M, monCol:CO_N, baseF:netoF, baseV:netoV,
+      definitiva:p.liq_definitiva_productor?.total || null,
+      mesLiq:p.mes_saldo_productor, etiqueta:'Saldo productor', etiquetaTot:'Costo neto total',
+      saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'cerezas',
+      modeloVersion:p.modelo_version || 1, decisionesSinFecha:p.decisiones_sin_fecha || {},
     });
     // materiales (dist_mat) → MT: kg×matUSD×pct/100
     (p.dist_mat||[]).forEach(d => {
@@ -989,13 +1369,14 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
     const rH=r; const kgC=ref(rH,2), fobC=ref(rH,3);
     put(rH,0,{ t:'s', v:sk, s:PS.txt }); put(rH,1,{ t:'s', v:'Ciruelas', s:PS.txt });
     put(rH,2,{ t:'n', v:kg, s:PS.inKg }); put(rH,3,{ t:'n', v:fob, s:PS.inUsd }); r++;
-    const ants = (p.anticipos_cliente||[]);
-    if (ants.length) hdrAnticipo('↳ anticipos cliente');
-    const descs = ants.map(a => filaAnticipo(a, kgC, kg, LC_M, LC_N, 'Ant. cliente'));
-    filasLiquidacion({
-      totalF:`${kgC}*${fobC}`, totalV:kg*fob, descs,
-      mesLiq:p.mes_liquidacion, mesCol:LC_M, monCol:LC_N,
-      etiqueta:'Liquidación', etiquetaTot:'Venta total',
+    bloqueLiquidacionLado({
+      estimaciones:p.anticipos_cliente||[], programas:p.programas, lado:'cliente',
+      kgFruta:kg, kgC, helpers:helpersAll, put, getR, setR,
+      mesCol:LC_M, monCol:LC_N, baseF:`${kgC}*${fobC}`, baseV:kg*fob,
+      definitiva:p.liq_definitiva_cliente?.total || null,
+      mesLiq:p.mes_liquidacion, etiqueta:'Liquidación', etiquetaTot:'Venta total',
+      saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'ciruelas',
+      modeloVersion:p.modelo_version || 1, decisionesSinFecha:p.decisiones_sin_fecha || {},
     });
   });
   r++;
@@ -1044,6 +1425,60 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
     });
   });
 
+  // ══ SALDOS A FAVOR ══
+  // Solo lo PROGRAMADO y no ejecutado llega al flujo. Lo ejecutado ya es caja
+  // y las compensaciones no generan movimiento bancario: van informadas.
+  const saldosTodos = [];
+  seasonKeys.forEach(sk => ['cerezas','ciruelas'].forEach(fr => {
+    (paramsAll[sk]?.[fr]?.saldos_favor || []).forEach(x => saldosTodos.push({ ...normalizarSaldo(x), _sk:sk, _fr:fr }));
+  }));
+  if (saldosTodos.length) {
+    secHdr('④ SALDOS A FAVOR — recuperación de productores y devolución a clientes');
+    colHdrs(['Temporada','Contraparte','Reconocido','Resuelto','Programado','Pendiente','Disponible']);
+    saldosTodos.forEach(sf => {
+      const r0 = r; const rs = resumenSaldo(sf);
+      const cRec = ref(r0,2), cRes = ref(r0,3), cPro = ref(r0,4), cPen = ref(r0,5);
+      put(r0,0,{ t:'s', v:sf._sk, s:PS.txt });
+      put(r0,1,{ t:'s', v:`${sf.lado === 'cliente' ? 'Cliente' : 'Productor'} · ${sf.contraparte||'sin nombre'} (${sf.estado})`, s:PS.txt });
+      put(r0,2,{ t:'n', v:rs.reconocido, s:PS.inNum });
+      r++;
+      const desde = r;
+      rs.aplicaciones.forEach(a => {
+        const rA = r;
+        const etq = a.tipo === 'recuperacion' ? 'Recuperación' : a.tipo === 'devolucion' ? 'Devolución' : 'Compensación';
+        put(rA,1,{ t:'s', v:`   ↳ ${etq} · ${a.estado}`, s:PS.txtSub });
+        // Resuelto: lo ejecutado y lo compensado ya aplicado. Programado: lo
+        // agendado sin ejecutar y las reservas. Las dos columnas se suman
+        // arriba, así el archivo recalcula igual que la app.
+        const resuelve  = a.estado === 'ejecutada' || a.estado === 'aplicada';
+        const programa  = a.estado === 'programada' || a.estado === 'reservada';
+        put(rA,3,{ t:'n', v: resuelve ? Number(a.usd)||0 : 0, s:PS.der });
+        put(rA,4,{ t:'n', v: programa ? Number(a.usd)||0 : 0, s:PS.der });
+        const proyecta = a.estado === 'programada' && !!a.mes &&
+                         (a.tipo === 'recuperacion' || a.tipo === 'devolucion');
+        if (proyecta) {
+          const M = a.tipo === 'recuperacion' ? RE_M : DE_M;
+          const N = a.tipo === 'recuperacion' ? RE_N : DE_N;
+          put(rA,M,{ t:'s', v:a.mes, s:PS.inTxt });
+          put(rA,N,{ t:'n', f:`${ref(rA,4)}`, v:Number(a.usd)||0, s:PS.movNum });
+        } else {
+          put(rA,6,{ t:'s', v:a.estado === 'ejecutada' ? 'ya es caja' :
+                             a.estado === 'aplicada' ? 'compensada, sin movimiento' :
+                             a.estado === 'reservada' ? 'reservada: no proyecta' : 'sin mes', s:PS.txtSub });
+        }
+        r++;
+      });
+      const hasta = r - 1;
+      const rango = (col) => hasta >= desde
+        ? `SUM(${ref(desde,col)}:${ref(hasta,col)})` : '0';
+      put(r0,3,{ t:'n', f:rango(3), v:rs.resuelto,   s:PS.der });
+      put(r0,4,{ t:'n', f:rango(4), v:rs.programado, s:PS.der });
+      put(r0,5,{ t:'n', f:`MAX(0,${cRec}-${cRes})`, v:rs.pendienteReal, s:PS.derB });
+      put(r0,6,{ t:'n', f:`MAX(0,${cPen}-${cPro})`, v:rs.disponible, s:PS.der });
+    });
+    r++;
+  }
+
   const widths = [{wch:12},{wch:20},{wch:10},{wch:11},{wch:8},{wch:9},{wch:9},{wch:2}];
   for (let c=8;c<=LAST_COL;c++) widths[c] = { wch: (c%2===0?11:12) };
   const ws = finalizeParamSheet({ cells, merges, wrows, lastRow:r, lastCol:LAST_COL, colWidths:widths, freezeRow:5 });
@@ -1056,6 +1491,8 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
     'Liquidación Ciruelas':                                          { cellFormula: sf(LC_M, LC_N) },
     'Otros ingresos - Rebate exportación (cobro diferido)':          { cellFormula: sf(RB_M, RB_N) },
     'Arándanos Perú':                                                { cellFormula: sf(AR_M, AR_N) },
+    'Recuperación de anticipos a productores':                       { cellFormula: sf(RE_M, RE_N) },
+    'Devolución de anticipos a clientes':                            { cellFormula: sf(DE_M, DE_N) },
   } };
 }
 
@@ -1074,7 +1511,7 @@ const PARAM_BUILDERS = {
   'Allegria Foods':   (p, m) => p.paramsAllegria && buildParametrosAllegria(p.paramsAllegria, p.allegraComisionArandanos, m),
 };
 
-export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName, params = null, avisos = [] }) {
+export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName, params = null, avisos = [], notasSaldo = [] }) {
   if (!emp) throw new Error('Empresa sin datos');
   const { months, cols, monthOrder } = buildHorizonte(lastSeasonStartYear);
 
@@ -1094,12 +1531,17 @@ export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonSta
     saldoIniValue: Number(saldoIni) || 0,
     startAccumIdx: idxMesActual(months),
     avisos,
+    notasPie: notasSaldo,
   });
 
   const wb = XLSX.utils.book_new();
   const sheetNm = (String(empName).replace(/[\\/?*\[\]:]/g, '').slice(0, 28)) || 'Flujo';
   XLSX.utils.book_append_sheet(wb, toSheet({ ...built, cols }), sheetNm);
   if (paramSheet) XLSX.utils.book_append_sheet(wb, paramSheet, 'Parametros');
+  if (datosServicioDeuda(emp, months).tiene) {
+    XLSX.utils.book_append_sheet(wb, buildHojaServicioDeuda({ bloques:[{ nombre:empName, emp, sheetName:sheetNm, built }], months, monthOrder,
+      titulo:`Servicio de deuda — ${empName} (desglose de Pago Préstamos + Renovaciones)` }), 'Servicio deuda');
+  }
   wb.Workbook = { ...(wb.Workbook||{}), Views:[{ activeTab:0 }], CalcPr:{ fullCalcOnLoad:true } };
 
   const safeName = String(empName).replace(/[^\w\-]+/g,'_').slice(0,40);
@@ -1109,7 +1551,7 @@ export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonSta
 }
 
 // ═══════════════════════════════════════════════════════════════════
-export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldoIniPorEmp, lastSeasonStartYear = null, fileName, escenarioNombre = null, avisosPorEmp = {} }) {
+export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldoIniPorEmp, lastSeasonStartYear = null, fileName, escenarioNombre = null, avisosPorEmp = {}, notasSaldoPorEmp = {} }) {
   const allMonths = genMonths();
   // lastSeasonStartYear null → flujo completo (hasta la última temporada proyectada)
   const months = lastSeasonStartYear == null ? allMonths : allMonths.filter(mo => seasonOf(mo) <= lastSeasonStartYear);
@@ -1155,6 +1597,7 @@ export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldo
       saldoIniValue: Number(saldoIniPorEmp?.[n]) || 0,
       startAccumIdx: kIni,
       avisos: avisosPorEmp[n] || [],
+      notasPie: notasSaldoPorEmp[n] || [],
     });
   });
 
@@ -1184,6 +1627,12 @@ export function exportarFlujoConsolidado({ empresasConOverrides, empNames, saldo
   empNames.forEach(n => {
     XLSX.utils.book_append_sheet(wb, toSheet({ ...empBuilt[n], cols }), sheetName[n]);
   });
+  const bloquesSD = empNames.map(n => ({ nombre:n, emp:empresasConOverrides[n], sheetName:sheetName[n], built:empBuilt[n] }))
+    .filter(b => datosServicioDeuda(b.emp, months).tiene);
+  if (bloquesSD.length) {
+    XLSX.utils.book_append_sheet(wb, buildHojaServicioDeuda({ bloques:bloquesSD, months, monthOrder,
+      titulo:'Servicio de deuda — desglose por empresa (Pago Préstamos + Renovaciones)' }), 'Servicio deuda');
+  }
 
   // Consolidado = primera pestaña y activa al abrir; forzar recálculo
   wb.Workbook = { ...(wb.Workbook||{}), Views:[{ activeTab:0 }], CalcPr:{ fullCalcOnLoad:true } };
