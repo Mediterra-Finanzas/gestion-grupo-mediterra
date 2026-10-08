@@ -3535,7 +3535,7 @@ Equipo Mediterra`);
       <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
       {/* Cambios de Créditos que el servidor no confirmó, aunque Finanzas ya se haya
           cerrado (creditosPendientes.js). Persistente: no se cierra desde acá. */}
-      <AvisoCreditosPendientes />
+      <AvisoCreditosPendientes usuario={usuarioActual?.nombre} />
       {Object.keys(conflictos).map(rowId=>(
         <PanelConflictoFila key={rowId} conflicto={conflictos[rowId]}
           ocupado={resolviendoConflicto}

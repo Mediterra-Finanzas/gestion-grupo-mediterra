@@ -6,21 +6,23 @@
 import React, { useEffect, useState } from "react";
 import { pendientesCreditos, EVENTO, CLAVE_LS } from "./creditosPendientes.js";
 
-export function useCreditosPendientes() {
-  const [lista, setLista] = useState(() => pendientesCreditos.listar());
+// Solo las anotaciones de `usuario` (el navegador puede ser compartido). Sin usuario: ninguna.
+export function useCreditosPendientes(usuario) {
+  const deUsuario = () => (usuario ? pendientesCreditos.listar().filter(e => e.usuario === usuario) : []);
+  const [lista, setLista] = useState(deUsuario);
   useEffect(() => {
-    const leer = () => setLista(pendientesCreditos.listar());
+    const leer = () => setLista(deUsuario());
     const otraPestana = (e) => { if (!e || e.key === CLAVE_LS) leer(); };
     window.addEventListener(EVENTO, leer);
     window.addEventListener("storage", otraPestana);
     leer();
     return () => { window.removeEventListener(EVENTO, leer); window.removeEventListener("storage", otraPestana); };
-  }, []);
+  }, [usuario]); // eslint-disable-line
   return lista;
 }
 
-export default function AvisoCreditosPendientes({ texto }) {
-  const lista = useCreditosPendientes();
+export default function AvisoCreditosPendientes({ texto, usuario }) {
+  const lista = useCreditosPendientes(usuario);
   const sinConfirmar = lista.filter(e => e.estado === "sin_confirmar");
   const enVuelo = lista.filter(e => e.estado === "en_vuelo");
   if (!lista.length) return null;
@@ -32,6 +34,7 @@ export default function AvisoCreditosPendientes({ texto }) {
       {sinConfirmar.length > 0 && <div><b>Créditos: {n(sinConfirmar)} cambio(s) NO confirmados por el servidor.</b> No están registrados
         aunque se hayan visto en pantalla. Se conservan en este navegador para recuperarlos: {texto || "abre Flujo de Caja → 💳 Créditos para revisarlos y reintentar."}</div>}
       {enVuelo.length > 0 && <div><b>Créditos: {n(enVuelo)} cambio(s) guardándose…</b> todavía sin confirmación del servidor.</div>}
+      {pendientesCreditos.soloEnMemoria() && <div><b>No se pudo guardar la anotación en este navegador</b> (almacenamiento lleno o bloqueado): se perderá si cierras o recargas esta pestaña.</div>}
     </div>
   );
 }

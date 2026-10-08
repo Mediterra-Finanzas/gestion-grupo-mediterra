@@ -8032,37 +8032,44 @@ function CamposContrato({form,setForm,EMP_SELECT}){
 // ── Cambios de Créditos sin confirmar por el servidor (creditosPendientes.js) ──
 // Aviso persistente + revisión: qué cambio, si el servidor ya lo tiene, si se puede
 // reintentar o si el crédito cambió desde entonces. Nada se descarta sin decisión.
-function PanelCreditosPendientes({creditos, canEdit, onReintentar, usuario}){
-  const lista = useCreditosPendientes();
+function PanelCreditosPendientes({creditosServidor, canEdit, onReintentar, usuario}){
+  const lista = useCreditosPendientes(usuario);
   const [ocupado,setOcupado]=useState(null);
+  // Clasificación contra lo que tiene el SERVIDOR (no contra la pantalla). Sin
+  // lectura del servidor todavía: "sin verificar".
+  const clases = useMemo(()=>{
+    const m = {};
+    lista.forEach(e=>(e.cambios||[]).forEach(c=>{ m[`${e.id}|${c.uid}`] = creditosServidor ? clasificarPendiente(c, creditosServidor) : "sin_verificar"; }));
+    return m;
+  },[lista, creditosServidor]);
   const sinConf = lista.filter(e=>e.estado==="sin_confirmar");
   if(!lista.length) return null;
   const desc = (c)=>{ const d=c.despues||{}; return `${d.empresa||""} · ${d.acreedor||""}${d.n!=null?` (n ${d.n})`:""}`; };
-  const etiqueta = { confirmado:"ya está en el servidor", reaplicable:"se puede reintentar", conflicto:"el crédito cambió en el servidor desde entonces: revisar a mano" };
+  const etiqueta = { confirmado:"ya está en el servidor", reaplicable:"se puede reintentar", conflicto:"el crédito cambió en el servidor desde entonces: revisar a mano", sin_verificar:"sin verificar (cargando el servidor)" };
   return (
     <div style={{margin:"0 0 12px"}}>
-      <AvisoCreditosPendientes texto="revísalos aquí abajo: reintentar (no duplica) o descartar con motivo." />
+      <AvisoCreditosPendientes usuario={usuario} texto="revísalos aquí abajo: reintentar (no duplica) o descartar con motivo." />
       {sinConf.map(e=>(
         <div key={e.id} data-pendiente-credito={e.id} style={{background:"#fff",border:"1px solid #fecaca",borderRadius:10,padding:"8px 12px",marginBottom:8,fontSize:11}}>
           <div style={{color:C.muted,marginBottom:4}}>{fmtDate((e.ts||"").slice(0,10))} {(e.ts||"").slice(11,16)} · {e.usuario||"—"} · motivo: {e.motivo||"sin confirmación"}</div>
           {(e.cambios||[]).map(c=>{
-            const cl = clasificarPendiente(c, creditos||[]);
+            const cl = clases[`${e.id}|${c.uid}`] || "sin_verificar";
             const pagos = pagosNuevos(c);
             return (
               <div key={c.uid} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",padding:"3px 0"}}>
                 <b>{desc(c)}</b>
                 <span>{pagos.length?pagos.map(p=>`pago ${fmtDate(p.fecha)} ${$c(totalPago(p),c.despues?.moneda||"USD")}${p.nota?` · ${p.nota}`:""}`).join(" · "):"cambio del registro"}</span>
                 <span style={{color:cl==="conflicto"?C.red:cl==="reaplicable"?C.orange:C.green}}>— {etiqueta[cl]}</span>
-                {cl==="reaplicable"&&canEdit&&<button disabled={!!ocupado} onClick={async()=>{ setOcupado(e.id); try{ const r=await onReintentar(c); if(!r||!r.ok) alert("El servidor no confirmó el reintento. El cambio sigue anotado para recuperarlo."); } finally{ setOcupado(null); } }}
+                {cl==="reaplicable"&&canEdit&&<button disabled={!!ocupado} onClick={async()=>{ setOcupado(e.id); try{ const r=await onReintentar(c); if(!r||!r.ok) alert(r&&r.motivo==="sin_permiso" ? "No tienes permiso para reintentar este cambio (pestaña Créditos o empresa). Sigue anotado." : "El servidor no confirmó el reintento. El cambio sigue anotado para recuperarlo."); } finally{ setOcupado(null); } }}
                   style={{padding:"3px 10px",borderRadius:6,border:"none",background:C.primary,color:"#fff",cursor:"pointer",fontSize:11}}>Reintentar</button>}
               </div>);
           })}
-          <button disabled={!!ocupado} onClick={()=>{
+          {canEdit&&<button disabled={!!ocupado} onClick={()=>{
             const motivo = window.prompt("Descartar estos cambios SIN registrarlos en el servidor.\nSe pierden de este navegador. Motivo (obligatorio):");
             if(!motivo||!motivo.trim()) return;
             const reg = pendientesCreditos.descartar(e.id, motivo.trim(), usuario);
             if(window.auditLog) window.auditLog("descartar", { modulo:"finanzas", seccion:"creditos", descripcion:`Cambios de Créditos sin confirmar descartados: ${motivo.trim()}`, registroId:e.id, detalle:reg });
-          }} style={{marginTop:4,padding:"2px 8px",borderRadius:6,border:"1px solid #fca5a5",background:"#fff",color:"#991b1b",cursor:"pointer",fontSize:10}}>Descartar…</button>
+          }} style={{marginTop:4,padding:"2px 8px",borderRadius:6,border:"1px solid #fca5a5",background:"#fff",color:"#991b1b",cursor:"pointer",fontSize:10}}>Descartar…</button>}
         </div>
       ))}
     </div>
@@ -8072,7 +8079,7 @@ function PanelCreditosPendientes({creditos, canEdit, onReintentar, usuario}){
 // ── Detalle de un crédito: calendario, pagos, historial ──────────────
 function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
   const hoy = hoyISO();
-  const sinConfirmar = pagosSinConfirmar(useCreditosPendientes());
+  const sinConfirmar = pagosSinConfirmar(useCreditosPendientes(usuario));
   const e = useMemo(()=>estadoCredito(credito, hoy),[credito, hoy]);
   const mon = credito.moneda||"USD";
   const [pagoForm,setPagoForm]=useState(null); // {vencKey, fecha, capital, interes, cargos, sinDesglose, nota}
@@ -14135,6 +14142,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // escribe nada → un parpadeo de conexión no puede sobrescribir Finanzas con
   // los defaults vacíos en memoria.
   const cargaOkRef       = React.useRef(false);
+  // Créditos tal como los tiene el SERVIDOR (última lectura o escritura confirmada de
+  // `finanzas`). Es contra esto que se clasifican los cambios sin confirmar: el estado
+  // local puede traer un cambio que el servidor nunca recibió.
+  const creditosServidorRef = React.useRef(null);
   // Hay un cambio con debounce agendado y todavía sin escribir. Si el módulo se
   // desmonta en esa ventana, el guardado se COMPLETA en vez de descartarse
   // (antes el cleanup hacía clearTimeout y la operación se perdía en silencio).
@@ -14286,6 +14297,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       setEstadoPersist("conflicto");
       setConflictoFila({ rowId, valorServidor: res.valorServidor, version: res.version });
     } else if(res && res.ok){
+      if(rowId==="finanzas") creditosServidorRef.current = blob.creditos_data;
       setEstadoPersist("ok");
       setConflictoFila(null);
       setTimeout(()=>setEstadoPersist(p=>p==="ok"?"idle":p),2000);
@@ -15063,21 +15075,25 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // confirmar", y se retira solo lo que el servidor ya tiene (clasificación).
   useEffect(()=>{
     if(loading || !cargaOkRef.current || activeRowRef.current!=="finanzas") return;
+    creditosServidorRef.current = creditosRef.current || [];   // recién leído del servidor
     pendientesCreditos.marcarHuerfanos(pendVivosCreditos);
-    pendientesCreditos.depurar(creditosRef.current || []);
+    pendientesCreditos.depurar(creditosServidorRef.current);
   },[loading]); // eslint-disable-line
 
   // Reintentar un cambio sin confirmar que sigue siendo aplicable (el crédito en el
   // servidor está como estaba antes). Pasa por el guardado normal: confirmación
   // real, sin duplicar (los pagos llevan clave de origen).
   const reintentarPendienteCredito = useCallback(async (cambio)=>{
+    if(activeRowRef.current!=="finanzas") return { ok:false, motivo:"escenario" };
+    if(puedoEditRef.current && !puedoEditRef.current("creditos")) return { ok:false, motivo:"sin_permiso" };
+    if(!getEmpresasPermitidasUsuario(usuarioActual).includes(cambio.despues?.empresa)) return { ok:false, motivo:"sin_permiso" };
     const lista = creditosRef.current || [];
     const existe = lista.some(c=>uidCredito(c)===cambio.uid);
     const next = existe ? lista.map(c=>uidCredito(c)===cambio.uid ? cambio.despues : c) : [...lista, cambio.despues];
     const r = await handleSaveCreditos(next);
-    if(r && r.ok) pendientesCreditos.depurar(creditosRef.current || []);
+    if(r && r.ok) pendientesCreditos.depurar(creditosServidorRef.current || []);
     return r;
-  },[handleSaveCreditos]);
+  },[handleSaveCreditos, usuarioActual]);
 
   // ── Salir del módulo con una operación pendiente ──────────────────────────────
   // El efecto de arriba hace clearTimeout en su cleanup. Eso está bien cuando se
@@ -15151,8 +15167,9 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       overflowX:"hidden",
     }}>
       <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
-      <PanelCreditosPendientes creditos={creditosData} canEdit={!loading && cargaOkRef.current}
-        onReintentar={reintentarPendienteCredito} usuario={usuarioActual?.nombre||""} />
+      {activeRowRef.current==="finanzas" && <PanelCreditosPendientes creditosServidor={loading ? null : creditosServidorRef.current}
+        canEdit={!loading && cargaOkRef.current && (!puedoEditRef.current || puedoEditRef.current("creditos"))}
+        onReintentar={reintentarPendienteCredito} usuario={usuarioActual?.nombre||""} />}
       {/* Fallo al LEER los saldos de bancos. No es "no se guardó": es que la
           posición de caja que se está viendo puede estar incompleta. Antes el
           `.catch(()=>{})` de la carga lo tragaba y la caja aparecía en cero como

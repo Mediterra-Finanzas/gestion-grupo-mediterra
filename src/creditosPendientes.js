@@ -54,7 +54,12 @@ export function clasificar(cambio, servidor) {
   if (s) {
     const nuevos = pagosNuevos(cambio);
     const claves = new Set((s.pagos || []).filter(p => p && !p.anulado && p.origen && p.origen.clave).map(p => p.origen.clave));
-    if (nuevos.length && nuevos.every(p => p.origen && p.origen.clave && claves.has(p.origen.clave)) && soloAgregaPagos(cambio)) return 'confirmado';
+    // Los pagos que ya existían deben estar en el servidor TAL COMO quedaron en `despues`
+    // (una anulación hecha en el mismo cambio también tiene que haber llegado).
+    const idsAntes = new Set(((cambio.antes && cambio.antes.pagos) || []).map(p => p.id));
+    const previosIntactos = ((cambio.despues && cambio.despues.pagos) || []).filter(p => idsAntes.has(p.id))
+      .every(pd => (s.pagos || []).some(ps => ps && ps.id === pd.id && igual(ps, pd)));
+    if (nuevos.length && nuevos.every(p => p.origen && p.origen.clave && claves.has(p.origen.clave)) && soloAgregaPagos(cambio) && previosIntactos) return 'confirmado';
   }
   if ((cambio.antes === null && !s) || (s && cambio.antes && igual(s, cambio.antes))) return 'reaplicable';
   return 'conflicto';
@@ -68,16 +73,22 @@ function soloAgregaPagos(cambio) {
 // ── Almacén (localStorage del navegador; memoria si no está disponible) ──────
 export function crearAlmacen(storage) {
   let memoria = [];
+  let escrituraFallida = false;   // localStorage lleno o bloqueado: manda la memoria de esta pestaña
   // Con almacenamiento disponible, él es la fuente (otra pestaña/instancia pudo cambiarlo);
-  // la memoria solo cubre un navegador sin localStorage.
-  const leer = () => { try { if (!storage) return memoria; const t = storage.getItem(CLAVE_LS); return t ? JSON.parse(t) : []; } catch (e) { return memoria; } };
+  // la memoria cubre un navegador sin localStorage o una escritura que falló.
+  const leer = () => {
+    if (!storage || escrituraFallida) return memoria;
+    try { const t = storage.getItem(CLAVE_LS); const v = t ? JSON.parse(t) : []; return Array.isArray(v) ? v : []; } catch (e) { return memoria; }
+  };
   const escribir = (l) => {
     memoria = l;
-    try { if (storage) { if (l.length) storage.setItem(CLAVE_LS, JSON.stringify(l)); else storage.removeItem(CLAVE_LS); } } catch (e) { /* queda en memoria */ }
+    try { if (storage) { if (l.length) storage.setItem(CLAVE_LS, JSON.stringify(l)); else storage.removeItem(CLAVE_LS); } escrituraFallida = false; }
+    catch (e) { escrituraFallida = true; /* queda en memoria de esta pestaña; el aviso lo dice */ }
     try { if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new Event(EVENTO)); } catch (e) {}
   };
   return {
     listar: () => leer(),
+    soloEnMemoria: () => escrituraFallida,
     registrar(entrada) {
       const id = `cp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
       escribir([...leer(), { id, estado: 'en_vuelo', ts: new Date().toISOString(), ...entrada }]);
@@ -87,7 +98,12 @@ export function crearAlmacen(storage) {
     fallar(id, motivo) { escribir(leer().map(e => e.id === id ? { ...e, estado: 'sin_confirmar', motivo: motivo || 'sin confirmación', tsFallo: new Date().toISOString() } : e)); },
     // Al abrir: lo que quedó "en vuelo" de una sesión anterior ya no tiene quién lo
     // espere; pasa a "sin_confirmar" para que se revise.
-    marcarHuerfanos(idsVivos) { escribir(leer().map(e => e.estado === 'en_vuelo' && !(idsVivos || new Set()).has(e.id) ? { ...e, estado: 'sin_confirmar', motivo: e.motivo || 'la pestaña o el módulo se cerró antes de la confirmación' } : e)); },
+    // Solo los que llevan más de `margenMs` en vuelo: otra pestaña puede estar guardando.
+    marcarHuerfanos(idsVivos, margenMs = 120000) {
+      const ahora = Date.now();
+      escribir(leer().map(e => e.estado === 'en_vuelo' && !(idsVivos || new Set()).has(e.id) && (ahora - Date.parse(e.ts || 0)) >= margenMs
+        ? { ...e, estado: 'sin_confirmar', motivo: e.motivo || 'la pestaña o el módulo se cerró antes de la confirmación' } : e));
+    },
     descartar(id, motivo, usuario) { escribir(leer().filter(e => e.id !== id)); return { id, motivo, usuario, ts: new Date().toISOString() }; },
     // Retira los cambios ya confirmados por el servidor (todas sus partes).
     depurar(servidor) {
