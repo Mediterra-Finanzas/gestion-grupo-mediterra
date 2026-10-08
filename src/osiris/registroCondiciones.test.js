@@ -202,8 +202,22 @@ describe("6 · permisos: solo lectura no escribe", () => {
     expect(ini).toBeGreaterThan(0);
     expect(fin).toBeGreaterThan(ini);
     const bloque = src.slice(ini, fin);
-    const directos = bloque.split("\n").filter((l) => /upd\(r\.id/.test(l) && !/const up[BR] =/.test(l));
-    expect(directos).toEqual([]);
+    // Se retira el CUERPO de los dos helpers con guarda y recien despues se
+    // busca una escritura directa. La version anterior miraba linea por linea
+    // y daba por directa la ultima linea de un helper multilinea: era una
+    // heuristica atada al formato, no al hecho. `upR` dejo de ser de una sola
+    // linea cuando se le agrego la guarda de los terminos bloqueables.
+    const lineas = bloque.split("\n");
+    const fuera = [];
+    let dentroDeHelper = false;
+    lineas.forEach((l) => {
+      if (/const up[BR] = \(campo,val\)=>/.test(l)) dentroDeHelper = true;
+      else if (dentroDeHelper && /^\s*upd\(r\.id,/.test(l)) { dentroDeHelper = false; return; }
+      if (!dentroDeHelper && /upd\(r\.id/.test(l) && !/const up[BR] =/.test(l)) fuera.push(l);
+    });
+    expect(fuera).toEqual([]);
+    // Y los dos helpers siguen teniendo su guarda de permiso.
+    expect((bloque.match(/const up[BR] = \(campo,val\)=>{ if\(!can\) return;/g) || []).length).toBe(2);
   });
 
   test("el modelo no tiene ninguna función que escriba el registro", () => {

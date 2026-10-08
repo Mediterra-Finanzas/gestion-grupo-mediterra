@@ -685,6 +685,10 @@ describe("D2 · una activación al 0 % que viniera de los datos se nombra", () =
     expect(ro.llevanElAjuste).toBe(0);
     expect(ro.aviso).toMatch(/No cambia ningun importe/);
     expect(ro.titulo).toMatch(/0 % registrado: sin efecto de reajuste/);
+    // Y desde que el sello exige porcentaje positivo, el motor tampoco lo
+    // da por activo: el registro se conserva y no calcula.
+    const { estadoActivacion } = require("./reajusteAplicado");
+    expect(estadoActivacion(ct).activo).toBe(false);
     // No se le atribuye respaldo ni intencion.
     expect(ro.aviso).toMatch(/no se le atribuye un respaldo que no consta/);
   });
@@ -894,6 +898,64 @@ describe("La previa de una reactivación usa los términos de hoy, no el sello v
       const antes = base(ct).reduce((s, f) => s + f.montoFact, 0);
       const despues = filas(res.contrato).reduce((s, f) => s + f.montoFact, 0);
       expect(r2(despues - antes)).toBeCloseTo(prev.diferenciaAplicada, 2);
+    });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// BARRIDO de las rutas de escritura que alimentan este cálculo. No es una
+// auditoría del repositorio: son exactamente los campos que deciden qué
+// aplica el motor, y el control comprueba que ninguno se escriba por fuera
+// de una función con guarda. Es el mismo patrón que T3 dejó para el bloque
+// del registro de condiciones.
+describe("Barrido · ninguna ruta de escritura evita las guardas", () => {
+  const fs = require("fs");
+  const path = require("path");
+  const src = fs.readFileSync(path.join(__dirname, "..", "OsirisModule.jsx"), "utf8");
+  const lineas = src.split("\n");
+  // Las líneas que escriben cada campo, sin contar la definición del propio
+  // helper con guarda ni los comentarios.
+  const escrituras = (patron) => lineas
+    .map((l, i) => ({ n: i + 1, l }))
+    .filter(({ l }) => patron.test(l) && !/^\s*\/\//.test(l));
+
+  test("`reajuste` solo se escribe desde upR", () => {
+    const w = escrituras(/upd\([^,]*,\s*"reajuste"/);
+    expect(w.length).toBe(1);
+    expect(w[0].l).toMatch(/const upR|upd\(r\.id,"reajuste",\{\.\.\.\(r\.reajuste\|\|\{\}\),\.\.\.cambios\}\)/);
+    // Y upR lleva la guarda de los términos bloqueables.
+    expect(src).toMatch(/TERMINOS_BLOQUEABLES\.indexOf\(k\)>=0/);
+  });
+
+  test("`reajusteActivacion` solo se escribe desde upA o desde el resultado de una acción", () => {
+    const w = escrituras(/upd\([^,]*,\s*"reajusteActivacion"/);
+    expect(w.length).toBe(3);
+    const texto = w.map((x) => x.l).join("\n");
+    // upA, con su guarda; y los dos resultados de activar/desactivar.
+    expect(texto).toMatch(/const upA = \(campo,val\)=>\{ if\(!can \|\| !edit\.puede\) return;/);
+    expect((texto.match(/res\.contrato\.reajusteActivacion/g) || []).length).toBe(2);
+  });
+
+  test("la configuración antigua solo se escribe desde upAntigua", () => {
+    // En la ficha. El alta usa `setF`, que escribe un formulario local: ahí
+    // no hay registro de activación por definición.
+    const w = lineas
+      .map((l, i) => ({ n: i + 1, l }))
+      .filter(({ l }) => /"royaltyInflacion"|"rcInflacionPct"/.test(l) && !/^\s*\/\//.test(l));
+    w.forEach(({ l }) => {
+      const esAlta = /setF\(/.test(l) || /campo="/.test(l);
+      const esGuardada = /upAntigua\(/.test(l) || /const upAntigua=/.test(l);
+      expect(esAlta || esGuardada).toBe(true);
+    });
+    expect(src).toMatch(/const upAntigua=\(r,campo,val\)=>\{ if\(!can\) return;/);
+    expect(src).toMatch(/if\(hayRegistroDeActivacion\(r\)\)\{/);
+  });
+
+  test("los tres helpers con guarda siguen siendo de una sola línea", () => {
+    // El control de T3 identifica la función con guarda por su propia línea.
+    ["const upR = (campo,val)=>", "const upA = (campo,val)=>"].forEach((h) => {
+      const i = lineas.findIndex((l) => l.includes(h));
+      expect(i).toBeGreaterThan(-1);
     });
   });
 });
