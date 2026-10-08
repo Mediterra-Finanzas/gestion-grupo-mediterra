@@ -297,6 +297,38 @@ ahora que el motor exige sello. Sellar igual que la acción es lo único que las
 lo mismo por construcción. La simulación **no escribe nada**: ni la marca, ni el sello, ni un
 evento de historial, y hay una prueba que lo comprueba.
 
+## 2 quater · Las cinco contrapruebas de la octava ronda
+
+Cada guarda nueva se revirtió en el árbol y se midió qué cae. Después se restauró el archivo y
+se comprobó que el sha256 volviera a ser el mismo, para que no quede duda de que el árbol que
+se entrega es el que se probó.
+
+| # | Lo que se revirtió | Pruebas que caen | Qué miden |
+|---|---|---|---|
+| **CP-D1** | `"referencia"` fuera de `TERMINOS_BLOQUEABLES` | **4** | la lista; el control deshabilitado y el total que no se mueve; tras retirar; en conflicto |
+| **CP-D2** | `puedeEditarTerminos` otra vez por vigencia | **2** | el modelo lo niega tras retirar; y los cuatro campos del panel no guardan nada |
+| **CP-D3** | el aviso del 0 % leyendo la configuración de hoy y adelantándose | **3** | con la antigua al 5 %/año; sello 2 % / configuración −2 %; sello −2 % |
+| **CP-D8** | el escape `campo="…"` del barrido, con un `<Campo campo="valorRoyaltyComercial" r={r}/>` sin guarda inyectado | **1** | la base sólo se escribe desde `upProtegido` |
+| **CP-sello** | `selloCompleto` sin exigir `pct > 0` | **3** | el sello a medias; el aviso del 0 %; y el sello −2 %, que es la red económica que faltaba |
+| **CP-T3** | prefijar el write de `upR` con `return ` **y** meter un `upd(r.id,"reajuste",{...})` directo en el control del Tipo | **1** | el control de T3, que antes de endurecerlo pasaba con esa inyección exacta |
+
+Comandos, tal cual:
+
+```bash
+MSYS_NO_PATHCONV=1 CI=true npx react-scripts test --watchAll=false \
+  --testMatch "**/src/osiris/*.test.js" \
+  --testPathIgnorePatterns "/node_modules/" "/build/"
+
+MSYS_NO_PATHCONV=1 CI=true OSIRIS_SNAPSHOT=<ruta del snapshot> \
+  npx react-scripts test --watchAll=false \
+  --testMatch "**/src/osiris/impacto*.test.js" \
+  --testPathIgnorePatterns "/node_modules/" "/build/"
+```
+
+El `--testMatch` explícito y el `--testPathIgnorePatterns` no son adorno: sin el primero, en un
+worktree el patrón por defecto resuelve con separadores mezclados y encuentra 0 pruebas; sin el
+segundo, jest recorre el `build/` de 16 MB.
+
 ## 3 · Lo que las pruebas NO cubren
 
 - **Render de React.** No hay pruebas de componente. Los defectos H1, H3, H7 y H8 de la primera
