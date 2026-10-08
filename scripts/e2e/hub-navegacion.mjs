@@ -144,6 +144,27 @@ await s.page.getByTestId('reintentar-rendiciones').click(); await s.page.waitFor
 check('Reintentar: aparecen las cifras (teléfono: solo las distintas de cero)', await cifra(s.page, 'cifra-rend-pagar') === 1 && await cifra(s.page, 'cifra-rend-borrador') === 1 && !(await hay(s.page, 'cifra-rend-aprobar')));
 await s.ctx.close();
 
+// ── 5. Tareas: el inicio cuenta SIEMPRE el mes en curso (DD5) ──
+{
+  const MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const hoy = new Date(); const rotulo = `${MES[hoy.getMonth()]} ${hoy.getFullYear()}`;
+  const leer = async (p) => [await cifra(p, 'cifra-tareas-vencidas'), await cifra(p, 'cifra-tareas-porvencer'), await cifra(p, 'cifra-tareas-revisar')].join('/');
+  s = await sesion('cfo', 'computador');
+  const antes = await leer(s.page);
+  check('Tareas: el inicio rotula el mes en curso', (await s.page.getByTestId('pend-tareas').innerText()).includes(rotulo));
+  await s.page.getByTestId('nav-modulo-tareas').click(); await s.page.waitForTimeout(1500);
+  for (let i = 0; i < 2; i++) { await s.page.getByRole('button', { name: '›', exact: true }).first().click(); await s.page.waitForTimeout(300); }
+  await s.page.getByTestId('nav-inicio').click(); await s.page.waitForTimeout(800);
+  const despues = await leer(s.page);
+  check('Tareas: elegir otro mes en Tareas no cambia los contadores del inicio', antes === despues && (await s.page.getByTestId('pend-tareas').innerText()).includes(rotulo), `${antes} → ${despues}`);
+  await s.ctx.close();
+  // Mes guardado en la fila main distinto del actual (la app lo restaura al cargar)
+  const st2 = storeDiseno(); st2.main.value.mes = (hoy.getMonth() + 10) % 12; st2.main.value.anio = hoy.getFullYear() - (hoy.getMonth() < 2 ? 1 : 0);
+  s = await sesion('cfo', 'computador', { st: st2 });
+  check('Tareas: con otro mes guardado en main, el inicio sigue en el mes en curso', (await s.page.getByTestId('pend-tareas').innerText()).includes(rotulo) && await leer(s.page) === antes, await leer(s.page));
+  await s.ctx.close();
+}
+
 await browser.close();
 console.log(`\n${ok} correctas, ${fallos} fallas · datos ficticios · capturas en ${OUT}`);
 process.exit(fallos ? 1 : 0);

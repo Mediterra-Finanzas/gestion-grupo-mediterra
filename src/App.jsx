@@ -3243,10 +3243,13 @@ Equipo Mediterra`);
   }
   function guardarComentario(){setComentarios(prev=>({...prev,[editComentario]:textoComentario}));setEditComentario(null);}
 
-  function estaVencida(tarea,key,numSemana){
+  // ctx opcional {anio,mes,semanas}: el inicio evalúa siempre el MES EN CURSO aunque
+  // en Tareas esté elegido otro mes. Sin ctx, el mes elegido (comportamiento de siempre).
+  function estaVencida(tarea,key,numSemana,ctx){
+    const anio_=ctx?.anio??anio, mes_=ctx?.mes??mes, semanas_=ctx?.semanas??semanas;
     const hoyD=new Date();hoyD.setHours(0,0,0,0);
     const frec=getFrecuencia(tarea.id);
-    if(frec==="Mensual"){const fl=diaHabil(anio,mes,getConfig(tarea.id).diaLimite||tarea.diaLimite);if(fl<FECHA_INICIO)return false;return hoyD>fl&&(estados[key]?.estadoResp||"gris")==="gris";}
+    if(frec==="Mensual"){const fl=diaHabil(anio_,mes_,getConfig(tarea.id).diaLimite||tarea.diaLimite);if(fl<FECHA_INICIO)return false;return hoyD>fl&&(estados[key]?.estadoResp||"gris")==="gris";}
     if(frec==="Puntual"){
       const fp = getConfig(tarea.id).fechaPuntual || tarea.fechaPuntual;
       if(!fp) return false;
@@ -3254,18 +3257,19 @@ Equipo Mediterra`);
       return hoyD>fl&&(estados[key]?.estadoResp||"gris")==="gris";
     }
     if(numSemana===null||numSemana===undefined) return false; // Diaria/Quincenal/Anual - no semana lógica
-    const sw=semanas.find(s=>s.num===numSemana)||semanas[0];
+    const sw=semanas_.find(s=>s.num===numSemana)||semanas_[0];
     if(!sw) return false;
     const ds=getConfig(tarea.id).diaLimiteSem??tarea.diaLimiteSem;
     const fl=fechaDiaSemana(sw.inicioSem,ds);
     if(fl<FECHA_INICIO)return false;
     return hoyD>fl&&(estados[key]?.estadoResp||"gris")==="gris";
   }
-  function estaProxima(tarea,key,numSemana){
+  function estaProxima(tarea,key,numSemana,ctx){
+    const anio_=ctx?.anio??anio, mes_=ctx?.mes??mes, semanas_=ctx?.semanas??semanas;
     const hoyD=new Date();hoyD.setHours(0,0,0,0);
     const frec=getFrecuencia(tarea.id);
     let diff;
-    if(frec==="Mensual")diff=(diaHabil(anio,mes,getConfig(tarea.id).diaLimite||tarea.diaLimite)-hoyD)/(1000*60*60*24);
+    if(frec==="Mensual")diff=(diaHabil(anio_,mes_,getConfig(tarea.id).diaLimite||tarea.diaLimite)-hoyD)/(1000*60*60*24);
     else if(frec==="Puntual"){
       const fp = getConfig(tarea.id).fechaPuntual || tarea.fechaPuntual;
       if(!fp) return false;
@@ -3273,7 +3277,7 @@ Equipo Mediterra`);
       // Alertar 30 días antes para tareas puntuales
       return diff>=0 && diff<=30 && (estados[key]?.estadoResp||"gris")==="gris";
     }
-    else{if(numSemana===null||numSemana===undefined)return false;const sw=semanas.find(s=>s.num===numSemana)||semanas[0];if(!sw)return false;const ds=getConfig(tarea.id).diaLimiteSem??tarea.diaLimiteSem;diff=(fechaDiaSemana(sw.inicioSem,ds)-hoyD)/(1000*60*60*24);}
+    else{if(numSemana===null||numSemana===undefined)return false;const sw=semanas_.find(s=>s.num===numSemana)||semanas_[0];if(!sw)return false;const ds=getConfig(tarea.id).diaLimiteSem??tarea.diaLimiteSem;diff=(fechaDiaSemana(sw.inicioSem,ds)-hoyD)/(1000*60*60*24);}
     return diff>=0&&diff<=2&&(estados[key]?.estadoResp||"gris")==="gris";
   }
   function generarResumenEmail(){
@@ -3779,25 +3783,29 @@ Equipo Mediterra`);
   // del módulo (estaVencida / estaProxima). Semanales y mensuales solo si el perfil
   // ve esa pestaña; puntuales siempre. Diarias, quincenales y anuales no tienen
   // vencimiento en la app, así que no se cuentan.
+  // Siempre el MES EN CURSO (decisión de Angelo, DD5), aunque en Tareas se mire otro mes.
+  const hoyNav = new Date();
+  const ctxMesNav = { anio: hoyNav.getFullYear(), mes: hoyNav.getMonth(), semanas: semanasDelMes(hoyNav.getFullYear(), hoyNav.getMonth()) };
+  const semKeyNav = (id, num) => `${id}_s${num}_${ctxMesNav.anio}_${ctxMesNav.mes}`;
   const instanciasTareasNav = () => {
     const verSem = getTabPerm(uNav,"tareas","semanal") !== "sin_acceso";
     const verMen = getTabPerm(uNav,"tareas","mensual") !== "sin_acceso";
     const out = [];
     const emp = (k) => k.includes("__") ? k.split("__")[1] : "";
     const inst = (t, k, num, detalle) => ({ nombre: t.nombre, responsable: t.responsable, coResponsables: t.coResponsables || [],
-      supervisor: getSupervisor(t.id), detalle, vencida: estaVencida(t, k, num), proxima: estaProxima(t, k, num),
+      supervisor: getSupervisor(t.id), detalle, vencida: estaVencida(t, k, num, ctxMesNav), proxima: estaProxima(t, k, num, ctxMesNav),
       estadoResp: estados[k]?.estadoResp || "gris", estadoSup: estados[k]?.estadoSup || "gris" });
     todasTareas().filter(t => !isBloqueada(t.id)).forEach(t => {
       const frec = getFrecuencia(t.id);
       if (frec === "Puntual" || (frec === "Mensual" && verMen))
         clavesInstancia(t, t.id).forEach(k => out.push(inst(t, k, null, emp(k))));
       else if (frec === "Semanal" && verSem)
-        semanas.forEach(sw => clavesInstancia(t, semKey(t.id, sw.num)).forEach(k => out.push(inst(t, k, sw.num, [emp(k), `S${sw.num}`].filter(Boolean).join(" · ")))));
+        ctxMesNav.semanas.forEach(sw => clavesInstancia(t, semKeyNav(t.id, sw.num)).forEach(k => out.push(inst(t, k, sw.num, [emp(k), `S${sw.num}`].filter(Boolean).join(" · ")))));
     });
     return out;
   };
   const tareasNav = !usaTareasNav ? null
-    : cargaMainOk ? { estado: "ok", resumen: resumenTareas(instanciasTareasNav(), uNav?.nombre), mes: `${MESES[mes]} ${anio}` }
+    : cargaMainOk ? { estado: "ok", resumen: resumenTareas(instanciasTareasNav(), uNav?.nombre), mes: `${MESES[ctxMesNav.mes]} ${ctxMesNav.anio}` }
     : { estado: cargando ? "cargando" : "error", reintentar: () => window.location.reload() };
   const rendResumenNav = rendHub.estado === "ok" ? resumenRendiciones(rendHub.datos, uNav) : null;
   const rendNav = !puedeRendirActual ? null

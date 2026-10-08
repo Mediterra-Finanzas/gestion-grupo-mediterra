@@ -21,7 +21,7 @@ Documento único de esta rama. La rama funcional (`claude/fervent-bell-uu6ae8`) 
 
 **Inicio.** Pendientes y acciones primero, módulos después:
 
-- Tarjeta **Tareas** del mes en pantalla: vencidas, vencen en 2 días, por revisar como supervisor
+- Tarjeta **Tareas** del **mes en curso** (siempre, aunque en Tareas se mire otro mes): vencidas, vencen en 2 días, por revisar como supervisor
   (en computador y tablet, con la lista de cuáles son).
 - Tarjeta **Rendiciones**: te toca aprobar, devueltas a ti, aprobadas por pagar (solo si el perfil
   ve todas), tus borradores.
@@ -73,7 +73,7 @@ módulo cargó con éxito (regla 9). Cada pulsación crea uno; «Rendir» / «Mi
 | `CI=true react-scripts build` | compila |
 | Jest completo, UTC y `TZ=America/Santiago` | 1.726 / 1.726 (52 omitidas, como en main) |
 | `src/__tests__/resumenInicio.test.js` (nueva) | 11 / 11 |
-| `scripts/e2e/hub-navegacion.mjs` (nueva): 6 perfiles × 4 tamaños | 73 / 73 |
+| `scripts/e2e/hub-navegacion.mjs` (nueva): 6 perfiles × 4 tamaños + mes en curso | 76 / 76 |
 | `apertura-sin-cambios.mjs` (main) | pasa: abrir y navegar no escribe |
 | `aislamiento.mjs` (main) | pasa |
 | `creditos-guardado-fallas.mjs` (main) | pasa |
@@ -122,10 +122,12 @@ bien no prueba cómo se ven con los volúmenes reales.
 
 ## 5. Hallazgos y decisiones pendientes
 
-- **DD1 · Socios en consulta y Rendiciones.** Si la ficha no configura `rendiciones`, main la
-  toma como «editar» (valor por omisión de `getTabPermisosModulo`). En el perfil de socia
-  (sin esa clave) la navegación ofrece «Nueva rendición», porque es lo que el módulo permite hoy.
-  No cambié el permiso. Decisión: ¿los socios rinden gastos?
+- **DD1 · Socios en consulta y Rendiciones — RESUELTA (Angelo, 08-10): sí rinden gastos.**
+  Hoy ya pueden porque su ficha no configura `rendiciones` y main lo toma como «editar» por
+  omisión; esta rama no cambia código por esto. Pendiente para la rama funcional: dejarlo
+  explícito en la ficha (`rendiciones: "ver"` = cargan y ven lo suyo) en vez de depender del
+  valor por omisión, ya que ahí el rol consulta tiene tope «ver». No se aplicó: es un cambio de
+  permisos y se hace con la vista previa de la matriz.
 - **DD2 · «Por pagar» al integrar con la rama funcional.** Aquí usa la regla de main (ve todas).
   Con la matriz de la rama funcional paga solo quien tiene la facultad `rendPagar`; al integrar,
   este contador debe usar esa misma regla, o Michelle y Pablo verían rendiciones «por pagar» que no pueden pagar.
@@ -136,8 +138,12 @@ bien no prueba cómo se ven con los volúmenes reales.
 - **DD4 · Módulos dentro del marco.** Los módulos ahora se ven con la barra lateral, el riel o la
   barra inferior. Sus pantallas internas no se tocaron. No revisé módulo por módulo si algún
   elemento fijo abajo queda tapado por la barra inferior del teléfono. Es la siguiente etapa.
-- **DD5 · Contadores de tareas** cuentan el mes que está seleccionado en Tareas (el rótulo lo
-  dice). Si se prefiere siempre el mes en curso, es un cambio menor.
+- **DD5 · Mes de los contadores de tareas — RESUELTA (Angelo, 08-10): mes en curso.**
+  `estaVencida` / `estaProxima` aceptan un mes opcional; sin él se comportan como siempre (vista
+  de Tareas, resumen por correo). El inicio les pasa el mes en curso. Antes el inicio heredaba el
+  mes elegido en Tareas, y también el mes guardado en la fila `main`, que la app restaura al cargar.
+  Prueba: tres casos nuevos en `hub-navegacion.mjs` (rótulo, cambiar de mes en Tareas, mes
+  distinto guardado en `main`).
 - **DD6 · Lectura de `rendiciones` en el inicio.** Usa `dbLoadGeneric`, que registra la versión
   leída en el contrato de guardado. Solo ocurre con el módulo cerrado y el módulo vuelve a leer
   al abrir; no escribe. Se deja anotado por si se prefiere una lectura sin registro.
