@@ -648,9 +648,11 @@ describe("Conflicto con la configuración antigua: el sello no se toca", () => {
     // registro existente; en la recuperacion corta antes la bandera. Lo
     // economico -que no se toque nada- es lo mismo en las dos.
     if (sePuedeCrear) {
-      expect(res.motivo).toMatch(/Ya hay una activacion registrada en este contrato/);
-      expect(res.motivo).toMatch(/no esta habilitada en este paquete/);
-      expect(res.motivo).toMatch(/se conservan tal como estan/);
+      // En conflicto responde primero la guarda B-2: la transición entre
+      // modelos no está habilitada. Con ella no se llega a la del registro.
+      expect(res.motivo).toMatch(/configuracion antigua OPERANDO/);
+      expect(res.motivo).toMatch(/transicion entre modelos/);
+      expect(res.motivo).toMatch(/No se registra nada/);
     } else {
       expect(res.motivo).toMatch(/no permite crear nuevas/);
     }
@@ -1069,5 +1071,207 @@ describe("Una activación sellada calcula lo mismo en las dos versiones", () => 
     expect(t["2029/2030"]).toBe(125910);
     const total = Object.keys(t).reduce((s, k) => s + t[k], 0);
     expect(Math.round(total * 100) / 100).toBeCloseTo(647533.99, 2);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// Las TRES reproducciones completas del revisor, con sus efectos diferidos.
+// Describes planos: corren en candidato y en recuperación, porque las
+// guardas están en las acciones y no en la bandera de versión.
+const { derivarRoyaltyComercialDesdeContratos: derivarRC } = require("../OsirisModule");
+const totalDe = (ct) => Math.round(
+  derivarRC([ct], { ct_pantalla: [] }).reduce((s, f) => s + f.montoFact, 0) * 100) / 100;
+
+const abrirFacturacion = (ct, onSave) => {
+  const u = render(
+    <ControlContratos data={[ct]} setData={onSave || (() => {})}
+      clientes={[]} setClientes={() => {}} viverosData={[]} setViveros={() => {}}
+      can={true} usuarioActual={USUARIO}
+      tiposAnexoPersist={[]} setTiposAnexoPersist={() => {}}
+      tiposContratoPersist={[]} setTiposContratoPersist={() => {}} />
+  );
+  fireEvent.click(screen.getByText(/Ver/));
+  fireEvent.click(screen.getByText(/Facturación/));
+  return u;
+};
+const porRotulo = (c, tag, texto) => [...c.ownerDocument.querySelectorAll(tag)]
+  .find((x) => ((x.parentElement || {}).textContent || "").includes(texto));
+const silenciarAlert = (fn) => {
+  const orig = window.alert; const vistos = [];
+  window.alert = (x) => { vistos.push(String(x)); };
+  try { fn(); } finally { window.alert = orig; }
+  return vistos;
+};
+
+describe("B-1 · un registro vigente no se apaga desde Facturación", () => {
+  const { estadoActivacion } = require("./reajusteAplicado");
+  const VIGENTE = () => CONTRATO({
+    reajusteActivacion: Object.assign({}, ACTIVACION, { reglaFechaRespaldo: "Clausula 1.2.5" }),
+  });
+
+  test("destildar Confirmado está bloqueado, y la acción tampoco deja", () => {
+    let guardado = null;
+    const ct = VIGENTE();
+    expect(totalDe(ct)).toBeCloseTo(655240.69, 2);
+    const { container } = abrirFacturacion(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const chk = porRotulo(container, "input[type=checkbox]", "Confirmado");
+    expect(chk).toBeTruthy();
+    expect(chk.disabled).toBe(true);
+    const avisos = silenciarAlert(() => fireEvent.click(chk));
+    expect(guardado).toBe(null);
+    expect(ct.reajuste.confirmado).toBe(true);
+    expect(totalDe(ct)).toBeCloseTo(655240.69, 2);
+    expect(avisos.join(" ")).toMatch(/modificacion economica|activacion registrada/);
+  });
+
+  test("cambiar el Tipo está bloqueado", () => {
+    let guardado = null;
+    const ct = VIGENTE();
+    const { container } = abrirFacturacion(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const sel = [...container.ownerDocument.querySelectorAll("select")]
+      .find((x) => [...x.options].some((o) => o.value === "sin_reajuste"));
+    expect(sel).toBeTruthy();
+    expect(sel.disabled).toBe(true);
+    silenciarAlert(() => fireEvent.change(sel, { target: { value: "sin_reajuste" } }));
+    expect(guardado).toBe(null);
+    expect(estadoActivacion(ct).activo).toBe(true);
+    expect(totalDe(ct)).toBeCloseTo(655240.69, 2);
+  });
+
+  test("sin registro, los mismos controles siguen abiertos", () => {
+    let guardado = null;
+    const ct = CONTRATO();
+    const { container } = abrirFacturacion(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const chk = porRotulo(container, "input[type=checkbox]", "Confirmado");
+    expect(chk.disabled).toBe(false);
+    fireEvent.click(chk);
+    expect(guardado).not.toBe(null);
+  });
+});
+
+describe("B-2 · con la antigua operando, la primera activación se rechaza", () => {
+  const { activar, previsualizarActivacion } = require("./reajusteAplicado");
+  const EN_CONFLICTO = () => CONTRATO({ royaltyInflacion: true, rcInflacionPct: 5 });
+  const TERMINOS = {
+    fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+    reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula 1.2.5",
+  };
+  const activarlo = (ct) => activar(ct, Object.assign({}, TERMINOS, {
+    puedeEditar: true, usuarioActual: USUARIO, confirmado: true,
+  }));
+
+  test("la previa anuncia cero, y por eso la acción NO deja confirmar", () => {
+    const ct = EN_CONFLICTO();
+    const base = derivarRC([{ ...ct, reajusteActivacion: { activado: false } }], { ct_pantalla: [] });
+    const prev = previsualizarActivacion(ct, base, { mesCobro: "Abril" });
+    expect(prev.diferenciaAplicada).toBe(0);
+    const res = activarlo(ct);
+    expect(res.ok).toBe(false);
+    expect(res.motivo).toMatch(/transicion entre modelos/);
+    expect(res.motivo).toMatch(/No se registra nada/);
+  });
+
+  test("no se escribe sello ni historial con impacto cero", () => {
+    const ct = EN_CONFLICTO();
+    activarlo(ct);
+    expect(ct.reajusteActivacion).toBe(undefined);
+  });
+
+  test("y por lo tanto no hay efecto diferido al retirar la antigua", () => {
+    const ct = EN_CONFLICTO();
+    const res = activarlo(ct);
+    const sinLaAntigua = { ...res.contrato, royaltyInflacion: false, rcInflacionPct: "" };
+    expect(totalDe(res.contrato)).toBeCloseTo(695732.23, 2);
+    expect(totalDe(sinLaAntigua)).toBe(629550);
+    expect(totalDe(sinLaAntigua)).not.toBeCloseTo(655240.69, 2);
+  });
+
+  test("sin configuración antigua, la activación procede normalmente", () => {
+    const ct = CONTRATO();
+    const res = activarlo(ct);
+    if (!sePuedeCrear) { expect(res.ok).toBe(false); return; }
+    expect(res.ok).toBe(true);
+    expect(totalDe(res.contrato)).toBeCloseTo(655240.69, 2);
+  });
+});
+
+describe("B-3 · con un registro, no se cambia qué modelo opera", () => {
+  const { hayRegistroDeActivacion } = require("./reajusteAplicado");
+  const REGISTRO = (extra) => Object.assign({}, ACTIVACION, { reglaFechaRespaldo: "Clausula 1.2.5" }, extra || {});
+  const checkInflacion = (c) => porRotulo(c, "input[type=checkbox]", "Sujeto a Inflación");
+
+  test("en conflicto, destildar la antigua está bloqueado", () => {
+    let guardado = null;
+    const ct = CONTRATO({ royaltyInflacion: true, rcInflacionPct: 5, reajusteActivacion: REGISTRO() });
+    expect(totalDe(ct)).toBeCloseTo(695732.23, 2);
+    const { container } = abrirFacturacion(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const chk = checkInflacion(container);
+    expect(chk.disabled).toBe(true);
+    const avisos = silenciarAlert(() => fireEvent.click(chk));
+    expect(guardado).toBe(null);
+    expect(totalDe(ct)).toBeCloseTo(695732.23, 2);
+    expect(avisos.join(" ")).toMatch(/QUE MODELO opera/);
+  });
+
+  test("retirar el registro NO levanta la protección", () => {
+    const retirado = CONTRATO({
+      royaltyInflacion: true, rcInflacionPct: 5,
+      reajusteActivacion: REGISTRO({
+        activado: false, desactivadoMotivo: "Se retira",
+        historial: [{ evento: "activacion", autor: "X", fecha: "2026-10-05" },
+                    { evento: "desactivacion", autor: "X", fecha: "2026-10-06" }],
+      }),
+    });
+    expect(hayRegistroDeActivacion(retirado)).toBe(true);
+    let guardado = null;
+    const { container } = abrirFacturacion(retirado, (f) => { guardado = typeof f === "function" ? f([retirado]) : f; });
+    const chk = checkInflacion(container);
+    expect(chk.disabled).toBe(true);
+    silenciarAlert(() => fireEvent.click(chk));
+    expect(guardado).toBe(null);
+  });
+
+  test("sin registro nuevo, el comportamiento de siempre", () => {
+    let guardado = null;
+    const ct = CONTRATO({ royaltyInflacion: true, rcInflacionPct: 5 });
+    expect(hayRegistroDeActivacion(ct)).toBe(false);
+    const { container } = abrirFacturacion(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const chk = checkInflacion(container);
+    expect(chk.disabled).toBe(false);
+    fireEvent.click(chk);
+    expect(guardado).not.toBe(null);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// La contraprueba que faltaba: retirar la comprobación de la marca booleana
+// dejaba la suite entera en verde. Esto la mide en `estadoActivacion`, que
+// es donde vive el agujero, no solo en `activar()`.
+describe("Una marca de activación no booleana no habilita cálculo", () => {
+  const { estadoActivacion } = require("./reajusteAplicado");
+
+  [1, "true", "si", {}, "1"].forEach((valor) => {
+    test(`activado = ${JSON.stringify(valor)} se conserva, se bloquea y NO calcula`, () => {
+      const ct = CONTRATO({
+        reajusteActivacion: Object.assign({}, ACTIVACION, {
+          activado: valor, reglaFechaRespaldo: "Clausula 1.2.5",
+        }),
+      });
+      const e = estadoActivacion(ct);
+      expect(e.activo).toBe(false);
+      expect(e.faltan).toContain("activacion valida");
+      expect(e.motivo).toMatch(/no es booleana/);
+      expect(totalDe(ct)).toBe(629550);
+      expect(ct.reajusteActivacion.activado).toEqual(valor);
+      expect(ct.reajusteActivacion.sello).toBeTruthy();
+    });
+  });
+
+  test("la pantalla ofrece retirarlo con la acción controlada", () => {
+    abrirCobros(CONTRATO({
+      reajusteActivacion: Object.assign({}, ACTIVACION, { activado: 1, reglaFechaRespaldo: "C" }),
+    }));
+    expect(screen.queryByText("Activar el reajuste")).toBe(null);
+    expect(screen.getByText("Desactivar")).toBeTruthy();
   });
 });

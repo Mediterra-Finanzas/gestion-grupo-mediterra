@@ -332,6 +332,26 @@ export function activar(ct, datos) {
 
   const previa = (ct && ct.reajusteActivacion) || {};
 
+  // B-2 · Con una configuracion antigua OPERANDO, el motor usa esa y la
+  // activacion nueva no aplicaria nada hoy. La previa devuelve cero, asi que
+  // confirmar aqui significaria aceptar "US$ 0,00" y escribir un sello cuyo
+  // efecto aparece despues, al retirar la antigua. Eso es una transicion
+  // entre modelos, y no esta habilitada en este paquete.
+  // Se mira la configuracion antigua DIRECTO, no via `estadoActivacion`: sin
+  // un registro previo ese estado contesta "sin activar" antes de llegar al
+  // conflicto, y la guarda nunca disparaba en el caso que importa, que es
+  // justamente la PRIMERA activacion.
+  if (configAntiguaOperando(ct).opera) {
+    return {
+      ok: false,
+      motivo: "Este contrato tiene una configuracion antigua OPERANDO, que es la que produce los " +
+        "importes actuales. Activar el reajuste nuevo no cambiaria nada hoy y su efecto apareceria " +
+        "despues, al retirar la antigua: eso es una transicion entre modelos y no esta habilitada " +
+        "en este paquete. No se registra nada.",
+      contrato: ct,
+    };
+  }
+
   // Con la activacion ya vigente, la diferencia que calcula la previa es cero
   // -el importe actual ya incluye el ajuste-. Esa igualdad NO habilita volver
   // a activar: no hay nada que registrar, y resellar terminos por esta via
@@ -498,13 +518,31 @@ export function historialActivacion(ct) {
   return Array.isArray(h) ? h : [];
 }
 
+// ¿Hay un registro de activacion VIGENTE? Es la marca, no el calculo: un
+// registro marcado pero bloqueado sigue siendo un registro.
+export function hayRegistroVigente(ct) {
+  return !!(((ct && ct.reajusteActivacion) || {}).activado);
+}
+
+// ¿Existe un registro, aunque se haya retirado? Despues de desactivar, la
+// marca queda en false pero el sello y el historial siguen ahi. Para lo que
+// protege de cambiar QUE MODELO opera, esta es la pregunta correcta: si no,
+// retirar el registro seria un atajo para eludir la proteccion.
+export function hayRegistroDeActivacion(ct) {
+  const ra = (ct && ct.reajusteActivacion) || {};
+  return !!(ra.activado || ra.sello || (Array.isArray(ra.historial) && ra.historial.length));
+}
+
+// Terminos del antecedente que, con un registro vigente, no se pueden tocar:
+// cambian lo que el registro calcula o lo que calcularia despues.
+export const TERMINOS_BLOQUEABLES = ["tipo", "confirmado", "pct", "desde", "indice", "fuente", "fechaBase"];
+
 // Un sello completo es lo unico que habilita calculo. Lo produce `activar()`
 // y nada mas: completar los campos a mano no genera uno.
 export function selloCompleto(sello) {
   const s = sello || {};
   const pct = Number(s.pct);
-  return !!aFecha(s.fechaReferencia) && REGLAS_FECHA.includes(txt(s.reglaFecha)) &&
-    s.pct !== null && s.pct !== undefined && s.pct !== "" && !isNaN(pct);
+  return !!aFecha(s.fechaReferencia) && REGLAS_FECHA.includes(txt(s.reglaFecha)) && pct > 0;
 }
 
 export function estadoActivacion(ct) {
@@ -789,12 +827,13 @@ export function previsualizarActivacion(ct, filas, opciones) {
 // ciclo. Las pantallas llaman a esta.
 export function reajusteOperativoConActivacion(ct, opciones) {
   const act = estadoActivacion(ct);
-  if (!act.activo) return reajusteOperativo(ct);
-  const pct = Number(act.pct) || 0;
-  const f = (opciones || {}).filas;
-  // Una activacion al 0 % no puede anunciarse como aplicandose. Hoy no se
-  // puede crear (activar la rechaza), pero podria venir de datos viejos.
-  if (!(pct > 0)) {
+
+  // Un registro con 0 % no aplica -el sello exige porcentaje positivo-, pero
+  // conviene nombrarlo por lo que es en vez de caer en el aviso generico.
+  // Hoy no se puede crear uno (activar lo rechaza); puede venir de datos
+  // viejos, y en ese caso se conserva tal cual.
+  const cfg0 = configReajuste(ct);
+  if (hayRegistroVigente(ct) && cfg0.tipo === "porcentaje" && !(Number(cfg0.pct) > 0)) {
     return {
       estado: REAJUSTE_ACTIVADO_APLICANDO, aplica: false, pct: 0, llevanElAjuste: 0,
       titulo: "0 % registrado: sin efecto de reajuste",
@@ -802,9 +841,13 @@ export function reajusteOperativoConActivacion(ct, opciones) {
         "conserva tal como esta; no se le atribuye un respaldo que no consta, porque hasta " +
         "que se corrigio el campo un vacio o un valor invalido tambien se guardaba como 0. " +
         "Lo que no corresponde es sostener una activacion que no aplica nada.",
-      detalle: "Activado el " + (act.fecha || "—") + (act.usuario ? " por " + act.usuario : "") + ".",
+      detalle: "Registrado el " + (act.fecha || "—") + (act.usuario ? " por " + act.usuario : "") + ".",
     };
   }
+
+  if (!act.activo) return reajusteOperativo(ct);
+  const pct = Number(act.pct) || 0;
+  const f = (opciones || {}).filas;
   const sellado = "Se aplica con los términos sellados al activar (" + pct + " % desde " +
     act.fechaReferencia + ", por " + act.regla.regla + ").";
 

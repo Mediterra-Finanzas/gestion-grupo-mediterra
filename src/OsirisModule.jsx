@@ -42,6 +42,7 @@ import {
   puedeCrearActivacion, puedeEditarTerminos, activar as activarReajuste, desactivar as desactivarReajuste,
   puedeDesactivar, previsualizarDesactivacion, historialActivacion, identidadDe,
   reajusteOperativoConActivacion,
+  hayRegistroVigente, hayRegistroDeActivacion, TERMINOS_BLOQUEABLES,
   antecedentesDeCobro, REGLAS_FECHA,
   ACTIVADO as REAJ_ACTIVADO, MODIFICACION_PENDIENTE as REAJ_MODIF_PENDIENTE,
   CONFLICTO_CON_ANTIGUA as REAJ_CONFLICTO, SIN_ACTIVAR as REAJ_SIN_ACTIVAR,
@@ -8039,6 +8040,19 @@ export function ControlContratos({data,setData,clientes,setClientes,variedadesMa
   // Wizard de "nuevo contrato": paso actual
   const [wizStep, setWizStep] = useState(1);
 
+  // B-3 · Con un registro de activacion -aunque este RETIRADO- no se cambia
+  // que modelo opera. La guarda mira si el registro EXISTE, no si esta
+  // vigente: si mirara la vigencia, retirarlo seria un atajo para eludir la
+  // proteccion. Los contratos sin registro nuevo siguen igual que siempre.
+  // Va aca, en el mismo alcance que `upd`, porque el control cuelga de este.
+  const upAntigua=(r,campo,val)=>{ if(!can) return;
+    if(hayRegistroDeActivacion(r)){
+      window.alert("Este contrato tiene un registro de activacion del reajuste nuevo. Cambiar la "+
+        "configuracion antigua decide QUE MODELO opera -ahora o cuando el registro vuelva a aplicar-, "+
+        "y esa transicion no esta habilitada en este paquete. Retirar el registro no levanta esta "+
+        "proteccion.");
+      return; }
+    upd(r.id,campo,val); };
   const upd=(id,c,v)=>setData(prev=>prev.map(r=>{
     if(r.id!==id) return r;
     // Para objetos anidados (anexos), serializar; para otros, directo
@@ -8892,7 +8906,21 @@ Motivo del retiro:`, "");
                 // proposito: el control de T3 identifica la funcion con guarda
                 // por su propia linea, y partirla la haria aparecer como una
                 // escritura directa de las que esa prueba caza.
-                const upR = (campo,val)=>{ if(!can) return; upd(r.id,"reajuste",{...(r.reajuste||{}),...((campo&&typeof campo==="object")?campo:{[campo]:val})}); };
+                // B-1 · Con un registro de activacion vigente, estos terminos no se
+                // tocan: cambiar el tipo o destildar "Confirmado" apaga el reajuste
+                // -25.690,69 sin vista previa, sin confirmacion y sin historial. La
+                // guarda va DENTRO de la funcion: el `disabled` del control no
+                // desconecta el handler. Lo documental (la clausula) sigue abierto.
+                const regVigente = hayRegistroVigente(r);
+                const upR = (campo,val)=>{ if(!can) return;
+                  const cambios = (campo&&typeof campo==="object")?campo:{[campo]:val};
+                  if(regVigente&&Object.keys(cambios).some(k=>TERMINOS_BLOQUEABLES.indexOf(k)>=0)){
+                    window.alert("Este contrato tiene una activacion registrada. Cambiar el tipo, la confirmacion "+
+                      "o el porcentaje alteraria lo que el motor aplica, o lo que aplicaria despues, y eso es una "+
+                      "modificacion economica: no esta habilitada en este paquete. Para cambiarlos hay que retirar "+
+                      "el registro con la accion controlada, que pide motivo y confirmacion y deja historial.");
+                    return; }
+                  upd(r.id,"reajuste",{...(r.reajuste||{}),...cambios}); };
                 const inp2 = {padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11};
                 const marco = (ok)=>({background: ok?C.successBg:(C.amBg||"#fef9c3"), border:`1px solid ${ok?C.success:(C.am||"#ca8a04")}`, borderRadius:10, padding:12, marginBottom:14});
                 return (<>
@@ -8968,12 +8996,14 @@ Motivo del retiro:`, "");
                         {estR==="noDeclarado"?" \u00b7 no declarado":(estR==="sinReajuste"?" \u00b7 sin reajuste":(estR==="confirmado"?" \u00b7 confirmado":" \u00b7 PENDIENTE"))}
                       </span>
                       <span style={{fontSize:9,fontWeight:700,marginLeft:6,padding:"1px 6px",borderRadius:99,background:C.cardAlt,color:C.muted,border:`1px solid ${C.border}`}}>
-                        {ACCION.configura} · la comprobación {ACCION.simula.toLowerCase()} · no aplica al cálculo real
+                        {regVigente
+                          ? "Hay una activación registrada: estos términos SÍ gobiernan el cálculo a través de ella, y por eso quedan bloqueados"
+                          : <>{ACCION.configura} · la comprobación {ACCION.simula.toLowerCase()} · no aplica al cálculo real</>}
                       </span>
                     </div>
                     <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
                       <div><div style={{fontSize:10,color:C.gris}}>Tipo</div>
-                        <select disabled={!can} value={rj.tipo} onChange={e=>upR("tipo",e.target.value)} style={inp2}>
+                        <select disabled={!can||regVigente} value={rj.tipo} onChange={e=>upR("tipo",e.target.value)} style={inp2}>
                           <option value="">sin definir</option>
                           <option value="sin_reajuste">Sin reajuste</option>
                           <option value="porcentaje">Porcentaje fijo</option>
@@ -8986,7 +9016,7 @@ Motivo del retiro:`, "");
                               una configuracion completa. Ahora se guarda lo escrito tal
                               cual y el modelo distingue sin definir, invalido y cero
                               expreso. Un 0 escrito a proposito sigue siendo un 0. */}
-                          <input type="number" disabled={!can} value={rj.pctCrudo} placeholder="sin definir"
+                          <input type="number" disabled={!can||regVigente} value={rj.pctCrudo} placeholder="sin definir"
                             onChange={e=>upR({pct:e.target.value, pctOrigen:"ingresado"})}
                             style={{...inp2,width:110,borderColor:rj.pctEstado==="invalido"?C.danger:undefined}}/>
                           {rj.pctEstado==="invalido"&&<div style={{fontSize:9,color:C.danger,marginTop:2}}>
@@ -9015,7 +9045,7 @@ Motivo del retiro:`, "");
                       )}
                       {rj.tipo&&(
                         <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:700,cursor:can?"pointer":"default"}}>
-                          <input type="checkbox" disabled={!can} checked={rj.confirmado} onChange={()=>upR("confirmado",!rj.confirmado)}/>
+                          <input type="checkbox" disabled={!can||regVigente} checked={rj.confirmado} onChange={()=>upR("confirmado",!rj.confirmado)}/>
                           Confirmado
                         </label>
                       )}
@@ -9059,13 +9089,13 @@ Motivo del retiro:`, "");
                     background:r.royaltyInflacion?C.amBg:C.cardAlt,border:`1px solid ${r.royaltyInflacion?"#fde047":C.border}`,
                     borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:600,
                     color:r.royaltyInflacion?C.am:C.muted2}}>
-                    <input type="checkbox" checked={r.royaltyInflacion||false} disabled={!can} onChange={()=>upd(r.id,"royaltyInflacion",!r.royaltyInflacion)} style={{accentColor:C.warning}}/>
+                    <input type="checkbox" checked={r.royaltyInflacion||false} disabled={!can||hayRegistroDeActivacion(r)} onChange={()=>upAntigua(r,"royaltyInflacion",!r.royaltyInflacion)} style={{accentColor:C.warning}}/>
                     📈 Sujeto a Inflación
                   </label>
                   {r.royaltyInflacion&&(
                     <div style={{minWidth:120}}>
                       <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>% inflación anual</div>
-                      <Cell val={r.rcInflacionPct} onChange={v=>upd(r.id,"rcInflacionPct",parseFloat(v)||0)} type="number" can={can}/>
+                      <Cell val={r.rcInflacionPct} onChange={v=>upAntigua(r,"rcInflacionPct",parseFloat(v)||0)} type="number" can={can&&!hayRegistroDeActivacion(r)}/>
                     </div>
                   )}
                 </div>
@@ -10109,7 +10139,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                               porque la accion lo bloquea. Lo que corresponde ofrecer es
                               retirar ese registro, que es una operacion economica con su
                               vista previa, su motivo y su confirmacion. */}
-                          {ra.activado===true
+                          {hayRegistroVigente(r)
                             ? <button disabled={!can||!puedeDesactivar(r,{puedeEditar:can}).puede} onClick={()=>{
                                 const pm = puedeDesactivar(r,{puedeEditar:can});
                                 if(!pm.puede){ window.alert(pm.motivo); return; }
