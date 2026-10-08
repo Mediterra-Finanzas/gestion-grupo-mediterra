@@ -1359,11 +1359,6 @@ describe("Las guardas sobreviven al retiro del registro", () => {
 // La BASE del cálculo. Cambiarla mueve el resultado económico igual que
 // cambiar el porcentaje: 3.000 → 3.500 llevaba el total de 655.240,69 a
 // 764.447,48, +109.206,79 sin confirmación.
-
-// ══════════════════════════════════════════════════════════════════
-// La BASE del cálculo. Cambiarla mueve el resultado económico igual que
-// cambiar el porcentaje: 3.000 → 3.500 llevaba el total de 655.240,69 a
-// 764.447,48, +109.206,79 sin confirmación.
 //
 // Ojo con la forma del bloqueo: `Cell` con `can` en false NO renderiza un
 // input deshabilitado, renderiza texto. Es más fuerte que un `disabled`, y
@@ -1437,5 +1432,151 @@ describe("La base por hectárea está bloqueada mientras exista un registro", ()
     const editables = [...container.ownerDocument.querySelectorAll("span")]
       .filter((x) => (x.style || {}).cursor === "pointer").length;
     expect(editables).toBeGreaterThan(0);             // queda mucho editable
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// D-1 · La cláusula que respalda el reajuste NO es un dato documental.
+// `faltantesReajuste` la exige, así que vaciarla deja el antecedente en
+// "pendiente", `estadoActivacion` pasa a no activable y el sello deja de
+// aplicar: 655.240,69 → 629.550, los mismos −25.690,69 que destildar
+// "Confirmado", por otra vía. La octava revisión la encontró con el control
+// habilitado, sin aviso, sin previa, sin confirmación y sin historial.
+describe("D-1 · la cláusula que respalda el reajuste está bloqueada", () => {
+  const { estadoActivacion, TERMINOS_BLOQUEABLES, desactivar } = require("./reajusteAplicado");
+  const clausula = (c) => c.ownerDocument.querySelector('input[placeholder^="p. ej. Annexure"]');
+  const VIGENTE = () => CONTRATO({
+    reajusteActivacion: Object.assign({}, ACTIVACION, { reglaFechaRespaldo: "Clausula 1.2.5" }),
+  });
+
+  test("está en la lista de términos bloqueables", () => {
+    expect(TERMINOS_BLOQUEABLES).toContain("referencia");
+  });
+
+  test("el importe que la guarda impide: vaciarla apagaría el sello", () => {
+    const ct = VIGENTE();
+    expect(totalDe(ct)).toBeCloseTo(655240.69, 2);
+    const apagado = Object.assign({}, ct, {
+      reajuste: Object.assign({}, ct.reajuste, { referencia: "" }),
+    });
+    expect(estadoActivacion(apagado).activo).toBe(false);
+    expect(totalDe(apagado)).toBe(629550);
+    expect(655240.69 - 629550).toBeCloseTo(25690.69, 2);
+  });
+
+  test("con registro vigente: deshabilitada, y vaciarla no escribe ni mueve el total", () => {
+    let guardado = null;
+    const ct = VIGENTE();
+    const { container } = abrirFacturacion(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const inp = clausula(container);
+    expect(inp).toBeTruthy();
+    expect(inp.disabled).toBe(true);
+    // `disabled` no desconecta el handler: la guarda va dentro de upR.
+    const avisos = silenciarAlert(() => fireEvent.change(inp, { target: { value: "" } }));
+    expect(guardado).toBe(null);
+    expect(ct.reajuste.referencia).toBe("Clausula 1.2.5");
+    expect(estadoActivacion(ct).activo).toBe(true);
+    expect(totalDe(ct)).toBeCloseTo(655240.69, 2);
+    expect(avisos.join(" ")).toMatch(/clausula que lo respalda/);
+  });
+
+  test("tras retirar el registro, sigue bloqueada", () => {
+    const res = desactivar(VIGENTE(), {
+      motivo: "Se anulo el respaldo", confirmado: true, usuarioActual: USUARIO,
+    });
+    expect(res.ok).toBe(true);
+    let guardado = null;
+    const ct = res.contrato;
+    const { container } = abrirFacturacion(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const inp = clausula(container);
+    expect(inp.disabled).toBe(true);
+    silenciarAlert(() => fireEvent.change(inp, { target: { value: "" } }));
+    expect(guardado).toBe(null);
+    expect(ct.reajuste.referencia).toBe("Clausula 1.2.5");
+  });
+
+  test("en conflicto con la antigua, tampoco: el efecto sería diferido", () => {
+    let guardado = null;
+    const ct = CONTRATO({
+      royaltyInflacion: true, rcInflacionPct: 5,
+      reajusteActivacion: Object.assign({}, ACTIVACION, { reglaFechaRespaldo: "Clausula 1.2.5" }),
+    });
+    const antes = totalDe(ct);
+    const { container } = abrirFacturacion(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    silenciarAlert(() => fireEvent.change(clausula(container), { target: { value: "" } }));
+    expect(guardado).toBe(null);
+    expect(ct.reajuste.referencia).toBe("Clausula 1.2.5");
+    expect(totalDe(ct)).toBe(antes);
+  });
+
+  test("sin registro, la cláusula se edita como siempre", () => {
+    let guardado = null;
+    const ct = CONTRATO();
+    const { container } = abrirFacturacion(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const inp = clausula(container);
+    expect(inp.disabled).toBe(false);
+    fireEvent.change(inp, { target: { value: "Annexure D 9.9" } });
+    expect(guardado).not.toBe(null);
+    expect(guardado[0].reajuste.referencia).toBe("Annexure D 9.9");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// D-2 · `puedeEditarTerminos` miraba la VIGENCIA del registro. Tras retirar
+// quedaba en true y reabría los cuatro campos sellados (fecha de referencia,
+// respaldo, regla y su respaldo): editarlos y reactivar resellaba otros
+// términos —medido: 655.240,69 → 629.550—, que es la vía
+// desactivar → editar → reactivar que no está autorizada. Ahora mira la
+// existencia, igual que las guardas de la pantalla. Reactivar con los
+// términos conservados sigue siendo posible: `activar()` no consulta esto.
+describe("D-2 · tras retirar, los términos sellados tampoco se editan", () => {
+  const { puedeEditarTerminos, desactivar, estadoActivacion } = require("./reajusteAplicado");
+  const RETIRADO = () => {
+    const res = desactivar(
+      CONTRATO({ reajusteActivacion: Object.assign({}, ACTIVACION, { reglaFechaRespaldo: "Clausula 1.2.5" }) }),
+      { motivo: "Se anulo el respaldo", confirmado: true, usuarioActual: USUARIO });
+    expect(res.ok).toBe(true);
+    return res.contrato;
+  };
+
+  test("el modelo lo dice: no se pueden editar", () => {
+    const ct = RETIRADO();
+    expect(ct.reajusteActivacion.activado).toBe(false);
+    expect(estadoActivacion(ct).activo).toBe(false);
+    expect(puedeEditarTerminos(ct).puede).toBe(false);
+  });
+
+  test("y los cuatro campos del panel no guardan nada", () => {
+    let guardado = null;
+    const ct = RETIRADO();
+    const { container } = render(
+      <ControlContratos
+        data={[ct]} setData={(f) => { guardado = typeof f === "function" ? f([ct]) : f; }}
+        clientes={[]} setClientes={() => {}} viverosData={[]} setViveros={() => {}}
+        can={true} usuarioActual={USUARIO}
+        tiposAnexoPersist={[]} setTiposAnexoPersist={() => {}}
+        tiposContratoPersist={[]} setTiposContratoPersist={() => {}} />
+    );
+    fireEvent.click(screen.getByText(/Ver/));
+    fireEvent.click(screen.getByText(/Cobros derivados/));
+    const panel = [...container.ownerDocument.querySelectorAll("div")]
+      .filter((d) => (d.textContent || "").includes("Confirmar un antecedente no activa nada") &&
+                     d.querySelectorAll("input, select").length >= 4)
+      .pop();
+    expect(panel).toBeTruthy();
+    const campos = [...panel.querySelectorAll("input, select")];
+    expect(campos.length).toBe(4);
+    campos.forEach((c) => expect(c.disabled).toBe(true));
+    fireEvent.change(campos[0], { target: { value: "2024-07-01" } });
+    fireEvent.change(campos[2], { target: { value: "emision" } });
+    expect(guardado).toBe(null);
+    expect(ct.reajusteActivacion.fechaReferencia).toBe("2026-07-01");
+    expect(ct.reajusteActivacion.sello).toEqual({
+      pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio",
+    });
+  });
+
+  test("sin ningún registro, los cuatro campos están abiertos", () => {
+    expect(puedeEditarTerminos(CONTRATO()).puede).toBe(true);
   });
 });
