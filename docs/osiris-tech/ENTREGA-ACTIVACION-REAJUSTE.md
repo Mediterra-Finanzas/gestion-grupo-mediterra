@@ -203,6 +203,57 @@ reajuste. **Hoy no tiene efecto económico**: ese mes solo alimenta la fecha est
 que no es ninguna de las cuatro reglas de fecha. Queda dicho, no corregido: tocarlo es cambiar
 una entrada del motor sin necesidad demostrada.
 
+### Lo que encontró la OCTAVA revisión
+
+Veredicto: **no aprobar**. Las cuatro guardas B-1 a B-4 resistieron cada una de las pruebas de
+sorteo —control deshabilitado, evento sintético salteando el `disabled`, y la secuencia
+desactivar → editar → reactivar—, pero **una quinta vía de cambio económico seguía abierta, con
+el mismo importe y la misma forma**.
+
+| # | Lo que estaba mal | Cómo quedó |
+|---|---|---|
+| **D-1** (bloqueante) | La cláusula que respalda el reajuste se trató como dato documental. No lo es: `faltantesReajuste` la exige, así que vaciarla deja el antecedente en *pendiente*, `estadoActivacion` pasa a no activable y el sello deja de aplicar. **655.240,69 → 629.550, −25.690,69**, los mismos que destildar "Confirmado", con el control habilitado, sin aviso, sin previa, sin confirmación y sin historial. En un contrato en conflicto el efecto quedaba **diferido** al retirar la antigua | `referencia` entra en `TERMINOS_BLOQUEABLES` y el control lleva la misma condición que los demás términos |
+| **D-2** | `puedeEditarTerminos` miraba la **vigencia** del registro, no su existencia. Tras retirar quedaba en `true` y reabría los cuatro campos sellados: editarlos y reactivar resellaba otros términos. Medido: sello `{2, 2026-07-01, inicioPeriodoServicio}` → `{2, 2024-07-01, emision}`, 655.240,69 → 629.550. Cada paso pedía confirmación, así que no era silencioso, pero es la vía desactivar → editar → reactivar que no está autorizada | Mira la existencia, igual que las guardas de la pantalla. Reactivar con los términos conservados sigue siendo posible: `activar()` no consulta esta función |
+| **D-3** | El aviso del porcentaje no positivo leía la **configuración de hoy** y se adelantaba a `reajusteOperativo`. Con la antigua operando al 5 %/año anunciaba *"0 % registrado: sin efecto de reajuste"* sobre un total de **695.732,23** que sí llevaba reajuste; con sello 2 % y configuración editada a −2 % anunciaba "0 % registrado" mientras el sello aplicaba 2 % | Lee el **sello** y cede el aviso cuando la antigua opera. No mueve importes: la función es de presentación |
+| **D-4** | El aviso de `upR` decía *"Para cambiarlos hay que retirar el registro con la accion controlada"*. Es falso —la guarda mira la existencia— y contradecía a sus dos mensajes hermanos, que dicen lo correcto | Reescrito, en la misma línea que `MOT_ANTIGUA` y `MOT_BASE` |
+| **D-5** | El mismo aviso nombraba tres campos de los ocho que bloquea | Los nombra todos |
+| **D-6** | `indice`, `fuente`, `fechaBase` y `desde` estaban en la lista pero sus controles llevaban sólo `disabled={!can}`: se escribía y se perdía lo tecleado | La misma condición que el resto |
+| **D-7** | El control de T3 era **cegable**: su máquina de estados salía del helper sólo en una línea que matcheara `^\s*upd\(r\.id,`, así que prefijar el write con `return ` —idéntico en semántica— lo dejaba "dentro del helper" por el resto del bloque. Con eso ciego, un `upd(r.id,"reajuste",{...})` directo en el control del Tipo —**un bypass real de B-1**— pasaba la prueba | Recorta el cuerpo del helper por **balance de llaves**. Contraprueba: con esa inyección exacta, ahora falla |
+| **D-8** | El escape del barrido daba por "alta" cualquier línea con `campo="…"`, incluido un `<Campo campo="valorRoyaltyComercial" r={r}/>`, que escribe con `upd(r.id,campo,v)` **sin guarda**. Latente, no abierto | El escape exige `setF`, que es lo que de verdad distingue el formulario de alta |
+| **D-9 / D-10** | Un bloque de comentario duplicado; y un comentario que decía "EXISTE" donde el código mira la marca | Corregidos |
+
+**La cobertura que faltaba, dicha sin adornos.** La revisión midió que `selloCompleto` con
+`pct > 0` **no tenía red económica**: revertirla rompía una sola aserción de redacción. El caso
+que sí mueve plata —un sello deflacionario de −2 %, que contra la base `9d90ed2` son
+**+24.683,38** (604.866,62 → 629.550)— no estaba cubierto en ningún sentido. Un sello así
+`activar()` no lo puede crear (rechaza `pct ≤ 0`, y eso ya era así antes del paquete) y en el
+snapshot congelado hay **0 casos**: sólo puede venir de datos heredados o editados a mano. Ahora
+está pinchado en las dos versiones.
+
+**Por qué el barrido no cazó D-1.** El barrido comprueba **qué función escribe** `reajuste`
+—siempre `upR`—, no **qué campos protege** esa función. `referencia` pasaba por `upR`, así que
+quedaba verde: cerrado por ruta, abierto por campo. Las pruebas que ahora lo pinchan son de
+pantalla y miden el importe.
+
+**Consecuencia del diseño que conviene dejar escrita.** En cuanto EXISTE un registro —incluso
+retirado— los ocho términos del antecedente, la base por hectárea y la configuración antigua
+quedan bloqueados de forma permanente. `desactivar()` no los libera, que es lo autorizado, y
+este paquete no trae ningún flujo que lo haga. Si un contrato con reajuste activado renegocia su
+US$/há, **hoy no hay manera de corregirlo dentro de la aplicación**: hace falta el flujo de
+modificación económica, que es una entrega aparte.
+
+**Lo que la revisión confirmó que no se rompió.** Sin registro, los siete controles siguen
+abiertos y escriben: tipo, confirmado, porcentaje, "Sujeto a Inflación", cláusula, valor por
+hectárea y % de inflación anual. Con registro vigente, los datos operativos siguen editables y
+mueven el importe (41,97 → 50 ha: 655.240,69 → 780.606,02). No se bloquearon hectáreas ni
+despachos.
+
+**Dos cosas que quedaron fuera, declaradas.** `fechaTermino` lo escribe `Campo` sin guarda y
+acota la serie de cohortes, así que con un registro vigente mueve el total sin previa —**idéntico
+en la base, no es regresión**— y la revisión lo dejó como camino de código, no comprobado en
+pantalla. Y las dos fallas conocidas del repositorio (`paramsFrutaAnticipos`,
+`FriskuSharePointBuscador`) están fuera de `src/osiris/`: no las observó.
+
 ## 3 · Recuperación
 
 **Estado: compatible y probada en local; pendiente de despliegue y certificación.** No está
