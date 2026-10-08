@@ -66,6 +66,12 @@ export async function instalarFake(context, store, log = () => {}) {
     try { body = JSON.parse(req.postData() || 'null'); } catch (_) {}
 
     if (metodo === 'GET') {
+      // Interruptor de prueba: simular que la LECTURA de ciertas filas falla (500).
+      if (id && store.__fallarLecturas && store.__fallarLecturas.has(id)) {
+        log(`GET   ${id} → FALLA (simulada)`);
+        return route.fulfill({ status: 500, contentType: 'application/json',
+          headers: { 'access-control-allow-origin': '*' }, body: '{"message":"fallo de lectura simulado"}' });
+      }
       if (!id) {
         // Consultas de lista: id=in.(…), id=neq.X, id=not.like.prefijo_*
         const q = decodeURIComponent(url.search);

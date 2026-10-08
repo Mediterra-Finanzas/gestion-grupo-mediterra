@@ -64,8 +64,10 @@ export function pathDocNomina(empresa, nominaId, itemId, docId, filename) {
 // las filas sin monto no entran). pct=100 cuando no hay líneas computables.
 export function coberturaNomina(nom) {
   const items = Array.isArray(nom?.items) ? nom.items : [];
+  // Una línea agregada de remuneraciones (detalle restringido) no lleva documentos propios:
+  // sus respaldos viajaron con las líneas trasladadas. No cuenta para la cobertura.
   const computables = items.filter(it =>
-    (it?.estadoLinea || "activa") === "activa" &&
+    (it?.estadoLinea || "activa") === "activa" && !it?.agregadoRem && !it?._agregadoVista &&
     (Number(it?.montoCLP) || Number(it?.montoUSD) || Number(it?.montoPEN))
   );
   const total = computables.length;

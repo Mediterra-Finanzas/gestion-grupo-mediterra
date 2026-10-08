@@ -1559,7 +1559,29 @@ function CargaMasivaUsuariosForm({ usuarios, setUsuarios, pinsPersonalizados={},
 // ══════════════════════════════════════════════════════════════════════
 // PANTALLA HUB
 // ══════════════════════════════════════════════════════════════════════
-function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCambiarPin, esSoloConsulta, usuarios, setUsuarios, pinsPersonalizados, setPinsPersonalizados, filaFac, filaFacOk, onGuardarFilaFac }) {
+// Avisos de la configuración de permisos: fallo de lectura (todos) y transición temporal (admin).
+function AvisosPermisos({ usuario, filaFac, filaFacOk, filaFacError, onReintentarFac }) {
+  if (filaFacError) return (
+    <div data-testid="aviso-facultades-error" role="alert" style={{margin:"12px 32px 0",padding:"12px 16px",borderRadius:10,background:"#fef2f2",border:"1px solid #fecaca",color:"#7f1d1d",fontSize:13}}>
+      <b>No se pudo leer la configuración de permisos.</b> Mientras tanto no se pueden marcar rendiciones como pagadas ni usar facultades
+      (Contabilidad, remuneraciones). El resto de la app funciona.{" "}
+      <button data-testid="facultades-reintentar" onClick={onReintentarFac} style={{marginLeft:6,padding:"4px 12px",borderRadius:8,border:"1px solid #b91c1c",background:"#fff",color:"#7f1d1d",fontWeight:700,cursor:"pointer"}}>Reintentar</button>
+      <div style={{fontSize:11,marginTop:4,color:"#991b1b"}}>Si persiste: revisar la conexión; si la base no responde, avisar al administrador. Detalle: {filaFacError}</div>
+    </div>
+  );
+  if (filaFacOk && usuario?.rol === "admin" && filaFac?.modo !== "matriz") {
+    const desde = (filaFac?.historial || [])[0]?.ts;
+    return (
+      <div data-testid="aviso-transicion" style={{margin:"12px 32px 0",padding:"10px 14px",borderRadius:10,background:"#fffbeb",border:"1px solid #fde68a",color:"#78350f",fontSize:12.5}}>
+        <b>Regla de pago en transición (temporal).</b> Pagan quienes ven todas las rendiciones, como antes de la matriz{desde ? ` · facultades registradas desde ${desde.slice(0,10)}` : ""}.
+        Salida: ⚙️ Permisos → vista previa → aplicar → <b>Activar regla de la matriz</b>.
+      </div>
+    );
+  }
+  return null;
+}
+
+function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCambiarPin, esSoloConsulta, usuarios, setUsuarios, pinsPersonalizados, setPinsPersonalizados, filaFac, filaFacOk, onGuardarFilaFac, filaFacError, onReintentarFac }) {
   const hoy = new Date();
   const fechaStr = hoy.toLocaleDateString("es-CL", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const [mostrarPermisos, setMostrarPermisos] = useState(false);
@@ -1588,6 +1610,7 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
         <PanelPermisos usuarios={usuarios} setUsuarios={setUsuarios} onClose={()=>setMostrarPermisos(false)} pinsPersonalizados={pinsPersonalizados} setPinsPersonalizados={setPinsPersonalizados}
           usuarioAdmin={usuario} filaFac={filaFac} filaFacOk={filaFacOk} onGuardarFilaFac={onGuardarFilaFac}/>
       )}
+      <AvisosPermisos usuario={usuario} filaFac={filaFac} filaFacOk={filaFacOk} filaFacError={filaFacError} onReintentarFac={onReintentarFac}/>
       {mostrarRestaurar && usuario.rol === "admin" && (
         <RestaurarRespaldo supaUrl={SUPA_URL} supaKey={SUPA_KEY} usuario={usuario.nombre} onCerrar={()=>setMostrarRestaurar(false)}/>
       )}
@@ -2076,13 +2099,17 @@ export default function App(){
   const realtimeConectarRef = useRef(null);
   const [filaFac, setFilaFac] = useState(null);
   const [filaFacOk, setFilaFacOk] = useState(false);
+  const [filaFacError, setFilaFacError] = useState(null);   // texto del fallo, visible con "Reintentar"
+  const cargarFilaFac = useCallback(()=>{
+    setFilaFacError(null);
+    return cargarFacultades(persist)
+      .then(f=>{ setFilaFac(f); setFilaFacOk(true); })
+      .catch(e=>{ console.error("[facultades] carga falló — sin facultades hasta reintentar:", e);
+        setFilaFacOk(false); setFilaFacError(String(e?.message || e || "error de red")); });
+  },[]);
   useEffect(()=>{
     if(!usuarioActual) return;
-    let vivo = true;
-    cargarFacultades(persist)
-      .then(f=>{ if(vivo){ setFilaFac(f); setFilaFacOk(true); } })
-      .catch(e=>{ console.error("[facultades] carga falló — sin facultades esta sesión:", e); if(vivo) setFilaFacOk(false); });
-    return ()=>{ vivo=false; };
+    cargarFilaFac();
   // eslint-disable-next-line
   },[usuarioActual?.nombre]);
   const guardarFilaFac = async (nueva) => {
@@ -4487,6 +4514,7 @@ Equipo Mediterra`);
         pinsPersonalizados={pinsPersonalizados}
         setPinsPersonalizados={setPinsPersonalizados}
         filaFac={filaFac} filaFacOk={filaFacOk} onGuardarFilaFac={guardarFilaFac}
+        filaFacError={filaFacError} onReintentarFac={cargarFilaFac}
       />
       {/* Modal Cambiar PIN para usuario ya logueado (botón 🔑 PIN del Hub) */}
       {modalPin==="cambiar" && !workerPendiente && (

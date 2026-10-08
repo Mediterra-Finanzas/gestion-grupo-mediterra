@@ -78,74 +78,150 @@ describe("circuito: Angelo prepara, Lucía o Cristobal aprueban (basta uno), sin
 });
 
 // Nómina general ficticia con registros antiguos.
-const general = () => ({ id: "nom1", empresa: "Allegria Foods", semana: 30, año: 2026, estado: "aprobada", historial: [],
+const general = (estado = "aprobada") => ({ id: "nom1", empresa: "Allegria Foods", semana: 30, año: 2026, estado, aprobadoPor: "Angelo Huerta", historial: [],
   seccionesExtra: [{ id: "extra_1", label: "Bonos cosecha" }],
   items: [
     { id: "a", seccion: "proveedores", proveedor: "Ferretería Sur", concepto: "Materiales", montoCLP: 100 },
-    { id: "b", seccion: "anticipos", proveedor: "Juan Pérez", concepto: "Anticipo quincena", montoCLP: 200000, documentos: [{ id: "d", path: "nominas/x/y.pdf" }] },
-    { id: "c", seccion: "proveedores", tipoDoc: "Remuneraciones", proveedor: "María Soto", montoCLP: 900000 },
+    { id: "b", seccion: "anticipos", proveedor: "Juan Pérez", concepto: "Anticipo quincena", montoCLP: 200000, pagado: true, documentos: [{ id: "d", path: "nominas/x/y.pdf" }] },
+    { id: "c", seccion: "proveedores", tipoDoc: "Remuneraciones", proveedor: "María Soto", montoCLP: 900000, pagado: true },
     { id: "d", seccion: "proveedores", tipoDoc: "Boleta de Honorarios", proveedor: "Asesor Legal", montoCLP: 300000 },
-    { id: "e", seccion: "proveedores", proveedor: "Pedro", concepto: "Finiquito", montoCLP: 1500000 },
-    { id: "f", seccion: "extra_1", proveedor: "Cuadrilla", montoCLP: 50000 },
-    { id: "g", seccion: "proveedores", proveedor: "Nuevo", concepto: "bono", montoCLP: 10, creadaV: 2 },
+    { id: "e", seccion: "proveedores", proveedor: "Agrícola Norte", concepto: "Anticipo a proveedor", montoCLP: 1500000 },
+    { id: "f", seccion: "proveedores", proveedor: "Retail SA", concepto: "Descuento comercial", montoCLP: 50000 },
+    { id: "g", seccion: "extra_1", proveedor: "Cuadrilla", montoCLP: 7000 },
+    { id: "h", seccion: "proveedores", proveedor: "Nuevo", concepto: "bono", montoCLP: 10, creadaV: 2 },
   ] });
+const totalCLP = (n) => n.items.filter(i => (i.estadoLinea || "activa") === "activa").reduce((s, i) => s + (Number(i.montoCLP) || 0), 0);
 
-describe("registros existentes: listado, sin reclasificar solos", () => {
-  test("candidatos: sección de anticipos, tipo Remuneraciones, palabras y sección libre; honorarios no", () => {
+describe("clasificación explícita vs sugerencia por palabras", () => {
+  test("explícitas: sección Anticipos de Sueldo y tipo Remuneraciones; honorarios no", () => {
     const c = R.candidatosRemuneracion([general()]);
-    expect(c.map(x => x.itemId)).toEqual(["b", "c", "e", "f"]);
-    expect(c.find(x => x.itemId === "b").motivos.join()).toMatch(/Anticipos de Sueldo/);
-    expect(c.find(x => x.itemId === "f").motivos.join()).toMatch(/Bonos cosecha/);
+    expect(c.filter(x => x.tipo === "explicita").map(x => x.itemId)).toEqual(["b", "c"]);
+    expect(c.find(x => x.itemId === "b").claseSugerida).toBe("anticipo");
+    expect(c.find(x => x.itemId === "c").claseSugerida).toBeNull();
+    expect(c.some(x => x.itemId === "d")).toBe(false);
   });
-  test("vista sin facultad: las candidatas no llegan a la pantalla ni a los totales", () => {
-    const v = R.vistaNominas([general()], false)[0];
-    expect(v.items.map(i => i.id)).toEqual(["a", "d", "g"]);
-    expect(v._restringidasPendientes).toBe(4);
-    expect(JSON.stringify(v)).not.toMatch(/Juan Pérez|María Soto|Finiquito|200000|900000|1500000/);
-    expect(R.vistaNominas([general()], true)[0].items.length).toBe(7);
+  test("«anticipo a proveedor», «descuento comercial» y una sección con nombre salarial son solo sugerencias", () => {
+    const c = R.candidatosRemuneracion([general()]);
+    expect(c.filter(x => x.tipo === "sugerencia").map(x => x.itemId)).toEqual(["e", "f", "g"]);
+    expect(R.esRestringidaPendiente(general().items.find(i => i.id === "e"))).toBe(false);
+    expect(c.some(x => x.itemId === "h")).toBe(false);   // línea nueva: no se sugiere
   });
-  test("guardar desde la vista NO pierde las líneas ocultas (y respeta lo editado)", () => {
-    const orig = general();
-    const vista = R.vistaNominas([orig], false)[0];
-    const editada = { ...vista, items: [...vista.items.map(i => i.id === "a" ? { ...i, montoCLP: 150 } : i), { id: "h", seccion: "proveedores", montoCLP: 5 }] };
-    const r = R.reinsertarRestringidas(orig, editada);
-    expect(r.items.map(i => i.id)).toEqual(["a", "b", "c", "d", "e", "f", "g", "h"]);
-    expect(r.items.find(i => i.id === "a").montoCLP).toBe(150);
-    expect(r._restringidasPendientes).toBeUndefined();
-  });
-  test("quien ve todo puede editar/quitar una candidata (no se repone a la fuerza)", () => {
-    const orig = general();
-    const r = R.reinsertarRestringidas(orig, { ...orig, items: orig.items.filter(i => i.id !== "a").map(i => i.id === "b" ? { ...i, concepto: "x" } : i) });
-    expect(r.items.find(i => i.id === "b").concepto).toBe("x");
-  });
-  test("no es remuneración: queda registrada y vuelve a la vista general; solo quien prepara", () => {
-    expect(() => R.marcarNoRemuneracion(general(), "e", LUCIA)).toThrow();
-    const n = R.marcarNoRemuneracion(general(), "e", ANGELO);
-    expect(n.items.find(i => i.id === "e").clasificacionRem).toMatchObject({ valor: "no_remuneracion", por: "Angelo Huerta" });
-    expect(R.vistaNominas([n], false)[0].items.map(i => i.id)).toContain("e");
-  });
-  test("traslado: copia completa en la fila propia, idempotente, y el stub no lleva montos ni documentos", () => {
+});
+
+describe("vista sin facultad: detalle restringido, totales intactos", () => {
+  test("las explícitas se ven como UN agregado por nómina; las sugerencias siguen visibles", () => {
     const g = general();
-    expect(() => R.trasladarAFilaRem(R.filaRemVacia(), g, "b", "", ANGELO)).toThrow(/clasificación/);
-    expect(() => R.trasladarAFilaRem(R.filaRemVacia(), g, "b", "anticipo", CAROL)).toThrow();
-    const r1 = R.trasladarAFilaRem(R.filaRemVacia(), g, "b", "anticipo", ANGELO);
-    const copia = r1.fila.nominas[0].items[0];
-    expect(copia).toMatchObject({ clase: "anticipo", trabajador: "Juan Pérez", montoCLP: 200000, origen: { nominaId: "nom1", itemId: "b" } });
-    expect(copia.documentos.length).toBe(1);
-    expect(r1.fila.nominas[0].estado).toBe("historica");
-    const r2 = R.trasladarAFilaRem(r1.fila, g, "b", "anticipo", ANGELO);
-    expect(r2.yaEstaba).toBe(true);
-    expect(r2.fila.nominas[0].items.length).toBe(1);
-    const stub = R.stubTrasladada(g, "b", r1, ANGELO);
-    const it = stub.items.find(i => i.id === "b");
-    expect(JSON.stringify(it)).not.toMatch(/Juan|200000|nominas\/x/);
-    expect(it.estadoLinea).toBe("trasladada");
-    expect(R.candidatosRemuneracion([stub]).map(c => c.itemId)).not.toContain("b");
-    expect(stub.historial.at(-1).accion).toBe("linea_trasladada_remuneraciones");
+    const v = R.vistaNominas([g], false)[0];
+    expect(v.items.map(i => i.id)).toEqual(["a", "d", "e", "f", "g", "h", "_agrvista_nom1"]);
+    const agr = v.items.at(-1);
+    expect(agr).toMatchObject({ seccion: R.SECCION_AGREGADO, montoCLP: 1100000, lineas: 2, documentos: [] });
+    expect(totalCLP(v)).toBe(totalCLP(g));                      // el total NO cambia
+    expect(JSON.stringify(v)).not.toMatch(/Juan Pérez|María Soto|nominas\/x/);
+    expect(v._restringidasPendientes).toBe(2);
   });
-  test("CSV del listado con motivos e identificadores", () => {
+  test("guardar desde la vista: el agregado no se guarda y las líneas vuelven a su lugar", () => {
+    const g = general();
+    const v = R.vistaNominas([g], false)[0];
+    const ed = { ...v, items: [...v.items.map(i => i.id === "a" ? { ...i, montoCLP: 150 } : i), { id: "z", seccion: "proveedores", montoCLP: 5 }] };
+    const r = R.reinsertarRestringidas(g, ed);
+    expect(r.items.map(i => i.id)).toEqual(["a", "b", "c", "d", "e", "f", "g", "h", "z"]);
+    expect(r.items.find(i => i.id === "a").montoCLP).toBe(150);
+  });
+});
+
+describe("traslado de una nómina YA TRAMITADA: conserva versión aprobada y total", () => {
+  const ANT = R.huella(general());
+  test("paso 1: copia completa + versión aprobada congelada con huella; no se vuelve a pagar", () => {
+    const r = R.trasladarAFilaRem(R.filaRemVacia(), general(), "b", "anticipo", ANGELO);
+    expect(r.modo).toBe("historica");
+    expect(r.fila.versionesAprobadas[0]).toMatchObject({ nominaId: "nom1", huella: ANT, aprobadoPor: "Angelo Huerta" });
+    expect(r.fila.versionesAprobadas[0].copia.items.length).toBe(8);
+    expect(r.fila.nominas[0].estado).toBe("historica");
+    expect(r.fila.nominas[0].items[0]).toMatchObject({ clase: "anticipo", montoCLP: 200000, origen: { itemId: "b", modo: "historica", huellaVersionAprobada: ANT } });
+    expect(r.fila.nominas[0].items[0].documentos.length).toBe(1);
+  });
+  test("paso 2: rastro sin montos + agregado → el total aprobado es el mismo", () => {
+    const g = general();
+    let f = R.trasladarAFilaRem(R.filaRemVacia(), g, "b", "anticipo", ANGELO);
+    let g2 = R.stubTrasladada(g, "b", f, ANGELO);
+    f = R.trasladarAFilaRem(f.fila, g2, "c", "sueldo", ANGELO);
+    g2 = R.stubTrasladada(g2, "c", f, ANGELO);
+    expect(totalCLP(g2)).toBe(totalCLP(g));
+    expect(g2.estado).toBe("aprobada"); expect(g2.aprobadoPor).toBe("Angelo Huerta");
+    const agr = g2.items.find(i => i.agregadoRem);
+    expect(agr).toMatchObject({ montoCLP: 1100000, lineas: 2, seccion: R.SECCION_AGREGADO, pagado: true });
+    expect(JSON.stringify(g2.items)).not.toMatch(/Juan Pérez|María Soto|nominas\/x/);
+    expect(g2.rectificaciones.map(r => [r.tipo, r.modo, r.huellaVersionAprobada])).toEqual([["traslado_remuneraciones", "historica", ANT], ["traslado_remuneraciones", "historica", ANT]]);
+    expect(JSON.stringify(g2.rectificaciones)).not.toMatch(/200000|900000/);
+    expect(f.fila.versionesAprobadas.length).toBe(1);   // la versión aprobada es la ORIGINAL, no la rectificada
+  });
+  test("sin pagos duplicados: lo histórico no entra a una nómina por pagar", () => {
+    const f = R.trasladarAFilaRem(R.filaRemVacia(), general(), "b", "anticipo", ANGELO).fila;
+    expect(f.nominas.filter(n => ["borrador", "preparada", "aprobada"].includes(n.estado))).toEqual([]);
+  });
+  test("idempotente: el mismo traslado no duplica", () => {
+    const r1 = R.trasladarAFilaRem(R.filaRemVacia(), general(), "b", "anticipo", ANGELO);
+    const r2 = R.trasladarAFilaRem(r1.fila, general(), "b", "anticipo", ANGELO);
+    expect(r2.yaEstaba).toBe(true); expect(r2.fila.nominas[0].items.length).toBe(1);
+  });
+});
+
+describe("traslado desde una nómina en BORRADOR: pasa al circuito de remuneraciones", () => {
+  test("va a una nómina de remuneraciones en borrador, sale de la general con rectificación, y se aprueba en su circuito", () => {
+    const g = general("borrador");
+    const r = R.trasladarAFilaRem(R.filaRemVacia(), g, "b", "anticipo", ANGELO);
+    expect(r.modo).toBe("circuito");
+    expect(r.fila.versionesAprobadas).toEqual([]);
+    const nomRem = r.fila.nominas[0];
+    expect(nomRem.estado).toBe("borrador");
+    const g2 = R.stubTrasladada(g, "b", r, ANGELO);
+    expect(totalCLP(g2)).toBe(totalCLP(g) - 200000);            // sale explícitamente…
+    expect(g2.items.some(i => i.agregadoRem)).toBe(false);
+    expect(R.totalesRem(nomRem).total).toBe(200000);             // …y entra a remuneraciones: no se omite ni se duplica
+    expect(g2.rectificaciones[0]).toMatchObject({ modo: "circuito" });
+    const aprobada = R.aprobarRem(R.enviarAAprobacion(nomRem, ANGELO), LUCIA);
+    expect(aprobada.estado).toBe("aprobada");
+    expect(aprobada.items[0].documentos.length).toBe(1);
+  });
+});
+
+describe("reclasificar y revertir", () => {
+  test("una explícita como no remuneración exige motivo y queda como rectificación", () => {
+    expect(() => R.marcarNoRemuneracion(general(), "b", ANGELO, "")).toThrow(/motivo/);
+    const n = R.marcarNoRemuneracion(general(), "b", ANGELO, "era anticipo a contratista");
+    expect(n.rectificaciones[0]).toMatchObject({ tipo: "reclasificacion_no_remuneracion", motivo: "era anticipo a contratista" });
+    expect(R.esRestringidaPendiente(n.items.find(i => i.id === "b"))).toBe(false);
+  });
+  test("una sugerencia se confirma sin motivo y no cambia totales", () => {
+    const n = R.marcarNoRemuneracion(general(), "e", ANGELO);
+    expect(totalCLP(n)).toBe(totalCLP(general()));
+    expect(R.candidatosRemuneracion([n]).some(c => c.itemId === "e")).toBe(false);
+  });
+  test("reversión de datos: la línea vuelve exactamente, el agregado se descuenta, la copia queda marcada", () => {
+    const g = general();
+    const r = R.trasladarAFilaRem(R.filaRemVacia(), g, "b", "anticipo", ANGELO);
+    const g2 = R.stubTrasladada(g, "b", r, ANGELO);
+    expect(() => R.revertirEnFilaRem(r.fila, "b", ANGELO, "")).toThrow(/motivo/);
+    expect(() => R.revertirEnFilaRem(r.fila, "b", LUCIA, "x")).toThrow();
+    const rv = R.revertirEnFilaRem(r.fila, "b", ANGELO, "error de clasificación");
+    expect(rv.fila.nominas[0].items[0].revertida).toMatchObject({ motivo: "error de clasificación" });
+    expect(R.totalesRem(rv.fila.nominas[0]).total).toBe(0);
+    const g3 = R.restaurarEnGeneral(g2, rv.copia, ANGELO, "error de clasificación");
+    const b = g3.items.find(i => i.id === "b");
+    expect(b).toMatchObject({ proveedor: "Juan Pérez", montoCLP: 200000, seccion: "anticipos", estadoLinea: "activa" });
+    expect(b.documentos.length).toBe(1);
+    expect(g3.items.some(i => i.agregadoRem)).toBe(false);
+    expect(totalCLP(g3)).toBe(totalCLP(g));
+    expect(g3.rectificaciones.at(-1).tipo).toBe("reversion_traslado");
+    expect(R.restaurarEnGeneral(g3, rv.copia, ANGELO, "x")).toBe(g3);   // idempotente
+  });
+  test("no se revierte lo que ya está en aprobación o aprobado en remuneraciones", () => {
+    const r = R.trasladarAFilaRem(R.filaRemVacia(), general("borrador"), "b", "anticipo", ANGELO);
+    const f = { ...r.fila, nominas: [R.enviarAAprobacion(r.fila.nominas[0], ANGELO)] };
+    expect(() => R.revertirEnFilaRem(f, "b", ANGELO, "x")).toThrow(/aprobación/);
+  });
+  test("CSV distingue explícita de sugerencia", () => {
     const csv = R.candidatosCSV(R.candidatosRemuneracion([general()]));
-    expect(csv.split("\n").length).toBe(5);
-    expect(csv).toMatch(/Anticipos de Sueldo/);
+    expect(csv).toMatch(/clasificación explícita/); expect(csv).toMatch(/sugerencia por palabras/);
   });
 });

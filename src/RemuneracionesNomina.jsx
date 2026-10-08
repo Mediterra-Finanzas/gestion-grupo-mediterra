@@ -19,6 +19,7 @@ import {
   FILA_REM, CLASES_REM, normalizarFilaRem, nominaRemVacia, lineaRemVacia, totalesRem, erroresParaEnviar,
   puedeVerRem, puedePrepararRem, puedeEditarRem, puedeAprobarRem, enviarAAprobacion, aprobarRem, devolverRem, anularRem,
   editarLineas, candidatosRemuneracion, candidatosCSV, buscarTrasladada, trasladarAFilaRem, stubTrasladada, marcarNoRemuneracion,
+  modoTraslado, trasladosDeFila, revertirEnFilaRem, restaurarEnGeneral, esTrasladada,
 } from "./remuneraciones/modelo.js";
 
 const C = { text: "#14181f", muted: "#5b6472", border: "#d6dae1", card: "#fff", alt: "#f5f7fa", primary: "#1e3a5f",
@@ -27,7 +28,7 @@ const btn = (fondo, claro) => ({ padding: "5px 12px", borderRadius: 8, cursor: "
   border: `1px solid ${claro ? C.border : fondo}`, background: claro ? "#fff" : fondo, color: claro ? C.text : "#fff" });
 const inp = { padding: "4px 6px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, width: "100%", boxSizing: "border-box" };
 const clp = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("es-CL");
-const ESTADO_LABEL = { borrador: "Borrador", preparada: "Por aprobar", aprobada: "Aprobada", anulada: "Anulada", historica: "Histórica (trasladada)" };
+const ESTADO_LABEL = { borrador: "Borrador", preparada: "Por aprobar", aprobada: "Aprobada", anulada: "Anulada", historica: "Histórica (ya pagada en la nómina general; no se vuelve a pagar)" };
 const slug = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
 const descargar = (nombre, texto) => {
   const a = document.createElement("a");
@@ -122,7 +123,7 @@ export default function RemuneracionesNomina({ usuario, nominasGenerales = [], o
 
   // ── Revisión de registros existentes de la nómina general ──
   async function trasladar(c) {
-    const clase = claseSel[c.itemId];
+    const clase = claseSel[c.itemId] || c.claseSugerida;
     const nomG = nominasGenerales.find(n => n.id === c.nominaId);
     let res;
     try { res = trasladarAFilaRem(fila, nomG, c.itemId, clase, usuario); } catch (e) { setEstado({ tipo: "error", texto: e.message }); return; }
@@ -130,14 +131,36 @@ export default function RemuneracionesNomina({ usuario, nominasGenerales = [], o
     if (!res.yaEstaba && !(await guardar(res.fila, "Copiada a remuneraciones", `Trasladó 1 línea de ${nomG.empresa} S${nomG.semana}/${nomG.año} a remuneraciones`))) return;
     // Paso 2 (recién ahora): en la nómina general queda un registro sin montos, nombres ni documentos.
     onActualizarGeneral(stubTrasladada(nomG, c.itemId, res, usuario));
-    setEstado({ tipo: "ok", texto: "Trasladada: en la nómina general queda solo el rastro, sin montos ni documentos." });
+    setEstado({ tipo: "ok", texto: res.modo === "historica"
+      ? "Trasladada. La nómina general conserva su total aprobado (línea agregada, sin nombres ni documentos) y su versión aprobada quedó copiada con su huella."
+      : "Trasladada a una nómina de remuneraciones en borrador: se paga por ese circuito y sale de la nómina general (rectificación registrada)." });
   }
   function noEsRem(c) {
     const nomG = nominasGenerales.find(n => n.id === c.nominaId);
-    try { onActualizarGeneral(marcarNoRemuneracion(nomG, c.itemId, usuario)); } catch (e) { setEstado({ tipo: "error", texto: e.message }); return; }
+    let motivo = "";
+    if (c.tipo === "explicita") { motivo = window.prompt("Esta línea está clasificada explícitamente como remuneración. Motivo para tratarla como no remuneración:") || ""; if (!motivo.trim()) return; }
+    try { onActualizarGeneral(marcarNoRemuneracion(nomG, c.itemId, usuario, motivo)); } catch (e) { setEstado({ tipo: "error", texto: e.message }); return; }
     window.auditLog && window.auditLog("editar", { modulo: "finanzas", seccion: "remuneraciones", descripcion: `Clasificó 1 línea de ${nomG.empresa} S${nomG.semana}/${nomG.año} como no remuneración` });
-    setEstado({ tipo: "ok", texto: "Clasificada como no remuneración: vuelve a la vista normal de la nómina general." });
+    setEstado({ tipo: "ok", texto: "Clasificada como no remuneración: queda registrada y no cambia ningún total." });
   }
+  // Reversión de DATOS de un traslado (no es un rollback de código): primero se marca la
+  // copia restringida como revertida (confirmado por el servidor) y recién después se
+  // restaura la línea en la nómina general.
+  async function revertir(t) {
+    const motivo = window.prompt("Motivo para revertir el traslado (queda en ambos historiales):") || "";
+    if (!motivo.trim()) return;
+    let r;
+    try { r = revertirEnFilaRem(fila, t.it.origen.itemId, usuario, motivo); } catch (e) { setEstado({ tipo: "error", texto: e.message }); return; }
+    if (!(await guardar(r.fila, "Traslado revertido en la fila restringida", `Revirtió 1 traslado de remuneraciones (${t.it.origen.semana}/${t.it.origen.año})`))) return;
+    completarReversion(r.copia, motivo);
+  }
+  function completarReversion(copia, motivo) {
+    const nomG = nominasGenerales.find(n => n.id === copia.origen.nominaId);
+    if (!nomG) { setEstado({ tipo: "error", texto: "La nómina general de origen no está cargada." }); return; }
+    onActualizarGeneral(restaurarEnGeneral(nomG, copia, usuario, motivo || copia.revertida?.motivo || ""));
+    setEstado({ tipo: "ok", texto: "Línea restaurada en la nómina general tal como estaba (vuelve a quedar pendiente de traslado)." });
+  }
+  const traslados = trasladosDeFila(fila);
 
   const tot = sel ? totalesRem({ items }) : null;
   return (
@@ -232,29 +255,55 @@ export default function RemuneracionesNomina({ usuario, nominasGenerales = [], o
       {vista === "revision" && (
         <div data-testid="rem-revision-lista">
           <div style={{ fontSize: 12, marginBottom: 8 }}>
-            Líneas de la nómina general que <b>podrían</b> ser remuneraciones. No se reclasifican solas: mientras no se decidan, quien no puede ver remuneraciones no las ve.
-            {prepara ? " Decide cada una: trasladar (eligiendo la clasificación) o marcar como no remuneración." : " Solo quien prepara remuneraciones decide."}
+            <b>Clasificación explícita</b> (sección «Anticipos de Sueldo» o tipo «Remuneraciones»): son remuneraciones; quien no puede verlas las ve como una línea agregada, sin cambiar el total, hasta trasladarlas.
+            {" "}<b>Sugerencia por palabras</b>: solo para revisar; no se ocultan ni cambian ningún total.
+            {" "}Nómina en borrador → el traslado la pasa al circuito de remuneraciones; nómina ya tramitada → conserva su versión aprobada y su total.
+            {prepara ? "" : " Solo quien prepara remuneraciones decide."}
           </div>
           <button style={{ ...btn(C.primary, true), marginBottom: 8 }} onClick={() => descargar("revision-remuneraciones.csv", candidatosCSV(candidatos))}>Exportar listado (CSV)</button>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
-            <thead><tr style={{ textAlign: "left", background: C.alt }}><th>Empresa</th><th>Semana</th><th>Sección</th><th>Proveedor / trabajador</th><th>Concepto</th><th style={{ textAlign: "right" }}>CLP</th><th>Docs</th><th>Motivos</th><th>Decisión</th></tr></thead>
+            <thead><tr style={{ textAlign: "left", background: C.alt }}><th>Tipo</th><th>Empresa</th><th>Semana</th><th>Sección</th><th>Proveedor / trabajador</th><th>Concepto</th><th style={{ textAlign: "right" }}>CLP</th><th>Docs</th><th>Motivos</th><th>Decisión</th></tr></thead>
             <tbody>
-              {candidatos.length === 0 && <tr><td colSpan={9} style={{ padding: 10, color: C.muted }}>No quedan registros pendientes de clasificar.</td></tr>}
+              {candidatos.length === 0 && <tr><td colSpan={10} style={{ padding: 10, color: C.muted }}>No quedan registros pendientes de clasificar.</td></tr>}
               {candidatos.map(c => {
                 const ya = buscarTrasladada(fila, c.itemId);
                 return (
-                  <tr key={c.itemId} data-testid="rem-candidato" style={{ borderTop: `1px solid ${C.border}` }}>
+                  <tr key={c.itemId} data-testid={c.tipo === "explicita" ? "rem-candidato" : "rem-sugerencia"} style={{ borderTop: `1px solid ${C.border}` }}>
+                    <td style={{ fontSize: 10.5 }}>{c.tipo === "explicita" ? "Explícita" : "Sugerencia"}<div style={{ color: C.muted }}>{c.estadoNomina === "borrador" ? "→ circuito" : "→ conserva total"}</div></td>
                     <td>{c.empresa}</td><td>S{c.semana}/{c.año}{c.numero > 1 ? ` N°${c.numero}` : ""}</td><td>{c.seccion}</td>
                     <td>{c.proveedor}</td><td>{c.concepto}</td><td style={{ textAlign: "right" }}>{clp(c.montoCLP)}</td><td>{c.documentos}</td>
                     <td style={{ fontSize: 10.5, color: C.muted }}>{c.motivos.join(" · ")}</td>
                     <td>{!prepara ? "—" : ya
-                      ? <button style={btn(C.primary)} onClick={() => onActualizarGeneral(stubTrasladada(nominasGenerales.find(n => n.id === c.nominaId), c.itemId, { remNominaId: ya.nom.id, remItemId: ya.it.id }, usuario))}>Completar retiro (ya copiada)</button>
+                      ? <button style={btn(C.primary)} onClick={() => onActualizarGeneral(stubTrasladada(nominasGenerales.find(n => n.id === c.nominaId), c.itemId, { remNominaId: ya.nom.id, remItemId: ya.it.id, modo: ya.it.origen?.modo, huellaVersionAprobada: ya.it.origen?.huellaVersionAprobada }, usuario))}>Completar retiro (ya copiada)</button>
                       : <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                          <select data-testid="rem-cand-clase" value={claseSel[c.itemId] || ""} onChange={e => setClaseSel({ ...claseSel, [c.itemId]: e.target.value })} style={{ ...inp, width: 130 }}>
+                          <select data-testid="rem-cand-clase" value={claseSel[c.itemId] || c.claseSugerida || ""} onChange={e => setClaseSel({ ...claseSel, [c.itemId]: e.target.value })} style={{ ...inp, width: 130 }}>
                             <option value="">— clasificación —</option>{CLASES_REM.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}</select>
-                          <button data-testid="rem-cand-trasladar" disabled={!claseSel[c.itemId]} style={btn(C.primary)} onClick={() => trasladar(c)}>Trasladar</button>
-                          <button data-testid="rem-cand-no" style={btn(C.primary, true)} onClick={() => noEsRem(c)}>No es remuneración</button>
+                          <button data-testid="rem-cand-trasladar" disabled={!(claseSel[c.itemId] || c.claseSugerida)} style={btn(C.primary)} onClick={() => trasladar(c)}>Trasladar</button>
+                          <button data-testid="rem-cand-no" style={btn(C.primary, true)} onClick={() => noEsRem(c)}>{c.tipo === "explicita" ? "No es remuneración (motivo)" : "Confirmar: no es remuneración"}</button>
                         </div>}</td>
+                  </tr>);
+              })}
+            </tbody>
+          </table>
+          <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Traslados realizados ({traslados.length})</h4>
+          <table data-testid="rem-traslados" style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
+            <thead><tr style={{ textAlign: "left", background: C.alt }}><th>Origen</th><th>Modo</th><th>Trabajador</th><th>Clase</th><th style={{ textAlign: "right" }}>CLP</th><th>Docs</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+              {traslados.map(t => {
+                const nomG = nominasGenerales.find(n => n.id === t.it.origen.nominaId);
+                const lineaG = nomG?.items?.find(x => x.id === t.it.origen.itemId);
+                const pendienteRestaurar = t.it.revertida && lineaG && esTrasladada(lineaG);
+                return (
+                  <tr key={t.it.id} data-testid="rem-traslado" style={{ borderTop: `1px solid ${C.border}`, opacity: t.it.revertida && !pendienteRestaurar ? 0.55 : 1 }}>
+                    <td>{nomG?.empresa || "—"} S{t.it.origen.semana}/{t.it.origen.año}</td>
+                    <td>{t.it.origen.modo === "historica" ? `versión aprobada ${t.it.origen.huellaVersionAprobada || ""}` : "circuito de remuneraciones"}</td>
+                    <td>{t.it.trabajador}</td><td>{CLASES_REM.find(c => c.id === t.it.clase)?.label}</td>
+                    <td style={{ textAlign: "right" }}>{clp(t.it.montoCLP)}</td><td>{(t.it.documentos || []).filter(d => (d.estado || "activo") === "activo").length}</td>
+                    <td>{t.it.revertida ? `revertido (${t.it.revertida.motivo})` : ESTADO_LABEL[t.estadoRem] || t.estadoRem}</td>
+                    <td>{prepara && (pendienteRestaurar
+                      ? <button style={btn(C.primary)} onClick={() => completarReversion(t.it)}>Completar reversión</button>
+                      : !t.it.revertida && !["aprobada", "preparada"].includes(t.estadoRem)
+                        ? <button data-testid="rem-revertir" style={btn(C.danger, true)} onClick={() => revertir(t)}>Revertir (datos)</button> : null)}</td>
                   </tr>);
               })}
             </tbody>

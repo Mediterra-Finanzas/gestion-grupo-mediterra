@@ -32,7 +32,7 @@ import {
   MODELO_VERSION, normalizarIdentidades,
 } from './programas.js';
 import ProgramasPanel, { ResumenLado } from './ProgramasComerciales.jsx';
-import { puedeVerRem, vistaNominas, reinsertarRestringidas } from './remuneraciones/modelo.js';
+import { puedeVerRem, vistaNominas, reinsertarRestringidas, esAgregadoRemLinea, ETIQUETA_AGREGADO } from './remuneraciones/modelo.js';
 import { conectarFilas } from './realtime/filas.js';
 import RemuneracionesNomina from './RemuneracionesNomina.jsx';
 
@@ -13823,7 +13823,7 @@ const EMPRESAS_NOM = [
 
 const SECCIONES = [
   {id:"proveedores",    label:"Proveedores / Materiales"},
-  {id:"anticipos",      label:"Anticipos de Sueldo"},
+  {id:"anticipos",      label:"Anticipos de Sueldo · remuneraciones (detalle restringido)"},
   {id:"rendiciones",    label:"Rendiciones"},
   {id:"servipag",       label:"Servipag"},
   {id:"emp_rel_clp",    label:"Mov. Empresas Relacionadas CLP"},
@@ -14022,7 +14022,7 @@ async function loadPdfLib() {
 // Devuelve las líneas que incumplen el respaldo obligatorio para avanzar.
 function lineasSinRespaldoObligatorio(nom) {
   return (nom?.items||[]).filter(it =>
-    lineaActiva(it) &&
+    lineaActiva(it) && !esAgregadoRemLinea(it) &&
     !VALIDACION_RESPALDO.seccionesExentas.includes(it.seccion) &&
     (Number(it.montoCLP)||Number(it.montoUSD)||Number(it.montoPEN)) &&
     !tieneRespaldo(it)
@@ -14033,7 +14033,9 @@ function lineasSinRespaldoObligatorio(nom) {
 // Secciones cuyo respaldo es un documento interno autogenerado por el sistema
 // (no factura externa): empresas relacionadas + anticipos de sueldo.
 const AUTODOC_SECCIONES = ["emp_rel_clp", "emp_rel_usd", "anticipos"];
-function requiereDocInterno(item) { return AUTODOC_SECCIONES.includes(item?.seccion); }
+// La línea agregada de remuneraciones (detalle restringido) nunca lleva documento interno:
+// sus respaldos viajaron con las líneas trasladadas.
+function requiereDocInterno(item) { return !esAgregadoRemLinea(item) && AUTODOC_SECCIONES.includes(item?.seccion); }
 
 // Genera el PDF (blob) del voucher interno. Plantilla según tipo:
 // "anticipo" → vale a trabajador; "intercompania" → traspaso entre empresas;
@@ -14307,7 +14309,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
     onChange(items.map(it=>it.id===id?updated:it));
   }
   function addItem() {
-    if(seccion==="anticipos"){ alert("Los anticipos de sueldo son remuneraciones: se cargan en la nómina de remuneraciones, no en la nómina general."); return; }
+    if(seccion==="anticipos" || seccion==="remuneraciones"){ alert("Las remuneraciones (incluidos los anticipos de sueldo) se cargan en la nómina de remuneraciones, no en la nómina general."); return; }
     onChange([...items, itemVacio(seccion)]);
   }
   // Soft-delete (Fase 0): nunca se borra físicamente. Se marca inactiva,
@@ -14373,7 +14375,19 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                 Sin registros — agrega uno con el botón +
               </td></tr>
             )}
-            {rows.map((it,i)=>(
+            {/* Remuneraciones con detalle restringido: una fila agregada de SOLO LECTURA por sección.
+                Suma en los totales (el total aprobado no cambia) pero no muestra nombres ni documentos. */}
+            {rows.filter(esAgregadoRemLinea).map(it=>(
+              <tr key={it.id} data-testid="fila-agregado-rem" style={{borderBottom:`1px solid ${C.border}22`,background:"#fef3c722"}}>
+                {headers.map((h,k)=>(
+                  <td key={h} style={{padding:"5px 8px",fontSize:11,color:C.muted,textAlign:/^Monto/.test(h)?"right":"left",fontStyle:k<2?"italic":"normal"}}>
+                    {k===0 ? "Remuneraciones" : k===1 ? `${ETIQUETA_AGREGADO} · ${it.lineas||""} línea${(it.lineas||0)===1?"":"s"} · solo lectura`
+                      : h==="Monto CLP" ? (Number(it.montoCLP)||0).toLocaleString("es-CL") : h==="Monto USD" ? (Number(it.montoUSD)||0).toLocaleString("es-CL",{maximumFractionDigits:2})
+                      : h==="Monto PEN" ? (Number(it.montoPEN)||0).toLocaleString("es-CL",{maximumFractionDigits:2}) : ""}
+                  </td>))}
+              </tr>
+            ))}
+            {rows.filter(it=>!esAgregadoRemLinea(it)).map((it,i)=>(
               <tr key={it.id} style={{borderBottom:`1px solid ${C.border}22`,
                 background:it.pagado?`${C.green}08`:i%2===0?"transparent":`${C.border}11`,
                 opacity:it.pagado?0.6:1}}>
@@ -14609,7 +14623,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
           )}
         </table>
       </div>
-      {canEdit&&(
+      {canEdit&&seccion!=="anticipos"&&seccion!=="remuneraciones"&&(
         <button onClick={addItem}
           style={{marginTop:6,padding:"4px 14px",borderRadius:6,border:`1px dashed ${C.border2}`,
             background:"transparent",color:C.muted,cursor:"pointer",fontSize:11}}>
@@ -16057,7 +16071,8 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
         {/* Secciones de items */}
         {([...SECCIONES,...(nom.seccionesExtra||[])]).map(sec=>{
           const hasItems = nom.items.some(it=>it.seccion===sec.id && lineaActiva(it));
-          if(!canEdit && !hasItems) return null;
+          // «Anticipos» ya no admite líneas nuevas (remuneraciones aparte): se muestra solo con líneas.
+          if((!canEdit || sec.id==="anticipos") && !hasItems) return null;
           const esSecUSD = sec.id==="emp_rel_usd"||sec.id==="pagos_usd";
           const esSecCLP = !esSecUSD; // proveedores, anticipos, rendiciones, servipag, emp_rel_clp
           const esPeruana = esEmpresaPeruanaNom(nom.empresa);
@@ -16605,8 +16620,24 @@ function AvisoRestringidas({ n, global }) {
   return (
     <div data-testid="aviso-rem-restringidas" style={{margin:global?"0 0 12px":"12px 24px 0",padding:"10px 14px",borderRadius:10,
       background:"#fef3c7",border:"1px solid #f59e0b55",fontSize:12,color:"#78350f"}}>
-      {n} línea{n===1?"":"s"} {global?"en estas nóminas ":""}podría{n===1?"":"n"} ser remuneraciones y está{n===1?"":"n"} pendiente{n===1?"":"s"} de clasificación:
-      no se muestra{n===1?"":"n"} ni se incluye{n===1?"":"n"} en totales, búsquedas, impresiones ni exportaciones. Las clasifica quien prepara remuneraciones.
+      {n} línea{n===1?"":"s"} de remuneraciones {global?"en estas nóminas ":""}(clasificación explícita) se muestra{n===1?"":"n"} como un monto agregado,
+      sin nombres ni documentos. Los totales no cambian. El detalle lo traslada quien prepara remuneraciones.
+    </div>
+  );
+}
+
+// Rectificaciones de la nómina (traslados a remuneraciones, reclasificaciones, reversiones):
+// visibles para quien ve la nómina, SIN montos ni nombres. No cambian su aprobación.
+function RectificacionesNomina({ nom }) {
+  const rs = nom?.rectificaciones || [];
+  if (!rs.length) return null;
+  const txt = (r) => r.tipo === "traslado_remuneraciones"
+    ? (r.modo === "historica" ? `1 línea trasladada a remuneraciones; total aprobado conservado${r.huellaVersionAprobada ? ` (versión aprobada ${r.huellaVersionAprobada})` : ""}` : "1 línea pasó al circuito de remuneraciones (la nómina estaba en borrador)")
+    : r.tipo === "reversion_traslado" ? "1 traslado revertido" : "1 línea reclasificada como no remuneración";
+  return (
+    <div data-testid="rectificaciones-nomina" style={{margin:"12px 24px 0",padding:"10px 14px",borderRadius:10,background:"#eef2ff",border:"1px solid #c7d2fe",fontSize:12,color:"#1e3a8a"}}>
+      <b>Rectificaciones de esta nómina ({rs.length})</b>
+      {rs.map(r => <div key={r.id}>{(r.ts||"").slice(0,16).replace("T"," ")} · {r.por} · {txt(r)}{r.motivo ? ` · motivo: ${r.motivo}` : ""}</div>)}
     </div>
   );
 }
@@ -16887,6 +16918,7 @@ function NominasModule({usuario, canEdit=false, saldosBancos={}, empresasPermiti
     : [];
   if(nominaAbierta) return (<>
     <AvisoRestringidas n={nominaAbierta._restringidasPendientes}/>
+    <RectificacionesNomina nom={nominaAbierta}/>
     <NominaDetalle
       nomina={nominaAbierta}
       onUpdate={updNomina}
