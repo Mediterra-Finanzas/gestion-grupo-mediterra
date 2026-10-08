@@ -262,6 +262,12 @@ async function dbLoad(rowId="finanzas") {
   // propagar para que el caller NO habilite el guardado (que sobrescribiría
   // los 4.6 MB de Finanzas con los defaults vacíos en memoria). Solo se
   // devuelve {} cuando la fila existe pero está vacía (instalación nueva).
+  // Antes de leer se espera a que termine cualquier guardado en curso de esta fila
+  // (p. ej. un pago registrado justo antes de salir del módulo y volver a entrar).
+  // Si no, la lectura traía el estado anterior, la respuesta del guardado viejo
+  // adelantaba la versión del contrato y el guardado siguiente borraba el pago sin
+  // aviso. flush nunca rechaza ni escribe: solo espera la cola.
+  try { await persist.flush(rowId); } catch(_) {}
   const r = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.${rowId}&select=value,updated_at`,
     { headers:{ apikey:SUPA_KEY, Authorization:`Bearer ${SUPA_KEY}` }});
   if(!r.ok) throw new Error(`dbLoad ${rowId} HTTP ${r.status}`);
@@ -9139,7 +9145,9 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   async function guardarUno(nuevo){
     const next = creditosVisibles.map(c=>uidCredito(c)===uidCredito(nuevo)?nuevo:c);
     const res = onSaveCreditos ? await onSaveCreditos(next) : null;
-    if(res && res.ok===false) throw new Error("El servidor no confirmó el guardado: el cambio NO está registrado. Revisa la conexión y vuelve a intentar (reintentar no lo duplica). Si aparece un conflicto, resuélvelo primero.");
+    if(res && res.ok===false) throw new Error(res.conservado
+      ? "El servidor todavía no confirmó el guardado. El cambio sigue en pantalla y se enviará con el próximo guardado: NO lo cargues de nuevo en otro formulario. Puedes reintentar con este mismo (no se duplica). Si aparece un conflicto, resuélvelo primero."
+      : "El servidor rechazó el guardado: el cambio NO quedó registrado. Revisa la conexión o tus permisos y vuelve a intentar con este mismo formulario (no se duplica).");
     return res;
   }
   const EMPTY_FORM = {
@@ -14668,7 +14676,11 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         }
         const ok = !!r.ok;
         const rechazoDefinitivo = !ok && ["http","sin_permiso","sin_carga"].includes(r.motivo);
-        if(rechazoDefinitivo && creditosRef.current===final){ setCreditosData(anterior); creditosRef.current = anterior; }
+        const revierte = rechazoDefinitivo && creditosRef.current===final;
+        if(revierte){ setCreditosData(anterior); creditosRef.current = anterior; }
+        // Sin confirmar pero NO revertido (red, conflicto, o ya hubo otra edición
+        // encima): el cambio sigue en pantalla y viajará en el próximo guardado.
+        if(!ok && !revierte) r = { ...r, conservado:true };
         setSaved(ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000);
         return r;
       });

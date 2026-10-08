@@ -199,8 +199,14 @@ Reglas que no hay que romper:
   pago (capital + devengado + comisión) y, en contratos, un evento en
   `c.prepagos[]` que recalcula el calendario (anular el pago lo revierte).
   Sin tasa, base o condición de prepago → dato faltante / hipótesis explícita.
-- `handleSaveCreditos` devuelve el resultado real y revierte el estado local
-  si el servidor no confirma (si no, un pago reintentado se duplicaba).
+- `handleSaveCreditos` (flujo de main: un ciclo diferido + persistAll) devuelve el
+  resultado REAL; `superseded` no es confirmación (espera `persist.flush`). Solo
+  revierte ante rechazo definitivo (http/sin_permiso/sin_carga) y si nadie editó
+  después; ante red/respuesta perdida/conflicto CONSERVA lo local (`conservado`).
+  El pago manual lleva `origen.clave` estable desde que se abre el formulario
+  (`registrarPagoIdempotente`) y un `duplicado` se guarda igual: reintentar nunca
+  duplica. `dbLoad` espera los guardados en vuelo de la fila antes de leer.
+  Prueba: `scripts/e2e/creditos-guardado-fallas.mjs`.
 - **Nóminas ↔ Créditos**: una línea guarda `creditoVinculo {uid, vencKey}`
   (vincular NO paga). "Confirmar pago efectivo" solo con la nómina "aprobada" y
   permiso de Créditos; registra el pago con `origen.clave = nomina:<id>:<línea>`
@@ -900,6 +906,7 @@ node src/anticipos.test.mjs                 # modelo de anticipos (puro)
 node src/creditos.test.mjs                  # modelo de créditos (puro)
 OUT_DIR=/tmp/e2e node scripts/e2e/creditos.mjs   # Créditos en navegador (Supabase falso)
 OUT_DIR=/tmp/e2e node scripts/e2e/nomina-credito.mjs   # Nómina ↔ crédito en navegador
+OUT_DIR=/tmp/e2e node scripts/e2e/creditos-guardado-fallas.mjs   # pago con 500, respuesta perdida, conflicto (2 salidas), salir/reabrir con guardado en vuelo, reversión vs. edición posterior
 OUT_DIR=/tmp/ng node scripts/e2e/nomina-guardado.mjs   # Nóminas: guardado rechazado (sello / red / 500) y transiciones
 node src/nominasPersistencia.test.mjs       # fusión y guardado condicionado de Nóminas (puro)
 OUT_DIR=/tmp/nc node scripts/e2e/nomina-condicionado.mjs   # Nóminas: dos pestañas, cargas fallidas, 409, respuesta perdida
