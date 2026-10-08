@@ -18,7 +18,8 @@
      POST  (upsert)                 → filas escritas
    ───────────────────────────────────────────────────────────────────────── */
 (function () {
-  var CLAVE = 'mediterra_vista_previa_store_v1';
+  // Cada vista previa guarda su copia aparte (la de diseño no pisa la de Créditos).
+  var CLAVE = window.__VP_CLAVE || 'mediterra_vista_previa_store_v1';
   var HOST = 'bywovqayuzodbzwsriet.supabase.co';
   var fetchReal = window.fetch.bind(window);
 
@@ -381,7 +382,7 @@
       document.getElementById('vp-salir').onclick = salirRespaldo;
     } else {
       b.innerHTML = '<strong>VISTA PREVIA · DATOS SIMULADOS</strong> · nada se lee ni se escribe en producción; no se envían correos.<br>' +
-        'Ingreso: <code>ahuerta@grupomediterra.cl</code> · PIN <code>482913</code> → Flujo de Caja → Créditos. ' +
+        (window.__VP_INGRESO_HTML || 'Ingreso: <code>ahuerta@grupomediterra.cl</code> · PIN <code>482913</code> → Flujo de Caja → Créditos. ') +
         (window.__VP_DIALOGOS_EN_PAGINA ? 'Los motivos y confirmaciones se piden en un cuadro de esta página; las descargas piden tu confirmación. ' : '') +
         '<button id="vp-reset" style="' + BTN + '">Reiniciar datos</button>' +
         (window.__VP_PERMITIR_RESPALDO ? '<button id="vp-cargar" style="' + BTN + '">Cargar respaldo real…</button><input id="vp-archivo" type="file" accept=".json,application/json" style="display:none">' : '') +
@@ -395,6 +396,16 @@
       }
     }
     document.getElementById('vp-min').onclick = function () { b.style.display = 'none'; toast('Barra oculta. Recarga la página para verla de nuevo.'); };
+    // Vista previa de diseño: la barra no debe tapar la navegación que se revisa.
+    // Queda plegada arriba como una etiqueta; al tocarla se despliega.
+    if (window.__VP_INGRESO_HTML && !real) {
+      var etiqueta = document.createElement('button');
+      etiqueta.id = 'vp-etiqueta'; etiqueta.textContent = 'Vista previa · datos simulados ▾';
+      etiqueta.style.cssText = 'position:fixed;top:8px;right:8px;z-index:99998;background:#fef3c7;color:#78350f;border:1px solid #f59e0b;border-radius:14px;padding:4px 10px;font:12px Inter,system-ui,sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.15)';
+      b.style.display = 'none'; b.style.bottom = 'auto'; b.style.top = '44px'; b.style.left = 'auto'; b.style.right = '8px';
+      etiqueta.onclick = function () { b.style.display = b.style.display === 'none' ? 'block' : 'none'; };
+      document.body.appendChild(etiqueta);
+    }
   }
   if (document.body) barra(); else document.addEventListener('DOMContentLoaded', barra);
 })();

@@ -68,12 +68,16 @@ describe("HOTFIX A · generador de respaldos detenido", () => {
   // archivo, donde `esAdmin` tambien esta en alcance. En el Preview el aviso no aparecia.
   // Lo encontro el gate, no la lectura del diff. Ahora se exige que este DENTRO de
   // `HubScreen`, que es la pantalla que el administrador ve al entrar.
-  test("el aviso vive dentro de HubScreen", () => {
-    const iniHub = codigo.indexOf("function HubScreen(");
+  // Rama de diseño: HubScreen se reemplazó por Navegacion + Inicio. La pantalla que el
+  // administrador ve al entrar es <Inicio> (último `return` del componente App). El aviso
+  // debe pasarse AHÍ, no en la vista de Tareas ni en un módulo (esos `return` van antes). Además lo
+  // comprueba en navegador scripts/e2e/hub-navegacion.mjs («aviso de respaldo suspendido»).
+  test("el aviso vive en la pantalla de inicio (<Inicio>)", () => {
+    // `codigo` viene sin comentarios: se ancla en la pantalla de inicio misma.
+    const iniHub = codigo.indexOf("<Inicio clase=");
     expect(iniHub).toBeGreaterThan(-1);
-    // El componente termina donde empieza el siguiente de nivel superior.
-    const sig = codigo.indexOf(String.fromCharCode(10) + "function ", iniHub + 10);
-    const cuerpoHub = codigo.slice(iniHub, sig === -1 ? codigo.length : sig);
+    const finApp = codigo.indexOf(String.fromCharCode(10) + "}" + String.fromCharCode(10), iniHub);
+    const cuerpoHub = codigo.slice(iniHub, finApp === -1 ? codigo.length : finApp);
     expect(cuerpoHub.includes("temporalmente suspendido")).toBe(true);
   });
 

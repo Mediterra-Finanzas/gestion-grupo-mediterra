@@ -13496,10 +13496,43 @@ function ReporteHistorial({historial, onUpdate, canEdit}) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Pestañas de Finanzas visibles para un usuario. Única regla: la usan el
+// módulo (barra de pestañas) y la navegación del hub (accesos directos).
+// Auditoría: solo admin. Dashboard y Reporte Semanal: solo con acceso
+// completo a las empresas del consolidado. El resto: permiso ≠ sin_acceso.
+// ═══════════════════════════════════════════════════════════════════
+export const TABS_FINANZAS=[
+  {id:"dashboard",label:"📊 Dashboard"},
+  {id:"flujo",    label:"📈 Flujo Empresas"},
+  {id:"bancos",   label:"🏦 Saldos Bancos"},
+  {id:"creditos", label:"💳 Créditos"},
+  {id:"nominas",  label:"📋 Nóminas"},
+  {id:"reporte",  label:"📅 Reporte Semanal"},
+  {id:"auditoria",label:"🔍 Auditoría"},
+  {id:"eeff",     label:"📑 EEFF"},
+  {id:"rendiciones",label:"🧾 Rendiciones"},
+];
+export function pestanasVisiblesFinanzas(usuarioActual, tabPermisos={}){
+  const esAdmin = usuarioActual?.rol==="admin";
+  const perm = (tabId) => tabPermisos?.[tabId] ?? "editar";
+  const puedoVer = (tabId) => esAdmin || perm(tabId) !== "sin_acceso";
+  const accesoCompleto = esAccesoCompletoUsuario(usuarioActual);
+  return TABS_FINANZAS.filter(t => {
+    if(t.id==="auditoria") return esAdmin;
+    if((t.id==="dashboard" || t.id==="reporte") && !accesoCompleto) return false;
+    return puedoVer(t.id);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // MÓDULO PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
-export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermisos={},usuarios=[]}) {
-  const [tab,setTab]=useState("dashboard");
+export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermisos={},usuarios=[],destino}) {
+  // destino = {tab, accion, n} desde la navegación del hub. n cambia en cada pedido,
+  // así se puede cambiar de pestaña sin recargar el módulo.
+  const [tab,setTab]=useState(destino?.tab||"dashboard");
+  useEffect(()=>{ if(destino?.tab) setTab(destino.tab); // eslint-disable-next-line
+  },[destino?.n]);
   const [empTab,setEmpTab]=useState("_consolidado"); // vista por defecto al entrar a Flujo Empresas: Consolidado (el guard de permisos baja a la 1ª empresa si no hay acceso completo)
   const [flujoSubTab,setFlujoSubTab]=useState("flujo"); // "flujo" | "params"
   const [empExportMsg,setEmpExportMsg]=useState(null); // feedback export Excel por empresa
@@ -13762,26 +13795,8 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     return out;
   }, [empresasConOverridesMain, empresasPermitidas]);
 
-  const TABS_ALL=[
-    {id:"dashboard",label:"📊 Dashboard"},
-    {id:"flujo",    label:"📈 Flujo Empresas"},
-    {id:"bancos",   label:"🏦 Saldos Bancos"},
-    {id:"creditos", label:"💳 Créditos"},
-    {id:"nominas",  label:"📋 Nóminas"},
-    {id:"reporte",  label:"📅 Reporte Semanal"},
-    {id:"auditoria",label:"🔍 Auditoría"},
-    {id:"eeff",     label:"📑 EEFF"},
-    {id:"rendiciones",label:"🧾 Rendiciones"},
-  ];
-  // Solo mostrar pestañas a las que el usuario tiene acceso
-  // Auditoría: solo admin
-  // Dashboard: solo si tiene acceso completo a empresas del consolidado
-  const TABS = TABS_ALL.filter(t => {
-    if(t.id==="auditoria") return usuarioActual?.rol==="admin";
-    // Dashboard y Reporte Semanal: solo con acceso completo (vistas agregadas del grupo)
-    if((t.id==="dashboard" || t.id==="reporte") && !accesoCompletoEmpresas) return false;
-    return puedoVer(t.id);
-  });
+  // Pestañas visibles: misma regla que usa la navegación del hub (pestanasVisiblesFinanzas).
+  const TABS = pestanasVisiblesFinanzas(usuarioActual, tabPermisos);
 
   // Si la tab activa no está disponible, ir a la primera disponible
   useEffect(()=>{
@@ -15587,7 +15602,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       )}
 
       {tab==="rendiciones"&&puedoVer("rendiciones")&&(
-        <RendicionesModule usuarioActual={usuarioActual} esAdmin={esAdmin} nivelRendiciones={perm("rendiciones")} usuarios={usuarios}/>
+        <RendicionesModule usuarioActual={usuarioActual} esAdmin={esAdmin} nivelRendiciones={perm("rendiciones")} usuarios={usuarios} accionInicial={destino?.accion ? {tipo:destino.accion, n:destino.n} : null}/>
       )}
 
     </div>

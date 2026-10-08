@@ -1,7 +1,7 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import OsirisModule from "./OsirisModule.jsx";
-import FinanzasModule, { EMPRESAS_KEYS_ALL } from "./FinanzasModule.jsx";
+import FinanzasModule, { EMPRESAS_KEYS_ALL, pestanasVisiblesFinanzas } from "./FinanzasModule.jsx";
 import AllegriaModule from "./AllegriaModule.jsx";
 import FriskuComercialModule from "./FriskuComercialModule.jsx";
 import ContabilidadModule from "./ContabilidadModule.jsx";
@@ -20,6 +20,11 @@ import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash
 
 import { credencialPreservada } from "./data/credencialPreservada";
 import { restaurarFilas, mensajeRestauracion } from './restaurarRespaldo.js';
+import Navegacion from "./diseno/Navegacion.jsx";
+import Inicio from "./diseno/Inicio.jsx";
+import { useClaseVentana } from "./diseno/useClaseVentana";
+import { resumenRendiciones, resumenTareas, totalAccionable, esSoloRendiciones } from "./diseno/resumenInicio";
+import { dbLoadGeneric } from "./friskuHelpers";
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
 // En vez de pantalla blanca, muestra botón de actualizar
@@ -1489,223 +1494,77 @@ function CargaMasivaUsuariosForm({ usuarios, setUsuarios, pinsPersonalizados={},
 // ══════════════════════════════════════════════════════════════════════
 // PANTALLA HUB
 // ══════════════════════════════════════════════════════════════════════
-function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCambiarPin, esSoloConsulta, usuarios, setUsuarios, pinsPersonalizados, setPinsPersonalizados }) {
-  const hoy = new Date();
-  const fechaStr = hoy.toLocaleDateString("es-CL", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
-  const [mostrarPermisos, setMostrarPermisos] = useState(false);
-
-  return (
-    <div style={{minHeight:"100vh", background:"#ffffff", fontFamily:"sans-serif", padding:"0 0 40px",
-      position:"relative",overflow:"hidden"}}>
-      {/* Fondo decorativo fruticultura */}
-      <div style={{position:"fixed",inset:0,zIndex:0,pointerEvents:"none",
-        background:"linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(241,245,249,0.95) 40%, rgba(220,252,231,0.15) 100%)",
-      }}>
-        <div style={{position:"absolute",top:"15%",right:"-5%",width:400,height:400,borderRadius:"50%",
-          background:"radial-gradient(circle, rgba(220,252,231,0.4) 0%, transparent 70%)"}}/>
-        <div style={{position:"absolute",bottom:"10%",left:"-8%",width:500,height:500,borderRadius:"50%",
-          background:"radial-gradient(circle, rgba(254,226,226,0.3) 0%, transparent 70%)"}}/>
-        <div style={{position:"absolute",top:"60%",right:"10%",width:300,height:300,borderRadius:"50%",
-          background:"radial-gradient(circle, rgba(219,234,254,0.3) 0%, transparent 70%)"}}/>
-        <div style={{position:"absolute",bottom:"5%",right:"20%",fontSize:180,opacity:0.04,transform:"rotate(-15deg)"}}>🍒</div>
-        <div style={{position:"absolute",top:"20%",left:"5%",fontSize:140,opacity:0.04,transform:"rotate(10deg)"}}>🫐</div>
-        <div style={{position:"absolute",top:"45%",right:"3%",fontSize:120,opacity:0.03,transform:"rotate(-20deg)"}}>🌿</div>
-      </div>
-      <div style={{position:"relative",zIndex:1}}>
-
-      {mostrarPermisos && (
-        <PanelPermisos usuarios={usuarios} setUsuarios={setUsuarios} onClose={()=>setMostrarPermisos(false)} pinsPersonalizados={pinsPersonalizados} setPinsPersonalizados={setPinsPersonalizados}/>
-      )}
-
-      <div style={{padding:"24px 32px 0", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, borderBottom:`1px solid ${C.border}`, paddingBottom:16}}>
-        <div style={{display:"flex", alignItems:"center", gap:14}}>
-          <MediterraLogo size={52}/>
-          <div>
-            <div style={{fontSize:10, letterSpacing:4, color:C.accent2, fontWeight:700, textTransform:"uppercase"}}>MEDITERRA</div>
-            <div style={{fontSize:18, fontWeight:800, color:C.text, lineHeight:1.2}}>Gestión Grupo Mediterra</div>
-          </div>
-        </div>
-        <div style={{display:"flex", gap:8, alignItems:"center", flexWrap:"wrap"}}>
-          <div style={{fontSize:11, color:C.muted, textAlign:"right"}}>
-            <div style={{textTransform:"capitalize"}}>{fechaStr}</div>
-            <div>Hola, <strong style={{color:C.text}}>{usuario.nombre.split(" ")[0]}</strong> · {usuario.cargo}</div>
-          </div>
-          {usuario.rol === "admin" && (
-            <button onClick={()=>setMostrarPermisos(true)}
-              style={{background:C.cardAlt, border:`1px solid ${C.border}`, color:C.text, borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600}}>
-              ⚙️ Permisos
-            </button>
-          )}
-          {usuario.rol === "admin" && (
-            <button onClick={async()=>{
-              try {
-                const btn = document.activeElement;
-                if(btn) btn.textContent="⏳ Exportando...";
-                // Cargar todos los datos de Supabase (excluir backups previos)
-                const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at&id=not.like.backup_*`,{
-                  headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
-                });
-                const allData = await res.json();
-                if(!Array.isArray(allData)) {
-                  throw new Error("Supabase no devolvió una lista: " + JSON.stringify(allData).slice(0,200));
-                }
-                const backup = {
-                  fecha: new Date().toISOString(),
-                  usuario: usuario.nombre,
-                  version: "Mediterra Hub Backup v1",
-                  tablas: {}
-                };
-                allData.forEach(row=>{
-                  try { backup.tablas[row.id] = {data:JSON.parse(row.value), updated_at:row.updated_at}; }
-                  catch { backup.tablas[row.id] = {data:row.value, updated_at:row.updated_at}; }
-                });
-                // Descargar como JSON
-                const blob = new Blob([JSON.stringify(backup,null,2)], {type:"application/json"});
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href=url;
-                a.download=`backup_mediterra_${new Date().toISOString().slice(0,10)}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-                if(btn) btn.textContent="💾 Respaldo";
-                alert("✅ Respaldo descargado exitosamente");
-              } catch(e) {
-                alert("❌ Error al generar respaldo: "+e.message);
-              }
-            }}
-              style={{background:C.infoBg, border:"1px solid #93c5fd", color:"#1e40af", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600}}>
-              💾 Respaldo
-            </button>
-          )}
-          {usuario.rol === "admin" && (
-            <button onClick={()=>{
-              const input = document.createElement("input");
-              input.type="file";
-              input.accept=".json";
-              input.onchange=async(e)=>{
-                const file = e.target.files[0];
-                if(!file) return;
-                if(!window.confirm(`⚠️ RESTAURAR RESPALDO\n\nArchivo: ${file.name}\nTamaño: ${(file.size/1024).toFixed(0)} KB\n\nEsto REEMPLAZARÁ todos los datos actuales con los del respaldo.\n\n¿Estás seguro? Esta acción no se puede deshacer.`)) return;
-                // Doble confirmación
-                const code = prompt("Para confirmar, escribe RESTAURAR:");
-                if(code !== "RESTAURAR") { alert("Restauración cancelada."); return; }
-                try {
-                  const text = await file.text();
-                  const backup = JSON.parse(text);
-                  if(!backup.tablas || !backup.version) {
-                    alert("❌ Archivo inválido. No es un respaldo de Mediterra Hub.");
-                    return;
-                  }
-                  // Cada fila se comprueba: se informa cuáles quedaron y cuáles no
-                  // (src/restaurarRespaldo.js). Nunca "exitoso" ante un resultado parcial.
-                  const r = await restaurarFilas(backup, (id, value) => fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
-                    method:"POST",
-                    headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
-                      "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-                    body:JSON.stringify({id, value, updated_at:new Date().toISOString()})
-                  }));
-                  if(r.fallidas.length) console.error("[Restaurar] filas NO restauradas:", r.fallidas);
-                  alert(mensajeRestauracion(r, backup.fecha));
-                  window.location.reload();
-                } catch(err) {
-                  alert("❌ Error al restaurar: " + err.message);
-                }
-              };
-              input.click();
-            }}
-              style={{background:C.warningBg, border:"1px solid #fde68a", color:"#92400e", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600}}>
-              📤 Restaurar
-            </button>
-          )}
-          {!esSoloConsulta(usuario.nombre) &&
-            <button onClick={onCambiarPin} style={{background:C.cardAlt, border:`1px solid ${C.border}`, color:C.text, borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12}}>🔑 PIN</button>
-          }
-          <button onClick={onLogout} style={{background:C.dangerBg, border:"1px solid #fca5a5", color:C.danger, borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12}}>Salir</button>
-        </div>
-      </div>
-
-      {/* Aviso del hotfix A: SOLO administrador. Va en HubScreen, que es la pantalla
-          que se ve al entrar. El primer intento lo puso en la vista de Tareas —otro
-          `return` del mismo archivo— y en el Preview no aparecia. Lo encontro el gate,
-          no la lectura del diff. */}
-      {BACKUP_AUTOMATICO_SUSPENDIDO && usuario?.rol === "admin" && (
-        <div style={{maxWidth:1120, margin:"0 auto", padding:"14px 32px 0"}}>
-          <div style={{background:"#fef3c7",border:"1px solid #fcd34d",borderRadius:10,color:"#92400e",padding:"10px 14px",fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:8}}>
-            <span>⏸</span>
-            <span>Respaldo automático temporalmente suspendido. Los respaldos existentes están intactos; no se crean nuevos hasta habilitar el reemplazo seguro.</span>
-          </div>
-        </div>
-      )}
-      {/* Franja de bienvenida ejecutiva */}
-      <div style={{maxWidth:1120, margin:"0 auto", padding:"30px 32px 6px"}}>
-        <div style={{fontSize:22, fontWeight:800, color:C.text, letterSpacing:"-0.2px"}}>
-          {(()=>{const h=hoy.getHours();return h<12?"Buenos días":h<20?"Buenas tardes":"Buenas noches";})()}, {usuario.nombre.split(" ")[0]}
-        </div>
-        <div style={{fontSize:13, color:C.muted, marginTop:3}}>
-          <span style={{textTransform:"capitalize"}}>{fechaStr}</span>
-          {" · Temporada "}{(()=>{const m=hoy.getMonth(),y=hoy.getFullYear(),sy=m>=6?y:y-1;return `${String(sy).slice(2)}-${String(sy+1).slice(2)}`;})()}
-        </div>
-        {modulosPermitidos.length === 0 && (
-          <p style={{color:C.muted2, fontSize:14, marginTop:16}}>No tienes módulos asignados. Contacta al administrador.</p>
-        )}
-      </div>
-
-      {/* Módulos — tiles premium con marca, movimiento y glow por empresa */}
-      <div style={{maxWidth:1160, margin:"0 auto", padding:"16px 32px 0"}}>
-        <div style={{fontSize:11, fontWeight:700, color:C.muted2, textTransform:"uppercase", letterSpacing:1.4, marginBottom:16}}>Módulos</div>
-        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(300px, 1fr))", gap:20}}>
-          {MODULOS_DISPONIBLES.filter(m => modulosPermitidos.includes(m.id)).map((modulo, i) => (
-            <button key={modulo.id} onClick={() => onSelectModulo(modulo.id)}
-              className="mdt-tile2"
-              style={{
-                "--mod-glow": `${modulo.color}66`,
-                animationDelay: `${i*70}ms`,
-                background: modulo.grad,
-                border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: 18,
-                padding: "22px 24px",
-                minHeight: 178,
-                cursor: "pointer",
-                textAlign: "left",
-                color: "#fff",
-                boxShadow: "0 6px 20px rgba(16,24,40,0.18)",
-                display: "flex", flexDirection: "column",
-              }}
-            >
-              {/* Ícono de fondo (marca de agua) */}
-              <div className="mdt-tile2-wm" style={{position:"absolute", right:-12, bottom:-18, fontSize:120, lineHeight:1, opacity:0.09, pointerEvents:"none"}}>{modulo.icon}</div>
-              {/* Logo de la empresa (claro sobre el gradiente) */}
-              <div style={{height:50, display:"flex", alignItems:"center", marginBottom:14}}>
-                {modulo.id === "osiris"
-                  ? <OsirisLogoSmall/>
-                  : modulo.id === "finanzas"
-                  ? <img src="/med.png" alt="Mediterra" style={{height:48, objectFit:"contain"}} onError={e=>{e.target.style.display="none";}}/>
-                  : modulo.id === "allegria"
-                  ? <img src={ALLEGRIA_LOGO_B64} alt="Allegria Foods" style={{height:48, objectFit:"contain"}} onError={e=>{e.target.onerror=null;e.target.style.display="none";}}/>
-                  : modulo.id === "frisku"
-                  ? <img src="/frisku.png" alt="Frisku Foods" style={{height:44, objectFit:"contain"}} onError={e=>{e.target.style.display="none";}}/>
-                  : <div style={{fontSize:44, lineHeight:1}}>{modulo.icon}</div>
-                }
-              </div>
-              {/* Info abajo */}
-              <div style={{marginTop:"auto", position:"relative", zIndex:1}}>
-                <div style={{fontSize:20, fontWeight:800, color:"#fff", lineHeight:1.15}}>{modulo.label}</div>
-                <div style={{fontSize:13, color:"rgba(255,255,255,0.72)", marginTop:4, lineHeight:1.4}}>{modulo.sublabel}</div>
-                <div className="mdt-tile2-arrow" style={{marginTop:14, fontSize:13, fontWeight:700, color:"#fff", display:"flex", alignItems:"center", gap:7}}>
-                  Entrar <span style={{fontSize:17, lineHeight:1}}>→</span>
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div style={{textAlign:"center", marginTop:56, fontSize:10, color:"#cbd5e1", letterSpacing:2}}>
-        © {new Date().getFullYear()} GRUPO MEDITERRA · TODOS LOS DERECHOS RESERVADOS
-      </div>
-      </div>{/* cierre z-index:1 */}
-    </div>
-  );
+// ══════════════════════════════════════════════════════════════════════
+// HERRAMIENTAS DE ADMINISTRACIÓN (antes botones del HubScreen; mismo código).
+// La navegación las ofrece en la barra lateral o en «Más».
+// ══════════════════════════════════════════════════════════════════════
+async function descargarRespaldo(usuario) {
+  try {
+    // Cargar todos los datos de Supabase (excluir backups previos)
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at&id=not.like.backup_*`,{
+      headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}
+    });
+    const allData = await res.json();
+    if(!Array.isArray(allData)) {
+      throw new Error("Supabase no devolvió una lista: " + JSON.stringify(allData).slice(0,200));
+    }
+    const backup = {
+      fecha: new Date().toISOString(),
+      usuario: usuario.nombre,
+      version: "Mediterra Hub Backup v1",
+      tablas: {}
+    };
+    allData.forEach(row=>{
+      try { backup.tablas[row.id] = {data:JSON.parse(row.value), updated_at:row.updated_at}; }
+      catch { backup.tablas[row.id] = {data:row.value, updated_at:row.updated_at}; }
+    });
+    // Descargar como JSON
+    const blob = new Blob([JSON.stringify(backup,null,2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href=url;
+    a.download=`backup_mediterra_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    alert("✅ Respaldo descargado exitosamente");
+  } catch(e) {
+    alert("❌ Error al generar respaldo: "+e.message);
+  }
+}
+function restaurarDesdeArchivo() {
+  const input = document.createElement("input");
+  input.type="file";
+  input.accept=".json";
+  input.onchange=async(e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    if(!window.confirm(`⚠️ RESTAURAR RESPALDO\n\nArchivo: ${file.name}\nTamaño: ${(file.size/1024).toFixed(0)} KB\n\nEsto REEMPLAZARÁ todos los datos actuales con los del respaldo.\n\n¿Estás seguro? Esta acción no se puede deshacer.`)) return;
+    // Doble confirmación
+    const code = prompt("Para confirmar, escribe RESTAURAR:");
+    if(code !== "RESTAURAR") { alert("Restauración cancelada."); return; }
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+      if(!backup.tablas || !backup.version) {
+        alert("❌ Archivo inválido. No es un respaldo de Mediterra Hub.");
+        return;
+      }
+      // Cada fila se comprueba: se informa cuáles quedaron y cuáles no
+      // (src/restaurarRespaldo.js). Nunca "exitoso" ante un resultado parcial.
+      const r = await restaurarFilas(backup, (id, value) => fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
+        method:"POST",
+        headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
+          "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
+        body:JSON.stringify({id, value, updated_at:new Date().toISOString()})
+      }));
+      if(r.fallidas.length) console.error("[Restaurar] filas NO restauradas:", r.fallidas);
+      alert(mensajeRestauracion(r, backup.fecha));
+      window.location.reload();
+    } catch(err) {
+      alert("❌ Error al restaurar: " + err.message);
+    }
+  };
+  input.click();
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1959,6 +1818,14 @@ export default function App(){
 
   const [usuarioActual,setUsuarioActual]=useState(null);
   const [moduloActivo,setModuloActivo]=useState(null);
+  // Navegación del hub (rama de diseño): vista de inicio, destino dentro de Finanzas,
+  // panel de permisos, clase de ventana y contadores de rendiciones.
+  const [vistaInicio,setVistaInicio]=useState("inicio");
+  const [destinoFin,setDestinoFin]=useState(null);
+  const [mostrarPermisos,setMostrarPermisos]=useState(false);
+  const [cargaMainOk,setCargaMainOk]=useState(false);
+  const [rendHub,setRendHub]=useState({estado:"cargando",datos:null});
+  const claseVentana=useClaseVentana();
   const [loginNombre,setLoginNombre]=useState("");
   const [loginEmail,setLoginEmail]=useState("");
   const [resetEmail,setResetEmail]=useState("");
@@ -2068,6 +1935,24 @@ export default function App(){
   const isBloqueada=(id)=>tareasConfig[id]?.bloqueada||false;
   const getDependeDe=(id)=>tareasConfig[id]?.dependeDe??null;
   const getTareaById=(id)=>todasTareas().find(t=>t.id===id);
+
+  // ¿Puede rendir gastos? Finanzas asignado y la pestaña Rendiciones visible
+  // (misma regla que la barra de pestañas de Finanzas).
+  const puedeRendirU=(u)=>!!u && modulosDeUsuarioSeguro(u).includes("finanzas")
+    && pestanasVisiblesFinanzas(u, getTabPermisosModulo(u,"finanzas")).some(t=>t.id==="rendiciones");
+  const puedeRendirActual=puedeRendirU(usuarioFresco);
+  // Contadores de rendiciones del inicio: SOLO LECTURA de la fila `rendiciones`
+  // (la misma que ya lee el módulo para cualquier perfil con la pestaña). Si falla,
+  // los contadores quedan «no disponibles», nunca en cero.
+  const cargarRendHub=useCallback(async()=>{
+    setRendHub(r=>({...r,estado:"cargando"}));
+    try{ const d=await dbLoadGeneric("rendiciones"); setRendHub({estado:"ok",datos:Array.isArray(d)?d:[]}); }
+    catch(e){ console.warn("[Inicio] rendiciones no leídas:",e); setRendHub({estado:"error",datos:null}); }
+  },[]);
+  useEffect(()=>{
+    if(usuarioActual && !moduloActivo && puedeRendirActual) cargarRendHub();
+  // eslint-disable-next-line
+  },[usuarioActual?.nombre, moduloActivo, puedeRendirActual]);
 
   const [estados,setEstados]=useState(()=>{
     const est={};
@@ -2425,6 +2310,7 @@ export default function App(){
         // realmente leído (para que una escritura posterior con menos usuarios
         // quede bloqueada en dbSave).
         cargaOkRef.current = true;
+        setCargaMainOk(true);
         if(d && Array.isArray(d.usuarios)) window._lastSavedUsersCount = d.usuarios.length;
       }catch(e){
         if (USE_GUARD && String(e && e.message).includes("401")) {
@@ -3880,13 +3766,83 @@ Equipo Mediterra`);
     </div>
   );
 
+  // ── Navegación (rama de diseño) ─────────────────────────────────────
+  // Todo lo que se ofrece sale de los permisos efectivos del perfil: módulos
+  // asignados, pestañas visibles de Finanzas y la acción de rendir.
+  const uNav = usuarioFresco || usuarioActual;
+  const modulosNav = MODULOS_DISPONIBLES.filter(m => modulosDeUsuarioSeguro(uNav).includes(m.id));
+  const pestanasFinNav = modulosDeUsuarioSeguro(uNav).includes("finanzas")
+    ? pestanasVisiblesFinanzas(uNav, getTabPermisosModulo(uNav,"finanzas")) : [];
+  const soloRendicionesNav = esSoloRendiciones(modulosDeUsuarioSeguro(uNav), pestanasFinNav);
+  const usaTareasNav = modulosDeUsuarioSeguro(uNav).includes("tareas");
+  // Instancias de tareas del mes en pantalla, evaluadas con las MISMAS funciones
+  // del módulo (estaVencida / estaProxima). Semanales y mensuales solo si el perfil
+  // ve esa pestaña; puntuales siempre. Diarias, quincenales y anuales no tienen
+  // vencimiento en la app, así que no se cuentan.
+  const instanciasTareasNav = () => {
+    const verSem = getTabPerm(uNav,"tareas","semanal") !== "sin_acceso";
+    const verMen = getTabPerm(uNav,"tareas","mensual") !== "sin_acceso";
+    const out = [];
+    const emp = (k) => k.includes("__") ? k.split("__")[1] : "";
+    const inst = (t, k, num, detalle) => ({ nombre: t.nombre, responsable: t.responsable, coResponsables: t.coResponsables || [],
+      supervisor: getSupervisor(t.id), detalle, vencida: estaVencida(t, k, num), proxima: estaProxima(t, k, num),
+      estadoResp: estados[k]?.estadoResp || "gris", estadoSup: estados[k]?.estadoSup || "gris" });
+    todasTareas().filter(t => !isBloqueada(t.id)).forEach(t => {
+      const frec = getFrecuencia(t.id);
+      if (frec === "Puntual" || (frec === "Mensual" && verMen))
+        clavesInstancia(t, t.id).forEach(k => out.push(inst(t, k, null, emp(k))));
+      else if (frec === "Semanal" && verSem)
+        semanas.forEach(sw => clavesInstancia(t, semKey(t.id, sw.num)).forEach(k => out.push(inst(t, k, sw.num, [emp(k), `S${sw.num}`].filter(Boolean).join(" · ")))));
+    });
+    return out;
+  };
+  const tareasNav = !usaTareasNav ? null
+    : cargaMainOk ? { estado: "ok", resumen: resumenTareas(instanciasTareasNav(), uNav?.nombre), mes: `${MESES[mes]} ${anio}` }
+    : { estado: cargando ? "cargando" : "error", reintentar: () => window.location.reload() };
+  const rendResumenNav = rendHub.estado === "ok" ? resumenRendiciones(rendHub.datos, uNav) : null;
+  const rendNav = !puedeRendirActual ? null
+    : { estado: rendHub.estado === "ok" && rendResumenNav ? "ok" : rendHub.estado === "ok" ? "error" : rendHub.estado, resumen: rendResumenNav, reintentar: cargarRendHub };
+  const badgeNav = totalAccionable({ tareas: tareasNav?.estado === "ok" ? tareasNav.resumen : null,
+    rendiciones: rendNav?.estado === "ok" ? rendNav.resumen : null, usaTareas: !!tareasNav, usaRendiciones: !!rendNav });
+  const irA = (dest, tabFin) => {
+    if (dest === "inicio" || dest === "pendientes") {
+      setModuloActivo(null); setVistaInicio(dest); sessionStorage.removeItem('mediterra_modulo'); window.scrollTo(0, 0); return;
+    }
+    if (dest === "rendir" || dest === "nueva") {
+      setDestinoFin({ tab: "rendiciones", accion: dest === "nueva" ? "nueva" : null, n: Date.now() });
+      setModuloActivo("finanzas"); sessionStorage.setItem('mediterra_modulo', "finanzas"); return;
+    }
+    if (dest === "finanzas") setDestinoFin(tabFin ? { tab: tabFin, n: Date.now() } : null);
+    setModuloActivo(dest); sessionStorage.setItem('mediterra_modulo', dest); window.scrollTo(0, 0);
+  };
+  const herramientasNav = [
+    ...(uNav?.rol === "admin" ? [
+      { id: "permisos", label: "Permisos y usuarios", onClick: () => setMostrarPermisos(true) },
+      { id: "respaldo", label: "Descargar respaldo", onClick: () => descargarRespaldo(uNav) },
+      { id: "restaurar", label: "Restaurar respaldo", onClick: restaurarDesdeArchivo },
+    ] : []),
+    ...(uNav && !esSoloConsulta(uNav.nombre) ? [{ id: "pin", label: "Cambiar clave", onClick: () => { irA("inicio"); setModalPin("cambiar"); } }] : []),
+    { id: "salir", label: "Salir", tono: "peligro", onClick: doLogout },
+  ];
+  const marco = (contenido) => (
+    <Navegacion clase={claseVentana} usuario={uNav} modulos={soloRendicionesNav ? [] : modulosNav}
+      activo={moduloActivo || vistaInicio} onIr={irA} puedeRendir={puedeRendirActual}
+      mostrarPendientes={!soloRendicionesNav && !!(tareasNav || rendNav)} badgePendientes={badgeNav} herramientas={herramientasNav}>
+      {contenido}
+      {mostrarPermisos && uNav?.rol === "admin" && (
+        <PanelPermisos usuarios={usuarios} setUsuarios={setUsuarios} onClose={()=>setMostrarPermisos(false)} pinsPersonalizados={pinsPersonalizados} setPinsPersonalizados={setPinsPersonalizados}/>
+      )}
+    </Navegacion>
+  );
+
   // Calcular permisos de pestaña para el usuario actual en Finanzas
   const tabPermisosFinanzas = getTabPermisosModulo(usuarioFresco, "finanzas");
 
   // Módulo activo
-  if(moduloActivo==="finanzas") return (
-    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px"}}>
+  if(moduloActivo==="finanzas") return marco(
+    <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:claseVentana==="compacta"?"10px":"20px"}}>
       <FinanzasModule
+        destino={destinoFin}
         usuarioActual={usuarioFresco}
         esAdmin={esAdmin}
         esSoloConsulta={esSoloConsulta}
@@ -3898,7 +3854,7 @@ Equipo Mediterra`);
     </div>
   );
 
-  if(moduloActivo==="osiris") return (
+  if(moduloActivo==="osiris") return marco(
     <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh"}}>
       <OsirisModule
         usuarioActual={usuarioFresco}
@@ -3911,7 +3867,7 @@ Equipo Mediterra`);
     </div>
   );
 
-  if(moduloActivo==="allegria") return (
+  if(moduloActivo==="allegria") return marco(
     <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh"}}>
       <AllegriaModule
         usuarioActual={usuarioFresco}
@@ -3924,7 +3880,7 @@ Equipo Mediterra`);
     </div>
   );
 
-  if(moduloActivo==="frisku") return (
+  if(moduloActivo==="frisku") return marco(
     <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh"}}>
       <FriskuComercialModule
         usuarioActual={usuarioFresco}
@@ -3937,7 +3893,7 @@ Equipo Mediterra`);
     </div>
   );
 
-  if(moduloActivo==="contabilidad") return (
+  if(moduloActivo==="contabilidad") return marco(
     <div style={{fontFamily:"sans-serif",background:"#0f1117",minHeight:"100vh"}}>
       <ContabilidadModule
         usuario={usuarioFresco}
@@ -3948,7 +3904,7 @@ Equipo Mediterra`);
     </div>
   );
 
-  if(moduloActivo==="allegria_service") return (
+  if(moduloActivo==="allegria_service") return marco(
     <AllegriaServiceModule
       usuarioActual={usuarioFresco}
       esAdmin={esAdmin}
@@ -3972,7 +3928,7 @@ Equipo Mediterra`);
     const puedeEditMensual  = getTabPerm(usuarioFresco,"tareas","mensual")   === "editar";
     const puedeEditConfig   = getTabPerm(usuarioFresco,"tareas","config")    === "editar";
 
-    return (
+    return marco(
       <div style={{fontFamily:"sans-serif",background:C.cardAlt,minHeight:"100vh"}}>
         {avisosPersistencia}
         {/* Modal editar comentario */}
@@ -4573,7 +4529,7 @@ Equipo Mediterra`);
     <AppErrorBoundary>
       {avisosPersistencia}
       {nuevaVersion&&(
-        <div style={{position:"fixed",bottom:20,right:20,zIndex:99999,maxWidth:320,background:C.card,color:C.text,padding:"14px 18px",borderRadius:12,boxShadow:"0 8px 32px #0004",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:8,fontSize:13,fontFamily:"sans-serif"}}>
+        <div style={{position:"fixed",bottom:claseVentana==="compacta"?84:20,right:20,zIndex:99999,maxWidth:320,background:C.card,color:C.text,padding:"14px 18px",borderRadius:12,boxShadow:"0 8px 32px #0004",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:8,fontSize:13,fontFamily:"sans-serif"}}>
           <div style={{fontWeight:700,display:"flex",alignItems:"center",gap:8}}>🔄 Nueva versión disponible</div>
           <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Puedes seguir trabajando sin problema. Cuando termines lo que estás cargando, haz click en Actualizar para usar la versión nueva.</div>
           <div style={{display:"flex",gap:8,marginTop:4,justifyContent:"flex-end"}}>
@@ -4582,18 +4538,18 @@ Equipo Mediterra`);
           </div>
         </div>
       )}
-      <HubScreen
-        usuario={usuarioFresco || usuarioActual}
-        modulosPermitidos={modulosPermitidos}
-        onSelectModulo={id=>{setModuloActivo(id);sessionStorage.setItem('mediterra_modulo',id);}}
-        onLogout={doLogout}
-        onCambiarPin={()=>setModalPin("cambiar")}
-        esSoloConsulta={esSoloConsulta}
-        usuarios={usuarios}
-        setUsuarios={setUsuarios}
-        pinsPersonalizados={pinsPersonalizados}
-        setPinsPersonalizados={setPinsPersonalizados}
-      />
+      {marco(
+        <Inicio clase={claseVentana} usuario={uNav} vista={vistaInicio} soloRendiciones={soloRendicionesNav}
+          tareas={tareasNav} rend={rendNav} puedeRendir={puedeRendirActual}
+          modulos={modulosNav.map(m => m.id === "finanzas"
+            ? { ...m, accesos: pestanasFinNav.map(t => ({ id: t.id, label: t.label.replace(/^\S+\s/, "") })) } : m)}
+          avisos={BACKUP_AUTOMATICO_SUSPENDIDO && uNav?.rol === "admin"
+            ? [{ id: "backup", texto: "Respaldo automático temporalmente suspendido. Los respaldos existentes están intactos; no se crean nuevos hasta habilitar el reemplazo seguro." }] : []}
+          onAbrirModulo={(id, tab) => irA(id, tab)}
+          onNuevaRendicion={() => irA("nueva")}
+          onVerRendiciones={() => irA("rendir")}
+          onAbrirTareas={() => irA("tareas")}/>
+      )}
       {/* Modal Cambiar PIN para usuario ya logueado (botón 🔑 PIN del Hub) */}
       {modalPin==="cambiar" && !workerPendiente && (
         <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif",padding:16}}>

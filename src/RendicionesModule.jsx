@@ -839,7 +839,7 @@ function aprobadorDe(r, aprobadores, usuarios) {
 }
 // ¿Le toca a este usuario aprobar la rendición ahora?
 // Sin aprobador asignado (cadena vacía) → SOLO Admin/CFO. Ya no "cualquier aprobador".
-function meTocaAprobar(r, miEmail, admin, esCFO) {
+export function meTocaAprobar(r, miEmail, admin, esCFO) {
   if (admin) return true;              // admin/CFO puede aprobar cualquier paso (override de autoridad)
   const paso = pasoActual(r);
   if (!paso) return !!esCFO;           // sin aprobador asignado → solo CFO/admin
@@ -849,7 +849,7 @@ function meTocaAprobar(r, miEmail, admin, esCFO) {
 // ═══════════════════════════════════════════════════════════════════
 // Componente principal
 // ═══════════════════════════════════════════════════════════════════
-export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsulta, tabPermisos, nivelRendiciones, usuarios = [], onBack, onLogout }) {
+export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsulta, tabPermisos, nivelRendiciones, usuarios = [], onBack, onLogout, accionInicial }) {
   const nombreUsuario = usuarioActual?.nombre || "—";
   const admin = typeof esAdmin === "function" ? esAdmin(nombreUsuario) : !!esAdmin;
   // Tres roles:
@@ -1058,6 +1058,19 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
     upsert(r);
     setEditId(r.id);
   };
+
+  // «Nueva rendición» desde el inicio: accionInicial = {tipo:"nueva", n}. Cada n se
+  // atiende UNA vez y solo después de una carga exitosa (regla 9: sin carga
+  // confirmada no se escribe nada).
+  const accionHechaRef = useRef(null);
+  useEffect(() => {
+    const n = accionInicial?.n;
+    if (accionInicial?.tipo !== "nueva" || n == null || accionHechaRef.current === n || cargando || !cargaOkRef.current) return;
+    accionHechaRef.current = n;
+    setTab("mis");
+    crearRendicion();
+  // eslint-disable-next-line
+  }, [accionInicial?.n, cargando]);
 
   const eliminarRendicion = async (r) => {
     if (!window.confirm(`¿Eliminar rendición #${r.folio} "${r.titulo || "sin título"}"? Esta acción no se puede deshacer.`)) return;

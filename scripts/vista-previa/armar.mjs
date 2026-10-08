@@ -2,10 +2,12 @@
    Arma la VISTA PREVIA de Créditos: el build real de la app + un Supabase
    simulado en el navegador (shim.js) + datos de ejemplo (semilla.js).
 
-     node scripts/vista-previa/armar.mjs [--build] [--out <carpeta>]
+     node scripts/vista-previa/armar.mjs [--build] [--out <carpeta>] [--diseno]
      node scripts/vista-previa/servir.mjs          → http://localhost:4180
 
    --build   ejecuta antes `react-scripts build` (si no existe build/ también).
+   --diseno  vista previa del hub y la navegación: seis perfiles ficticios con los
+             niveles de permiso acordados (semilla-diseno.mjs) en vez de Créditos.
    Salida (por defecto scripts/vista-previa/dist, no se versiona):
      index.html     para abrir en local (diálogos y descargas Excel nativos)
      artifact.html  para publicar como Artifact (sin doctype; diálogos en la página,
@@ -18,12 +20,14 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { nuevoStore } from '../e2e/fake.mjs';
 import { vencimientosCredito } from '../../src/creditos.js';
+import { storeDiseno, PERFILES, PIN } from './semilla-diseno.mjs';
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const RAIZ = path.resolve(AQUI, '../..');
 const args = process.argv.slice(2);
 const OUT = path.resolve(args.includes('--out') ? args[args.indexOf('--out') + 1] : path.join(AQUI, 'dist'));
 const BUILD = path.join(RAIZ, 'build');
+const DISENO = args.includes('--diseno');
 
 if (args.includes('--build') || !fs.existsSync(path.join(BUILD, 'index.html'))) {
   console.log('Compilando la app (react-scripts build)…');
@@ -129,6 +133,19 @@ window.__VP_SEMILLA = function () {
 };
 `;
 
+// Vista previa de DISEÑO: otra semilla, otra clave de almacenamiento y la lista de
+// ingresos de prueba en la barra de la vista previa (no es parte de la app).
+const semillaFinal = !DISENO ? semilla : `/* Datos FICTICIOS de la vista previa de diseño (generado por armar.mjs --diseno). */
+window.__VP_CLAVE = 'mediterra_vista_previa_diseno_v1';
+window.__VP_INGRESO_HTML = ${JSON.stringify('Perfiles de prueba (PIN <code>' + PIN + '</code>): ' + PERFILES.map(p => `${p.titulo} <code>${p.email}</code>`).join(' · ') + '. ')};
+window.__VP_DATOS_DISENO = ${JSON.stringify(Object.fromEntries(Object.entries(storeDiseno()).map(([k, v]) => [k, v.value])))};
+window.__VP_SEMILLA = function () {
+  var D = JSON.parse(JSON.stringify(window.__VP_DATOS_DISENO)); var store = {}; var t = 60000;
+  Object.keys(D).forEach(function (k) { store[k] = { value: D[k], updated_at: new Date(Date.now() - (t -= 1000)).toISOString() }; });
+  return store;
+};
+`;
+
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 // Copia del build sin source maps (pesan ~11 MB y no hacen falta).
@@ -143,13 +160,13 @@ const copiar = (de, a) => {
 copiar(BUILD, OUT);
 fs.copyFileSync(path.join(AQUI, 'shim.js'), path.join(OUT, 'shim.js'));
 fs.copyFileSync(path.join(AQUI, 'diff.js'), path.join(OUT, 'diff.js'));
-fs.writeFileSync(path.join(OUT, 'semilla.js'), semilla);
+fs.writeFileSync(path.join(OUT, 'semilla.js'), semillaFinal);
 
 const idx = fs.readFileSync(path.join(BUILD, 'index.html'), 'utf8');
 const js = /src="\/(static\/js\/main\.[^"]+\.js)"/.exec(idx)[1];
 const css = /href="\/(static\/css\/main\.[^"]+\.css)"/.exec(idx)[1];
 const fuentes = '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>';
-const cuerpo = (auto) => `<title>Vista previa Créditos</title>
+const cuerpo = (auto) => `<title>${DISENO ? 'Vista previa navegación' : 'Vista previa Créditos'}</title>
 ${fuentes}
 <link href="${css}" rel="stylesheet"/>
 <div id="root"></div>
