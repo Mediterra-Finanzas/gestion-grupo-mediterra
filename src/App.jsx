@@ -2497,8 +2497,8 @@ export default function App(){
                 let defNivel = "editar";
                 // Modo servidor: la configuración de Tareas solo se edita con permiso
                 // EXPLÍCITO (regla del servidor, api/_reglasLogin.js puedeEditarConfig);
-                // sin definir, la pantalla la muestra en solo lectura igual que el servidor.
-                const defConfigTareas = AUTH_SERVER && mod === "tareas" ? "ver" : null;
+                // sin definir queda sin acceso (lo mismo que getTabPerm), igual que el servidor.
+                const defConfigTareas = AUTH_SERVER && mod === "tareas" ? "sin_acceso" : null;
                 if(mod === "finanzas"){
                   const tp = merged_u.tab_permisos.finanzas || {};
                   const core = ["dashboard","flujo","bancos","creditos","nominas","params","auditoria","eeff"];
