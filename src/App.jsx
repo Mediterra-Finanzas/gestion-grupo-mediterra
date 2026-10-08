@@ -14,6 +14,7 @@ import { crearUsuariosStore } from "./permisos/permisosUsuariosStore.js";
 import { crearAplicadorUsuarios } from "./permisos/usuariosGlue.js";
 import { getTabPerm as getTabPermCore, nivelInicialPestana, tabRegistrada } from "./permisos/permisosCore.js";
 import { planMatriz, aplicarPlan, MATRIZ_ID } from "./permisos/matrizConfirmada.js";
+import { conectarFilas } from "./realtime/filas.js";
 import { FACULTADES, ETIQUETA_FACULTAD, facultadesDe, enriquecerUsuario, normalizarFila, conFacultad,
   cambiarModo, puedeActivarMatriz, cargarFacultades, guardarFacultades } from "./permisos/facultades.js";
 import AvisoPersistencia from "./AvisoPersistencia.jsx";
@@ -2072,6 +2073,7 @@ export default function App(){
   // Facultades explícitas (fila propia `permisos_facultades`). Se leen al iniciar sesión con
   // el contrato de persistencia: la carga lanza ante fallo de red (Regla 9) y, si falla, la
   // sesión queda sin facultades (falla cerrada) y el panel no permite guardar.
+  const realtimeConectarRef = useRef(null);
   const [filaFac, setFilaFac] = useState(null);
   const [filaFacOk, setFilaFacOk] = useState(false);
   useEffect(()=>{
@@ -2481,65 +2483,26 @@ export default function App(){
       return () => { stop(); stopU(); };
     }
 
-    // ── Supabase Realtime — sincronización instantánea entre usuarios ──
-    // Escucha cambios en id:"main" → actualiza Tareas y Osiris en tiempo real
-    const SUPA_WS = `wss://${SUPA_URL.replace('https://','')}/realtime/v1/websocket?apikey=${SUPA_KEY}&vsn=1.0.0`;
-    const TOPIC_MAIN = "realtime:public:calendario_data";
-    const ws = new WebSocket(SUPA_WS);
-    const REF = () => String(Date.now());
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
-        topic: TOPIC_MAIN, event: "phx_join",
-        payload: { config: { broadcast:{ack:false,self:false}, presence:{key:""} } },
-        ref: REF()
-      }));
-    };
-
-    ws.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if(msg.topic === TOPIC_MAIN && (msg.event === "INSERT" || msg.event === "UPDATE")) {
-          const record = msg.payload?.record;
-          if(record?.id === "main" && record?.value) {
-            try {
-              const d = typeof record.value === "string" ? JSON.parse(record.value) : record.value;
-              // F0-B: reconcileIncoming protege la edición local sin confirmar.
-              const dec = persist.reconcileIncoming("main", d, record.updated_at || null);
-              if(dec.apply){
-                const v = dec.value;
-                if(v.estados)       setEstados(prev=>({...prev,...v.estados}));
-                if(v.comentarios)   setComentarios(v.comentarios);
-                if(v.tareasConfig)  setTareasConfig(prev=>({...prev,...v.tareasConfig}));
-                if(v.supervisores)  setSupervisores(prev=>({...prev,...v.supervisores}));
-                if(v.tareasExtra)   setTareasExtra(v.tareasExtra);
-                // PINs NO se aplican desde el sync de `main` (fuente de verdad =
-                // fila `pins`). Aplicarlos acá revertía cambios recientes.
-                if(v.recsDone)      setRecsDone(v.recsDone);
-                if(v.recsComentarios) setRecsComentarios(v.recsComentarios);
-                // osirisData se restaura desde su propia fila "osiris"
-                // usuarios NO viaja en main (fila dedicada); se sincroniza abajo.
-              }
-            } catch(err) {}
-          }
-          // PROD-INCIDENT-01 FIX: sincronización entrante de la fila dedicada `usuarios`.
-          else if(record?.id === "usuarios" && record?.value){
-            try {
-              const lista = typeof record.value === "string" ? JSON.parse(record.value) : record.value;
-              aplicarUsuarios(lista, record.updated_at || null);
-            } catch(err) {}
-          }
-        }
-      } catch(err) {}
-    };
-
-    const hbMain = setInterval(()=>{
-      if(ws.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({topic:"phoenix",event:"heartbeat",payload:{},ref:REF()}));
-    }, 30000);
-
-    return () => { clearInterval(hbMain); if(ws.readyState===WebSocket.OPEN) ws.close(); };
+    // ── Supabase Realtime — SOLO las filas que esta pantalla usa (oct-2026) ──
+    // Antes: un canal sin filtro sobre toda `calendario_data`, abierto incluso sin
+    // sesión. Ahora: una suscripción por fila (main, usuarios), y solo con sesión
+    // iniciada (efecto de abajo). Ver src/realtime/filas.js.
+    realtimeConectarRef.current = () => conectarFilas({
+      wsUrl: `wss://${SUPA_URL.replace('https://','')}/realtime/v1/websocket?apikey=${SUPA_KEY}&vsn=1.0.0`,
+      ids: ["main", "usuarios"],
+      onRegistro: (r) => {
+        if(r.id === "main") aplicarMain(r.value, r.updated_at);
+        else if(r.id === "usuarios") { try { aplicarUsuarios(r.value, r.updated_at); } catch(err) {} }
+      },
+    });
   },[]); // eslint-disable-line
+
+  // Tiempo real solo con sesión iniciada (la pantalla de ingreso no recibe datos).
+  useEffect(()=>{
+    if(!usuarioActual || !realtimeConectarRef.current) return;
+    const cerrar = realtimeConectarRef.current();
+    return () => cerrar();
+  },[usuarioActual?.nombre]); // eslint-disable-line
 
   // ── Restaurar sesión tras recarga automática ─────────────────────
   useEffect(()=>{
