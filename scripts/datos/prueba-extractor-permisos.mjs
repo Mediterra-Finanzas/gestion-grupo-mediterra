@@ -13,7 +13,7 @@ const check = (n, c, x = '') => { c ? ok++ : fallos++; console.log(`${c ? '✓' 
 
 const usuarios = [
   { nombre: 'Persona Admin', email: 'admin@ficticio.cl', rol: 'admin', esCFO: true, modulos: ['finanzas'], pin: '123456', pin_h: '{"hash":"HASHFICTICIO"}', token: 'TOKENFICTICIO', telefono: '+56 9 0000 0000' },
-  { nombre: 'Persona Pagos', email: 'pagos@ficticio.cl', rol: 'editor', modulos: ['finanzas', 'contabilidad'], rendVerTodas: true, rendPorOtros: true,
+  { nombre: 'Persona Pagos', email: 'pagos@ficticio.cl', rol: 'editor', modulos: ['finanzas', 'contabilidad'], rendVerTodas: true, rendPorOtros: true, rendPagar: true, contabEditar: true,
     tab_permisos: { finanzas: { nominas: 'editar', params: 'ver' } }, cadenaAprobacion: ['admin@ficticio.cl', 'otro@externo.cl'] },
   { nombre: 'Persona Consulta', email: 'consulta@ficticio.cl', rol: 'consulta', desactivado: false, empresas_permitidas: ['Allegria Foods'] },
 ];
@@ -44,6 +44,7 @@ check('tres personas, identificadas por nombre', r.personas.length === 3 && r.pe
 check('no trae PIN, hashes, tokens ni correos', !/HASHFICTICIO|TOKENFICTICIO|123456|@|"salt"|"pin/.test(texto));
 check('no trae teléfono, RUT ni otros módulos', !/\+56|11\.111|flujo ficticio|creditos_data/.test(texto));
 check('conserva rol, módulos, pestañas y marcas', r.personas[1].rol === 'editor' && r.personas[1].tab_permisos.finanzas.params === 'ver' && r.personas[1].rendVerTodas === true && r.personas[0].esCFO === true);
+check('exporta las facultades explícitas (rendPagar, contabEditar)', r.personas[1].rendPagar === true && r.personas[1].contabEditar === true && r.personas[0].rendPagar === undefined);
 check('cadena de aprobación como nombres (correo ajeno anonimizado)', JSON.stringify(r.personas[1].cadenaAprobacion) === JSON.stringify(['Persona Admin', 'correo no registrado 1']), JSON.stringify(r.personas[1].cadenaAprobacion));
 const ap = Object.fromEntries(r.aprobadoresRendiciones.map(a => [a.persona, a.aprobador]));
 check('aprobadores de rendiciones como nombres (incluido externo)', ap['Persona Pagos'] === 'Persona Admin' && ap['Externo Uno (externo)'] === 'Persona Pagos' && /^correo no registrado/.test(ap['Persona Consulta']), JSON.stringify(ap));

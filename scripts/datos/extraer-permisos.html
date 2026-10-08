@@ -19,7 +19,7 @@
 <h1>Permisos reales para cerrar la matriz de decisiones</h1>
 <p>Esta página <strong>no tiene conexión a internet</strong> (su política de seguridad la bloquea). Lee en tu computador el archivo del botón "💾 Respaldo" de la versión publicada y genera un archivo con <strong>solo</strong> los permisos de cada persona.</p>
 <div class="caja">
-  <p><strong>Se exporta, por persona (identificada por su nombre):</strong> cargo, rol, módulos, permisos por pestaña, CFO, ver todas las rendiciones, rendir por otros, desactivado, empresas permitidas y la cadena de aprobación (como nombres). Además, el aprobador de rendiciones asignado a cada persona (como nombres).</p>
+  <p><strong>Se exporta, por persona (identificada por su nombre):</strong> cargo, rol, módulos, permisos por pestaña, CFO, ver todas las rendiciones, rendir por otros, marca rendiciones pagadas, edita en Contabilidad, desactivado, empresas permitidas y la cadena de aprobación (como nombres). Además, el aprobador de rendiciones asignado a cada persona (como nombres).</p>
   <p><strong>No se exporta:</strong> PIN, hashes de PIN, tokens, correos electrónicos ni ningún otro campo, ni datos de otros módulos. Un correo que no corresponda a ninguna persona se reemplaza por "correo no registrado N".</p>
   <p>El respaldo original <strong>no se comparte ni se sube a ningún lado</strong>: queda en tu computador, protegido, hasta que decidas cuánto conservarlo.</p>
 </div>
@@ -29,7 +29,7 @@
 <script>
 "use strict";
 // Campos por persona que se exportan (lista cerrada). Todo lo demás se descarta.
-const CAMPOS = ["nombre","cargo","rol","modulos","tab_permisos","esCFO","rendVerTodas","rendPorOtros","desactivado","empresas_permitidas","cadenaAprobacion"];
+const CAMPOS = ["nombre","cargo","rol","modulos","tab_permisos","esCFO","rendVerTodas","rendPorOtros","rendPagar","contabEditar","desactivado","empresas_permitidas","cadenaAprobacion"];
 const esc = (x) => String(x).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let salida = null;
 
