@@ -3,6 +3,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { theme } from "./theme";
 import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
 import AvisoPersistencia from "./AvisoPersistencia.jsx";
+import PanelConflictoFila from "./PanelConflictoFila.jsx";
+import { crearResolucionConflicto } from "./persistencia/conflictoFila.js";
 
 // Componente DateInput: evita re-renders al escribir año en campos date
 function DateInput({value, onChange, disabled, style}) {
@@ -2215,6 +2217,15 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   const [data, setData] = useState({clientes:[],productores:[],programaComercial:[],recepciones:[],stockPT:[],materiales:[],recetas:[],embarques:[],liquidaciones:[],liqCliente:[],anticipos:[],cobranza:[],especiesAllegria:ESPECIES_ALLEGRIA_INIT,variedadesAllegria:[],hubCardsOrder:null});
   const [cargando, setCargando] = useState(true);
   const [avisoPersist, setAvisoPersist] = useState(null); // F0-B: aviso en pantalla cuando Allegria NO se guardó.
+  // Conflicto de guardado SIN RESOLVER: otra sesión modificó la fila `allegria`
+  // mientras había edición local. El contrato no pisa nada y la fila queda
+  // BLOQUEADA; antes solo se salía recargando la página, que pierde lo local.
+  // Acá se ofrecen las DOS salidas del contrato.
+  const [conflicto, setConflicto] = useState(null);
+  const [resolviendo, setResolviendo] = useState(false);
+  // Estado VISIBLE del guardado, con el mismo vocabulario que App.jsx
+  // (Guardando... / ✅ Guardado / ❌ Error) más "conflicto".
+  const [estadoPersist, setEstadoPersist] = useState("idle");
   const [tempSeleccionada, setTempSeleccionada] = useState(temporadaActual());
 
   // Permisos
@@ -2224,20 +2235,26 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   // GUARD anti-borrado: solo se guarda tras una carga EXITOSA.
   const cargaOkRef = useRef(false);
 
+  // Aplicador ÚNICO de lo que viene del servidor a la pantalla. Lo usan la carga
+  // inicial y la salida (a) del conflicto ("recuperar la versión del servidor",
+  // que descarta lo local): no hay dos aplicadores que puedan divergir.
+  const aplicarDatosAllegria = useCallback((d)=>{
+    if(!d) return;
+    setData(d);
+    // Protección anti-pérdida: largos REALES de lo que trajo el servidor.
+    window._lastSavedAllegria = {};
+    ["clientes","productores","embarques","liquidaciones","liqCliente","anticipos","cobranza","recepciones","stockPT","materiales","recetas","programaComercial"].forEach(k=>{
+      if(Array.isArray(d[k])) window._lastSavedAllegria[k] = d[k].length;
+    });
+    console.log("[Allegria] Protección anti-pérdida:", JSON.stringify(window._lastSavedAllegria));
+  },[]);
+
   // Cargar datos
   useEffect(()=>{
     (async()=>{
       try {
         const d = await dbLoadAllegria();
-        if(d) {
-          setData(d);
-          // Inicializar protección anti-pérdida
-          window._lastSavedAllegria = {};
-          ["clientes","productores","embarques","liquidaciones","liqCliente","anticipos","cobranza","recepciones","stockPT","materiales","recetas","programaComercial"].forEach(k=>{
-            if(Array.isArray(d[k])) window._lastSavedAllegria[k] = d[k].length;
-          });
-          console.log("[Allegria] Protección anti-pérdida:", JSON.stringify(window._lastSavedAllegria));
-        }
+        if(d) aplicarDatosAllegria(d);
         cargaOkRef.current = true; // carga exitosa (con datos o fila vacía)
       } catch(e) {
         console.error("[Allegria] Carga falló — GUARDADO DESHABILITADO esta sesión:", e);
@@ -2249,12 +2266,36 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   // Auto-guardar (debounce 2s para no ralentizar)
   const dataRef = useRef(data);
   useEffect(()=>{dataRef.current=data;},[data]);
+  // Las DOS salidas del conflicto pendiente de la fila `allegria`. `guardarLocal`
+  // es el MISMO guardado del módulo (dbSaveAllegria), no una ruta paralela.
+  const resolucion = useMemo(()=>crearResolucionConflicto({
+    persist, rowId:"allegria", etiqueta:"Allegria Foods",
+    aplicarValor: aplicarDatosAllegria,
+    guardarLocal: ()=>Promise.resolve(dbSaveAllegria(dataRef.current)),
+    setConflicto,
+    setEstado:(e)=>{ setEstadoPersist(e); if(e==="ok") setTimeout(()=>setEstadoPersist(p=>p==="ok"?"idle":p),2000); },
+    setAviso: setAvisoPersist,
+  }),[aplicarDatosAllegria]);
+  const resolverConflicto = useCallback(async(via)=>{
+    setResolviendo(true);
+    try { return via==="servidor" ? await resolucion.recuperarDelServidor() : await resolucion.conservarLocal(); }
+    finally { setResolviendo(false); }
+  },[resolucion]);
+
   useEffect(()=>{
     if(cargando) return;
     if(!cargaOkRef.current) return; // no guardar si la carga inicial falló
-    const t=setTimeout(()=>{ Promise.resolve(dbSaveAllegria(dataRef.current)).then((r)=>{ if(r && r.ok===false && r.motivo!=="anti_perdida") setAvisoPersist(construirAvisoDesde("allegria", r, "Allegria Foods")); }); }, 2000);
+    const t=setTimeout(()=>{ setEstadoPersist("guardando"); Promise.resolve(dbSaveAllegria(dataRef.current)).then((r)=>{
+      if(r && r.ok===false){
+        // Conflicto pendiente ⇒ la fila quedó BLOQUEADA: se pinta el panel con las
+        // dos salidas (antes solo llegaba el aviso y no había cómo resolverlo).
+        if(resolucion.detectar(r)) return;
+        if(r.motivo!=="anti_perdida") setAvisoPersist(construirAvisoDesde("allegria", r, "Allegria Foods"));
+        setEstadoPersist("error");
+      } else { setEstadoPersist("ok"); setTimeout(()=>setEstadoPersist(p=>p==="ok"?"idle":p),2000); }
+    }); }, 2000);
     return()=>clearTimeout(t);
-  },[data, cargando]);
+  },[data, cargando]); // eslint-disable-line
 
   const setClientes = fn => setData(p=>({...p, clientes: typeof fn==="function"?fn(p.clientes||[]):fn}));
   const setProductores = fn => setData(p=>({...p, productores: typeof fn==="function"?fn(p.productores||[]):fn}));
@@ -2270,6 +2311,27 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   const setCobranza = fn => setData(p=>({...p, cobranza: typeof fn==="function"?fn(p.cobranza||[]):fn}));
   const setEspeciesAllegria = fn => setData(p=>({...p, especiesAllegria: typeof fn==="function"?fn(p.especiesAllegria||ESPECIES_ALLEGRIA_INIT):fn}));
   const setVariedadesAllegria = fn => setData(p=>({...p, variedadesAllegria: typeof fn==="function"?fn(p.variedadesAllegria||[]):fn}));
+
+  // Panel de conflicto + estado visible del guardado. Se monta en las dos pantallas
+  // del módulo (hub y sub-app) para que la decisión esté donde se está editando.
+  const panelPersistencia = (
+    <>
+      <PanelConflictoFila conflicto={conflicto} ocupado={resolviendo}
+        onRecuperar={()=>resolverConflicto("servidor")}
+        onConservar={()=>resolverConflicto("local")} />
+      {estadoPersist!=="idle" && (
+        <div role="status" style={{position:"fixed",left:16,bottom:16,zIndex:9998,padding:"7px 12px",
+          borderRadius:8,fontSize:11.5,fontWeight:700,fontFamily:"sans-serif",
+          border:"1px solid "+(estadoPersist==="ok"?"#16a34a":estadoPersist==="guardando"?"#38bdf8":"#f59e0b"),
+          background:"#111827",color:(estadoPersist==="ok"?"#4ade80":estadoPersist==="guardando"?"#38bdf8":"#fbbf24")}}>
+          {estadoPersist==="guardando" && "💾 Guardando..."}
+          {estadoPersist==="ok" && "✅ Guardado"}
+          {estadoPersist==="error" && "❌ Error"}
+          {estadoPersist==="conflicto" && "⚠️ No se guardó: otra sesión cambió los datos"}
+        </div>
+      )}
+    </>
+  );
 
   if(cargando) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:C.muted,fontFamily:"sans-serif"}}>Cargando Allegria Foods...</div>;
 
@@ -2293,6 +2355,7 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
     return (
       <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
         <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
+        {panelPersistencia}
         <NavBar breadcrumbItems={[
           {label:"Mediterra", onClick:onBack},
           {label:"Allegria Foods", onClick:()=>setSubApp(null)},
@@ -2348,6 +2411,7 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
   return (
     <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",padding:"20px 20px 40px"}}>
       <AvisoPersistencia aviso={avisoPersist} onCerrar={()=>setAvisoPersist(null)} />
+      {panelPersistencia}
       <NavBar breadcrumbItems={[
         {label:"Mediterra", onClick:onBack},
         {label:"Allegria Foods Hub"},

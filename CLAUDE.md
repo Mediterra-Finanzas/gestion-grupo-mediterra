@@ -440,7 +440,13 @@ Reglas que no hay que romper:
   realización sí le quita efecto en todo (realizado global y capacidad de la
   estimación de origen).
 - **Fuera de presupuesto**: no proyecta ni descuenta de las operaciones
-  presupuestadas; su dinero real se muestra aparte (`realizadoFuera`).
+  presupuestadas; su dinero real se muestra aparte (`realizadoFuera`). Una cuota
+  de un programa fuera de presupuesto **no consume ni sustituye** una estimación
+  presupuestada: su realizado no descuenta del bloque, así que si la estimación lo
+  diera por consumido el mismo monto se contaría dos veces (medido: ingreso
+  proyectado 1.000.000 donde correspondía 600.000). **Archivado es distinto**:
+  deja de proyectar y de sustituir, pero su realizado sigue descontando, y por eso
+  sí consume la estimación de la que salió.
 - **Sin asignar**: la bandeja de conciliación es visible y no descuenta de
   ninguna liquidación. Registrar la aplicación comercial no toca el saldo
   bancario.
@@ -514,6 +520,15 @@ Reglas que no hay que romper:
 - **Mover una realización entre estimaciones está prohibido**: reabriría el
   pendiente de la de origen (`estRealizadoOriginado` sigue las movidas a una
   CUOTA, no a otra estimación).
+- **Al mover, el origen pasa a ser el contenedor del que SALE** y el anterior se
+  conserva en `origenesPrevios[]`; `origenesRealizacion(r)` devuelve la cadena
+  completa, y `estRealizadoOriginado`/`aplicadoDeMovimiento` la leen. Antes se
+  hacía `origen: movida.origen || …`, así que una realización nacida en la bandeja
+  o en un antecedente conservaba ESE origen al moverla desde una estimación: la
+  estimación reabría su pendiente y 400.000 de caja se iban al mes equivocado
+  (Nov-26 pasaba de 100.000 a 500.000 y Mar-27 al revés), con el diálogo diciendo
+  «sin cambio» y sin ninguna alerta. Leer la cadena también evita que el
+  movimiento de bandeja quede «sin asignar» y se pueda aplicar dos veces.
 - **Reasignar un movimiento, no volver a registrarlo** (oct-2026): el
   formulario «Reasignar un movimiento ya registrado» de la tarjeta ofrece
   origen y destino libres entre **estimación → cuota**, **cuota → estimación**
@@ -556,6 +571,45 @@ Reglas que no hay que romper:
   Fijado con `src/__tests__/bandejaAplicar.test.js` (12), el escenario **I** de
   `excelRecalcFlujo` y `scripts/e2e/reasignar-bandeja.mjs` (navegador).
 
+- **La identidad no se acuña al normalizar** (oct-2026): los normalizadores
+  (`normalizarAnticipo/Cuota/Programa/Antecedente/Saldo/MovSinAsignar`) corren en
+  cada render y en cada cálculo, así que **no asignan `id`**: lo dejan vacío. La
+  identidad nace al CREAR (`nuevoIdPrograma/Cuota/Anticipo/Antecedente/Movimiento/
+  Saldo/Aplicacion`), y a los registros antiguos se les asigna UNA sola vez con
+  `normalizarIdentidades(allegria_params)`: determinista (hash FNV-1a del
+  contenido y la posición, prefijo `mig_`, sin `Math.random()` ni reloj),
+  idempotente (la segunda pasada devuelve `huboCambios:false` y el mismo objeto),
+  conserva todos los campos sin lista blanca, no toca un id existente y reescribe
+  en la misma pasada solo las referencias inequívocas.
+  Antes, un registro guardado sin `id` recibía uno nuevo en cada render y una
+  sustitución declarada contra él proyectaba el mismo dinero dos veces sin aviso
+  (medido con la estructura real: pendientes del lado 1.122.000 en vez de 748.000,
+  `sobreSustitucion = 0`). En la fila `finanzas` de producción, 29 de las 31
+  estimaciones de Allegria no tenían `id`, incluidas las dos de US$374.000 contra
+  las que había que declarar las sustituciones.
+  La migración es un paso **declarado**, no una escritura silenciosa al abrir: se
+  corre una vez por sesión después de una carga exitosa, pasa por el contrato de
+  concurrencia, tiene estado visible y deja su registro en `window.auditLog`; el
+  banner con su botón queda puesto hasta que el servidor confirma.
+  **`applyData` NO mete el valor normalizado en `params`**: el estado se queda
+  con lo que vino del servidor, sin identidades, y la identidad entra a `params`
+  recién con la confirmación (`r && r.ok`). Eso es lo que desbloquea el control
+  de sustitución, y no puede desbloquearse contra identidades que el servidor no
+  tiene. Lo que decide si se escribe es `normPendiente` —que pone la CARGA—, no
+  un recálculo: antes se recalculaba sobre el estado ya normalizado, `huboCambios`
+  salía false, se limpiaba el aviso y se volvía SIN escribir, y la identidad
+  terminaba guardada, cuando se guardaba, por el auto-save de apertura. Correcto
+  por accidente, sin aviso y sin registro.
+  Hay un **marcador de build de solo lectura** en la cabecera de Finanzas
+  (`marcadorBuild()`): el SHA corto si el entorno lo define, si no el nombre del
+  bundle. Sirve para saber qué versión corre una pestaña sin tocar ningún dato.
+  Mientras un registro no tenga identidad, **la pantalla bloquea el control de
+  sustitución** sobre él y dice que hay que normalizar primero: `normalizarCuota`
+  descarta una `sustituye[].estimacionId` vacía, así que declararla dejaría el
+  monto proyectado dos veces sin dejar rastro. Una referencia a un id que **existió
+  y ya no está** sí se declara en `resumenLado(...).referenciasInvalidas`, y la
+  pantalla y el Excel la muestran como pendiente de resolver.
+
 Guía de carga: `docs/programas-allegria-carga.md`. Guía de revisión en
 pantalla antes de cargar: `docs/revision-estimaciones-pantalla.md`. Propuesta de carga y
 pendientes comerciales (WLH, Don Alberto, fichas Perú / Allegria Service):
@@ -574,6 +628,149 @@ estimación, cuota → cuota, bandeja parcial a cuota y a estimación, guardado 
 recarga, cancelación, anulación con motivo y su bloqueo. El caso de SOLO
 LECTURA no se ejercita ahí porque el store de la prueba trae una única
 credencial de administrador; está cubierto en las pruebas de componente).
+
+#### Guardado: conflicto pendiente, confirmación y autorización (oct-2026)
+
+Contrato único en `src/persistencia/persistContract.js`. Cuatro reglas nuevas.
+
+**1. Un conflicto de fila-blob no se puede olvidar.** Antes, ante conflicto el
+contrato hacía `_registrarLectura(...)` y adelantaba `_version` a la del servidor:
+el **segundo intento del auto-save pasaba el PATCH condicionado y pisaba** el
+guardado de la otra sesión, devolviendo `{ok:true}`. `FinanzasModule.dbSave` llama
+`saveConfirmed(rowId, data, {})` con un VALOR, así que caía justo ahí, y
+`reconcileIncoming` hacía lo mismo por la vía del realtime. Ahora la fila queda en
+**conflicto pendiente** (`_conflicto`): `saveConfirmed` no escribe, devuelve
+`MOTIVOS.CONFLICTO_PENDIENTE`, los cambios locales se conservan y `_version`/`_base`
+no se tocan. Se sale SOLO por dos caminos explícitos, nunca por un auto-save:
+`recuperarDelServidor(id)` (trae lo vigente y descarta lo local) o
+`reconciliarConservandoLocal(id[, valor])` (escribe lo local sobre la versión
+vigente). **No se fusionan dos operaciones financieras automáticamente.** Las
+filas-colección siguen fusionando por ítem cuando se puede.
+
+**2. No se escribe sin cambio efectivo.** Guardia canónico contra `_servidor` (el
+último valor CONFIRMADO por el servidor), no contra `_base`: una ruta puede
+registrar como base un valor transformado en memoria (p. ej. `usuarios` fusionado
+con `WORKERS_BASE`) y comparar contra eso se saltaría una migración.
+`registrarCarga` **sin** el 5º argumento `valorServidor` deja el servidor como
+DESCONOCIDO y apaga el guardia para esa fila: un PATCH de más antes que una
+migración perdida. `o.forzar` escribe igual. Complemento en `InputNumero`: entrar
+y salir de un campo sin escribir dejó de ser un cambio (reescribía el blob
+completo por tabular).
+
+**3. Un guardado no se declara hecho sin confirmación del servidor.** Estado
+visible `guardando / guardado / error / conflicto` con el vocabulario de `App.jsx`.
+Doce rutas de `FinanzasModule` hacían `.then(ok => setSaved(ok ? "✅ Guardado" : …))`
+sobre el OBJETO resultado `{ok:false, motivo}`, siempre truthy: decían guardado lo
+que el servidor había rechazado. Y salir del módulo dentro de los 800 ms del
+debounce perdía la operación en silencio (el cleanup hacía `clearTimeout`): ahora
+un efecto con deps `[]` completa el guardado al desmontar, y al cerrar la pestaña
+se avisa en vez de intentar escribir, porque el navegador cancela los requests en
+vuelo. `persist.flush(id)`, `idsSucios()`, `idsEnConflicto()`, `conflictoPendiente(id)`
+y `estado(id)` están para eso.
+
+**4. La autorización también va en la ruta de guardado.** El único gate de
+`persistAll` era `cargaOkRef`: la interfaz escondía los controles de una pestaña en
+`ver`, pero cualquier otro camino que cambiara el estado reescribía la fila
+COMPLETA con los datos de las pestañas que esa sesión no puede ver (alcanzable sin
+devtools: editar un saldo con `bancos:"editar"` y el flujo en `ver`).
+`autorizacionGuardado(overrides, puedoEdit)` + el mapa `CAMPO_PESTANA` exigen el
+permiso de cada campo presente. **No reemplaza RLS ni el guardia del servidor**,
+que siguen pendientes (`supabase/AUDITORIA_SEGURIDAD_2026-06.md`,
+`fase4_cerrar_todo.sql` sin ejecutar, `api/db/[...path].js` en 410): cierra la vía
+accidental desde la propia app. No afecta a Rendiciones, que es fila aparte, ni a
+los escenarios.
+
+Pruebas: `src/__tests__/persistConflictoPendiente.test.js` (la secuencia de 4 pasos
+con dos sesiones aisladas, fallos de red y HTTP), `persistSinCambios.test.js`,
+`autorizacionGuardado.test.js`, `normalizacionControlada.test.js` (carga,
+normalización, guardado por el contrato, carga fallida, conflicto y las dos
+sustituciones de US$374.000), e `inputNumero.test.js`. En navegador,
+`scripts/e2e/reasignar-bandeja.mjs` comprueba la secuencia `Guardando… → Guardado`
+y que salir antes del debounce no pierde la operación.
+
+#### Abrir Finanzas no escribe (oct-2026)
+
+Abrir el módulo produce **0 escrituras** en `finanzas`, `finanzas_bancos` y
+`finanzas_esc_index` cuando no hay nada que migrar. Antes escribía la fila
+completa (~4,4 MB) sin que nadie editara: `applyData` re-defaultea el blob
+(`{...defaultParams(), ...}`, `defaultParamsAllegriaService`, reconstrucción de
+`params_ap`, etc.), así que lo que se escribía no era igual a lo que se leyó y
+el guardia canónico del contrato no podía suprimirlo.
+
+La marca es de **identidad de objeto**, no un flag: `aplicadoRef` guarda los
+objetos exactos de `params` y `saldosBancos` tal como quedaron al APLICAR datos
+del servidor (carga inicial, poll/realtime, `recuperarDelServidor`, cambio de
+escenario), y el efecto de auto-save sale antes de agendar si los objetos son
+los mismos. Se eligió identidad porque no exige conocer los sitios de edición:
+toda edición de `params` pasa por `setParams(prev => JSON.parse(JSON.stringify(
+prev))…)`, así que crea un objeto nuevo y el guardado corre igual que siempre.
+Un flag habría que prenderlo en cada sitio y se rompe en el primero que se
+olvide.
+
+Las migraciones legítimas son ahora **escrituras declaradas**, cada una con su
+propio efecto y su prueba, no un efecto colateral del auto-save:
+
+- `saldos_bancos` del blob a la fila dedicada `finanzas_bancos` (solo si está
+  vacía; se autoextingue). El `.catch(()=>{})` que se comía por igual el fallo
+  de lectura y el de guardado se separó: una lectura caída no migra nada y
+  muestra su propio aviso, que no dice "no se guardó" porque no es eso.
+- la migración de identificadores (ver más abajo);
+- `migrateAllegraComisionArandanos`, que antes solo se guardaba de rebote con
+  el PATCH de apertura.
+
+**Pendiente (camino B)**: sacar el re-defaulteo del estado que se serializa, con
+los defaults en una capa de vista. Eso haría innecesaria la marca. Toca
+`applyData` y todos los consumidores de `params*`. El PATCH de `main` al iniciar
+sesión sigue abierto, en `App.jsx`.
+
+Medido con `scripts/e2e/aislamiento.mjs`, que imprime las escrituras por fila al
+abrir y navegar sin editar nada, y exige 0 en esas tres filas y en cualquier
+`finanzas_esc_*`.
+
+#### Las dos salidas del conflicto están en todas las filas-blob (oct-2026)
+
+`main` (Tareas), `pins`, `allegria` y `finanzas` ofrecen las dos salidas
+explícitas. El cableado pantalla↔contrato vive en
+`src/persistencia/conflictoFila.js` (`crearResolucionConflicto`) y el panel en
+`src/PanelConflictoFila.jsx`, extraídos para poder probarlos sin montar
+`App.jsx`. La política sigue entera en `persistContract.js`.
+
+**En las filas que se reemplazan completas** —`finanzas`, `finanzas_esc_*`,
+`finanzas_bancos`, `allegria`, `eeff`, `nominas`, `main`, `pins`— el panel
+advierte que «Conservar la mía **NO combina** los dos trabajos» y nombra qué se
+reemplaza (los PIN de todas las personas, el flujo de las ocho empresas, los
+saldos de todas las cuentas), porque lo de la otra sesión se reemplaza aunque
+haya tocado algo distinto. Antes de escribir se **revalida** la versión vigente:
+si la otra sesión guardó otra vez en el medio, no se reemplaza nada y el bloqueo
+queda puesto de nuevo. En una fila fusionable por ítem la advertencia no
+aparece, porque ahí sí se combina. `reemplazaFilaCompleta(rowId)` decide.
+
+Dos textos que mentían con el contrato nuevo, y eran peligrosos porque recargar
+DESCARTA lo local: `construirAvisoDesde` mandaba el primer conflicto de una
+fila-blob al mensaje «recarga la página y vuelve a aplicarlo», y
+`AvisoPersistencia` pintaba un botón «Recargar página» que con conflicto
+pendiente ES la salida que descarta el trabajo local, sin decirlo. Los dos
+corregidos.
+
+De paso: la pantalla de Tareas no renderizaba ningún `AvisoPersistencia` (el
+único estaba en el hub), y `App.dbSave` devolvía `undefined` cuando el guardia
+anti-pérdida de usuarios bloqueaba, que el `.then` leía como éxito.
+
+#### La fila `main` se escribe con UN solo payload (oct-2026)
+
+La escritura de `main` REEMPLAZA la fila completa, así que un campo que falte en
+un camino se borra. `payloadMain()` es el único armador, desde los refs, para el
+guardado manual y el auto-save.
+
+El defecto que lo motivó era peor de lo que parecía: `tareasOverridesRef` se
+creaba con `useRef(tareasOverrides)` y **nunca se sincronizaba** —faltaba el
+efecto espejo que sí tienen los otros nueve refs del bloque—, así que el payload
+llevaba el campo pero siempre con el valor inicial `{}`. **Cambiar la frecuencia
+de una tarea no se guardaba nunca**, por ningún camino. Fijado con
+`scripts/e2e/tareas-overrides.mjs`, que comprueba contra el almacén: cambiar la
+frecuencia, dejar transcurrir los dos guardados, recargar, y que la tarea
+aparezca en la pestaña de su frecuencia nueva sin haberse llevado por delante lo
+que ya estaba en la fila.
 
 #### Limitación conocida — pendiente con mes fuera del horizonte
 
