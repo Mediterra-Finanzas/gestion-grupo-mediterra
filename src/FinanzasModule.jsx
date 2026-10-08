@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import InputNumero from "./InputNumero.jsx";
 import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
@@ -16194,7 +16195,9 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
           </div>
         </div>
       )}
-      {modo==="vincular"&&(
+      {/* Portal: fuera de la tabla, así ni la opacidad de una fila pagada ni la columna
+          fija de Respaldo lo tapan. */}
+      {modo==="vincular"&&createPortal(
         <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center"}}>
         <div style={{background:C.bg2,border:`1px solid ${C.blue}`,borderRadius:10,padding:14,width:380,maxWidth:"94vw",boxShadow:"0 12px 32px rgba(0,0,0,0.3)",fontSize:11}}>
           <div style={{fontWeight:700,marginBottom:6}}>Vincular a vencimiento de crédito ({empresa})</div>
@@ -16209,9 +16212,9 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
             <button disabled={!sel} onClick={()=>{ const o=opciones.find(x=>x.key===sel); onVincular(it.id,{uid:uidCredito(o.c), vencKey:o.v.key, acreedor:o.c.acreedor, fecha:o.v.fecha, vinculadoPor:usuario?.nombre||"", ts:new Date().toISOString()}); setModo(null); }} style={btn(C.blue)}>Vincular</button>
           </div>
         </div>
-        </div>
+        </div>, document.body
       )}
-      {modo==="pagar"&&f&&(
+      {modo==="pagar"&&f&&createPortal(
         <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center"}}>
         <div style={{background:C.bg2,border:`1px solid ${C.green}`,borderRadius:10,padding:14,width:420,maxWidth:"94vw",boxShadow:"0 12px 32px rgba(0,0,0,0.3)",fontSize:11}}>
           <div style={{fontWeight:700,marginBottom:4}}>Confirmar pago efectivo · {vin.acreedor} cuota {fmtDate(vin.fecha)}</div>
@@ -16230,7 +16233,7 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
             <button disabled={enviando} onClick={confirmarPago} style={btn(C.green)}>{enviando?"Guardando…":"Registrar en Créditos"}</button>
           </div>
         </div>
-        </div>
+        </div>, document.body
       )}
     </div>
   );
@@ -16529,7 +16532,7 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                         detalle:vinc?`${vinc.acreedor} cuota ${vinc.fecha}`:`${x.creditoVinculo?.acreedor||""} cuota ${x.creditoVinculo?.fecha||""}`}]}:x))}/>
                 </td>
                 <td data-col-respaldo style={{padding:"3px 6px",textAlign:"center",whiteSpace:"nowrap",
-                  ...stickyRespaldo,background:C.card}}>
+                  ...stickyRespaldo,background:it.pagado?"#f2f9f4":i%2===0?C.card:C.rowAlt}}>
                   <button onClick={()=>setDocsItemId(it.id)} data-boton-respaldo
                     title={tieneRespaldo(it)?`${docsActivos(it).length} documento(s) de respaldo — ver, descargar o adjuntar otro`:"Sin respaldo — adjuntar documento"}
                     style={{background:`${C.border}33`,border:"none",borderRadius:5,
