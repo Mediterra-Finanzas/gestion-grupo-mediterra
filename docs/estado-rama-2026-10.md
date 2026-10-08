@@ -14,6 +14,13 @@ Correcciones a entregas anteriores:
 - El rollback se había verificado contra `8df9862`. `main` avanzó a **`3a9d33e`** el 07-10-2026 a las 12:07 UTC (otra sesión). La rama ya lo integró y el rollback se repitió contra ese commit (sección 6).
 - "Osiris marca cuotas pagadas sin control de rol" era **falso**: el cambio queda en borrador y "Guardar" exige el permiso del módulo.
 
+**Novedades (propuesta perfil + facultades):**
+- El conjunto preparado no se integra. Se reemplaza por la propuesta §4.7: perfil para ver y editar, más facultades explícitas por acción (aprobar asignadas, pagar, V°B°, aprobación final), independientes de la edición del módulo. Lucía conserva exactamente lo de hoy.
+- Nóminas por versión: los V°B° y aprobaciones van ligados a una versión; quien es autor de esa versión no la aprueba.
+- Frisku: tres personas sin ninguna configuración y una cuarta parcial; acceso efectivo por pestaña en §4.8.
+- Tabla única de decisiones en §4.9.
+- Sin cambios de código ni pruebas. Autorización en el servidor: trabajo separado. Merge y despliegue pendientes.
+
 **Novedades (permisos reales, 08-10-2026):**
 - Matriz con los permisos reales: solo diferencias, separadas en configurado, regla fija y configurado sin efecto (§4.6). El archivo no se sube a la rama.
 - **El conjunto de permisos preparado chocaría con dos configuraciones explícitas** de una usuaria con rol consulta (Lucía Corbetto): edición del flujo y aprobación asignada de dos personas. No se integra hasta que lo decidas.
@@ -364,6 +371,80 @@ Fuente: `permisos-2026-10-08.json`, generado con el extractor desde la fila `usu
   - Lucía y Cristobal (consulta) ven las nóminas.
 - **5. Consulta:** Lucía y Cristobal tienen aprobador asignado, así que **sí cargan rendiciones propias**. Hoy su nivel de Rendiciones queda en "editar" por no estar configurado.
 - **6. Pestañas sin configurar:** en Frisku afectan a 4 personas, que hoy editan liquidaciones sin configuración explícita. Tareas › config está en "editar" para Milagros, Carol, Michelle y Pablo.
+
+### 4.7 Propuesta: perfil + facultades explícitas (no implementada; reemplaza el conjunto preparado)
+
+El conjunto preparado **no se integra**. El bloqueo global del rol consulta no representa la operación (§4.6 D).
+
+**Modelo propuesto, en dos capas que no se mezclan:**
+1. **Perfil** (rol + módulos + nivel por pestaña): permisos generales de ver y editar. El rol consulta queda en "ver" por defecto.
+2. **Facultades explícitas por persona**: una lista cerrada de acciones concretas. Cada facultad autoriza **solo esa acción**: no da edición del módulo ni otras facultades, y la edición del módulo tampoco la da.
+
+| Facultad | Qué permite | Qué NO permite | Origen |
+|---|---|---|---|
+| Aprobar rendiciones asignadas | Aprobar, rechazar o devolver las rendiciones donde la persona es la aprobadora asignada | Ver las de otros, pagar, editar Finanzas | La asignación en el maestro de Rendiciones (ya existe); vale para cualquier rol, incluido consulta |
+| Marcar rendición pagada | Marcar como pagada una rendición aprobada y ver la lista "por pagar" | Aprobar, editar rendiciones, ver Finanzas | Nueva marca por persona, la asigna el admin |
+| Ver todas las rendiciones | Lectura de todas | Aprobar, pagar | `rendVerTodas` (ya existe) |
+| V°B° de nóminas | Ver nóminas en revisión, dar V°B° o devolver con comentario | Editar líneas o montos, preparar | Nueva marca; reemplaza la lista fija por nombre. **No requiere "editar" en la pestaña** |
+| Aprobación final de nóminas | Aprobar al final o devolver | Editar, preparar | Nueva marca; hoy es el rol admin |
+| Ver sueldos | Ver las nóminas (las líneas de remuneraciones) | Editar | La pestaña Nóminas en "ver" o "editar"; lista a confirmar |
+| Excepción de pestaña para consulta | Una pestaña concreta en "editar" pese al rol consulta | Ninguna otra pestaña ni facultad | El nivel configurado en esa pestaña, marcado como excepción |
+
+**Precedencia:** facultad explícita > perfil. El rol consulta pone el tope en "ver", **salvo** en una pestaña configurada explícitamente en "editar" (excepción) y en las facultades asignadas. Ninguna excepción se infiere: debe estar configurada, y se muestra como tal en Gestión de Usuarios.
+
+**Lucía Corbetto con este modelo:** conserva exactamente lo de hoy.
+- **Perfil:** consulta, todo en "ver".
+- **Excepción de pestaña:** flujo en "editar", tal como está configurado.
+- **Facultad:** aprobar las rendiciones asignadas de Lorena Pinto y Nicolás Fuenzalida, por la asignación del maestro.
+- **No gana nada.** Sigue sin pagar, sin ver todas las rendiciones, sin V°B° y sin editar créditos, bancos ni nóminas.
+- **Única diferencia con `main`:** Parámetros está configurado "sin acceso". En `main` lo puede editar porque esa pestaña no se aplica; en la propuesta se respeta lo configurado. Confírmalo.
+
+**Nóminas por versión:**
+- Cada nómina tiene un **número de versión**. Cualquier cambio relevante de §4.4 la sube.
+- Cada versión guarda sus **autores**: quien la preparó más quien la modificó (requiere registrar autor por cambio, hoy inexistente).
+- El V°B° y la aprobación final se registran **contra una versión**. Si la versión cambia, quedan invalidados (en el historial) y la nómina vuelve a revisión.
+- Nadie da V°B° ni aprobación final a una versión de la que es autor.
+- Si una misma persona puede dar el V°B° y la aprobación final de la misma versión: **pendiente de tu decisión**.
+
+**Servidor (trabajo separado):** esta matriz es la especificación que después debe comprobar el servidor (RLS o API con sesión, §5). Implementarla en la app no la protege. Los dos trabajos se mantienen separados.
+
+### 4.8 Frisku: personas sin configuración y acceso efectivo por pestaña (código de `main`)
+
+Pestañas que se ven: Resumen, Documentos, Contratos, Programa, Embarques, Liquidaciones, Reportería BI y Maestros + TC (incluye Clientes y Exportadoras).
+- **Resumen, Documentos y Reportería BI no se pueden configurar** en Gestión de Usuarios: quedan visibles y, salvo rol consulta, en "editar".
+- La clave "dashboard" sí se configura, pero **no tiene efecto**.
+
+**Tres o cuatro personas.** **Tres** personas no tienen ninguna pestaña de Frisku configurada. Una **cuarta** (Raimundo Valenzuela) tiene configuradas solo 4 de 8 claves; las otras 4 quedan en "editar" por defecto. Por eso dije "tres" en el chat y "cuatro" en §4.6.
+
+| Persona | Contratos | Programa | Embarques | Liquidaciones | Maestros (clientes, exportadoras) | Resumen / Documentos / BI | Origen |
+|---|---|---|---|---|---|---|---|
+| Carolina Lara | Editar | Editar | Editar | Editar | Editar | Ver/editar | Todo por defecto |
+| Denise Piaget | Editar | Editar | Editar | Editar | Editar | Ver/editar | Todo por defecto |
+| José Tomás Silva | Editar | Editar | Editar | Editar | Editar | Ver/editar | Todo por defecto |
+| Raimundo Valenzuela | Editar (configurado) | Editar (por defecto) | Editar (por defecto) | Editar (por defecto) | Clientes y exportadoras configurados; maestros por defecto | Ver/editar | Mixto |
+| Michelle Garcia (referencia) | Sin acceso | Ver | Ver | Ver | Maestros "ver"; clientes y exportadoras "sin acceso" | **Visibles: no se pueden restringir** | Configurado |
+
+Hallazgo: Documentos muestra a quien tenga el módulo los clientes y exportadoras con documentos faltantes, aunque tenga Clientes en "sin acceso" (caso Michelle). No se cambia nada: es información para tu decisión.
+
+### 4.9 Tabla única de decisiones (para tu confirmación)
+
+"Hoy" = configuración real + reglas del código de `main`. Nada de esto está implementado.
+
+| # | Facultad | Hoy (real) | Propuesta | Tú confirmas |
+|---|---|---|---|---|
+| 1 | Marcar rendiciones pagadas | Angelo, Milagros, Carol, Michelle, Pablo | Facultad explícita por persona | **Responsables de pago** |
+| 2 | Ver todas las rendiciones | Angelo, Milagros, Carol, Michelle, Pablo | Sin cambio (`rendVerTodas`) | Si se mantiene la lista |
+| 3 | Aprobar rendiciones asignadas | Según el maestro: Angelo (12), Marcos Gaete (4), Raimundo Valenzuela (3), Lucía Corbetto (2), Carol (las de Angelo), Cristopher Martinez (1) | Conservar todas, incluida Lucía (consulta), como facultad por asignación | Que la asignación a un usuario consulta es válida |
+| 4 | Editar el flujo de caja (Lucía, consulta) | Sí, configurado | Excepción explícita de pestaña; Parámetros queda "sin acceso", como está configurado | Excepción y Parámetros |
+| 5 | Preparar nóminas | Angelo, Carol, Milagros | Sin cambio | Lista |
+| 6 | V°B° de nóminas | Solo Carol en la práctica (Michelle, por nombre, tiene "ver") | Facultad explícita, sin requerir "editar"; nunca sobre una versión propia | **Titulares y reemplazo de V°B°** |
+| 7 | Aprobación final de nóminas | Angelo (rol admin) | Facultad explícita; nunca sobre una versión propia | Titular, reemplazo y si puede coincidir con el V°B° |
+| 8 | Ver nóminas (sueldos) | Angelo, Carol, Milagros (editar); Michelle, Pablo, Lucía, Cristobal (ver) | Solo quien confirmes | **Quiénes ven sueldos** |
+| 9 | Editar Contabilidad | Solo Angelo (por un error de código) | Michelle y Pablo, según la matriz borrador | Lista |
+| 10 | Editar liquidaciones Frisku | Raimundo, Carolina, Denise, José Tomás (todos por defecto) + Angelo | Configurar explícito lo que corresponda | **Responsables de liquidaciones** |
+| 11 | Otras pestañas Frisku sin configurar | Ver §4.8 | Configurar explícito; sin cambios automáticos | Por persona |
+| 12 | Editar la configuración de Tareas | Milagros, Carol, Michelle, Pablo (configurado) + Angelo | Sin cambio | Si se mantiene |
+| 13 | Excepciones de Nóminas (autoaprobación) | No existen | Solo con tu autorización por nómina, registrada | Quién puede autorizarlas |
 
 ## 5. Protección del servidor
 
