@@ -16318,7 +16318,12 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
   const montoLabel = soloUSD ? "Monto USD" : soloPEN ? "Monto PEN" : soloCLP ? "Monto CLP" : null;
   const headers = ["Tipo Doc","Proveedor / Nombre","RUT","N° Doc","F. Doc","F. Venc","Sem","Concepto",
     ...(soloUSD ? ["Monto USD"] : soloPEN ? ["Monto PEN"] : soloCLP ? ["Monto CLP"] : ["Monto CLP","Monto USD"]),
-    "Anticipo","Saldo a Pagar","Comentario","Crédito",""];
+    "Anticipo","Saldo a Pagar","Comentario","Crédito","Respaldo"];
+  // La columna de respaldo documental queda FIJA al borde derecho: con la columna
+  // Crédito la tabla es más ancha que la pantalla y el botón 📎 quedaba fuera de la
+  // vista (había que desplazar la tabla). Vincular un crédito es opcional e
+  // independiente: nunca reemplaza ni condiciona el respaldo.
+  const stickyRespaldo = { position:"sticky", right:0, zIndex:1, boxShadow:`-4px 0 6px -4px ${C.border}` };
   const colSpanTotal = 8;
   const colSpanEnd = soloUSD||soloCLP ? 2 : 2;
 
@@ -16338,8 +16343,9 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
             <tr style={{background:C.primary}}>
               {headers.map(h=>(
                 <th key={h} style={{padding:"6px 8px",color:"rgba(255,255,255,0.9)",fontWeight:600,fontSize:10,
-                  textAlign:h==="Monto CLP"||h==="Monto USD"||h==="Monto PEN"?"right":"left",
-                  whiteSpace:"nowrap",borderBottom:`1px solid rgba(255,255,255,0.12)`}}>{h}</th>
+                  textAlign:h==="Monto CLP"||h==="Monto USD"||h==="Monto PEN"?"right":h==="Respaldo"?"center":"left",
+                  whiteSpace:"nowrap",borderBottom:`1px solid rgba(255,255,255,0.12)`,
+                  ...(h==="Respaldo"?{...stickyRespaldo,background:C.primary}:{})}}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -16522,12 +16528,13 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                       historial:[...(x.historial||[]),{accion:vinc?"credito_vinculado":"credito_desvinculado",usuario:usuario?.nombre||"—",fecha:new Date().toISOString(),
                         detalle:vinc?`${vinc.acreedor} cuota ${vinc.fecha}`:`${x.creditoVinculo?.acreedor||""} cuota ${x.creditoVinculo?.fecha||""}`}]}:x))}/>
                 </td>
-                <td style={{padding:"3px 6px",textAlign:"center",whiteSpace:"nowrap"}}>
-                  <button onClick={()=>setDocsItemId(it.id)}
-                    title={tieneRespaldo(it)?`${docsActivos(it).length} documento(s) de respaldo`:"Sin respaldo — adjuntar documento"}
+                <td data-col-respaldo style={{padding:"3px 6px",textAlign:"center",whiteSpace:"nowrap",
+                  ...stickyRespaldo,background:C.card}}>
+                  <button onClick={()=>setDocsItemId(it.id)} data-boton-respaldo
+                    title={tieneRespaldo(it)?`${docsActivos(it).length} documento(s) de respaldo — ver, descargar o adjuntar otro`:"Sin respaldo — adjuntar documento"}
                     style={{background:`${C.border}33`,border:"none",borderRadius:5,
                       padding:"3px 7px",cursor:"pointer",fontSize:11,color:C.text,marginRight:3}}>
-                    {tieneRespaldo(it)?"🟢":"🔴"} 📎{docsActivos(it).length||""}
+                    {tieneRespaldo(it)?`🟢 📎 Ver (${docsActivos(it).length})`:"🔴 📎 Adjuntar"}
                   </button>
                   {canEdit&&(
                     <>
