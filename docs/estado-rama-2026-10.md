@@ -14,6 +14,12 @@ Correcciones a entregas anteriores:
 - El rollback se había verificado contra `8df9862`. `main` avanzó a **`3a9d33e`** el 07-10-2026 a las 12:07 UTC (otra sesión). La rama ya lo integró y el rollback se repitió contra ese commit (sección 6).
 - "Osiris marca cuotas pagadas sin control de rol" era **falso**: el cambio queda en borrador y "Guardar" exige el permiso del módulo.
 
+**Novedades (permisos reales, 08-10-2026):**
+- Matriz con los permisos reales: solo diferencias, separadas en configurado, regla fija y configurado sin efecto (§4.6). El archivo no se sube a la rama.
+- **El conjunto de permisos preparado chocaría con dos configuraciones explícitas** de una usuaria con rol consulta (Lucía Corbetto): edición del flujo y aprobación asignada de dos personas. No se integra hasta que lo decidas.
+- Nóminas: en la práctica, solo Carol puede dar el V°B° (Michelle tiene "ver") y puede hacerlo sobre nóminas que ella misma preparó.
+- Sin cambios de código ni pruebas.
+
 **Novedades (desarrollo detenido hasta revisar los permisos reales):**
 - Instrucciones para obtener el extractor desde la rama y abrirlo localmente, con SHA-256 para verificarlo (§4.5).
 - Procedimiento para actualizar la matriz cuando llegue el archivo: solo diferencias, separadas en configurado, regla fija y configurado sin efecto (§4.5).
@@ -301,6 +307,63 @@ Otra forma, con git: `git fetch origin claude/fervent-bell-uu6ae8` y luego `git 
 - **Configurado sin efecto:** se guarda pero el código no lo usa. Por ejemplo: `cadenaAprobacion`, la pestaña `params` en `main` y las pestañas de Allegria en `main`.
 
 Si quieres trabajar con los usuarios reales sin compartir el respaldo completo, la misma extracción local podría producir un archivo solo con los campos de permisos: nombre, rol, módulos, pestañas y marcas, sin PIN ni correos. Ya está hecho: §4.5.
+
+### 4.6 Permisos reales (archivo saneado del 08-10-2026): solo diferencias con los defaults
+
+Fuente: `permisos-2026-10-08.json`, generado con el extractor desde la fila `usuarios` de producción. **No se guarda en la rama.** Contiene 22 personas: las 6 de los defaults y 16 más. Abajo, "efecto" es el comportamiento del código de `main` (3a9d33e) con esa configuración [Seguro por lectura del código; no probado en producción].
+
+**A. Configurado distinto del default, con efecto**
+
+| Persona | Configuración real | Efecto hoy en `main` |
+|---|---|---|
+| Milagros Becerra | Módulos tareas, **finanzas** y **osiris**. Finanzas: bancos y **nóminas en "editar"**. Osiris: todo "editar". Tareas: **config "editar"** | Ve y **prepara nóminas**, carga saldos bancarios, edita Osiris y **edita la configuración de Tareas**. Con `rendVerTodas`, también **marca rendiciones pagadas** |
+| Carol Machuca | Finanzas: bancos y nóminas "editar"; **flujo, créditos, dashboard, reporte, parámetros y EEFF en "sin acceso"**. Tareas: config "editar" | Prepara nóminas **y da su V°B°** (está fija por nombre). **No ve el flujo de caja**: el default suponía acceso completo |
+| Michelle Garcia | Finanzas: bancos "editar", **nóminas "ver"**. **Frisku**: maestros, programa, embarques y liquidaciones "ver". Tareas: config "editar" | **No puede dar el V°B° de nóminas**: el código exige "editar" en la pestaña. En la práctica, el único V°B° posible es el de Carol |
+| Pablo Duran | Finanzas: bancos "editar", nóminas "ver". Tareas: config "editar" | Carga saldos bancarios y ve nóminas |
+| Lucía Corbetto (rol **consulta**, socia) | Ve casi todo. **Flujo en "editar"**. Rendiciones sin configurar | En `main` **edita el flujo de caja**: Finanzas no aplica el rol consulta. Además ve nóminas (sueldos), bancos y créditos. Es **aprobadora asignada** de las rendiciones de Lorena Pinto y Nicolás Fuenzalida |
+| Cristobal Ortiz (rol **consulta**, socio) | Finanzas casi todo "ver"; rendiciones sin configurar | Solo lectura en lo financiero. Ve nóminas |
+| Raimundo Valenzuela (CEO Frisku) | Frisku: clientes, contratos, dashboard y exportadoras "editar"; las demás pestañas de Frisku sin configurar. Finanzas: bancos "ver", **rendiciones "editar"**. Empresas: Frisku Foods y Frisku Foods Perú | Edita todo Frisku (lo no configurado queda en "editar"). Es aprobador asignado de 3 personas |
+| Carolina Lara, Denise Piaget, José Tomás Silva | Frisku **sin ninguna pestaña configurada** | Editan **todo** Frisku, incluidas liquidaciones, por el default "editar" (pregunta 6) |
+| Lorena Pinto (Comercial Osiris) | Osiris todo "ver" | Solo lectura en Osiris |
+| Otras 9 personas (operaciones y campo) | Solo rendiciones "ver" | Cargan sus propias rendiciones. Una está desactivada |
+| Aprobadores de rendiciones (`config.aprobadores`) | 22 asignaciones. Angelo aprueba a 12. Marcos Gaete aprueba a 4; Raimundo Valenzuela, a 3 de Frisku. **Lucía Corbetto (consulta) aprueba a Lorena Pinto y Nicolás Fuenzalida**. Las rendiciones de **Angelo las aprueba Carol** | Es la única configuración de aprobación que funciona |
+
+**B. Reglas fijas en el código (no se configuran)**
+- V°B° de nóminas: Carol Machuca y Michelle Garcia, por nombre, y además deben tener nóminas en "editar".
+- Aprobación final de nóminas: rol admin, es decir, solo Angelo.
+- El rol admin tiene acceso total en todo.
+- La pestaña Auditoría de Finanzas es solo para el admin.
+- El gerente técnico edita todo Osiris.
+- Marcar pagada: en `main` lo hace todo `rendVerTodas` + admin; en la rama, solo admin/CFO.
+- En la rama, el rol consulta tiene tope "ver" en Finanzas.
+
+**C. Configurado pero sin efecto**
+- `cadenaAprobacion`: está en 18 personas y el código no la usa. Casi siempre repite al aprobador del maestro. Discrepa en Jose Tomas Reyes (desactivado: cadena a Gaston Bejares, sin aprobador asignado) y Lorena Pinto (sin cadena; aprobadora asignada, Lucía Corbetto).
+- Auditoría en "ver" para Cristobal Ortiz: la pestaña es solo del admin.
+- Parámetros configurado ("sin acceso" o "ver") en todos: en `main` no tiene efecto; en la rama sí.
+- Las pestañas de Allegria de Lucía y Cristobal ("ver"): en `main` no se aplican, pero no cambia nada porque el rol consulta ya no edita Allegria.
+
+**D. Lo que el conjunto preparado cambiaría con estos datos reales (por eso no se integra todavía)**
+
+| Cambio del conjunto | A quién afecta | ¿Contradice algo configurado? |
+|---|---|---|
+| Consulta con tope "ver" en Finanzas | **Lucía Corbetto pierde la edición del flujo**, que tiene configurada explícitamente en "editar" | **Sí**: choca el rol consulta con una pestaña configurada. Decisión tuya |
+| Consulta no aprueba rendiciones | **Lucía Corbetto no podría aprobar las rendiciones de Lorena Pinto y Nicolás Fuenzalida**: quedarían sin aprobador efectivo, salvo admin/CFO | **Sí**: choca con una asignación explícita. Bloquearía un flujo legítimo |
+| Parámetros respeta su pestaña | Lucía deja de ver Parámetros (configurado "sin acceso", con flujo en "editar"). Nadie más cambia | No: aplica lo configurado |
+| Marcar pagada solo admin/CFO | Milagros, Carol, Michelle y Pablo dejan de pagar | No hay autorización explícita; es la pregunta 1 |
+| Allegria respeta pestañas | Nadie: los únicos con restricciones son los dos de consulta, que ya no editaban | No |
+
+**Ajuste a las preguntas de §4.3 con datos reales:**
+- **1. Marcar pagada:** hoy pagan Angelo, Milagros, Carol, Michelle y Pablo.
+- **2. Aprobación de rendiciones:** decidir si el rol consulta puede ser aprobador asignado (caso Lucía Corbetto) o si sus dos rendiciones asignadas pasan a otra persona.
+- **4. Nóminas:**
+  - Preparan Milagros, Carol y Angelo.
+  - Solo Carol puede dar el V°B° (Michelle tiene "ver").
+  - Solo Angelo aprueba al final.
+  - Carol puede preparar y dar el V°B° a la misma nómina.
+  - Lucía y Cristobal (consulta) ven las nóminas.
+- **5. Consulta:** Lucía y Cristobal tienen aprobador asignado, así que **sí cargan rendiciones propias**. Hoy su nivel de Rendiciones queda en "editar" por no estar configurado.
+- **6. Pestañas sin configurar:** en Frisku afectan a 4 personas, que hoy editan liquidaciones sin configuración explícita. Tareas › config está en "editar" para Milagros, Carol, Michelle y Pablo.
 
 ## 5. Protección del servidor
 
