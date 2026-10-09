@@ -235,7 +235,8 @@ dCrear("Las acciones de la pantalla, ejecutadas de verdad", () => {
 
     // El diálogo que se le muestra al usuario trae los números reales.
     expect(vistos.join(" ")).toMatch(/Diferencia que se aplica: US\$ 17983\.99/);
-    expect(vistos.join(" ")).toMatch(/Protegidas por factura o pago: 1/);
+    // El texto ya no les atribuye una factura a las filas que no la tienen.
+    expect(vistos.join(" ")).toMatch(/Protegidas \(factura, pago o proteccion conservada\): 1/);
 
     expect(guardado).not.toBe(null);
     const act = guardado[0].reajusteActivacion;
@@ -1839,6 +1840,23 @@ describe("D-12 · borrar un antecedente desde la pantalla no mueve el importe", 
     // "tiene factura o pago"; tiene la proteccion conservada.
     expect(t2).toMatch(/protegida: antecedentes retirados el 20\d\d-\d\d-\d\d · proteccion conservada/);
     expect(t2).not.toMatch(/protegida: tiene factura o pago/);
+    // Y la celda explica por que no se puede devolver la fila al calculo: es la
+    // unica frase que se lo dice al operador, y antes era una constante muerta.
+    const celda = [...document.querySelectorAll("td")]
+      .find((x) => /antecedentes retirados/.test(x.textContent));
+    expect(celda.getAttribute("title")).toMatch(/operacion economica con su propio flujo/);
+  });
+
+  test("vivo Y conservado a la vez: la celda nombra el vivo, no el retirado", () => {
+    // Sin red a nivel DOM, romper `soloPorConservada` hacia que la celda
+    // dijera "antecedentes retirados" sobre una fila con factura viva. Lo midio
+    // la revision: la contraprueba dejaba la suite de pantalla en verde.
+    const t = temporadaViva();
+    abrirCobrosCon(BASE({ [t]: { nFact: "1000",
+      proteccion: { motivos: ["número de factura 999"], desde: "2026-10-09" } } }), () => {});
+    const txt = document.body.textContent.replace(/\s+/g, " ");
+    expect(txt).toMatch(/protegida: tiene factura o pago/);
+    expect(txt).not.toMatch(/antecedentes retirados/);
   });
 
   test("con el antecedente vivo, la celda sigue diciendo que tiene factura", () => {

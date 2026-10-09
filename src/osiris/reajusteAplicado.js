@@ -194,7 +194,7 @@ export function antecedentesDeCobro(pagoDeTemporada) {
   // se conserva igual, por si el vivo se retira otra vez.
   const soloPorConservada = conservada && motivos.length === 0;
   if (soloPorConservada)
-    motivos.push("proteccion conservada: " + conservados.join("; ") +
+    motivos.push(PREFIJO_CONSERVADA + conservados.join("; ") +
       (txt(pr.desde) ? " (retirado el " + txt(pr.desde) + ")" : ""));
   return {
     hay: motivos.length > 0, motivos, overrideHa,
@@ -202,6 +202,8 @@ export function antecedentesDeCobro(pagoDeTemporada) {
     desdeConservada: pr ? txt(pr.desde) : "",
   };
 }
+
+export const PREFIJO_CONSERVADA = "proteccion conservada: ";
 
 export const MOTIVO_PROTECCION_CONSERVADA =
   "Se retiraron los antecedentes de cobro. La proteccion se conserva: levantarla es una " +
@@ -212,22 +214,43 @@ export const MOTIVO_PROTECCION_CONSERVADA =
 // sin antecedentes, se conserva lo que tenia. La edicion del campo se hace
 // igual -corregir un numero de factura es una tarea normal-; lo que no pasa
 // es que el importe vuelva al recalculo por eso.
+const vivos = (a) => (a.motivos || []).filter((m) => String(m).indexOf(PREFIJO_CONSERVADA) !== 0);
+
 export function conProteccionConservada(filaAntes, filaDespues, hoy) {
+  // 1 · Un registro ya conservado no se pierde por NINGUNA escritura, ni por
+  // una que lo borre explicitamente. No hay control de pantalla que lo escriba,
+  // pero la garantia es del modelo, no de que no exista el control.
+  const prev = ((filaAntes || {}).proteccion) || null;
+  const legibles = (pr) => (pr && Array.isArray(pr.motivos) ? pr.motivos.filter(txt) : []);
+  const previos = legibles(prev);
+  let base = filaDespues;
+  if (previos.length && !legibles((base || {}).proteccion).length)
+    base = Object.assign({}, base, { proteccion: { motivos: previos, desde: txt(prev.desde) } });
+
+  // 2 · Y si en esta edicion se retiro un antecedente VIVO, se conserva.
+  //
+  // Lo que decide no es si el despues "tiene algo" -la propia conservada
+  // cuenta-, sino si habia un antecedente vivo y dejo de haberlo. Mirar
+  // `despues.hay` congelaba el registro en el primer retiro: tras borrar,
+  // corregir el numero y volver a borrar, la pantalla seguia afirmando la
+  // factura y la fecha del primer retiro, que no eran las ultimas.
   const antes = antecedentesDeCobro(filaAntes);
-  const despues = antecedentesDeCobro(filaDespues);
-  if (!antes.hay || despues.hay) return filaDespues;
-  const previos = (filaAntes || {}).proteccion || null;
-  const motivos = previos && Array.isArray(previos.motivos) && previos.motivos.length
-    ? previos.motivos
-    : antes.motivos;
-  // El parrafo explicativo NO va dentro de la fila. `upd` audita cada cambio
-  // con JSON.stringify(...).slice(0,200), asi que guardarlo por fila dejaba la
-  // bitacora de cualquier edicion de cobros truncada hasta ser inutil: una fila
-  // con factura viva serializa en 29 caracteres y una con el parrafo en 275.
-  // El texto vive en una constante y lo muestran la pantalla y el modelo.
-  return Object.assign({}, filaDespues, {
+  if (!antes.hay) return base;
+  const retirados = vivos(antes);
+  if (!retirados.length) return base;                        // no habia nada vivo que retirar
+  if (vivos(antecedentesDeCobro(base)).length) return base;  // sigue habiendo uno vivo
+
+  // Se acumulan, sin repetir. Y la fila se reescribe completa, asi que una
+  // `proteccion` heredada con el parrafo adentro queda saneada al pasar por aca.
+  // El parrafo explicativo NO va dentro de la fila: `upd` audita cada cambio con
+  // JSON.stringify(...).slice(0,200), y guardarlo por fila dejaba la bitacora de
+  // cualquier edicion de cobros truncada hasta ser inutil -29 caracteres una fila
+  // con factura viva, 275 una con el parrafo-. El texto vive en
+  // `MOTIVO_PROTECCION_CONSERVADA` y lo muestra la pantalla, como ayuda de la
+  // celda de estado.
+  return Object.assign({}, base, {
     proteccion: {
-      motivos,
+      motivos: previos.concat(retirados.filter((m) => previos.indexOf(m) < 0)),
       desde: txt(hoy) || new Date().toISOString().slice(0, 10),
     },
   });
