@@ -40,7 +40,7 @@ import {
 import {
   reajusteDeFila as reajusteActivadoDeFila, estadoActivacion, previsualizarActivacion,
   puedeCrearActivacion, puedeEditarTerminos, activar as activarReajuste, desactivar as desactivarReajuste,
-  conProteccionConservada, bloqueoPorFechasSelladas,
+  conProteccionConservada, bloqueoPorFechasSelladas, MOTIVO_PROTECCION_CONSERVADA,
   puedeDesactivar, previsualizarDesactivacion, historialActivacion, identidadDe,
   reajusteOperativoConActivacion,
   hayRegistroVigente, hayRegistroDeActivacion, TERMINOS_BLOQUEABLES,
@@ -10136,7 +10136,8 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                       de una fecha de la fila, es la que el motor va a usar y la
                                       que el usuario confirma. Y una fila sin fecha sellada se
                                       nombra como pendiente, no como "sin efecto". */}
-                                  <td style={{padding:"4px 8px",fontSize:9,color:C.muted}}>
+                                  <td style={{padding:"4px 8px",fontSize:9,color:C.muted}}
+                                      title={(d.antecedentes||{}).soloPorConservada?MOTIVO_PROTECCION_CONSERVADA:undefined}>
                                     {/* Una fila protegida por un antecedente que YA se retiro no
                                         "tiene factura o pago": tiene la proteccion conservada, y
                                         decir lo primero seria describir algo que no esta. */}
@@ -10239,7 +10240,10 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                 const ok = window.confirm(
                                   "Activar el reajuste cambia importes.\n\n"+
                                   "Filas que cambian: "+prev.filasQueCambian+"\n"+
-                                  "Protegidas por factura o pago: "+prev.filasIntocables+"\n"+
+                                  // No se les atribuye una factura a las filas que ya no la
+                                  // tienen: la proteccion conservada protege igual, y nombrarla
+                                  // mal en el texto que se confirma es peor que en una celda.
+                                  "Protegidas (factura, pago o proteccion conservada): "+prev.filasIntocables+"\n"+
                                   "Bloqueadas por regla pendiente: "+prev.filasBloqueadasPorReglaPendiente+"\n"+
                                   "Diferencia que se aplica: US$ "+prev.diferenciaAplicada.toFixed(2)+"\n\n"+
                                   "¿Confirmas?");

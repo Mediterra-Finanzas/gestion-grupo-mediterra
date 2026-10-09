@@ -1414,12 +1414,35 @@ describe("D-12 · la proteccion de la Regla 4 se conserva", () => {
     expect(estadoActivacion(ida).activo).toBe(true);
   });
 
-  test("insistir no apila: la proteccion conserva lo que tenia la primera vez", () => {
+  // Esta prueba afirmaba que la fecha se refrescaba en cualquier edicion, y lo
+  // hacia pasando una fila SIN `proteccion`, que no es lo que produce la
+  // pantalla: `updRcPago` hace {...antes, [campo]:val}. Con la forma real no se
+  // refrescaba, asi que la prueba daba una impresion falsa. Lo encontro la
+  // revision. Ahora se mide lo que corresponde: la fecha se actualiza cuando se
+  // retira un antecedente vivo, y no cuando no se retira ninguno.
+  test("una edicion que no retira nada no mueve la fecha del registro", () => {
     const uno = conProteccionConservada({ nFact: "999" }, { nFact: "" }, "2026-10-09");
-    const dos = conProteccionConservada(uno, { nFact: "", pagado: false }, "2026-11-20");
+    // Forma real de la pantalla: se parte del antes y se cambia un campo.
+    const dos = conProteccionConservada(uno, Object.assign({}, uno, { fechaEst: "2030-04-01" }), "2026-11-20");
     expect(dos.proteccion.motivos).toEqual(uno.proteccion.motivos);
-    expect(dos.proteccion.desde).toBe("2026-11-20");
+    expect(dos.proteccion.desde).toBe("2026-10-09");          // no se retiro nada
     expect(antecedentesDeCobro(dos).hay).toBe(true);
+  });
+
+  test("y cada retiro nuevo se acumula con su fecha", () => {
+    const uno = conProteccionConservada({ nFact: "999" }, { nFact: "" }, "2026-10-09");
+    expect(uno.proteccion).toEqual({ motivos: ["número de factura 999"], desde: "2026-10-09" });
+    // Se corrige el numero: la fila queda protegida por el vivo.
+    const vuelve = Object.assign({}, uno, { nFact: "1000" });
+    expect(antecedentesDeCobro(vuelve).soloPorConservada).toBe(false);
+    // Y se borra otra vez, mas tarde: se acumula el 1000 y la fecha es la nueva.
+    const tres = conProteccionConservada(vuelve, Object.assign({}, vuelve, { nFact: "" }), "2026-11-20");
+    expect(tres.proteccion.motivos).toEqual(["número de factura 999", "número de factura 1000"]);
+    expect(tres.proteccion.desde).toBe("2026-11-20");
+    const a = antecedentesDeCobro(tres);
+    expect(a.soloPorConservada).toBe(true);
+    expect(a.motivos[0]).toMatch(/999; número de factura 1000 \(retirado el 2026-11-20\)/);
+    expect(total(ACTIVA({ "2029/2030": tres }))).toBeCloseTo(647533.99, 2);
   });
 
 });

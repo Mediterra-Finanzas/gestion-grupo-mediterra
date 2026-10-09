@@ -480,8 +480,9 @@ primeras quedaron corregidas; las dos últimas se declaran.
 cambio con `JSON.stringify(...).slice(0, 200)`. Al guardar el párrafo explicativo **dentro de
 cada fila**, la protección conservada se comía esa ventana: la revisión midió 29 caracteres para
 una fila con factura viva, **275** para una conservada y **823** con tres. El párrafo salió de la
-fila a una constante exportada (`MOTIVO_PROTECCION_CONSERVADA`) que muestran la pantalla y el
-modelo; la fila guarda sólo `{motivos, desde}`. Medido ahora: la conservación agrega **menos de
+fila a una constante exportada (`MOTIVO_PROTECCION_CONSERVADA`); la fila guarda sólo
+`{motivos, desde}`. (La constante quedó sin usar en ese commit y se corrigió después: ver la
+pasada corta más abajo.) Medido ahora: la conservación agrega **menos de
 90 caracteres** por fila. Lo que **no** se afirma: un `rcPagos` con varias temporadas conservadas
 sigue pasándose de 200. Eso es la deuda del audit, anterior a esto; lo que este arreglo evita es
 agravarla fila por fila. La prueba lo pincha en los dos sentidos.
@@ -534,6 +535,53 @@ del acta estaba sobrevendida y queda corregida acá.
 **Contrapruebas de estas tres correcciones**, cada una restaurada con hash idéntico: devolver el
 párrafo a la fila, informar el conservado siempre, y hacer que una edición quite la protección
 → caen **4** pruebas entre las dos suites.
+
+
+#### Y lo que encontró la pasada corta sobre esas correcciones
+
+Aprobó el delta y midió tres cosas que el acta decía y no eran así. Ninguna económica; las tres
+corregidas.
+
+**La constante era código muerto.** `MOTIVO_PROTECCION_CONSERVADA` existía y no la mostraba
+nadie, mientras el comentario y esta acta decían que la mostraban "la pantalla y el modelo". Es
+la única frase que le explica al operador por qué no puede devolver la fila al cálculo. Ahora la
+muestra la celda de estado como ayuda (`title`) cuando la protección es la conservada, y hay una
+prueba que lee ese atributo. El comentario del código quedó corregido también.
+
+**El registro se congelaba en el primer retiro.** Medido por la revisión: borrar la factura 999
+el 2026-10-09, corregirla a 1000, y borrarla otra vez el 2026-11-20 dejaba la pantalla afirmando
+*"antecedentes retirados el 2026-10-09"* y el registro nombrando la **999**, cuando lo último
+retirado fue la **1000** el **2026-11-20**. La causa: la decisión miraba `despues.hay`, y la
+propia conservada ya lo hacía verdadero. Ahora mira si había un antecedente **vivo** y dejó de
+haberlo: los motivos se acumulan sin repetir y la fecha es la del último retiro. Una edición que
+no retira nada no mueve la fecha. Las dos transiciones tienen prueba, y la de "insistir no apila"
+—que afirmaba lo contrario y pasaba porque usaba una forma que la pantalla no produce— quedó
+reescrita con la forma real (`{...antes, campo: valor}`, que es lo que hace `updRcPago`).
+
+De paso, esa reescritura **sanea las filas heredadas**: una fila escrita antes, con el párrafo
+adentro, queda limpia al pasar por la conservación. Y se agregó una garantía que la revisión
+había encontrado por accidente y convenía volver explícita: **ninguna escritura pierde un
+registro ya conservado**, ni siquiera una que lo borre a propósito. No hay control de pantalla que
+lo escriba, pero la garantía es del modelo, no de que el control no exista.
+
+**El diálogo de confirmación atribuía facturas que no estaban.** Decía *"Protegidas por factura o
+pago: N"* contando filas cuya protección es la conservada. El resumen de la pantalla dice
+"protegidas" sin atribuir razón, y ahí estaba bien; el texto que el usuario **confirma**, no.
+Ahora dice *"Protegidas (factura, pago o protección conservada): N"*.
+
+**Y una red que faltaba.** La revisión midió que romper `soloPorConservada` dejaba la suite de
+pantalla en verde: el caso "antecedente vivo **y** registro conservado a la vez" —donde la celda
+debe nombrar el vivo— sólo lo cazaba una prueba de modelo. Ahora tiene su prueba de pantalla.
+
+**Contrapruebas de estas cuatro**, cada archivo restaurado con hash idéntico: perder el registro
+conservado, volver a decidir con `despues.hay`, quitar la ayuda de la celda y volver al texto
+viejo del diálogo → cae **una prueba por cada una**.
+
+**Corrección a lo que esta acta decía de las contrapruebas anteriores.** Declaraba que las tres
+de la ronda previa sumaban 4 pruebas caídas. Eso era el resultado de revertirlas **juntas**; la
+revisión revirtió la conservación sola y midió **11**. No estaba exagerada —subdeclaraba la red,
+que es el lado conservador— pero estaba mal descrita, y así no se reproduce. Queda dicho: tres
+reversiones simultáneas, 4 caídas; la conservación sola, 11.
 
 
 **Lo que no se amplió, por instrucción expresa:** cohortes y fecha de término. Sus efectos quedan
