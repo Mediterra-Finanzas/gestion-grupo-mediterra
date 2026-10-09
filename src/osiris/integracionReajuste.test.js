@@ -1055,3 +1055,204 @@ describe("D-3 · el aviso del porcentaje no positivo no tapa nada", () => {
     expect(total(ct)).toBeCloseTo(655240.69, 2);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+// D-11 · La fecha que manda queda SELLADA, fila por fila.
+//
+// El defecto: el sello guardaba la REGLA y no la FECHA a la que resuelve, y
+// dos de las cuatro reglas leen su fecha de un campo editable del cobro
+// (`emision` lee `rcPagos[t].fechaEst`, `pago` lee `rcPagos[t].fechaPago`).
+// Con la regla "emision" sellada y sin fechas cargadas, la previa anunciaba
+// cero, la accion sellaba impacto confirmado 0 y cargarlas despues movia el
+// total de 629.550 a 655.240,69 (+25.690,69) sin previa ni confirmacion; mover
+// una sola fecha a 2099 lo llevaba a 1.050.741,67.
+//
+// Ahora: la activacion sella la fecha concreta de cada fila con su procedencia,
+// el motor calcula con esa fecha, y una fila sin fecha sellada queda PENDIENTE.
+describe("D-11 · el motor calcula con la fecha sellada, no con el campo", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const {
+    estadoActivacion, reajusteDeFila, previsualizarActivacion, sellarTerminos,
+    fechasSelladasDeFilas, REGLAS_POR_FILA, reajusteOperativoConActivacion,
+  } = require("./reajusteAplicado");
+  const { configReajuste } = require("./condicionesConfigurables");
+
+  const TEMPS = ["2026/2027", "2027/2028", "2028/2029", "2029/2030", "2030/2031"];
+  const total = (ct) => r2(filasDe(ct).reduce((s, f) => s + f.montoFact, 0));
+  const antesDe = (ct) => (f) => ((ct.rcPagos || {})[f.temporada] || null);
+  const conEst = (ct, fn) => Object.assign({}, ct, {
+    rcPagos: TEMPS.reduce((m, t, i) => (m[t] = Object.assign({}, (ct.rcPagos || {})[t], { fechaEst: fn(t, i) }), m), {}),
+  });
+  // Una activacion con la regla "emision" y las fechas YA SELLADAS. Se arma a
+  // mano porque la accion hoy rechaza crearla (ver el describe siguiente): el
+  // punto de estas pruebas es el MOTOR, que tiene que respetar el sello venga
+  // de donde venga.
+  const SELLADA = () => CONTRATO({
+    reajusteActivacion: Object.assign({}, ACTIVACION, {
+      reglaFecha: "emision", reglaFechaRespaldo: "Clausula sintetica 1.2.6",
+      sello: {
+        pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "emision",
+        fechasPorFila: TEMPS.reduce((m, t) => (m[t] = {
+          fecha: Number(t.split("/")[1]) + "-06-30",
+          origen: "emision", respaldo: "numero de factura sintetico",
+        }, m), {}),
+      },
+    }),
+  });
+  const HEREDADA = () => CONTRATO({
+    reajusteActivacion: Object.assign({}, ACTIVACION, {
+      reglaFecha: "emision", reglaFechaRespaldo: "Clausula",
+      sello: { pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "emision" },
+    }),
+  });
+
+  test("las dos reglas por fila estan declaradas como tales", () => {
+    expect(REGLAS_POR_FILA).toEqual(["emision", "pago"]);
+  });
+
+  test("con las fechas selladas, el motor aplica y da un importe estable", () => {
+    const ct = SELLADA();
+    expect(estadoActivacion(ct).activo).toBe(true);
+    expect(total(ct)).toBeGreaterThan(629550);
+    const d = reajusteDeFila(ct, filasDe(ct)[1], { mesCobro: ct.rcMesCobro, antecedentes: null });
+    expect(d.fechaSellada).toBe("2028-06-30");
+    expect(d.origenFechaSellada).toBe("emision");
+    expect(d.fechaNoSellada).toBe(false);
+  });
+
+  test("editar fechaEst despues NO mueve el importe sellado, ni con 2099", () => {
+    const ct = SELLADA();
+    const antes = total(ct);
+    expect(total(conEst(ct, () => "2024-01-15"))).toBe(antes);
+    expect(total(conEst(ct, (t, i) => (i === 1 ? "2099-06-30" : "2024-01-15")))).toBe(antes);
+    expect(total(conEst(ct, () => ""))).toBe(antes);
+    const dosmil99 = conEst(ct, (t, i) => (i === 1 ? "2099-06-30" : "2024-01-15"));
+    expect(dosmil99.reajusteActivacion.sello.fechasPorFila["2027/2028"].fecha).toBe("2028-06-30");
+  });
+
+  test("un sello con la regla por fila y SIN fechas: todas las filas pendientes", () => {
+    const ct = HEREDADA();
+    expect(estadoActivacion(ct).activo).toBe(true);
+    expect(total(ct)).toBe(629550);
+    expect(total(conEst(ct, (t) => Number(t.split("/")[1]) + "-06-30"))).toBe(629550);
+    const prev = previsualizarActivacion(ct, filasDe(ct), { mesCobro: ct.rcMesCobro, antecedentesDe: antesDe(ct) });
+    expect(prev.filasSinFechaSellada).toBe(5);
+    expect(prev.filasQueCambian).toBe(0);
+    expect(prev.detalle[0].fechaNoSellada).toBe(true);
+    expect(prev.detalle[0].motivo).toMatch(/pendiente de aplicacion/);
+  });
+
+  test("el aviso nombra las pendientes como pendientes, no como protegidas", () => {
+    const ro = reajusteOperativoConActivacion(HEREDADA(), { filas: { cambian: 0, protegidas: 0, pendientes: 5 } });
+    expect(ro.aviso).toMatch(/pendientes porque su fecha no quedo sellada/);
+    expect(ro.aviso).not.toMatch(/tienen factura o pago registrado y no se recalculan/);
+  });
+
+  test("una temporada fuera del sello queda pendiente, no se suma sola", () => {
+    const ct = SELLADA();
+    expect(total(ct)).toBeGreaterThan(629550);
+    const sinSello = Object.assign({}, ct, {
+      reajusteActivacion: Object.assign({}, ct.reajusteActivacion, {
+        sello: Object.assign({}, ct.reajusteActivacion.sello, {
+          fechasPorFila: { "2026/2027": { fecha: "2027-06-30", origen: "emision", respaldo: "x" } },
+        }),
+      }),
+    });
+    const prev = previsualizarActivacion(sinSello, filasDe(sinSello),
+      { mesCobro: ct.rcMesCobro, antecedentesDe: antesDe(sinSello) });
+    expect(prev.filasSinFechaSellada).toBe(4);
+    expect(r2(prev.totalAplicado)).toBe(r2(prev.totalBase));
+  });
+
+  test("las reglas deterministas no cambian: su fecha sale de la temporada", () => {
+    // `inicioPeriodoServicio` y `finPeriodoServicio` resuelven con
+    // `limitesTemporada`, que es funcion del rotulo de la temporada. No hay
+    // campo editable detras, asi que no se sellan por fila.
+    const ct = CONTRATO({ reajusteActivacion: Object.assign({}, ACTIVACION) });
+    expect(ct.reajusteActivacion.sello.reglaFecha).toBe("inicioPeriodoServicio");
+    expect(ct.reajusteActivacion.sello.fechasPorFila).toBeUndefined();
+    expect(total(ct)).toBeCloseTo(655240.69, 2);
+    expect(fechasSelladasDeFilas({ reglaFecha: "inicioPeriodoServicio" }, { filas: filasDe(ct) })).toBe(null);
+    expect(fechasSelladasDeFilas({ reglaFecha: "finPeriodoServicio" }, { filas: filasDe(ct) })).toBe(null);
+    const sello = sellarTerminos(configReajuste(ct), ct.reajusteActivacion,
+      { filas: filasDe(ct), antecedentesDe: antesDe(ct), mesCobro: ct.rcMesCobro });
+    expect(sello.fechasPorFila).toBeUndefined();
+  });
+
+  test("la previa sella lo mismo que la accion, por construccion", () => {
+    const b = CONTRATO({ reajusteActivacion: {
+      fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+      reglaFecha: "emision", reglaFechaRespaldo: "Clausula" } });
+    const ctx = { filas: filasDe(b), antecedentesDe: antesDe(b), mesCobro: b.rcMesCobro };
+    const selloPrevia = sellarTerminos(configReajuste(b), b.reajusteActivacion, ctx);
+    expect(selloPrevia.fechasPorFila).toEqual(fechasSelladasDeFilas(b.reajusteActivacion, ctx).fechas);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// D-11 · C · La accion RECHAZA lo que no puede sellar. Un impacto cero
+// causado por informacion ausente no se acepta.
+dCrear("D-11 · activar rechaza una regla por fila sin fecha que sellar", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const { activar } = require("./reajusteAplicado");
+  const TEMPS = ["2026/2027", "2027/2028", "2028/2029", "2029/2030", "2030/2031"];
+  const antesDe = (ct) => (f) => ((ct.rcPagos || {})[f.temporada] || null);
+  const base = (rcPagos) => CONTRATO(rcPagos ? { rcPagos } : undefined);
+  const args = (ct, regla) => Object.assign({}, DATOS_ACTIVACION, {
+    reglaFecha: regla, usuarioActual: USUARIO, puedeEditar: true, confirmado: true, impacto: 0,
+    filas: filasDe(ct), antecedentesDe: antesDe(ct), mesCobro: ct.rcMesCobro,
+  });
+
+  test("sin ninguna fecha estimada cargada: rechazada, y dice que falta en cada temporada", () => {
+    const ct = base();
+    const res = activar(ct, args(ct, "emision"));
+    expect(res.ok).toBe(false);
+    expect(res.motivo).toMatch(/NINGUNA fila tiene una fecha que se pueda sellar/);
+    expect(res.motivo).toMatch(/no tiene fecha estimada de factura cargada/);
+    expect(res.motivo).toMatch(/impacto de cero causado por informacion ausente/);
+    expect(res.faltan.length).toBe(5);
+    expect(res.contrato.reajusteActivacion).toBeUndefined();
+  });
+
+  test("con fecha estimada pero sin respaldo: rechazada, y lo dice", () => {
+    const ct = base(TEMPS.reduce((m, t) => (m[t] = { fechaEst: Number(t.split("/")[1]) + "-06-30" }, m), {}));
+    const res = activar(ct, args(ct, "emision"));
+    expect(res.ok).toBe(false);
+    expect(res.motivo).toMatch(/es una estimacion, no la fecha efectiva de emision/);
+    expect(res.contrato.reajusteActivacion).toBeUndefined();
+  });
+
+  test("con fecha estimada Y respaldo: rechazada por la Regla 4", () => {
+    const ct = base(TEMPS.reduce((m, t) => (m[t] = {
+      fechaEst: Number(t.split("/")[1]) + "-06-30", nFact: "900" + t.slice(2, 4) }, m), {}));
+    const res = activar(ct, args(ct, "emision"));
+    expect(res.ok).toBe(false);
+    expect(res.motivo).toMatch(/por la Regla 4 no se recalcula/);
+  });
+
+  test("la regla de pago tambien: su fecha es a su vez un antecedente", () => {
+    const ct = base(TEMPS.reduce((m, t) => (m[t] = { fechaPago: Number(t.split("/")[1]) + "-07-15" }, m), {}));
+    const res = activar(ct, args(ct, "pago"));
+    expect(res.ok).toBe(false);
+    expect(res.motivo).toMatch(/Regla 4/);
+    expect(res.contrato.reajusteActivacion).toBeUndefined();
+  });
+
+  test("sin pasarle las filas, la accion no sella la regla sola: rechaza", () => {
+    const ct = base();
+    const sinFilas = Object.assign({}, args(ct, "emision"));
+    delete sinFilas.filas;
+    const res = activar(ct, sinFilas);
+    expect(res.ok).toBe(false);
+    expect(res.motivo).toMatch(/no recibio las filas/);
+  });
+
+  test("una regla determinista sigue activando igual que siempre", () => {
+    const ct = base();
+    const res = activar(ct, args(ct, "inicioPeriodoServicio"));
+    expect(res.ok).toBe(true);
+    expect(res.contrato.reajusteActivacion.sello.reglaFecha).toBe("inicioPeriodoServicio");
+    expect(res.contrato.reajusteActivacion.sello.fechasPorFila).toBeUndefined();
+    expect(r2(filasDe(res.contrato).reduce((s, f) => s + f.montoFact, 0))).toBeCloseTo(655240.69, 2);
+  });
+});

@@ -1580,3 +1580,156 @@ describe("D-2 · tras retirar, los términos sellados tampoco se editan", () => 
     expect(puedeEditarTerminos(CONTRATO()).puede).toBe(true);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+// D-11 · La reproducción completa, desde la pantalla.
+//
+// Con la regla "emisión" y sin fechas estimadas cargadas, la pantalla mostraba
+// una previa de cero y la acción sellaba ese cero. Cargar las fechas después
+// movía el total de 629.550 a 655.240,69 sin previa ni confirmación. Ahora la
+// acción recibe las filas, no puede sellar ninguna fecha y rechaza diciendo
+// qué falta en cada temporada.
+dCrear("D-11 · la pantalla no deja sellar una regla por fila sin su fecha", () => {
+  const { estadoActivacion } = require("./reajusteAplicado");
+
+  // Propio, porque el de arriba vive dentro de otro describe.
+  const conDialogos = (respuestas, fn) => {
+    const orig = { confirm: window.confirm, prompt: window.prompt, alert: window.alert };
+    const vistos = [];
+    window.confirm = (x) => (vistos.push(String(x)), respuestas.confirm);
+    window.prompt = (x) => (vistos.push(String(x)), respuestas.prompt);
+    window.alert = (x) => { vistos.push(String(x)); };
+    try { fn(vistos); } finally { Object.assign(window, orig); }
+    return vistos;
+  };
+
+  const SIN_FECHAS = () => CONTRATO({
+    reajusteActivacion: {
+      activado: false, fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+      reglaFecha: "emision", reglaFechaRespaldo: "Clausula 1.2.6",
+    },
+  });
+
+  const abrir = (ct, onSave) => {
+    render(
+      <ControlContratos
+        data={[ct]} setData={onSave || (() => {})}
+        clientes={[]} setClientes={() => {}} viverosData={[]} setViveros={() => {}}
+        can={true} usuarioActual={USUARIO}
+        tiposAnexoPersist={[]} setTiposAnexoPersist={() => {}}
+        tiposContratoPersist={[]} setTiposContratoPersist={() => {}} />
+    );
+    fireEvent.click(screen.getByText(/Ver/));
+    fireEvent.click(screen.getByText(/Cobros derivados/));
+  };
+
+  test("la previa muestra las filas pendientes por fecha no sellada", () => {
+    abrir(SIN_FECHAS());
+    const t = document.body.textContent.replace(/\s+/g, " ");
+    expect(t).toMatch(/pendientes por fecha no sellada: 5/);
+    expect(t).toMatch(/pendiente: sin fecha sellada/);
+  });
+
+  test("activar queda rechazado dentro de la acción, y no escribe nada", () => {
+    let guardado = null;
+    const ct = SIN_FECHAS();
+    abrir(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const vistos = conDialogos({ confirm: true }, () => {
+      fireEvent.click(screen.getByText("Activar el reajuste"));
+    });
+    const texto = vistos.join(" ");
+    expect(texto).toMatch(/NINGUNA fila tiene una fecha que se pueda sellar/);
+    expect(texto).toMatch(/no tiene fecha estimada de factura cargada/);
+    expect(guardado).toBe(null);
+    expect(ct.reajusteActivacion.activado).toBe(false);
+    expect(ct.reajusteActivacion.sello).toBeUndefined();
+    expect(ct.reajusteActivacion.historial).toBeUndefined();
+    expect(estadoActivacion(ct).activo).toBe(false);
+    expect(totalDe(ct)).toBe(629550);
+  });
+
+  test("y cargar las fechas después tampoco enciende nada: no hay registro", () => {
+    const ct = SIN_FECHAS();
+    const conFechas = Object.assign({}, ct, {
+      rcPagos: ["2026/2027", "2027/2028", "2028/2029", "2029/2030", "2030/2031"]
+        .reduce((m, t) => (m[t] = { fechaEst: Number(t.split("/")[1]) + "-06-30" }, m), {}),
+    });
+    expect(totalDe(conFechas)).toBe(629550);
+    expect(estadoActivacion(conFechas).activo).toBe(false);
+  });
+
+  test("con una regla determinista, la misma pantalla activa normalmente", () => {
+    let guardado = null;
+    const ct = CONTRATO({
+      reajusteActivacion: {
+        activado: false, fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+        reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula 1.2.5",
+      },
+    });
+    abrir(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    conDialogos({ confirm: true }, () => {
+      fireEvent.click(screen.getByText("Activar el reajuste"));
+    });
+    expect(guardado).not.toBe(null);
+    expect(guardado[0].reajusteActivacion.sello).toEqual({
+      pct: 2, fechaReferencia: "2026-07-01", reglaFecha: "inicioPeriodoServicio",
+    });
+    expect(totalDe(guardado[0])).toBeCloseTo(655240.69, 2);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// D-6 · COBERTURA DE INTERFAZ, no bloqueo económico.
+//
+// Esto se separa a propósito. El bloqueo económico de los ocho términos lo
+// sostiene `upR`, que rechaza por lista y avisa: revertir estas cuatro
+// condiciones `disabled` NO abre ningún agujero de importes, y así lo midió la
+// revisión. Lo que vuelve sin ellas es el defecto de interfaz que D-6
+// describía: el campo se deja escribir, se teclea y se pierde lo tecleado.
+// La revisión anterior encontró que estas cuatro no tenían ninguna prueba.
+describe("D-6 · los ocho controles de términos quedan deshabilitados (interfaz)", () => {
+  const VIGENTE = (extra) => CONTRATO(Object.assign({
+    reajusteActivacion: Object.assign({}, ACTIVACION, { reglaFechaRespaldo: "Clausula 1.2.5" }),
+  }, extra || {}));
+
+  const deshabilitado = (ct, buscar) => {
+    const { container } = abrirFacturacion(ct, () => {});
+    const el = buscar(container.ownerDocument);
+    expect(el).toBeTruthy();
+    expect(el.disabled).toBe(true);
+  };
+
+  test('"Se aplica desde" está deshabilitado', () => {
+    deshabilitado(VIGENTE(), (d) => [...d.querySelectorAll('input[type="date"]')]
+      .find((x) => ((x.parentElement || {}).textContent || "").includes("Se aplica desde")));
+  });
+
+  test("con tipo índice, el índice está deshabilitado", () => {
+    deshabilitado(VIGENTE({ reajuste: { tipo: "indice", indice: "IPC", fuente: "INE", fechaBase: "2026-01-01",
+      desde: "2026-07-01", referencia: "Clausula 1.2.5", confirmado: true } }),
+      (d) => [...d.querySelectorAll("input")]
+        .find((x) => ((x.parentElement || {}).textContent || "").includes("Indice")));
+  });
+
+  test("con tipo índice, la fuente está deshabilitada", () => {
+    deshabilitado(VIGENTE({ reajuste: { tipo: "indice", indice: "IPC", fuente: "INE", fechaBase: "2026-01-01",
+      desde: "2026-07-01", referencia: "Clausula 1.2.5", confirmado: true } }),
+      (d) => [...d.querySelectorAll("input")]
+        .find((x) => ((x.parentElement || {}).textContent || "").includes("Fuente")));
+  });
+
+  test("con tipo índice, la fecha base está deshabilitada", () => {
+    deshabilitado(VIGENTE({ reajuste: { tipo: "indice", indice: "IPC", fuente: "INE", fechaBase: "2026-01-01",
+      desde: "2026-07-01", referencia: "Clausula 1.2.5", confirmado: true } }),
+      (d) => [...d.querySelectorAll('input[type="date"]')]
+        .find((x) => ((x.parentElement || {}).textContent || "").includes("Fecha base")));
+  });
+
+  test("sin registro, los cuatro siguen abiertos", () => {
+    const ct = CONTRATO();
+    const { container } = abrirFacturacion(ct, () => {});
+    const desde = [...container.ownerDocument.querySelectorAll('input[type="date"]')]
+      .find((x) => ((x.parentElement || {}).textContent || "").includes("Se aplica desde"));
+    expect(desde.disabled).toBe(false);
+  });
+});

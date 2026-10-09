@@ -254,6 +254,92 @@ en la base, no es regresión**— y la revisión lo dejó como camino de código
 pantalla. Y las dos fallas conocidas del repositorio (`paramsFrutaAnticipos`,
 `FriskuSharePointBuscador`) están fuera de `src/osiris/`: no las observó.
 
+### D-11 · La fecha que manda queda sellada, fila por fila
+
+Lo encontró la novena revisión y lo verifiqué de forma independiente. **El sello guardaba la
+regla, no la fecha a la que esa regla resuelve.** Dos de las cuatro reglas leen su fecha de un
+campo del cobro que se edita todos los días:
+
+| Regla | De dónde sale su fecha | ¿Campo editable? |
+|---|---|---|
+| `inicioPeriodoServicio` | `limitesTemporada(temporada).desde` | **No**: función del rótulo "2026/2027" |
+| `finPeriodoServicio` | `limitesTemporada(temporada).hasta` | **No**: lo mismo |
+| `emision` | `rcPagos[temporada].fechaEst` | **Sí** |
+| `pago` | `rcPagos[temporada].fechaPago` | **Sí** |
+
+La reproducción, medida de punta a punta sobre el caso sintético de 41,97 há × US$ 3.000 al 2 %:
+
+| Paso | Resultado |
+|---|---|
+| Vista previa al activar con regla "emisión", sin `fechaEst` cargada | 0 filas cambian, **diferencia aplicada 0** |
+| `activar()` con esa previa | **aceptaba**: sello `{2, 2026-07-01, emision}`, historial con **impacto confirmado 0**, total 629.550 |
+| Alguien carga después las fechas estimadas de factura | total **655.240,69**, **+25.690,69** |
+| Mover una sola fecha a 2099 | total **1.050.741,67** |
+| | el sello intacto, el historial con un solo evento |
+
+`estadoActivacion().activo` era `true` en los dos estados: no se apagaba el sello, se movía el
+ancla. Por eso ninguna de las guardas B-1 a B-4 lo veía — vigilan lo que **apaga** el registro.
+No existe en la base `9d90ed2`, así que **lo introdujo este paquete**; y estaba latente, porque
+sin ninguna activación real nadie podía dispararlo.
+
+**Lo que se implementó (A + C, autorizado).**
+
+**A · El sello guarda la fecha concreta de cada fila.** Para las dos reglas por fila, el sello
+lleva `fechasPorFila: {temporada: {fecha, origen, respaldo}}`. El motor calcula con esa fecha y
+**no vuelve a leer el campo**: editar `fechaEst` o `fechaPago` después no mueve el reajuste
+confirmado. La vista previa muestra la fecha sellada y su procedencia en la columna de estado, y
+la simulación sella con el mismo contexto de filas que la acción, así que previa y acción no
+pueden discrepar por construcción.
+
+**Una fila sin fecha sellada queda PENDIENTE de aplicación**, no aplicada: una temporada que
+aparece después —una cohorte nueva, o una activación heredada que selló la regla y no las
+fechas— no incorpora un efecto que nadie confirmó. El aviso la nombra como pendiente, no como
+"protegida por factura", que es otra cosa.
+
+**C · La acción rechaza lo que no puede sellar.** Si la regla declarada depende de una fecha de
+la fila y ninguna fila tiene una fecha sellable, `activar()` rechaza y dice, temporada por
+temporada, qué falta. No se registra nada. Y si la acción no recibe las filas, tampoco sella la
+regla sola: rechaza.
+
+**La consecuencia que hay que leer completa, porque es una decisión pendiente.** Para la regla
+"emisión" hacen falta dos cosas: la fecha y su respaldo. Una `fechaEst` sola es una
+**estimación**, y no se la trata como fecha efectiva de emisión. El respaldo de una emisión es
+su antecedente de facturación — y la Regla 4 no recalcula las filas con antecedentes. Las dos
+condiciones son hoy mutuamente excluyentes, así que **la regla "emisión" no tiene ninguna
+aplicación alcanzable**: con fecha sin respaldo se rechaza por estimación, y con respaldo se
+rechaza por Regla 4. Con "pago" es más directo todavía: `fechaPago` **es** un antecedente de
+cobro. El mecanismo de sellado queda implementado y probado, y el motor respeta un sello que
+traiga fechas; lo que no hay es un camino por el que la acción las produzca.
+
+Esto **no se resolvió inventando un respaldo que no existe**. Si el grupo necesita una regla
+anclada a la emisión real, hace falta una fecha efectiva de emisión con su propio respaldo,
+distinta de la estimada, y eso es diseño de otra entrega. Queda planteado, no implementado.
+
+**Las dos reglas deterministas no se tocaron**, y conviene decir por qué: su fecha sale de
+`limitesTemporada`, que es una función del rótulo de la temporada, no de un campo editable. No
+hay dependencia de dato mutable que sellar. Sus importes no se mueven: el caso conocido sigue
+dando 655.240,69.
+
+**Lo que sigue abierto y declarado, igual que antes.** El conjunto de filas depende de
+`rcCohortes` y de `fechaTermino`, que son datos operativos y siguen editables por decisión
+expresa: 41,97 → 50 há lleva el total de 655.240,69 a 780.606,02. Eso no cambió con esta
+corrección y no está en su alcance.
+
+**Contrapruebas, cada una restaurada con hash idéntico:**
+
+| | Qué se revirtió | Pruebas que caen |
+|---|---|---|
+| **CP-A** | el motor vuelve a leer el campo mutable en vez del sello | **4** |
+| **CP-C** | la acción deja de rechazar lo que no puede sellar | **6** |
+| **CP-A2** | la fila sin fecha sellada vuelve a tomar el ajuste sola | **7** |
+| **CP-D6** | las cuatro condiciones `disabled` de D-6 | **4** (cobertura de interfaz, ver abajo) |
+
+**D-6 queda separado a propósito.** El bloqueo económico de los ocho términos lo sostiene `upR`,
+que rechaza por lista y avisa; revertir esas cuatro condiciones `disabled` no abre ningún agujero
+de importes, y la revisión lo midió. Lo que vuelve sin ellas es el defecto de interfaz: el campo
+se deja escribir y se pierde lo tecleado. La cobertura nueva es de interfaz y está rotulada así.
+
+
 ## 3 · Recuperación
 
 **Estado: compatible y probada en local; pendiente de despliegue y certificación.** No está

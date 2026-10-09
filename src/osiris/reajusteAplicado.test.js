@@ -44,6 +44,20 @@ const CT = (reaj, act, extra) => Object.assign(
   extra || {}
 );
 const FILA = (temporada, montoFact) => ({ temporada, montoFact });
+// Desde D-11, para las dos reglas que dependen de una fecha de la fila
+// -"emision" y "pago"- el ancla es la fecha SELLADA, no el campo que se lee
+// en el momento. Estas pruebas ejercitan el MECANISMO del ancla, asi que
+// sellan la misma fecha que le pasan como antecedente. Lo que la ACCION
+// acepta o rechaza al activar se prueba aparte, en integracionReajuste.
+const SELLANDO = (ct, fechas) => Object.assign({}, ct, {
+  reajusteActivacion: Object.assign({}, ct.reajusteActivacion, {
+    sello: Object.assign({}, (ct.reajusteActivacion || {}).sello, {
+      fechasPorFila: Object.keys(fechas).reduce((m, t) => (m[t] = {
+        fecha: fechas[t], origen: (ct.reajusteActivacion || {}).reglaFecha, respaldo: "respaldo sintetico",
+      }, m), {}),
+    }),
+  }),
+});
 // Emisión fuera de la temporada para aislar la regla del aniversario.
 const EMI = (f) => ({ fechaEst: f });
 
@@ -142,13 +156,23 @@ describe("3 · las cuatro fechas son distintas y ninguna manda por defecto", () 
     const r = reajusteDeFila(ct, FILA("2030/2031", 100), { mesCobro: "Abril" });
     expect(r.aplica).toBe(false);
     expect(r.ajustado).toBe(100);
-    expect(r.motivo).toMatch(/esa fecha no está cargada en esta fila/);
+    // Sin fecha sellada la fila queda PENDIENTE, no aplicada.
+    expect(r.fechaNoSellada).toBe(true);
+    expect(r.motivo).toMatch(/esta fila no tiene fecha sellada/);
+    // Y con la fecha sellada, el ancla es ESA y no la estimacion del motor:
+    // el motor estimaria 2031-04-01, que daria 4 periodos desde 2026-03-15.
+    const sellado = SELLANDO(ct, { "2030/2031": "2030-08-01" });
+    const s2 = reajusteDeFila(sellado, FILA("2030/2031", 100), { mesCobro: "Abril" });
+    expect(s2.fechaSellada).toBe("2030-08-01");
+    expect(s2.periodos).toBe(4);
+    expect(s2.fechas.cobroEstimadoPorElMotor.toISOString().slice(0, 10)).toBe("2031-04-01");
   });
 
   test("la regla elegida cambia el ancla, y eso se nota", () => {
     // Emisión vs inicio del período del servicio, sobre la misma fila.
     const ancla = Object.assign({}, ACT_OK, { fechaReferencia: "2026-07-01" });
-    const porEmision = CT(REAJ(), ancla);
+    const porEmision = SELLANDO(CT(REAJ(), ancla),
+      { "2028/2029": "2029-04-01", "2027/2028": "2028-04-01" });
     const porInicio = CT(REAJ(), Object.assign({}, ancla, { reglaFecha: "inicioPeriodoServicio" }));
     const ante = { fechaEst: "2029-04-01" };
     const a = reajusteDeFila(porEmision, FILA("2028/2029", 100), { antecedentes: ante });
@@ -179,7 +203,8 @@ describe("3 · las cuatro fechas son distintas y ninguna manda por defecto", () 
     expect(conPago.ajustado).toBe(100);
     const sinPago = reajusteDeFila(porPago, FILA("2028/2029", 100), { antecedentes: {} });
     expect(sinPago.aplica).toBe(false);
-    expect(sinPago.motivo).toMatch(/esa fecha no está cargada en esta fila/);
+    expect(sinPago.fechaNoSellada).toBe(true);
+    expect(sinPago.motivo).toMatch(/esta fila no tiene fecha sellada/);
   });
 });
 
@@ -245,7 +270,10 @@ describe("5 · con configuración antigua operando, la nueva NO se presenta como
 
 // ══════════════════════════════════════════════════════════════════
 describe("6 · el aniversario dentro del período del servicio BLOQUEA la aplicación", () => {
-  const ct = CT(REAJ(), ACT_OK);   // referencia 2026-03-15 → aniversarios en marzo
+  // referencia 2026-03-15 → aniversarios en marzo. Las fechas van selladas:
+  // es el ancla que la activacion habria fijado.
+  const ct = SELLANDO(CT(REAJ(), ACT_OK),
+    { "2026/2027": "2027-04-01", "2027/2028": "2028-04-01", "2028/2029": "2029-04-01" });
 
   test("se detecta que cae dentro del período", () => {
     const d = aniversarioDentroDeTemporada("2026-03-15", "2026/2027");
@@ -372,7 +400,8 @@ describe("9 · activado y sin ambigüedad: ahí sí aplica", () => {
   // Referencia 1 de enero → aniversarios el 1 de enero, que cae dentro de la
   // temporada julio–junio. Para aislar el cálculo se usa una referencia cuyo
   // aniversario coincide con el inicio del período: 1 de julio.
-  const ct = CT(REAJ(), Object.assign({}, ACT_OK, { fechaReferencia: "2026-07-01" }));
+  const ct = SELLANDO(CT(REAJ(), Object.assign({}, ACT_OK, { fechaReferencia: "2026-07-01" })),
+    { "2026/2027": "2027-04-01", "2027/2028": "2028-04-01", "2028/2029": "2029-04-01" });
 
   test("un período cumplido compone una vez", () => {
     const r = reajusteDeFila(ct, FILA("2027/2028", 125910), { antecedentes: EMI("2028-04-01") });
