@@ -166,7 +166,7 @@ describe("La pantalla muestra lo que el motor calcula", () => {
     expect(t).toMatch(/\$629\.550/);               // ningún importe se movió
     expect(t).toMatch(/NO llevan el reajuste, aunque esté activado/);
     expect(t).toMatch(/NINGUNA temporada de esta pantalla lo lleva/);
-    expect(t).toMatch(/las 5 que hay tienen factura o pago/);
+    expect(t).toMatch(/las 5 con factura o pago registrado no se recalculan/);
     expect(t).not.toMatch(/Estos montos YA llevan el reajuste/);
     expect(t).toMatch(/sin efecto en estas temporadas/);
   });

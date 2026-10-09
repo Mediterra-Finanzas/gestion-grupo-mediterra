@@ -9714,7 +9714,8 @@ Motivo del retiro:`, "");
               const previaRC=previsualizarActivacion(r, rcRowsBase,
                 {mesCobro:r.rcMesCobro, antecedentesDe:antecedentesDeFila, actualPorTemporada});
               const filasRC={cambian:previaRC.filasQueCambian, protegidas:previaRC.filasIntocables,
-                pendientes:previaRC.filasSinFechaSellada};
+                pendientes:previaRC.filasSinFechaSellada,
+                protegidasConservadas:previaRC.filasProtegidasConservadas};
               const avisoRC=reajusteOperativoConActivacion(r, {filas:filasRC});
               // Royalty Planta por tandas de plantas (entrada directa en el contrato).
               const totPlantasC=(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0);

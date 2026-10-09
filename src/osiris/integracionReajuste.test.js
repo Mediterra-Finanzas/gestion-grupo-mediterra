@@ -622,7 +622,7 @@ describe("R7 · el aviso solo afirma lo que puede saber", () => {
     const ro = reajusteOperativoConActivacion(activo(), { filas: { cambian: 0, protegidas: 5 } });
     expect(ro.llevanElAjuste).toBe(0);
     expect(ro.aviso).toMatch(/NINGUNA temporada de esta pantalla lo lleva/);
-    expect(ro.aviso).toMatch(/las 5 que hay tienen factura o pago/);
+    expect(ro.aviso).toMatch(/las 5 con factura o pago registrado no se recalculan/);
     expect(ro.titulo).toMatch(/sin efecto/);
   });
 
@@ -1441,7 +1441,7 @@ describe("D-12 · la proteccion de la Regla 4 se conserva", () => {
     expect(tres.proteccion.desde).toBe("2026-11-20");
     const a = antecedentesDeCobro(tres);
     expect(a.soloPorConservada).toBe(true);
-    expect(a.motivos[0]).toMatch(/999; número de factura 1000 \(retirado el 2026-11-20\)/);
+    expect(a.motivos[0]).toMatch(/999; número de factura 1000 \(ultimo retiro el 2026-11-20\)/);
     expect(total(ACTIVA({ "2029/2030": tres }))).toBeCloseTo(647533.99, 2);
   });
 
@@ -1538,5 +1538,112 @@ describe("D-12 · lo que la revision encontro del propio arreglo", () => {
       /(levantar|quitar|borrar|limpiar|retirar|eliminar|resetear|desproteger)/i.test(k) &&
       /proteccion/i.test(k));
     expect(quitan).toEqual([]);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// Lo que la última pasada encontró del arreglo del registro.
+describe("D-12 · el registro acumula con tope y por clase de antecedente", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const {
+    antecedentesDeCobro, conProteccionConservada, reajusteOperativoConActivacion,
+    MAX_MOTIVOS_CONSERVADOS,
+  } = require("./reajusteAplicado");
+  const total = (ct) => r2(filasDe(ct).reduce((s, f) => s + f.montoFact, 0));
+  const ACTIVA = (rcPagos) => CONTRATO({
+    reajusteActivacion: Object.assign({}, ACTIVACION), rcPagos: rcPagos || {},
+  });
+
+  // 2.b · Antes se cortaba cuando todavía quedaba un antecedente vivo, así que
+  // el que se retiraba primero no se registraba nunca.
+  test("un antecedente retirado mientras queda otro vivo SI se registra", () => {
+    const inicial = { nFact: "999", pagado: true };
+    expect(antecedentesDeCobro(inicial).motivos.length).toBe(2);
+    // Se borra la factura: queda "pagado" vivo, y la 999 tiene que constar.
+    const uno = conProteccionConservada(inicial, Object.assign({}, inicial, { nFact: "" }), "2026-10-09");
+    expect(uno.proteccion.motivos).toEqual(["número de factura 999"]);
+    expect(antecedentesDeCobro(uno).soloPorConservada).toBe(false);   // sigue el pagado
+    // Y se destilda pagado: se acumula, y ahora la conservada es la razon.
+    const dos = conProteccionConservada(uno, Object.assign({}, uno, { pagado: false }), "2026-11-20");
+    expect(dos.proteccion.motivos).toEqual(["número de factura 999", "marcada como pagada"]);
+    expect(dos.proteccion.desde).toBe("2026-11-20");
+    const a = antecedentesDeCobro(dos);
+    expect(a.soloPorConservada).toBe(true);
+    expect(a.motivos[0]).toMatch(/999; marcada como pagada/);
+    expect(total(ACTIVA({ "2029/2030": dos }))).toBeCloseTo(647533.99, 2);
+  });
+
+  // Y la otra cara: corregir el número NO es retirar nada, porque se compara
+  // por clase de antecedente y no por valor. Si se comparara por valor, cada
+  // corrección quedaría registrada como un retiro y el acumulado crecería con
+  // el trabajo normal.
+  test("corregir el numero no registra un retiro: se compara por clase", () => {
+    const uno = conProteccionConservada({ nFact: "999" }, { nFact: "1000" }, "2026-10-09");
+    expect(uno.proteccion).toBeUndefined();
+    const conPago = { nFact: "999", fechaPago: "2030-01-01" };
+    const dos = conProteccionConservada(conPago, Object.assign({}, conPago, { fechaPago: "2030-02-01" }), "2026-10-09");
+    expect(dos.proteccion).toBeUndefined();
+  });
+
+  // 2.a · Sin tope, cada valor distinto retirado agregaba un motivo y nada los
+  // recortaba: a los seis retiros el `rcPagos` de una sola fila pasaba los 200
+  // caracteres que audita la bitacora -el defecto de R-1, de vuelta por otra
+  // via- y el rotulo de la celda llegaba a 540 caracteres.
+  test("el acumulado tiene tope y la fila sigue entrando en la bitacora", () => {
+    let fila = { nFact: "F-0" };
+    for (let i = 1; i <= 20; i++) {
+      fila = conProteccionConservada(fila, Object.assign({}, fila, { nFact: "" }), "2026-10-0" + (i % 9 + 1));
+      fila = Object.assign({}, fila, { nFact: "F-" + i });
+    }
+    fila = conProteccionConservada(fila, Object.assign({}, fila, { nFact: "" }), "2026-11-20");
+    const pr = fila.proteccion;
+    expect(pr.motivos.length).toBe(MAX_MOTIVOS_CONSERVADOS);
+    expect(pr.motivos[0]).toMatch(/^\d+ retiros anteriores$/);       // el resto, contado
+    expect(JSON.stringify({ "2029/2030": fila }).length).toBeLessThan(200);
+    // Y sigue protegiendo.
+    expect(antecedentesDeCobro(fila).soloPorConservada).toBe(true);
+    expect(total(ACTIVA({ "2029/2030": fila }))).toBeCloseTo(647533.99, 2);
+    // El rotulo que se pinta queda acotado.
+    expect(antecedentesDeCobro(fila).motivos[0].length).toBeLessThan(180);
+  });
+
+  test("el conteo de retiros anteriores no se duplica al seguir acumulando", () => {
+    let fila = { nFact: "F-0" };
+    for (let i = 1; i <= 8; i++) {
+      fila = conProteccionConservada(fila, Object.assign({}, fila, { nFact: "" }), "2026-10-01");
+      fila = Object.assign({}, fila, { nFact: "F-" + i });
+    }
+    fila = conProteccionConservada(fila, Object.assign({}, fila, { nFact: "" }), "2026-11-20");
+    const c = /^(\d+) retiros anteriores$/.exec(fila.proteccion.motivos[0]);
+    expect(c).toBeTruthy();
+    // 9 retiros en total: 4 guardados con su texto + 5 contados.
+    expect(Number(c[1]) + (fila.proteccion.motivos.length - 1)).toBe(9);
+  });
+
+  // 2.c y el aviso: no se les atribuye factura a las filas que no la tienen.
+  test("el aviso cuenta aparte las protegidas por antecedente retirado", () => {
+    const ro = reajusteOperativoConActivacion(
+      CONTRATO({ reajusteActivacion: Object.assign({}, ACTIVACION) }),
+      { filas: { cambian: 0, protegidas: 3, protegidasConservadas: 1, pendientes: 0 } });
+    expect(ro.aviso).toMatch(/3 con factura, pago o proteccion conservada \(1 por antecedentes ya retirados\)/);
+    expect(ro.aviso).not.toMatch(/3 con factura o pago registrado/);
+  });
+
+  test("y si ninguna es conservada, el aviso dice lo de siempre", () => {
+    const ro = reajusteOperativoConActivacion(
+      CONTRATO({ reajusteActivacion: Object.assign({}, ACTIVACION) }),
+      { filas: { cambian: 0, protegidas: 3, protegidasConservadas: 0, pendientes: 0 } });
+    expect(ro.aviso).toMatch(/las 3 con factura o pago registrado no se recalculan/);
+    expect(ro.aviso).not.toMatch(/proteccion conservada/);
+  });
+
+  test("el resumen de filas cuenta las conservadas aparte", () => {
+    const { previsualizarActivacion } = require("./reajusteAplicado");
+    const conservada = conProteccionConservada({ nFact: "999" }, { nFact: "" }, "2026-10-09");
+    const ct = ACTIVA({ "2029/2030": conservada, "2030/2031": { nFact: "777" } });
+    const prev = previsualizarActivacion(ct, filasDe(ct),
+      { mesCobro: ct.rcMesCobro, antecedentesDe: (f) => ((ct.rcPagos || {})[f.temporada] || null) });
+    expect(prev.filasIntocables).toBe(2);
+    expect(prev.filasProtegidasConservadas).toBe(1);
   });
 });
