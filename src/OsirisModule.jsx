@@ -10137,7 +10137,12 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                       que el usuario confirma. Y una fila sin fecha sellada se
                                       nombra como pendiente, no como "sin efecto". */}
                                   <td style={{padding:"4px 8px",fontSize:9,color:C.muted}}>
-                                    {d.intocable?"protegida: tiene factura o pago"
+                                    {/* Una fila protegida por un antecedente que YA se retiro no
+                                        "tiene factura o pago": tiene la proteccion conservada, y
+                                        decir lo primero seria describir algo que no esta. */}
+                                    {d.intocable?(d.antecedentes&&d.antecedentes.conservada
+                                      ?"protegida: proteccion conservada"
+                                      :"protegida: tiene factura o pago")
                                       :d.reglaPendiente?"bloqueada: regla pendiente"
                                       :d.fechaNoSellada?"pendiente: sin fecha sellada"
                                       :d.aplica?`${d.periodos} periodo(s)${d.fechaSellada?` · fecha sellada ${d.fechaSellada} (${d.origenFechaSellada})`:""}`

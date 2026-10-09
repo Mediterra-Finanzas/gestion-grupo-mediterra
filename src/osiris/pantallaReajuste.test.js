@@ -1834,7 +1834,19 @@ describe("D-12 · borrar un antecedente desde la pantalla no mueve el importe", 
     expect(totalDe(recargado)).toBe(antes);
     expect(recargado.rcPagos[t].proteccion.motivos.join(" ")).toMatch(/999/);
     abrirCobrosCon(recargado, () => {});
-    expect(document.body.textContent.replace(/\s+/g, " ")).toMatch(/protegida: tiene factura o pago/);
+    const t2 = document.body.textContent.replace(/\s+/g, " ");
+    // Y lo dice por lo que es: el antecedente se retiro, asi que la fila no
+    // "tiene factura o pago"; tiene la proteccion conservada.
+    expect(t2).toMatch(/protegida: proteccion conservada/);
+    expect(t2).not.toMatch(/protegida: tiene factura o pago/);
+  });
+
+  test("con el antecedente vivo, la celda sigue diciendo que tiene factura", () => {
+    const t = temporadaViva();
+    abrirCobrosCon(BASE({ [t]: { nFact: "999" } }), () => {});
+    const txt = document.body.textContent.replace(/\s+/g, " ");
+    expect(txt).toMatch(/protegida: tiene factura o pago/);
+    expect(txt).not.toMatch(/protegida: proteccion conservada/);
   });
 
   test("corregirlo por otro numero tampoco mueve el total", () => {
