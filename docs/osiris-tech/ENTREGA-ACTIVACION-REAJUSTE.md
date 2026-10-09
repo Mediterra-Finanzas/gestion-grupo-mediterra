@@ -315,6 +315,10 @@ Esto **no se resolvió inventando un respaldo que no existe**. Si el grupo neces
 anclada a la emisión real, hace falta una fecha efectiva de emisión con su propio respaldo,
 distinta de la estimada, y eso es diseño de otra entrega. Queda planteado, no implementado.
 
+La décima revisión confirmó esta lectura por fuerza bruta y la extendió a "pago": `fechaEst` no
+figura en `antecedentesDeCobro()`, así que el respaldo sólo puede venir de `nFact`, `pagado`,
+`fechaPago`, `montoFacturado` o una parcialidad, y cualquiera de los cinco dispara la Regla 4.
+
 **Las dos reglas deterministas no se tocaron**, y conviene decir por qué: su fecha sale de
 `limitesTemporada`, que es una función del rótulo de la temporada, no de un campo editable. No
 hay dependencia de dato mutable que sellar. Sus importes no se mueven: el caso conocido sigue
@@ -333,6 +337,74 @@ corrección y no está en su alcance.
 | **CP-C** | la acción deja de rechazar lo que no puede sellar | **6** |
 | **CP-A2** | la fila sin fecha sellada vuelve a tomar el ajuste sola | **7** |
 | **CP-D6** | las cuatro condiciones `disabled` de D-6 | **4** (cobertura de interfaz, ver abajo) |
+
+#### Pérdida de capacidad, dicha como tal
+
+No es sólo una consecuencia: **las reglas "emisión" y "pago" pasaron de activables a imposibles
+de activar.** Antes de esta corrección se podían sellar (y ahí estaba el defecto); ahora
+`activar()` las rechaza siempre, porque ninguna fila puede cumplir a la vez las dos condiciones
+que la regla exige. La décima revisión lo midió por fuerza bruta: **0 de 256 combinaciones** de
+los siete campos de antecedente producen una fecha sellable, y **0 de 128 intentos** de activar
+con una regla por fila son aceptados.
+
+**Impacto sobre datos reales: cero.** El snapshot congelado tiene **0 activaciones**
+(`reajusteActivacion/activado`), **0 reglas de fecha** declaradas y **0 campos de sello**. No hay
+ninguna activación real que esta corrección apague, y no hay ningún contrato que quede sin poder
+activarse por una regla que ya hubiera elegido.
+
+La dirección del cambio es fail-safe: lo que no se puede sellar, no se activa. Pero el mecanismo
+de sellado por fila **sólo se ejercita hoy contra un estado que el propio sistema no puede
+producir** —las pruebas del motor construyen el sello a mano—, así que si una entrega futura
+agrega una fecha efectiva de emisión con su propio respaldo, ese camino correrá por primera vez
+sin haber sido recorrido de punta a punta. Queda anotado como riesgo de la entrega siguiente, no
+de ésta.
+
+#### Lo que sigue abierto, con cifras
+
+Medido sobre el caso de 41,97 há × US$ 3.000 al 2 % con la activación vigente (655.240,69):
+
+| Palanca | Efecto medido | Estado |
+|---|---|---|
+| `rcCohortes` 41,97 → 50 há | 655.240,69 → **780.606,02** (+125.365,33) | abierta, operativa, declarada por decisión expresa |
+| `fechaTermino` 2031-06-30 → 2033-06-30 (5 → 7 filas) | 655.240,69 → **936.050,61** (+280.809,92) | abierta; preexistente, idéntica en la base |
+| Borrar el `nFact` de una fila protegida | 647.533,99 → **655.240,69** (+7.706,70 en 2029/2030; la revisión midió +10.379,03 en otra temporada) | **abierta y no declarada hasta ahora** |
+| `valorRoyaltyComercial` 3.000 → 3.300 | movería a **720.764,77** (+65.524,08) | **cerrada** en la pantalla por B-4: con un registro no hay campo editable y `upProtegido` rechaza. La cifra es la magnitud que la guarda impide, no un camino abierto |
+
+La tercera merece su propio párrafo porque es un mecanismo distinto del de D-11. No mueve el
+ancla: **quita la protección de la Regla 4**. Una fila con factura cargada no se recalcula; al
+borrar ese antecedente la fila vuelve a entrar al cálculo y toma el ajuste, sin vista previa ni
+confirmación. `updRcPago` no tiene guarda de registro, igual que `fechaEst`. Es dato operativo de
+`rcPagos`, la categoría que quedó expresamente fuera del bloqueo, así que **se declara y no se
+cierra**; cerrarla es una decisión del CFO del mismo tipo que la de D-11.
+
+#### Qué está y qué no está respaldado por pruebas
+
+El sello **sí** protege lo que sella, y hay red para cada cosa: editar `reajuste.pct` a 20 deja
+el total en 655.240,69 y marca modificación pendiente; mover el campo `fechaReferencia` a 2020 no
+lo mueve; cambiar el campo `reglaFecha` a "emisión" después de activar con una determinista
+tampoco (la regla sellada sigue siendo la original).
+
+Dos cosas que **no** están respaldadas, y conviene que se lean acá y no en otro informe:
+
+1. **La afirmación "previa y acción no pueden discrepar" descansa en lectura de código para el
+   camino por fila, no en una prueba que pueda fallar.** La décima revisión reemplazó
+   `comoSiSeActivara(ct, contexto)` por `comoSiSeActivara(ct, undefined)` y las 26 suites
+   quedaron en verde: **contraprueba CP-D = 0**. No es que falte la prueba: hoy no puede fallar,
+   porque sin camino alcanzable las dos ramas producen el mismo `{}`. La prueba que antes
+   respaldaba la afirmación era tautológica —comparaba `sellarTerminos` con la función que
+   `sellarTerminos` llama— y se reemplazó por dos que sí pueden fallar: una compara fila por fila
+   lo que anuncia la previa con lo que el motor calcula después de activar de verdad, con la
+   regla determinista, que es la alcanzable; la otra comprueba que las temporadas que la previa
+   marca pendientes son exactamente las que la acción nombra como faltantes. La primera cae si
+   la previa simula un sello distinto del que sella la acción (medido: cae junto con otras seis).
+2. **Las pruebas del modelo que se adaptaron perdieron poder discriminante sobre la propiedad
+   corregida.** El helper `SELLANDO` les pasa la misma fecha dos veces —como antecedente y como
+   fecha sellada—, así que ya no distinguen si el motor lee el sello o el campo. Medido: con el
+   motor revertido a leer el campo, de todo `reajusteAplicado.test.js` falla **una sola** prueba,
+   y es la nueva. Lo que sostiene la propiedad son las tres de `integracionReajuste`, que son las
+   que caen en CP-A. Ninguna aserción de valor se bajó: los importes, los períodos, el bloqueo
+   por aniversario y los tres escenarios siguen exigiendo lo mismo.
+
 
 **D-6 queda separado a propósito.** El bloqueo económico de los ocho términos lo sostiene `upR`,
 que rechaza por lista y avisa; revertir esas cuatro condiciones `disabled` no abre ningún agujero

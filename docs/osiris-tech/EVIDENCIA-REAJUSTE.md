@@ -329,6 +329,23 @@ El `--testMatch` explícito y el `--testPathIgnorePatterns` no son adorno: sin e
 worktree el patrón por defecto resuelve con separadores mezclados y encuentra 0 pruebas; sin el
 segundo, jest recorre el `build/` de 16 MB.
 
+## 2 quinquies · Las contrapruebas de D-11, y la que vale cero
+
+| # | Qué se revirtió | Pruebas que caen |
+|---|---|---|
+| **CP-A** | el motor vuelve a leer el campo mutable en vez del sello | **4** |
+| **CP-C** | `activar()` deja de rechazar lo que no puede sellar | **6** |
+| **CP-A2** | la fila sin fecha sellada vuelve a tomar el ajuste sola | **7** (la revisión midió 5 con su propio parche; la diferencia es el parche, no el código) |
+| **CP-G** | la previa simula un sello distinto del que sella la acción | **7** |
+| **CP-D6** | las cuatro condiciones `disabled` de D-6 | **4**, cobertura de interfaz |
+| **CP-D** | `comoSiSeActivara` sella SIN el contexto de filas | **0** |
+
+**CP-D vale cero y queda escrito así.** No es una prueba que falte: hoy no puede fallar. Sin un
+camino alcanzable para las reglas por fila, sellar con contexto y sellar sin él producen el mismo
+`{}`, así que las dos ramas son indistinguibles por comportamiento. La afirmación "previa y
+acción no pueden discrepar" vale por lectura de código para ese camino, y por prueba para el
+camino alcanzable (la regla determinista), que es lo que mide CP-G.
+
 ## 3 · Lo que las pruebas NO cubren
 
 - **Render de React.** No hay pruebas de componente. Los defectos H1, H3, H7 y H8 de la primera

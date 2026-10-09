@@ -1179,13 +1179,79 @@ describe("D-11 · el motor calcula con la fecha sellada, no con el campo", () =>
     expect(sello.fechasPorFila).toBeUndefined();
   });
 
-  test("la previa sella lo mismo que la accion, por construccion", () => {
-    const b = CONTRATO({ reajusteActivacion: {
-      fechaReferencia: "2026-07-01", respaldo: "Comprobante",
-      reglaFecha: "emision", reglaFechaRespaldo: "Clausula" } });
-    const ctx = { filas: filasDe(b), antecedentesDe: antesDe(b), mesCobro: b.rcMesCobro };
-    const selloPrevia = sellarTerminos(configReajuste(b), b.reajusteActivacion, ctx);
-    expect(selloPrevia.fechasPorFila).toEqual(fechasSelladasDeFilas(b.reajusteActivacion, ctx).fechas);
+  // La revisión anterior midió que esta prueba era tautológica: comparaba
+  // `sellarTerminos` con `fechasSelladasDeFilas`, y la primera LLAMA a la
+  // segunda con esos mismos argumentos. No probaba la afirmación que
+  // respaldaba. Se reemplaza por dos que sí pueden fallar.
+  dCrear("la previa y la accion dicen lo mismo del mismo contrato", () => {
+    const antesDeC = (ct) => (f) => ((ct.rcPagos || {})[f.temporada] || null);
+
+    test("con una regla alcanzable: lo que anuncia la previa es lo que queda", () => {
+      // Regla determinista, que es la que hoy se puede activar. Si
+      // `comoSiSeActivara` sellara distinto de lo que sella `activar`, los
+      // importes de la previa y los de despues dejarian de coincidir.
+      const ct = CONTRATO({
+        reajusteActivacion: {
+          activado: false, fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+          reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula",
+        },
+        rcPagos: { "2029/2030": { nFact: "999", pagado: true } },
+      });
+      const filas = filasDe(ct);
+      const prev = previsualizarActivacion(ct, filas,
+        { mesCobro: ct.rcMesCobro, antecedentesDe: antesDeC(ct) });
+
+      const res = activar(ct, Object.assign({}, DATOS_ACTIVACION, {
+        reglaFecha: "inicioPeriodoServicio", usuarioActual: USUARIO, puedeEditar: true,
+        confirmado: true, impacto: prev.diferenciaAplicada,
+        filas, antecedentesDe: antesDeC(ct), mesCobro: ct.rcMesCobro,
+      }));
+      expect(res.ok).toBe(true);
+
+      // Fila por fila, el importe que la previa anuncio es el que el motor
+      // calcula despues de activar de verdad.
+      const despues = filasDe(res.contrato);
+      const porTemporada = despues.reduce((m, f) => (m[f.temporada] = r2(f.montoFact), m), {});
+      prev.detalle.forEach((d) => {
+        expect(porTemporada[d.temporada]).toBe(r2(d.ajustado));
+      });
+      // Y el total, y la diferencia que se confirmo.
+      const totalDespues = r2(despues.reduce((s, f) => s + f.montoFact, 0));
+      expect(totalDespues).toBe(r2(prev.totalAplicado));
+      expect(r2(totalDespues - prev.totalActual)).toBe(r2(prev.diferenciaAplicada));
+      // El sello es el que la previa simulo.
+      expect(res.contrato.reajusteActivacion.sello.reglaFecha).toBe("inicioPeriodoServicio");
+      expect(res.contrato.reajusteActivacion.sello.fechasPorFila).toBeUndefined();
+    });
+
+    test("con una regla por fila: si la previa las deja pendientes, la accion rechaza", () => {
+      // La agreement que importa para D-11: las dos miran el mismo contexto de
+      // filas, asi que no puede pasar que la previa anuncie pendientes y la
+      // accion selle igual.
+      const ct = CONTRATO({
+        reajusteActivacion: {
+          activado: false, fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+          reglaFecha: "emision", reglaFechaRespaldo: "Clausula",
+        },
+      });
+      const filas = filasDe(ct);
+      const prev = previsualizarActivacion(ct, filas,
+        { mesCobro: ct.rcMesCobro, antecedentesDe: antesDeC(ct) });
+      expect(prev.filasSinFechaSellada).toBe(filas.length);
+      expect(prev.diferenciaAplicada).toBe(0);
+
+      const res = activar(ct, Object.assign({}, DATOS_ACTIVACION, {
+        reglaFecha: "emision", usuarioActual: USUARIO, puedeEditar: true,
+        confirmado: true, impacto: prev.diferenciaAplicada,
+        filas, antecedentesDe: antesDeC(ct), mesCobro: ct.rcMesCobro,
+      }));
+      expect(res.ok).toBe(false);
+      expect(res.faltan.length).toBe(filas.length);
+      // Las temporadas que la previa marco pendientes son las mismas que la
+      // accion nombra como faltantes.
+      const pendientes = prev.detalle.filter((d) => d.fechaNoSellada).map((d) => d.temporada).sort();
+      expect(res.faltan.map((x) => x.temporada).sort()).toEqual(pendientes);
+    });
   });
 });
 
