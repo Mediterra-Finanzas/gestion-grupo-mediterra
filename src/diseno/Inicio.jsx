@@ -109,13 +109,13 @@ function TarjetaRendiciones({ rend, onVer, compacta }) {
         <Pastillas testid="rend" items={[
           { testid: "cifra-rend-aprobar", valor: r.teTocaAprobar, label: "Te toca aprobar", tono: "aviso", onClick: () => onVer() },
           { testid: "cifra-rend-devueltas", valor: r.mias.devuelta, label: "Devueltas a ti", tono: "peligro", onClick: () => onVer() },
-          ...(r.porPagar != null ? [{ testid: "cifra-rend-pagar", valor: r.porPagar, label: "Aprobadas por pagar", onClick: () => onVer() }] : []),
+          ...(r.porPagar != null ? [{ testid: "cifra-rend-pagar", valor: r.porPagar, label: r.puedePagar ? "Aprobadas por pagar" : "Por pagar (solo ver)", onClick: () => onVer() }] : []),
           { testid: "cifra-rend-borrador", valor: r.mias.borrador, label: "Tus borradores", onClick: () => onVer() }]}/>
       ) : (
         <div style={{ display: "flex", gap: ESP.s, flexWrap: "wrap" }}>
           <Cifra testid="cifra-rend-aprobar" valor={r.teTocaAprobar} label="Te toca aprobar" tono="aviso" onClick={() => onVer()}/>
           <Cifra testid="cifra-rend-devueltas" valor={r.mias.devuelta} label="Devueltas a ti" tono="peligro" onClick={() => onVer()}/>
-          {r.porPagar != null && <Cifra testid="cifra-rend-pagar" valor={r.porPagar} label="Aprobadas por pagar" onClick={() => onVer()}/>}
+          {r.porPagar != null && <Cifra testid="cifra-rend-pagar" valor={r.porPagar} label={r.puedePagar ? "Aprobadas por pagar" : "Por pagar · solo ver"} onClick={() => onVer()}/>}
           <Cifra testid="cifra-rend-borrador" valor={r.mias.borrador} label="Tus borradores" onClick={() => onVer()}/>
         </div>
       )}

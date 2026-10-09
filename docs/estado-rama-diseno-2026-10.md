@@ -194,6 +194,86 @@ pantalla, más 3 de computador), jest 1.730/1.730, `hub-navegacion` 76/76, y de 
 Alcance: solo el perfil CFO y datos ficticios; Chromium emulado; los modales se verificaron por
 código (todas las prioridades declaradas) y con un modal de prueba, no abriendo cada uno.
 
+## 6b. Ampliación de alcance (09-10): sistema compartido y piloto
+
+Pedido de Angelo: una arquitectura visual coherente para todos los módulos y submódulos, por
+etapas: 1) componentes y estilos compartidos; 2) piloto en una tabla financiera, un formulario y una
+aprobación; 3) extensión módulo por módulo sin reescribirlos. Inventario completo en
+`docs/diseno/inventario-modulos.md` (7 módulos de negocio, ≈ 69 pantallas de primer nivel y ≈ 135 de
+segundo; «177» eran comprobaciones, no módulos).
+
+### Etapa 1 · Sistema compartido
+
+- `src/diseno/sistema.css`: variables de color (las del tema), escala tipográfica (11 en celdas
+  densas, 12 en rótulos, 14 en cuerpo; 15 en táctil), espaciado base 4, capas (`--mdt-z-*`), alto
+  de control 36 px y **44 px en pantalla táctil** con **separación mínima de 8 px (12 en táctil)**, y
+  clases para encabezado, pestañas (una línea deslizable en teléfono), filtros, tablas anchas
+  (desplazamiento propio, encabezado y 1.ª columna fijos), formularios, botones, acciones, tarjetas
+  con acciones, modales (hoja inferior en teléfono), estados (cargando, error, vacío, restringido,
+  aviso), indicador de guardado e **impresión sin la navegación**.
+- `src/diseno/componentes.jsx`: `Encabezado`, `Pestanas`, `Filtros`, `Tabla`, `Campo`, `Boton`,
+  `Modal` (Esc, foco al abrir y al cerrar), `EstadoVista` (nunca muestra cifras) y
+  `useFuenteGrafico` para etiquetas de gráficos SVG legibles a cualquier ancho.
+- `src/diseno/capacidades.js`: **ver ≠ hacer**. «Por pagar» se muestra a quien ve todas; contar
+  como pendiente y ofrecer «Marcar pagada» exige poder pagar. Recibe la fila de facultades con la
+  forma de la rama funcional (`{modo, porCorreo}`), sin importarla: hoy (main, sin fila) aplica la
+  regla publicada; con la matriz, solo `rendPagar`; fila sin leer, nadie paga. Pruebas en
+  `resumenInicio.test.js` (Michelle ve y no paga en modo matriz; lo que solo se ve no suma).
+- Los módulos lo adoptan conectando sus primitivas locales (su `Btn`, `Field`, `Modal`) a las
+  compartidas, no reescribiendo pantallas.
+
+**Hallazgo: una segunda capa de estilos compite con el sistema.** `App.jsx` inyecta al iniciar
+una hoja «responsive» con reglas por atributo para < 768 px: parte en varias líneas todo contenedor
+flexible con separación (lo que apilaba las 9 pestañas de Finanzas en 4 filas), convierte toda tabla
+en bloque, fuerza 2 columnas en tablet, y trae una regla de grillas que nunca aplica
+(`gridTemplateColumns` no aparece así en el HTML). Por ahora se exceptúan las barras del sistema
+(`:not(.mdt-pestanas)`); propuesta: migrar esa capa a `sistema.css` módulo por módulo.
+
+### Etapa 2 · Piloto (`scripts/e2e/piloto-sistema.mjs`, 34 comprobaciones)
+
+**Tabla financiera: Flujo de caja de una empresa + gráfico (teléfono, tablet, computador)**
+- Pestañas de Finanzas, empresas y vistas de Créditos en **una línea deslizable** en teléfono:
+  el resumen de la empresa aparece a 573 px (antes había que pasar ≈ 600 px solo de pestañas).
+- Título «Finanzas» del encabezado: **no se veía en ningún tamaño** (azul sobre el mismo azul;
+  también en main). Ahora en blanco.
+- Tabla: ya tenía encabezado y 1.ª columna fijos; ahora **se enfoca con el teclado** y se desplaza
+  con las flechas.
+- Gráfico `LineChart` (Dashboard, Consolidado): los rótulos se dibujaban con 6–7 unidades de un
+  lienzo de 460, es decir **≈ 4 px en teléfono**. Ahora miden 14 px de caja en teléfono y tablet y
+  17 en computador (≥ 11 px de letra), el margen de montos crece con su largo y los rótulos de meses
+  se eligen para **no encimarse** (el último siempre se muestra).
+- Pendiente de decisión (**DD12**): en computador las celdas del flujo siguen en **9 px**. Subirlas
+  ensancha la tabla de 63 meses que se usa a diario; propongo 11 px también en computador, a validar
+  con capturas.
+
+**Formulario: rendición de gastos (teléfono táctil)**: hoja inferior a lo ancho, 5 campos de 44 px
+o más con letra de 16 px (sin zoom de iOS), la barra inferior no la tapa.
+
+**Aprobación: Por aprobar y Pagos (teléfono)**: 8 botones de acción, todos de 44 px o más y con
+**al menos 8 px entre vecinos**; las acciones de cada tarjeta bajan a lo ancho bajo el contenido.
+«Devolver para corrección» usaba `window.prompt`: ahora es un **diálogo en la página** con el mismo
+texto por omisión y la misma acción (cancelar no escribe; confirmar escribe una vez con la nota).
+«Marcar pagada» solo aparece si la persona puede pagar, y **la acción también lo verifica**; quien
+solo puede ver recibe un aviso «solo lectura» (no alcanzable en main, cubierto por pruebas unitarias).
+
+**Estados: lectura fallida de rendiciones.** Antes mostraba la lista vacía («no tienes
+rendiciones») con «Guardado ✓», aunque nada se había leído ni podía guardarse. Ahora: error visible
+con «Reintentar», sin lista ni «Guardado», y nada se escribe.
+
+Accesibilidad: las barras de pestañas son botones con `aria-pressed` (no `role="tab"` sin paneles).
+
+Regresión encontrada y corregida en el piloto: la barra deslizable de Créditos, al no partirse,
+ensanchaba la columna del módulo y cortaba montos de los avisos en teléfono (mismo mecanismo que
+Saldos Bancos). Regla del sistema: una barra de pestañas nunca es más ancha que su contenedor.
+
+Pruebas de la etapa (Chromium emulado, datos ficticios): piloto 34/34 · `modulos-movil` 177/177 ·
+`hub-navegacion` 76/76 · jest 1.738/1.738 · de main: `apertura-sin-cambios`, `aislamiento`,
+`creditos`, `vista-previa-aislamiento` y `regresion-empresas` (**12.032 celdas pantalla vs Excel,
+0 diferencias**). Capturas en `docs/diseno/piloto/`.
+
+Alcance de la evidencia: Chromium emulado, datos ficticios. No probado en Safari, Firefox ni
+equipos reales.
+
 ## 7. Archivos
 
 Nuevos: `src/diseno/{tokens.js,useClaseVentana.js,resumenInicio.js,Navegacion.jsx,Inicio.jsx}`,

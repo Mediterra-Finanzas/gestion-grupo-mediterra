@@ -9,15 +9,17 @@
 //     evaluadas por quien llama).
 // ═══════════════════════════════════════════════════════════════════
 import { meTocaAprobar } from "../RendicionesModule.jsx";
+import { capacidadesRendiciones } from "./capacidades";
 
 const n = (s) => String(s || "").trim().toLowerCase();
 
-export function resumenRendiciones(rendiciones, usuario) {
+// facultades: ver capacidades.js (null = esta versión no tiene la fila de facultades).
+export function resumenRendiciones(rendiciones, usuario, facultades = null) {
   if (!Array.isArray(rendiciones) || !usuario) return null;
   const nombre = usuario.nombre || "";
   const admin = usuario.rol === "admin";
   const esCFO = !!usuario.esCFO;
-  const verTodas = admin || esCFO || !!usuario.rendVerTodas;
+  const cap = capacidadesRendiciones(usuario, facultades);
   const miEmail = n(usuario.email);
   const mias = rendiciones.filter(r => r && (r.trabajador === nombre || r.creadaPor === nombre));
   const de = (f) => mias.filter(f).length;
@@ -33,7 +35,9 @@ export function resumenRendiciones(rendiciones, usuario) {
     },
     teTocaAprobar: rendiciones.filter(r => r && r.estado === "enviada" && meTocaAprobar(r, miEmail, admin, esCFO)).length,
     // null = no corresponde a este perfil (no se muestra), distinto de 0.
-    porPagar: verTodas ? rendiciones.filter(r => r && r.estado === "aprobada").length : null,
+    porPagar: cap.verPorPagar ? rendiciones.filter(r => r && r.estado === "aprobada").length : null,
+    // Ver ≠ hacer: solo si puede marcarlas pagadas cuentan como pendiente propio.
+    puedePagar: cap.puedePagar, fuentePago: cap.fuentePago,
   };
 }
 
@@ -55,7 +59,7 @@ export function totalAccionable({ tareas, rendiciones, usaTareas, usaRendiciones
   if ((usaTareas && !tareas) || (usaRendiciones && !rendiciones)) return null;
   let t = 0;
   if (usaTareas) t += tareas.vencidas.length + tareas.porRevisar.length;
-  if (usaRendiciones) t += rendiciones.teTocaAprobar + rendiciones.mias.devuelta + (rendiciones.porPagar || 0);
+  if (usaRendiciones) t += rendiciones.teTocaAprobar + rendiciones.mias.devuelta + (rendiciones.puedePagar ? (rendiciones.porPagar || 0) : 0);
   return t;
 }
 

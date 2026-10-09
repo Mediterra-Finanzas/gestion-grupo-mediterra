@@ -1,0 +1,193 @@
+/* ═══════════════════════════════════════════════════════════════════
+   SISTEMA VISUAL COMPARTIDO (rama de diseño, dirección A + bandeja en teléfono)
+
+   Una sola fuente de medidas para todos los módulos. Los módulos lo adoptan de
+   a poco: con las clases `mdt-*` o con los componentes de
+   src/diseno/componentes.jsx. No cambia cálculos, datos, estados ni permisos.
+
+   Clases de ventana (las mismas de la navegación):
+     compacta < 600 px · media 600–1023 px · expandida ≥ 1024 px
+   Táctil = `(pointer: coarse)`, independiente del ancho.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Color: los valores salen de src/theme.js (mismos hex). */
+  --mdt-c-fondo: #f3f5f9;
+  --mdt-c-superficie: #ffffff;
+  --mdt-c-superficie-2: #eaeef4;
+  --mdt-c-borde: #d9dfe8;
+  --mdt-c-borde-fuerte: #aab6c6;
+  --mdt-c-texto: #1e2733;
+  --mdt-c-texto-2: #5b6b7f;
+  --mdt-c-marca: #1E2761;
+  --mdt-c-marca-texto: #ffffff;
+  --mdt-c-acento: #0f766e;
+  --mdt-c-ok: #1e8449;      --mdt-c-ok-fondo: #ecf8f0;
+  --mdt-c-aviso: #b45309;   --mdt-c-aviso-fondo: #fef3c7;
+  --mdt-c-peligro: #c0392b; --mdt-c-peligro-fondo: #fdecea;
+  --mdt-c-info: #2a3578;    --mdt-c-info-fondo: #eef3ff;
+
+  /* Tipografía: escala única. Mínimo 12 en la interfaz; 11 solo en celdas densas. */
+  --mdt-t-celda: 11px;
+  --mdt-t-rotulo: 12px;
+  --mdt-t-chico: 13px;
+  --mdt-t-cuerpo: 14px;
+  --mdt-t-destacado: 16px;
+  --mdt-t-titulo: 19px;
+  --mdt-t-cifra: 22px;
+  --mdt-t-grafico: 11px;   /* tamaño RENDERIZADO mínimo de las etiquetas de gráficos */
+
+  /* Espaciado (base 4) y radios: los mismos de theme.sp / theme.radius. */
+  --mdt-e-1: 4px; --mdt-e-2: 8px; --mdt-e-3: 12px; --mdt-e-4: 16px; --mdt-e-6: 24px; --mdt-e-8: 32px;
+  --mdt-r-1: 6px; --mdt-r-2: 8px; --mdt-r-3: 12px;
+
+  /* Capas: encabezados fijos de tablas < barra inferior < modales < avisos críticos. */
+  --mdt-z-fija-tabla: 10;
+  --mdt-z-barra: 100;
+  --mdt-z-modal: 400;
+  --mdt-z-aviso: 9000;
+
+  /* Control táctil: alto mínimo y separación mínima entre controles vecinos. */
+  --mdt-control: 36px;
+  --mdt-separacion: 8px;
+}
+@media (pointer: coarse) {
+  :root { --mdt-control: 44px; --mdt-separacion: 12px; --mdt-t-cuerpo: 15px; }
+}
+
+/* ── Encabezado de módulo ────────────────────────────────────────── */
+.mdt-encabezado {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--mdt-e-3);
+  justify-content: space-between; margin-bottom: var(--mdt-e-4);
+}
+.mdt-encabezado__titulo { font-size: var(--mdt-t-titulo); font-weight: 800; color: var(--mdt-c-texto); margin: 0; }
+.mdt-encabezado__sub { font-size: var(--mdt-t-chico); color: var(--mdt-c-texto-2); }
+
+/* ── Pestañas: una fila; en teléfono se desliza en vez de apilarse ── */
+.mdt-pestanas {
+  display: flex; flex-wrap: wrap; gap: var(--mdt-e-2); margin-bottom: var(--mdt-e-4);
+  /* Nunca más ancha que su contenedor: en una línea, sus botones no deben ensanchar
+     la columna del módulo (pasó en Créditos: cortaba montos de los avisos). */
+  min-width: 0; max-width: 100%;
+}
+.mdt-pestanas > button, .mdt-pestana {
+  min-height: var(--mdt-control); padding: 0 var(--mdt-e-4); border-radius: var(--mdt-r-2);
+  border: 1px solid var(--mdt-c-borde); background: var(--mdt-c-superficie); color: var(--mdt-c-texto);
+  font-size: var(--mdt-t-chico); font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.mdt-pestanas > button[aria-pressed="true"], .mdt-pestana--activa {
+  background: var(--mdt-c-marca); border-color: var(--mdt-c-marca); color: var(--mdt-c-marca-texto);
+}
+@media (max-width: 599px) {
+  /* !important: varias barras de los módulos traen flex-wrap:wrap en línea. */
+  .mdt-pestanas {
+    flex-wrap: nowrap !important; overflow-x: auto !important; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
+    margin-left: calc(-1 * var(--mdt-e-2)); margin-right: calc(-1 * var(--mdt-e-2));
+    padding: 0 var(--mdt-e-2) var(--mdt-e-1); scrollbar-width: none;
+    max-width: calc(100% + 2 * var(--mdt-e-2));
+  }
+  .mdt-pestanas::-webkit-scrollbar { display: none; }
+  .mdt-pestanas > * { scroll-snap-align: start; flex: 0 0 auto; }
+}
+
+/* ── Filtros: fila que se ajusta; en teléfono, un control por línea ── */
+.mdt-filtros { display: flex; flex-wrap: wrap; gap: var(--mdt-separacion); align-items: flex-end; margin-bottom: var(--mdt-e-3); }
+.mdt-filtros > * { min-width: 0; }
+@media (max-width: 599px) { .mdt-filtros > * { flex: 1 1 100%; } }
+
+/* ── Tablas anchas: se desplazan dentro de su caja; encabezado y 1.ª columna fijos ── */
+.mdt-tabla { overflow: auto; max-width: 100%; border: 1px solid var(--mdt-c-borde); border-radius: var(--mdt-r-3); background: var(--mdt-c-superficie); }
+.mdt-tabla table { border-collapse: separate; border-spacing: 0; width: 100%; font-variant-numeric: tabular-nums; }
+.mdt-tabla th, .mdt-tabla td { font-size: max(var(--mdt-t-celda), 1em); }
+.mdt-tabla--alto { max-height: 70vh; }
+.mdt-tabla--alto thead th { position: sticky; top: 0; z-index: var(--mdt-z-fija-tabla); }
+.mdt-tabla__fija { position: sticky; left: 0; z-index: calc(var(--mdt-z-fija-tabla) - 1); background: inherit; }
+
+/* ── Formularios ─────────────────────────────────────────────────── */
+.mdt-form { display: grid; gap: var(--mdt-e-3) var(--mdt-e-4); grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); }
+.mdt-campo { display: flex; flex-direction: column; gap: var(--mdt-e-1); min-width: 0; }
+.mdt-campo > label, .mdt-etiqueta { font-size: var(--mdt-t-rotulo); font-weight: 600; color: var(--mdt-c-texto-2); }
+.mdt-campo input, .mdt-campo select, .mdt-campo textarea {
+  min-height: var(--mdt-control); padding: 0 var(--mdt-e-3); border-radius: var(--mdt-r-2);
+  border: 1px solid var(--mdt-c-borde); background: var(--mdt-c-superficie); color: var(--mdt-c-texto);
+  font-size: var(--mdt-t-cuerpo); width: 100%;
+}
+.mdt-campo textarea { padding: var(--mdt-e-2) var(--mdt-e-3); min-height: 80px; }
+.mdt-ayuda { font-size: var(--mdt-t-rotulo); color: var(--mdt-c-texto-2); }
+.mdt-campo--error input, .mdt-campo--error select { border-color: var(--mdt-c-peligro); }
+.mdt-error-campo { font-size: var(--mdt-t-rotulo); color: var(--mdt-c-peligro); }
+
+/* ── Botones y grupos de acciones ────────────────────────────────── */
+.mdt-boton {
+  min-height: var(--mdt-control); padding: 0 var(--mdt-e-4); border-radius: var(--mdt-r-2);
+  font-size: var(--mdt-t-chico); font-weight: 700; cursor: pointer; display: inline-flex;
+  align-items: center; justify-content: center; gap: var(--mdt-e-2); border: 1px solid transparent;
+  font-family: inherit; white-space: nowrap;
+}
+.mdt-boton--primario { background: var(--mdt-c-marca); color: var(--mdt-c-marca-texto); }
+.mdt-boton--secundario { background: var(--mdt-c-superficie); color: var(--mdt-c-texto); border-color: var(--mdt-c-borde); }
+.mdt-boton--peligro { background: var(--mdt-c-peligro); color: #fff; }
+.mdt-boton--ok { background: var(--mdt-c-ok); color: #fff; }
+.mdt-boton--fantasma { background: transparent; color: var(--mdt-c-info); }
+.mdt-boton--chico { min-height: 30px; padding: 0 var(--mdt-e-3); font-size: var(--mdt-t-rotulo); }
+@media (pointer: coarse) { .mdt-boton--chico { min-height: var(--mdt-control); font-size: var(--mdt-t-chico); } }
+.mdt-boton:disabled { opacity: .5; cursor: not-allowed; }
+.mdt-boton:focus-visible, .mdt-pestanas > button:focus-visible { outline: 2px solid var(--mdt-c-marca); outline-offset: 2px; }
+.mdt-acciones { display: flex; flex-wrap: wrap; gap: var(--mdt-separacion); align-items: center; }
+@media (max-width: 599px) { .mdt-acciones--apiladas > * { flex: 1 1 100%; } }
+/* Tarjeta con acciones: en teléfono las acciones bajan bajo el contenido, a lo ancho. */
+.mdt-tarjeta-fila { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: var(--mdt-e-3); }
+.mdt-tarjeta-fila > .mdt-tarjeta-contenido { flex: 1 1 260px; min-width: 0; }
+.mdt-tarjeta-fila > .mdt-acciones { justify-content: flex-end; }
+@media (max-width: 599px) { .mdt-tarjeta-fila > .mdt-acciones { flex: 1 1 100%; justify-content: stretch; } .mdt-tarjeta-fila > .mdt-acciones > * { flex: 1 1 auto; } }
+
+/* ── Modal: centrado en computador; hoja inferior en teléfono ────── */
+.mdt-modal-fondo {
+  position: fixed; inset: 0; z-index: var(--mdt-z-modal); background: rgba(16, 24, 40, .55);
+  display: flex; align-items: center; justify-content: center; padding: var(--mdt-e-4);
+}
+.mdt-modal {
+  background: var(--mdt-c-superficie); border-radius: var(--mdt-r-3); width: min(560px, 100%);
+  max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 24px 64px rgba(0,0,0,.3);
+}
+.mdt-modal__cabeza { display: flex; justify-content: space-between; align-items: center; gap: var(--mdt-e-3); padding: var(--mdt-e-4) var(--mdt-e-4) var(--mdt-e-2); }
+.mdt-modal__titulo { font-size: var(--mdt-t-destacado); font-weight: 800; margin: 0; color: var(--mdt-c-texto); }
+.mdt-modal__cuerpo { padding: 0 var(--mdt-e-4) var(--mdt-e-4); overflow-y: auto; }
+.mdt-modal__pie { padding: var(--mdt-e-3) var(--mdt-e-4); border-top: 1px solid var(--mdt-c-borde); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--mdt-separacion); }
+@media (max-width: 599px) {
+  .mdt-modal-fondo { align-items: flex-end; padding: 0; }
+  .mdt-modal { width: 100%; border-radius: var(--mdt-r-3) var(--mdt-r-3) 0 0; max-height: 92vh; }
+  .mdt-modal__pie { padding-bottom: calc(var(--mdt-e-3) + env(safe-area-inset-bottom, 0px)); }
+  .mdt-modal__pie > .mdt-boton { flex: 1 1 0; }
+}
+
+/* ── Estados: cargando, error, vacío, restringido, guardado ─────── */
+.mdt-estado {
+  display: flex; gap: var(--mdt-e-3); align-items: flex-start; padding: var(--mdt-e-3) var(--mdt-e-4);
+  border-radius: var(--mdt-r-2); font-size: var(--mdt-t-chico); line-height: 1.45; border: 1px solid var(--mdt-c-borde);
+  background: var(--mdt-c-superficie); color: var(--mdt-c-texto-2);
+}
+.mdt-estado--error { background: var(--mdt-c-peligro-fondo); border-color: #f5b5ad; color: #7f1d1d; }
+.mdt-estado--aviso { background: var(--mdt-c-aviso-fondo); border-color: #fcd34d; color: #78350f; }
+.mdt-estado--restringido { background: var(--mdt-c-superficie-2); border-style: dashed; }
+.mdt-estado--vacio { justify-content: center; text-align: center; border-style: dashed; padding: var(--mdt-e-6); }
+.mdt-guardado {
+  position: fixed; right: var(--mdt-e-4); bottom: calc(var(--mdt-e-4) + var(--mdt-barra-inf, 0px));
+  z-index: var(--mdt-z-aviso); display: inline-flex; gap: var(--mdt-e-2); align-items: center;
+  padding: var(--mdt-e-2) var(--mdt-e-3); border-radius: var(--mdt-r-2); font-size: var(--mdt-t-chico); font-weight: 700;
+  background: var(--mdt-c-superficie); border: 1px solid var(--mdt-c-borde); box-shadow: 0 4px 16px rgba(0,0,0,.18);
+}
+
+/* ── Impresión: la navegación no se imprime ni desplaza el contenido ── */
+@media print {
+  [data-testid="nav-lateral"], [data-testid="nav-riel"], [data-testid="nav-inferior"], [data-testid="panel-mas"],
+  .mdt-dup-nav, .mdt-guardado, #vp-barra, #vp-etiqueta { display: none !important; }
+  main { order: 0 !important; }
+  .mdt-tabla { overflow: visible; max-height: none; border: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+
+/* Contenedor de tabla enfocable con teclado (flechas para desplazar). */
+.mdt-tabla-foco:focus-visible, .mdt-tabla:focus-visible { outline: 2px solid var(--mdt-c-marca); outline-offset: 2px; }

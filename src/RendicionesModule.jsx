@@ -11,6 +11,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import * as XLSX from "xlsx-js-style";
 import { theme as T } from "./theme";
+import { Modal as ModalComun, EstadoVista } from "./diseno/componentes.jsx";
+import { capacidadesRendiciones } from "./diseno/capacidades";
 import {
   dbLoadGeneric, dbSaveGeneric,
   uploadArchivoFrisku, eliminarArchivoFrisku, pathDesdeUrlStorage,
@@ -684,13 +686,14 @@ function Btn({ children, onClick, kind = "primary", small, disabled, style, titl
     ghost:     { bg: C.card,    fg: C.text, bd: C.border },
     accent:    { bg: C.accent2, fg: "#fff", bd: C.accent2 },
   }[kind] || { bg: C.primary, fg: "#fff", bd: C.primary };
+  // Sistema compartido: alto mínimo y tipografía por CSS (`mdt-boton`, 44 px en
+  // pantallas táctiles); acá solo los colores propios del módulo.
   return (
-    <button onClick={onClick} disabled={disabled} title={title}
+    <button type="button" onClick={onClick} disabled={disabled} title={title}
+      className={`mdt-boton${small ? " mdt-boton--chico" : ""}`}
       style={{
-        padding: small ? "5px 11px" : "8px 16px", borderRadius: 8,
         border: `1px solid ${base.bd}`, background: disabled ? C.cardAlt : base.bg,
-        color: disabled ? C.muted2 : base.fg, cursor: disabled ? "not-allowed" : "pointer",
-        fontWeight: 600, fontSize: small ? 12 : 13, whiteSpace: "nowrap", ...style,
+        color: disabled ? C.muted2 : base.fg, fontWeight: 600, ...style,
       }}>
       {children}
     </button>
@@ -715,8 +718,8 @@ function EstadoBadge({ estado, devuelta }) {
 
 function Field({ label, children, style }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0, ...style }}>
-      <span style={{ fontSize: 11.5, fontWeight: 700, color: C.muted }}>{label}</span>
+    <label className="mdt-campo" style={style}>
+      <span className="mdt-etiqueta">{label}</span>
       {children}
     </label>
   );
@@ -784,25 +787,13 @@ function useEsMovil(bp = 680) {
   return m;
 }
 const inputStyle = {
-  padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.border}`,
+  minHeight: "var(--mdt-control)", padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.border}`,
   fontSize: 13, outline: "none", background: C.card, color: C.text, boxSizing: "border-box", width: "100%",
 };
 
 function Modal({ children, onClose, width = 720, title }) {
-  const esMovil = useEsMovil();
-  return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(16,24,40,0.55)", zIndex: 400, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: esMovil ? "10px 8px" : "40px 16px", overflowX: "hidden", overflowY: "auto" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 14, width, maxWidth: "100%", minWidth: 0, overflowX: "hidden", boxShadow: "0 12px 48px #0004" }}>
-        {title && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: esMovil ? "13px 16px" : "16px 22px", borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>{title}</div>
-            <button onClick={onClose} style={{ border: "none", background: "none", fontSize: 22, cursor: "pointer", color: C.muted, lineHeight: 1 }}>×</button>
-          </div>
-        )}
-        <div style={{ padding: esMovil ? 14 : 22 }}>{children}</div>
-      </div>
-    </div>
-  );
+  // Sistema compartido: centrado en computador, hoja inferior en teléfono, Esc cierra.
+  return <ModalComun abierto titulo={title || ""} onCerrar={onClose} ancho={width}>{children}</ModalComun>;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -862,6 +853,9 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   //   "sin_acceso" → no llega acá (FinanzasModule no renderiza la pestaña).
   const esCFO = !!usuarioActual?.esCFO;
   const verTodas = admin || esCFO || !!usuarioActual?.rendVerTodas;
+  // Ver ≠ hacer (src/diseno/capacidades.js). Sin fila de facultades en esta
+  // versión → regla de main: paga quien ve todas. Al integrar la matriz se pasa la fila.
+  const capPago = capacidadesRendiciones({ ...(usuarioActual || {}), rol: admin ? "admin" : usuarioActual?.rol }, null);
   // Puede aprobar (supervisor, editor, o fallback legacy para rendiciones sin cadena).
   const esAprobador = verTodas || nivelRendiciones === "editar";
   const miEmail = (usuarioActual?.email || "").toLowerCase();
@@ -899,8 +893,11 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   const rendicionesRef = useRef([]);
 
   // ── Carga inicial ──
+  const [errorCarga, setErrorCarga] = useState(false);
+  const [intentoCarga, setIntentoCarga] = useState(0);
   useEffect(() => {
     let alive = true;
+    setErrorCarga(false);
     (async () => {
       try {
         const [data, tc, cfg] = await Promise.all([
@@ -918,11 +915,12 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
         }
       } catch (e) {
         console.error("[Rendiciones] Carga falló — GUARDADO DESHABILITADO esta sesión:", e);
+        if (alive) setErrorCarga(true);
       }
       if (alive) setCargando(false);
     })();
     return () => { alive = false; };
-  }, []);
+  }, [intentoCarga]);
 
   // Mantener una ref con el estado más reciente para el guardado diferido.
   useEffect(() => { rendicionesRef.current = rendiciones; }, [rendiciones]);
@@ -1187,6 +1185,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   };
 
   const marcarPagada = (r) => {
+    if (!capPago.puedePagar || r?.estado !== "aprobada") return;   // la acción respeta el mismo permiso que la pantalla
     upsert(pushHist({ ...r, estado: "pagada", pagadoEn: nowISO(), pagadoPor: nombreUsuario }, "pagada"));
   };
 
@@ -1248,7 +1247,13 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   ].filter(t => t.show);
 
   if (cargando) {
-    return <div style={{ padding: 60, textAlign: "center", color: C.muted, fontFamily: "sans-serif" }}>Cargando rendiciones…</div>;
+    return <div style={{ padding: 24 }}><EstadoVista tipo="cargando">Leyendo rendiciones…</EstadoVista></div>;
+  }
+  // Sin lectura confirmada no se muestra una lista vacía (parecería que no hay
+  // rendiciones) ni «Guardado»: el guardado está bloqueado (regla 9).
+  if (errorCarga) {
+    return <div style={{ padding: 24 }}><EstadoVista tipo="error" testid="rend-error-carga" onReintentar={() => { setCargando(true); setIntentoCarga(n => n + 1); }}>
+      No se pudieron leer las rendiciones. No se muestra ni se guarda nada hasta leerlas.</EstadoVista></div>;
   }
 
   return (
@@ -1270,9 +1275,9 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 6, borderBottom: `1px solid ${C.border}`, marginBottom: 18, flexWrap: "wrap" }}>
+      <div className="mdt-pestanas" role="group" aria-label="Secciones de rendiciones" style={{ gap: 6, borderBottom: `1px solid ${C.border}`, marginBottom: 18 }}>
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
+          <button key={t.id} aria-pressed={tab === t.id} onClick={() => setTab(t.id)}
             style={{
               padding: "9px 16px", border: "none", background: "none", cursor: "pointer",
               fontWeight: 700, fontSize: 13.5, color: tab === t.id ? C.primary : C.muted,
@@ -1298,7 +1303,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
         />
       )}
       {tab === "pagos" && verTodas && (
-        <BandejaPagos rends={paraPago} onAbrir={setEditId} onPagar={marcarPagada} tcData={tcData}
+        <BandejaPagos rends={paraPago} onAbrir={setEditId} onPagar={marcarPagada} tcData={tcData} puedePagar={capPago.puedePagar}
           puedeDevolver={r => r.estado === "aprobada" && (admin || r.revisadoPor === nombreUsuario)}
           onDevolver={devolverParaCorreccion} />
       )}
@@ -1428,8 +1433,8 @@ function RendCard({ r, children, onClick, mostrarTrabajador, tcData }) {
   const conv = requiereConv ? totalConvertido(r.gastos, monedaPago, r.fechaTC || r.periodo, tcData, r.tcManual) : null;
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, boxShadow: C.shadowSm }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-        <div onClick={onClick} style={{ cursor: onClick ? "pointer" : "default", flex: 1 }}>
+      <div className="mdt-tarjeta-fila">
+        <div className="mdt-tarjeta-contenido" onClick={onClick} style={{ cursor: onClick ? "pointer" : "default" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 800, fontSize: 15 }}>#{r.folio}</span>
             <EstadoBadge estado={r.estado} devuelta={r.devuelta} />
@@ -1453,7 +1458,7 @@ function RendCard({ r, children, onClick, mostrarTrabajador, tcData }) {
             </div>
           )}
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>{children}</div>
+        <div className="mdt-acciones">{children}</div>
       </div>
     </div>
   );
@@ -1516,7 +1521,23 @@ function MisRendiciones({ rends, onCrear, onAbrir, onEliminar, tcData, admin, va
 // ───────────────────────────────────────────────────────────────────
 // Tab: Por Aprobar
 // ───────────────────────────────────────────────────────────────────
+// «Devolver para corrección» en la página (antes window.prompt): mismo texto por
+// omisión y la misma acción onDevolver(r, motivo). Cancelar no hace nada.
+function DialogoDevolver({ r, onCancelar, onConfirmar }) {
+  const [motivo, setMotivo] = useState("Falta incorporar un gasto.");
+  if (!r) return null;
+  return (
+    <ModalComun abierto titulo={`Devolver #${r.folio} para corrección`} onCerrar={onCancelar} testid="dialogo-devolver"
+      pie={<><Btn kind="ghost" onClick={onCancelar}>Cancelar</Btn><Btn kind="primary" onClick={() => onConfirmar(r, motivo)}>Devolver al trabajador</Btn></>}>
+      <Field label="Nota para el trabajador (opcional)">
+        <textarea value={motivo} onChange={e => setMotivo(e.target.value)} rows={3} style={{ ...inputStyle, minHeight: 80 }} />
+      </Field>
+    </ModalComun>
+  );
+}
+
 function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tcData, miEmail, esAprobador, admin, esCFO, aprobadasMias = [], onDevolver }) {
+  const [devolviendo, setDevolviendo] = useState(null);
   return (
     <div>
       <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>{rends.length} rendición(es) esperando revisión</div>
@@ -1525,6 +1546,7 @@ function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tc
           No hay rendiciones pendientes de aprobación. ✓
         </div>
       )}
+      <DialogoDevolver r={devolviendo} onCancelar={() => setDevolviendo(null)} onConfirmar={(r, m) => { setDevolviendo(null); onDevolver?.(r, m); }} />
       {/* Aprobadas por mí, aún no pagadas: puedo devolverlas si faltó/sobra un gasto */}
       {aprobadasMias.length > 0 && (
         <div style={{ marginTop: rends.length ? 22 : 0 }}>
@@ -1534,11 +1556,7 @@ function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tc
             {aprobadasMias.map(r => (
               <RendCard key={r.id} r={r} onClick={() => onAbrir(r.id)} mostrarTrabajador tcData={tcData}>
                 <Btn kind="ghost" small onClick={() => onAbrir(r.id)}>Ver detalle</Btn>
-                <Btn kind="ghost" small style={{ color: C.warning, borderColor: C.warning }} onClick={() => {
-                  const motivo = window.prompt("Devolver al trabajador para corregir/incorporar un gasto.\n\nNota para el trabajador (opcional):", "Falta incorporar un gasto.");
-                  if (motivo === null) return;
-                  onDevolver?.(r, motivo);
-                }}>↩ Devolver para corrección</Btn>
+                <Btn kind="ghost" small style={{ color: C.warning, borderColor: C.warning }} onClick={() => setDevolviendo(r)}>↩ Devolver para corrección</Btn>
               </RendCard>
             ))}
           </div>
@@ -1584,7 +1602,8 @@ function BandejaAprobar({ rends, onAbrir, onAprobar, onRechazar, onReasignar, tc
 // ───────────────────────────────────────────────────────────────────
 // Tab: Pagos
 // ───────────────────────────────────────────────────────────────────
-function BandejaPagos({ rends, onAbrir, onPagar, tcData, puedeDevolver, onDevolver }) {
+function BandejaPagos({ rends, onAbrir, onPagar, tcData, puedeDevolver, onDevolver, puedePagar = true }) {
+  const [devolviendo, setDevolviendo] = useState(null);
   return (
     <div>
       <div style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>{rends.length} rendición(es) aprobada(s) pendiente(s) de pago</div>
@@ -1593,18 +1612,18 @@ function BandejaPagos({ rends, onAbrir, onPagar, tcData, puedeDevolver, onDevolv
           No hay rendiciones aprobadas pendientes de pago.
         </div>
       )}
+      {!puedePagar && rends.length > 0 && (
+        <div style={{ marginBottom: 12 }}><EstadoVista tipo="restringido" testid="pagos-solo-ver">Puedes ver estas rendiciones, pero marcarlas pagadas requiere la facultad de pago.</EstadoVista></div>
+      )}
+      <DialogoDevolver r={devolviendo} onCancelar={() => setDevolviendo(null)} onConfirmar={(r, m) => { setDevolviendo(null); onDevolver?.(r, m); }} />
       <div style={{ display: "grid", gap: 10 }}>
         {rends.map(r => (
           <RendCard key={r.id} r={r} onClick={() => onAbrir(r.id)} mostrarTrabajador tcData={tcData}>
             <Btn kind="ghost" small onClick={() => onAbrir(r.id)}>Ver detalle</Btn>
             {puedeDevolver?.(r) && (
-              <Btn kind="ghost" small style={{ color: C.warning, borderColor: C.warning }} onClick={() => {
-                const motivo = window.prompt("Devolver al trabajador para corregir/incorporar un gasto.\n\nNota para el trabajador (opcional):", "Falta incorporar un gasto.");
-                if (motivo === null) return;
-                onDevolver?.(r, motivo);
-              }}>↩ Devolver</Btn>
+              <Btn kind="ghost" small style={{ color: C.warning, borderColor: C.warning }} onClick={() => setDevolviendo(r)}>↩ Devolver</Btn>
             )}
-            <Btn kind="accent" small onClick={() => onPagar(r)}>Marcar pagada</Btn>
+            {puedePagar && <Btn kind="accent" small onClick={() => onPagar(r)}>Marcar pagada</Btn>}
           </RendCard>
         ))}
       </div>

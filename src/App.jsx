@@ -3635,7 +3635,9 @@ Equipo Mediterra`);
         [style*="padding: 24px"], [style*="padding:24px"] { padding: 14px !important; }
         [style*="padding: 36px"], [style*="padding:36px"] { padding: 16px !important; }
         /* Flex wraps */
-        [style*="display: flex"][style*="gap"], [style*="display:flex"][style*="gap"] { flex-wrap: wrap !important; }
+        /* Las barras de pestañas del sistema de diseño (.mdt-pestanas) se deslizan
+           en una línea en vez de partirse (src/diseno/sistema.css). */
+        [style*="display: flex"][style*="gap"]:not(.mdt-pestanas), [style*="display:flex"][style*="gap"]:not(.mdt-pestanas) { flex-wrap: wrap !important; }
         /* Font sizes mínimos */
         input, select, textarea { font-size: 16px !important; } /* evita zoom iOS */
         /* Botones touch-friendly */

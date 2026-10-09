@@ -93,3 +93,28 @@ test("clases de ventana", () => {
   expect([390, 599, 600, 834, 1023, 1024, 1366, 1920].map(claseDeAncho)).toEqual(
     ["compacta", "compacta", "media", "media", "media", "expandida", "expandida", "expandida"]);
 });
+
+describe("ver ≠ hacer: rendiciones por pagar (facultades)", () => {
+  const { capacidadesRendiciones } = require("../diseno/capacidades");
+  const michelle = { nombre: "Michelle Garcia", email: "mgarcia@grupomediterra.cl", rol: "editor", rendVerTodas: true };
+  const milagros = { nombre: "Milagros Becerra", email: "mbecerra@grupomediterra.cl", rol: "editor", rendVerTodas: true };
+  const rs = [{ estado: "aprobada", trabajador: "X" }];
+  const matriz = { modo: "matriz", porCorreo: { "mbecerra@grupomediterra.cl": { rendPagar: true } } };
+  test("sin fila (main): ve y paga quien ve todas", () => {
+    expect(capacidadesRendiciones(michelle)).toEqual({ verPorPagar: true, puedePagar: true, fuentePago: "regla_main" });
+  });
+  test("matriz: Michelle ve pero no paga; Milagros paga", () => {
+    expect(capacidadesRendiciones(michelle, matriz)).toMatchObject({ verPorPagar: true, puedePagar: false });
+    expect(capacidadesRendiciones(milagros, matriz)).toMatchObject({ verPorPagar: true, puedePagar: true });
+  });
+  test("fila sin leer: nadie paga", () => {
+    expect(capacidadesRendiciones(milagros, { estado: "error" }).puedePagar).toBe(false);
+  });
+  test("lo que solo se ve no suma al total accionable", () => {
+    const r = resumenRendiciones(rs, michelle, matriz);
+    expect(r.porPagar).toBe(1); expect(r.puedePagar).toBe(false);
+    expect(totalAccionable({ tareas: null, rendiciones: r, usaTareas: false, usaRendiciones: true })).toBe(0);
+    const r2 = resumenRendiciones(rs, milagros, matriz);
+    expect(totalAccionable({ tareas: null, rendiciones: r2, usaTareas: false, usaRendiciones: true })).toBe(1);
+  });
+});

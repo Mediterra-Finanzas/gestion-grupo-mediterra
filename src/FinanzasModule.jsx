@@ -1,4 +1,5 @@
 /* eslint-disable */
+import { useFuenteGrafico } from "./diseno/componentes.jsx";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import InputNumero from "./InputNumero.jsx";
 import EEFFModule from './EEFFModule.jsx';
@@ -1776,17 +1777,40 @@ function Btn({onClick,active,children,color=C.accent,small=false}) {
   );
 }
 function LineChart({months,values,color=C.accentL,h=72}) {
-  const W=460,pad={l:52,r:8,t:6,b:18};
-  const iw=W-pad.l-pad.r,ih=h-pad.t-pad.b;
+  // Etiquetas legibles a cualquier ancho (sistema de diseño): el SVG se escala con
+  // su contenedor, así que el tamaño se pide en px RENDERIZADOS (mín. 11) y se
+  // traduce a unidades del viewBox. En computador (escala ≥ 1,8) queda como antes.
+  const W=460;
+  const [refSvg, fsMes] = useFuenteGrafico(W, 11, 6);
+  const fsVal = Math.max(7, fsMes);
+  const etiquetaVal = (v) => $$(Math.round(v));
   const min=Math.min(...values),max=Math.max(...values),range=max-min||1;
+  const anchoVal = Math.max(etiquetaVal(min).length, etiquetaVal(max).length) * fsVal * 0.58 + 6;
+  const pad={l:Math.max(52, anchoVal),r:8,t:Math.max(6, fsVal*0.6),b:Math.max(18, fsMes+8)};
+  const H = h + (pad.b-18) + (pad.t-6);
+  const iw=W-pad.l-pad.r,ih=H-pad.t-pad.b;
   const tx=i=>pad.l+(i/(Math.max(values.length-1,1)))*iw;
   const ty=v=>pad.t+ih-((v-min)/range)*ih;
+  // Cada cuántos meses rotular para que las etiquetas no se encimen (antes: cada 8).
+  const anchoMes = Math.max(...months.map(m=>String(m).length), 1) * fsMes * 0.6 * 1.3;
+  const paso = Math.max(8, Math.ceil(anchoMes / (iw / Math.max(values.length-1,1))));
   const pts=values.map((v,i)=>[tx(i),ty(v)]);
   const poly=pts.map(([x,y])=>`${x},${y}`).join(" ");
-  const area=`M${pts[0][0]},${h-pad.b} `+pts.map(([x,y])=>`L${x},${y}`).join(" ")+` L${pts[pts.length-1][0]},${h-pad.b} Z`;
+  const area=`M${pts[0][0]},${H-pad.b} `+pts.map(([x,y])=>`L${x},${y}`).join(" ")+` L${pts[pts.length-1][0]},${H-pad.b} Z`;
   const zy=ty(0);
+  const ultimo=months.length-1;
+  // Rótulos de meses que caben sin encimarse, considerando su alineación (el primero
+  // empieza en su punto, el último termina en el suyo, el resto va centrado). El
+  // último siempre se muestra; los demás, cada `paso` meses, solo si no chocan.
+  const rotulos = (() => {
+    const anchoDe = (i) => String(months[i]).length * fsMes * 0.6;
+    const caja = (i) => { const x=tx(i), w=anchoDe(i); return i===0?[x,x+w]:i===ultimo?[x-w,x]:[x-w/2,x+w/2]; };
+    const puestos = ultimo>=0 ? [caja(ultimo)] : []; const idx = ultimo>=0 ? new Set([ultimo]) : new Set();
+    for (let i=0;i<ultimo;i+=paso) { const [a,b]=caja(i); if (puestos.every(([c,d])=>b+4<=c||a>=d+4)) { puestos.push([a,b]); idx.add(i); } }
+    return idx;
+  })();
   return (
-    <svg width="100%" viewBox={`0 0 ${W} ${h}`} style={{display:"block"}}>
+    <svg ref={refSvg} width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:"block"}} role="img" aria-label={`Evolución ${months[0]||""}–${months[ultimo]||""}: de ${etiquetaVal(values[0]??0)} a ${etiquetaVal(values[values.length-1]??0)}`}>
       <defs><linearGradient id="lgf" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stopColor={color} stopOpacity="0.25"/>
         <stop offset="100%" stopColor={color} stopOpacity="0.02"/>
@@ -1795,8 +1819,11 @@ function LineChart({months,values,color=C.accentL,h=72}) {
       <path d={area} fill="url(#lgf)"/>
       <polyline points={poly} fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round"/>
       {pts.map(([x,y],i)=>{const isL=i===pts.length-1;if(!isL&&i%8!==0)return null;return <circle key={i} cx={x} cy={y} r={isL?3:2} fill={cf(values[i])}/>;}) }
-      {months.map((m,i)=>{if(i%8!==0&&i!==months.length-1)return null;return <text key={i} x={tx(i)} y={h-1} textAnchor="middle" fontSize={6} fill={C.muted}>{m}</text>;})}
-      {[0,1].map(p=>(<text key={p} x={pad.l-3} y={pad.t+ih-p*ih+3} textAnchor="end" fontSize={7} fill={C.muted}>{$$(Math.round(min+p*range))}</text>))}
+      {months.map((m,i)=>{
+        // el último mes siempre; un rótulo intermedio demasiado cerca del último se omite
+        if(!rotulos.has(i))return null;
+        return <text key={i} x={tx(i)} y={H-2} textAnchor={i===ultimo?"end":i===0?"start":"middle"} fontSize={fsMes} fill={C.muted}>{m}</text>;})}
+      {[0,1].map(p=>(<text key={p} x={pad.l-3} y={pad.t+ih-p*ih+fsVal*0.35} textAnchor="end" fontSize={fsVal} fill={C.muted}>{etiquetaVal(min+p*range)}</text>))}
     </svg>
   );
 }
@@ -6510,7 +6537,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     const saldoIni = saldoBancoUSD != null ? saldoBancoUSD : emp.saldo_ini;
 
     return (
-      <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`,position:"relative",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
+      <div tabIndex={0} role="region" aria-label="Tabla del flujo de caja (se desplaza con las flechas)" className="mdt-tabla-foco" style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`,position:"relative",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
         <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:600}}>
           <thead style={{position:"sticky",top:0,zIndex:5}}>
             {/* Fila 1: temporadas */}
@@ -9421,7 +9448,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
       {/* Subpestañas de Créditos */}
-      <div style={{display:"flex",gap:6}}>
+      <div className="mdt-pestanas" role="group" aria-label="Vistas de créditos" style={{display:"flex",gap:6}}>
         {[["creditos","💳 Créditos"],["conciliacion","🔎 Conciliación"],["analisis","📊 Análisis CFO"],["prepago","🧮 Simular prepago"],["saldomes","📅 Saldo por Mes"]].map(([id,lbl])=>(
           <button key={id} onClick={()=>setVistaCred(id)}
             className={`mdt-tab${vistaCred===id?" mdt-tab--active":""}`}
@@ -15293,8 +15320,9 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         <div style={{display:"flex",alignItems:"center",gap:14}}>
           <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,flexWrap:"wrap"}}>
             <button className="mdt-dup-nav" onClick={onBack} style={{background:"none",border:"none",color:"rgba(255,255,255,0.7)",cursor:"pointer",fontSize:13,fontWeight:500,padding:0}}>Mediterra</button>
-            <span style={{color:"rgba(255,255,255,0.45)"}}>›</span>
-            <span style={{color:C.accent,fontWeight:700,fontSize:14}}>Finanzas</span>
+            <span className="mdt-dup-nav" style={{color:"rgba(255,255,255,0.45)"}}>›</span>
+            {/* Antes color C.accent = mismo azul del fondo: el título no se veía. */}
+            <span style={{color:"#fff",fontWeight:700,fontSize:14}}>Finanzas</span>
           </div>
           <div style={{borderLeft:"1px solid rgba(255,255,255,0.2)",paddingLeft:14}}>
             <img src="/med.png" alt="Mediterra" style={{height:30,objectFit:"contain"}}
@@ -15322,9 +15350,9 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       </div>
 
       {/* ── Pestañas ───────────────────────────────────────── */}
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
+      <div className="mdt-pestanas" role="group" aria-label="Secciones de Finanzas" style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
         {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)}
+          <button key={t.id} aria-pressed={tab===t.id} onClick={()=>setTab(t.id)}
             className={`mdt-tab${tab===t.id?" mdt-tab--active":""}`}
             style={{
               padding:"8px 18px",borderRadius:8,cursor:"pointer",fontWeight:600,fontSize:12,
@@ -15389,7 +15417,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
             </div>
           )}
           {/* Selector empresa + botón Consolidado */}
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+          <div className="mdt-pestanas" role="group" aria-label="Empresa" style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
             {accesoCompletoEmpresas&&(<>
             <button onClick={()=>{setEmpTab("_consolidado");setFlujoSubTab("flujo");}}
               style={{padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,
