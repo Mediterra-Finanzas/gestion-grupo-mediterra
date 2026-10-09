@@ -10140,8 +10140,8 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                     {/* Una fila protegida por un antecedente que YA se retiro no
                                         "tiene factura o pago": tiene la proteccion conservada, y
                                         decir lo primero seria describir algo que no esta. */}
-                                    {d.intocable?(d.antecedentes&&d.antecedentes.conservada
-                                      ?"protegida: proteccion conservada"
+                                    {d.intocable?((d.antecedentes||{}).soloPorConservada
+                                      ?`protegida: antecedentes retirados${(d.antecedentes||{}).desdeConservada?` el ${d.antecedentes.desdeConservada}`:""} · proteccion conservada`
                                       :"protegida: tiene factura o pago")
                                       :d.reglaPendiente?"bloqueada: regla pendiente"
                                       :d.fechaNoSellada?"pendiente: sin fecha sellada"

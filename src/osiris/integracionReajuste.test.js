@@ -1422,10 +1422,98 @@ describe("D-12 · la proteccion de la Regla 4 se conserva", () => {
     expect(antecedentesDeCobro(dos).hay).toBe(true);
   });
 
-  test("nada de este paquete levanta la proteccion", () => {
-    // No hay funcion exportada que la quite: levantarla es un flujo aparte.
+});
+
+// ══════════════════════════════════════════════════════════════════
+// Los hallazgos de la undécima revisión sobre D-12.
+describe("D-12 · lo que la revision encontro del propio arreglo", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const {
+    antecedentesDeCobro, conProteccionConservada, MOTIVO_PROTECCION_CONSERVADA,
+  } = require("./reajusteAplicado");
+  const total = (ct) => r2(filasDe(ct).reduce((s, f) => s + f.montoFact, 0));
+  const ACTIVA = (rcPagos) => CONTRATO({
+    reajusteActivacion: Object.assign({}, ACTIVACION), rcPagos: rcPagos || {},
+  });
+
+  // R-1 · `upd` audita cada cambio con JSON.stringify(...).slice(0,200). Con el
+  // parrafo explicativo guardado DENTRO de cada fila, la bitacora de cualquier
+  // edicion de cobros quedaba truncada hasta ser inutil: la revision midio 275
+  // caracteres por fila conservada y 823 con tres. El texto vive ahora en una
+  // constante y la fila guarda solo los motivos y la fecha.
+  test("la fila conservada no se come la ventana de 200 de la bitacora", () => {
+    const una = conProteccionConservada({ nFact: "999" }, { nFact: "" }, "2026-10-09");
+    // Lo que agrega la conservacion, por fila, medido.
+    const sinProteccion = JSON.stringify({ nFact: "" }).length;
+    const conProteccion = JSON.stringify(una).length;
+    expect(conProteccion - sinProteccion).toBeLessThan(90);        // el parrafo sumaba 240
+    expect(JSON.stringify({ "2029/2030": una }).length).toBeLessThan(200);
+    expect(JSON.stringify(una)).not.toContain("operacion economica");
+    // Lo que NO se afirma: un `rcPagos` con varias temporadas conservadas
+    // sigue pasandose de 200. Eso es la deuda del audit, que corta a 200 y es
+    // anterior a esto; lo que este arreglo evita es agravarla por fila.
+    const tres = ["2027/2028", "2028/2029", "2029/2030"].reduce((m, t) => (m[t] = una, m), {});
+    expect(JSON.stringify(tres).length).toBeGreaterThan(200);
+  });
+
+  test("el motivo explicativo existe, exportado, para que lo muestre quien deba", () => {
+    expect(MOTIVO_PROTECCION_CONSERVADA).toMatch(/operacion economica con su propio flujo/);
+  });
+
+  // R-3 · Si el antecedente vuelve, la fila esta protegida por el vivo y el
+  // conservado no se nombra: repetirlo dejaba dos motivos para una sola fila.
+  // El registro se conserva igual, por si el vivo se retira otra vez.
+  test("cuando el antecedente vuelve, el conservado no se nombra dos veces", () => {
+    const conservada = conProteccionConservada({ nFact: "999" }, { nFact: "" }, "2026-10-09");
+    const vuelve = Object.assign({}, conservada, { nFact: "1000" });
+    const a = antecedentesDeCobro(vuelve);
+    expect(a.hay).toBe(true);
+    expect(a.motivos.length).toBe(1);
+    expect(a.motivos[0]).toMatch(/1000/);
+    expect(a.motivos.join(" ")).not.toMatch(/proteccion conservada/);
+    expect(a.conservada).toBe(true);              // el registro sigue ahi
+    expect(a.soloPorConservada).toBe(false);      // pero no es la razon de hoy
+    expect(total(ACTIVA({ "2029/2030": vuelve }))).toBeCloseTo(647533.99, 2);
+  });
+
+  test("y si el vivo se retira otra vez, el conservado vuelve a ser la razon", () => {
+    const conservada = conProteccionConservada({ nFact: "999" }, { nFact: "" }, "2026-10-09");
+    const vuelve = Object.assign({}, conservada, { nFact: "1000" });
+    const otraVez = conProteccionConservada(vuelve, Object.assign({}, vuelve, { nFact: "" }), "2026-11-20");
+    const a = antecedentesDeCobro(otraVez);
+    expect(a.soloPorConservada).toBe(true);
+    expect(a.hay).toBe(true);
+    expect(total(ACTIVA({ "2029/2030": otraVez }))).toBeCloseTo(647533.99, 2);
+  });
+
+  // La prueba anterior de "nada levanta la proteccion" era un grep de nombres
+  // exportados: un `limpiarProteccion` habria pasado. Esto mide comportamiento.
+  test("ninguna edicion de la fila quita una proteccion ya conservada", () => {
+    const partida = conProteccionConservada({ nFact: "999" }, { nFact: "" }, "2026-10-09");
+    const ediciones = [
+      ["nFact", ""], ["nFact", "1000"], ["pagado", false], ["pagado", true],
+      ["fechaPago", ""], ["fechaPago", "2030-01-01"], ["montoFacturado", ""],
+      ["parciales", []], ["fechaEst", "2030-04-01"], ["fechaEst", ""],
+      ["haCobrar", ""], ["haCobrar", "30"], ["proteccion", undefined],
+    ];
+    ediciones.forEach(([campo, val]) => {
+      const despues = conProteccionConservada(partida, Object.assign({}, partida, { [campo]: val }));
+      expect(despues.proteccion).toBeTruthy();
+      expect(antecedentesDeCobro(despues).hay).toBe(true);
+      // El importe queda igual salvo con `haCobrar`, que es un override de
+      // hectareas y nunca estuvo cubierto por la Regla 4: baja la fila por
+      // otra razon, con la proteccion intacta. Queda dicho, no tapado.
+      const esperado = campo === "haCobrar" && String(val) !== "" ? 611623.99 : 647533.99;
+      expect(total(ACTIVA({ "2029/2030": despues }))).toBeCloseTo(esperado, 2);
+    });
+  });
+
+  test("y el modulo no exporta nada que la quite, por nombre", () => {
+    // Complementa a la de arriba: no la reemplaza.
     const mod = require("./reajusteAplicado");
-    const quitan = Object.keys(mod).filter((k) => /(levantar|quitarProteccion|desproteger)/i.test(k));
+    const quitan = Object.keys(mod).filter((k) =>
+      /(levantar|quitar|borrar|limpiar|retirar|eliminar|resetear|desproteger)/i.test(k) &&
+      /proteccion/i.test(k));
     expect(quitan).toEqual([]);
   });
 });
