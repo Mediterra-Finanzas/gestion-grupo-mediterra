@@ -38,6 +38,7 @@ import { buildBookmark, validateBookmark, deserializeSel, listBookmarks, saveBoo
 import { compararEstados } from "./friskuCompare.js";
 import { buildTooltipData, participacionPct, rankingDe, fuenteLabel, tooltipToText, fmtPct } from "./friskuTooltip.js";
 import { theme } from "./theme";
+import { medidasLogoPDF } from "./diseno/logoExport.js";
 
 // ── Paleta Frisku ──
 // Re-exporta los tokens del tema central + alias para preservar los
@@ -5010,7 +5011,9 @@ async function exportarPO_PDF(po, cliente, lineas, paises=[]) {
   emisor.forEach((l,i)=>doc.text(l, m, y+6+i*5));
   try {
     const logo = await po_urlToDataURL(process.env.PUBLIC_URL + "/frisku.png");
-    doc.addImage(logo, "PNG", W-m-46, y+2, 46, 22, undefined, "FAST");
+    // Proporción real dentro de la caja de 46×22 mm (antes se estiraba ≈ 27 % a lo ancho).
+    const ml = medidasLogoPDF(doc, logo, 46, 22);
+    doc.addImage(logo, "PNG", W-m-ml.w, y+2+(22-ml.h)/2, ml.w, ml.h, undefined, "FAST");
   } catch(e){ /* sin logo */ }
   y += 6 + emisor.length*5 + 4;
 

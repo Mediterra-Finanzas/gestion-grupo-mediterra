@@ -48,19 +48,13 @@ Lo común ya resuelto en la rama: navegación (lateral / riel / barra inferior),
 
 ## 3. Identidad que se conserva
 
-- **Logos** (8 en `public/`): en pantalla, todos con alto fijo y `object-fit: contain`
-  (verificado). **Deformados en exportaciones** (no se tocaron; requieren tu visto bueno porque
-  cambian archivos que se entregan): PDF de Osiris (`OsirisModule.jsx:907`, logo 2,75:1 forzado a
-  cuadrado), Reporte Semanal PDF (`FinanzasModule.jsx` ~12125, ≈ 23 % más angosto), PDF de PO
-  de Frisku (`FriskuComercialModule.jsx:5013`, ≈ 27 % más ancho), Excel de Osiris
-  (`OsirisModule.jsx:1217/1228`, ≈ 15 % más angosto). Propuesta: calcular el ancho desde la
-  proporción real, como ya hacen Rendiciones y Frisku.
-- **GIF de especies**: **no hay GIF en el repositorio.** Son URL que cada persona carga en
-  Osiris → Maestro Especies (campo «.gif, .png, .jpg»); se muestran en cajas de 36 y 26 px con
-  `object-fit: cover`, que **recorta** imágenes no cuadradas. Propuesta: `contain` y una caja
-  algo mayor en las fichas. Los datos ficticios de la vista previa no traen esas URL, así que la
-  animación no se puede verificar ahí con datos reales; se puede cargar una URL de prueba en el
-  maestro de la vista previa.
+- **Logos** (8 en `public/`): en pantalla, alto fijo y `object-fit: contain`. En las 4
+  exportaciones que los deformaban (PDF de Osiris, Excel de Osiris, Reporte Semanal PDF, PDF de PO
+  de Frisku) ahora se encajan con su proporción real (`src/diseno/logoExport.js`); medido en los
+  archivos: estado §6f.
+- **GIF de especies**: siguen siendo las URL del Maestro de Especies; se muestran completos
+  (`contain`, cajas de 32 y 48 px). La vista previa trae un GIF de prueba; animación y ausencia de
+  recorte comprobadas (estado §6f).
 
 ## 4. Aplicación por grupos (después de tu revisión de la muestra)
 
@@ -73,3 +67,39 @@ Lo común ya resuelto en la rama: navegación (lateral / riel / barra inferior),
 
 Cada grupo: sin reescribir módulos, sin tocar cálculos, persistencia ni permisos; pruebas solo de
 lo que cambia sobre un build congelado; capturas en los 4 tamaños.
+
+## 5. Franja ejecutiva del CFO (propuesta, no implementada)
+
+**Qué mostraría** (una fila compacta sobre «Requiere tu decisión», solo para quien tiene
+Finanzas → Dashboard): caja hoy (saldos bancarios vigentes, con «INCOMPLETO» si hay cuentas sin
+paridad), deuda (capital por vencer de créditos, con lo «por conciliar» aparte), mínimo de caja
+proyectado con su mes, y alertas (cuentas sin paridad, cuotas por conciliar, mínimo bajo cero).
+Cada cifra lleva al Dashboard o a Créditos, donde está su detalle.
+
+**Por qué no se implementó en esta rama.** Reutilizar «los cálculos existentes» aquí significa
+reutilizar los del Dashboard de `main`, y dos de ellos no sirven:
+
+- **Deuda**: el KPI «Créditos Totales Q1-26» es una cifra fija en el código (8.355.763). Llevarla
+  al inicio sería justo la cifra estática que no se debe incorporar.
+- **Mínimo y saldo final**: en `main` suman las 8 sociedades al 100 % (incluidas las JV que van
+  por patrimonio), desde Apr-26 y con el saldo estático. No coinciden con el Consolidado.
+
+Las dos están corregidas en la **rama funcional** (`claude/fervent-bell-uu6ae8`):
+`capitalPendienteCreditos` (capital por vencer, por conciliar) y `cajaGrupoBase` (6 sociedades,
+saldo de Saldos Bancos, arrastre desde el mes en curso), con sus pruebas. Solo la caja de hoy
+tiene aquí una función pura reutilizable (`saldoBancoEmpresaUSD` / `avisoSaldoIncompleto`).
+
+**Dependencias, en orden:**
+
+1. Integrar la rama funcional (decisión tuya, por etapas; regla 15).
+2. Extraer de `FinanzasModule` un **selector puro de solo lectura**
+   (`resumenEjecutivo({finanzas, bancos, creditos, hoy})`) que use esas mismas funciones, y que
+   el Dashboard pase a leer de él: una sola fuente para Dashboard e inicio.
+3. Que el inicio lea las filas `finanzas` y `finanzas_bancos` con un lector **que no registre
+   la carga en el contrato de guardado** (hoy `dbLoad`/`dbLoadBancos` llaman
+   `persist.registrarCarga`; leer con ellas desde el inicio cambiaría el estado de guardado de
+   Finanzas). Es un cambio de persistencia y por eso va con su prueba propia.
+
+**Alternativa parcial (no recomendada):** solo «caja hoy» con `saldoBancoEmpresaUSD`, dejando
+deuda y mínimo como enlace a Finanzas. Exige igual el paso 3 y muestra media foto: una caja
+alta sin la deuda al lado induce a una lectura equivocada.

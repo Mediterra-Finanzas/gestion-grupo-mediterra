@@ -11,6 +11,8 @@
 import { nuevoStore, PIN } from '../e2e/fake.mjs';
 
 export { PIN };
+// GIF animado de prueba (generado con ImageMagick; no es un dato del negocio).
+export const GIF_PRUEBA = 'data:image/gif;base64,R0lGODlhYAAwAPUtAC59MsA5K8A6LcE7LsE8LsRFOMRHOcRHOsVHO8VIO89nXc9oXc9oXs9pXs9pX89qX9BqX9JyaNJzadNzadN0atN0a96Ykd6Zkt+Zkt+akt+ak+i4s+m5tOm6te/Mye/Nye/Nyu/OyvLX1fPY1fPY1vPZ1vfm5Pfm5ffn5fv08/z08/z09Pz19P///wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQEHgAAACH/C0ltYWdlTWFnaWNrDmdhbW1hPTAuNDU0NTQ1ACwAAAAAYAAwAAAG/0CAcEgsGo/IpHLJbDqf0Kh0Sq1ar9isdmtseb/gsHhMLpvP6LR6zW673/C4fE6v2+9tVkgDSRASEBohLHiFdiUUAYqLjAEUJYaRbigLjZaMCyiSm2ccl5+MHJyjYRqgp4oapKSmqKiqq5Kerq4bsYYotLqat3cQurQLvYfAupDDc4nFrhTIcirLuoTObyHRtCHUb63Xp7DabJXdpxDgbQjjpwnmbAPpp+xrCe+fCPFq4vSNCvdp3PqLvvUrYw0go2wDzbAwyEhFwjMTGAaY8PBMCYkiKp7JR0+YRjO5APL6WGbWO1Ekz/y7JjBlmZXFWroseQ3lzDQofunKdLMNIiVUE471dJNizwIEAxAsEDRtqNOnUKMa4kK1qtWrWLNq3cq1a5UgACH5BAUeAC4AIf8LSW1hZ2VNYWdpY2sOZ2FtbWE9MC40NTQ1NDUALAAACAA5ACEAAAb/QJdwSHS1jshkq8gUskIaSIKQgGhCrKa2qOwmtyVKYEwuByilbdPL/hJRC7O8vECph+38cciZ+8scanqDRxp/h2MaS2uEeYaIiBqMjWyBkJAbXJRsdkKXiJ1Cm2wQQ5+HC3ijXWlEp3+tq10URa9+tLJKKk22cyy5SSG8vWYhwEiSTMRmisctqcrLZBDOLQjD0gEJ1QNa2WPVCdjSCNXQtd8K1cno2c3HwtHZxs5Z8tK71RPt0vtGzq1MfROh6ti5bwHO/TsWCmEoUc4sfQvEZN03dpqcPSKmSFAuPsQo3pFVBAWEU3XuZBwERsyhCQFVrvQiMwWUBQgGIFhwxd6WASAAIfkEBR4ALgAh/wtJbWFnZU1hZ2ljaw5nYW1tYT0wLjQ1NDU0NQAsGAAIADkAIQAABv9Al3BIdLWOyGSryBSyQhpIgpCAaEKsprao7Ca3JUpgTC4HKKVt08v+ElELs7y8QKmH7fxxyJn7yxxqeoNHGn+HYxpLa4R5hoiIGoyNbIGQkBtclGx2QpeInUKbbBBDn4cLeKNdaUSnf62rXRRFr360skoqTbZzLLlJIby9ZiHASJJMxGaKxy2pystkEM4tCMPSAQnVA1rZY9UJ2NII1dC13wrVyejZzcfC0dnGzlny0rvVE+3S+0bOrUx9E6Hq2LlvAc79OxYKYShRzix9C8Rk3Td2mpw9IqZIUC4+xCjekVUEBYRTde5kHARGzKEJAVWu9CIzBZQFCAYgWHDF3pYBIAAh+QQFHgAuACH/C0ltYWdlTWFnaWNrDmdhbW1hPTAuNDU0NTQ1ACwwAAgAMAAhAAAG6ECXcEh0tY7IZKvICmkgCUICogmxitisUclFukqUgHhMDlBK2mx33UItynDyApUesrucYXwfyGvvXRpFfHEaS1iASoJYhHCLRIlJflmNZRuQkUd0dZVkm1uZEHUunWMLQplHaKOkpQFoqS0UrK2lFLEqtEKuAbEhurWdsY+svLGnusapCMDKmQPAwY2xzMmux83XqcSjzpG/1qWxV+GdoJETtLzpsavdriKoqchpvPSxn1q8+bGTjK7+5GXitssVwXORuPEylKafHoCs8EFwNQdYqi9hCE1wFw1QkRROFiAYgGBBFXJaggAAOw==';
 const SIN = 'sin_acceso';
 const finanzasTodoSin = { dashboard: SIN, flujo: SIN, bancos: SIN, creditos: SIN, nominas: SIN, reporte: SIN, params: SIN, auditoria: SIN, eeff: SIN };
 const tareasEditar = { diaria: 'editar', semanal: 'editar', quincenal: 'editar', mensual: 'editar', anual: 'editar', config: 'editar' };
@@ -94,6 +96,12 @@ export function storeDiseno(hoy = new Date()) {
     preparadoPor: 'Carol Machuca', revisadoPor: estado === 'preparada' ? '' : 'Carol Machuca', aprobadoPor: estado === 'aprobada' ? 'Angelo Huerta' : '',
     aprobado1Por: (estado === 'aprobada' || estado === 'aprobada1') ? 'Michelle Garcia' : '', fechaAprobacion: '', fechaAprobacion1: '',
     items: [item(`${id}-1`, 'Servicio ficticio', 1200), item(`${id}-2`, 'Arriendo ficticio', 800)], bancos: {}, notas: '', seccionesExtra: [], estadoNomina: 'activa', historial: [] });
+  // Maestro de Especies (Osiris) con un GIF de PRUEBA embebido (4 cuadros, 96×48, sin red):
+  // sirve para comprobar que la imagen se ve completa (no cuadrada, sin recorte) y animada.
+  st.osiris = { updated_at: hace(0.3), value: { especies: [
+    { id: 'esp-gif', nombre: 'Cerezo', color: '#c0392b', imagen: GIF_PRUEBA, observaciones: 'GIF de prueba (ficticio)' },
+    { id: 'esp-emoji', nombre: 'Arándano', color: '#3b5bdb', imagen: '', observaciones: 'Sin imagen: usa el emoji' },
+  ] } };
   st.nominas_v2_done = { value: JSON.stringify({ migrado: true }), updated_at: hace(0.3) };
   st.nominas_osiris = { updated_at: hace(0.3), value: JSON.stringify({ nominas: [nom('NOMP', 3, 'preparada', 41), nom('NOMR', 2, 'aprobada1', 40), nom('NOMA', 1, 'aprobada', 39)] }) };
   return st;

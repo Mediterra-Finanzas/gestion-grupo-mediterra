@@ -454,7 +454,14 @@ Firefox ni equipos reales; nada corrido en producción.
   `claude/diseno-grupo2-borrador` (no está listo para revisión); no se extiende el patrón hasta
   validar el grupo 1 en Figma.
 
-## 6e. Muestra ejecutiva (09-10) — para tu revisión antes de extender
+## Estado al 09-10
+
+Las pruebas de la muestra terminaron (§6e) y las de los ajustes también (§6f). **Siguen
+pendientes:** tu revisión visual de la muestra y de los ajustes, y la adaptación de los demás
+módulos (grupos 2 a 5 de `docs/diseno/homogeneidad-y-plan.md` §4), que no empieza hasta esa
+revisión. Nada de esto está aprobado para producción: sin merge a `main` ni despliegue.
+
+## 6e. Muestra ejecutiva (09-10) — pruebas terminadas; pendiente tu revisión visual
 
 Herramienta: React + vista previa aislada (Figma queda como referencia; no hay otro conector de
 diseño disponible en esta sesión). Diagnóstico del conjunto y plan por módulos:
@@ -487,8 +494,59 @@ laptop 1280, tablet 834, teléfono 390).
   `apertura-sin-cambios` y `aislamiento` OK; jest 1.754/1.754 en UTC y Chile; `hub-navegacion` 77/77 con dos comprobaciones actualizadas por diseño (en teléfono el
   «no disponible» con Reintentar está en Pendientes; las cifras de decisión se muestran también
   en cero); unitarias nuevas en `muestraEjecutiva.test.js`.
-- **Pendiente de decisión**: logos deformados en 4 exportaciones y GIF de especies recortados
-  (ver `homogeneidad-y-plan.md` §3); no se tocaron.
+- Logos de exportaciones y GIF de especies: corregidos después, en §6f.
+
+## 6f. Ajustes acotados sobre la muestra (09-10) — pruebas terminadas; pendiente tu revisión visual
+
+Pedido: logos en las 4 exportaciones, GIF del Maestro de Especies, barra del detalle de
+Nóminas y una propuesta (no implementación) de franja ejecutiva. El grupo 2 sigue sin tocar
+(`claude/diseno-grupo2-borrador`).
+
+**Logos en exportaciones** (`src/diseno/logoExport.js`, una sola regla: el logo se encaja en la
+caja que ya tenía, con su proporción real; nunca se estira). Medido **dentro de los archivos
+descargados** desde la app (PDF: resolución horizontal y vertical de la imagen con `pdfimages`;
+Excel: `cx/cy` del dibujo contra el tamaño del JPEG):
+
+| Exportación | Antes | Ahora | Páginas | Texto y cifras |
+|---|---|---|---|---|
+| PDF de reportes de Osiris (`exportarReportePDF`) | 175 % más ancho (2,75:1 forzado a cuadrado) | 0 % | 1 → 1 | iguales |
+| Excel de Osiris (`exportCSV`) | cx/cy 2,333 (logo 2,748) | 2,748 | — | hojas y celdas iguales |
+| Reporte Semanal PDF (`_pdfAddHeader`, 13 páginas) | 28–30 % más ancho | 0 % | 13 → 13 | iguales |
+| PDF de PO de Frisku (`exportarPO_PDF`) | 21 % más angosto | 0 % | 1 → 1 | iguales |
+
+En el PDF de Osiris el título se corre a la derecha del logo (que ahora ocupa su ancho real);
+el texto es el mismo. «Antes» = build del commit 5a6d71a con los mismos datos ficticios.
+Observación previa, sin tocar: en el Reporte Semanal el título «Resumen Ejecutivo» se monta
+sobre la línea de la cabecera; ya pasaba antes (cambiarlo movería la disposición del informe).
+
+**GIF de especies.** Se conservan las URL que cada persona carga en el Maestro de Especies; la
+imagen pasa de `object-fit: cover` (recortaba lo no cuadrado) a `contain`, en cajas de 32 px
+(lista) y 48 px (vista previa del formulario). La vista previa aislada trae un GIF de prueba
+embebido (96×48, 4 cuadros, generado para esto; sin red) en la especie ficticia «Cerezo».
+Comprobado: el GIF carga con 96×48, se dibuja completo (32×16 dentro de 32×32), anima (las
+capturas cambian con el tiempo) y abrir el maestro o el formulario **no escribe** la fila
+`osiris`.
+
+**Barra del detalle de Nóminas** al sistema común (`mdt-cabmod`, `mdt-boton`): ruta, título con
+el selector de nómina hermana, Semana/Fecha/Estado como contexto; acciones del circuito
+(aprobar, devolver) arriba; nueva nómina, vista y documentos (Editar/Solo ver, Exportar Excel,
+Imprimir, Auditoría, Expediente PDF y ZIP) en una fila propia que en teléfono se desliza en una
+línea. **Mismas condiciones** que antes (`puedeAvanzar`, `puedeRetroceder`, `canEdit`,
+`onCrearNueva`, mensaje de espera) y `no-print`. Se quitaron los emojis de los botones de
+documentos (los del circuito vienen de `textoAvanzar`/`textoRetroceder` y no se tocaron).
+En teléfono la barra pasa de 9 botones apilados a 271 px de alto.
+
+**Pruebas** (build congelado `main.e6693b61.js`, Chromium emulado, datos ficticios):
+`ajustes-muestra.mjs` 39/39 (nuevo: exportaciones antes/después, GIF, barra por permiso en
+computador y teléfono); `muestra-ejecutiva` 65/65; `grupo1-finanzas` 200/200 (sin `MAIN_URL`:
+la comparación de impresión del flujo contra main no se repitió porque el flujo no cambió);
+`dialogos-app` 27/27; nóminas (guardado, condicionado, crédito) OK; jest 1.757/1.757 en UTC y
+en hora de Chile (incluye `logoExport.test.js`, 3 casos con el JPEG real de Osiris). No probado
+en Safari, Firefox ni dispositivos reales; los PDF y el Excel se revisaron con poppler y
+lectura del ZIP, no abiertos en Excel o Acrobat.
+
+**Franja ejecutiva del CFO: propuesta separada, no implementada** (depende de cambios
+funcionales). Ver `docs/diseno/homogeneidad-y-plan.md` §5.
 
 ## 7. Archivos
 

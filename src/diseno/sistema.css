@@ -292,3 +292,14 @@ html[data-nav="compacta"] .mdt-dup-nav { display: none; }
 }
 .mdt-cabmod__volver { background: none; border: none; padding: 0; color: var(--mdt-c-info); font: inherit; cursor: pointer; }
 .mdt-guardado-chip { font-size: var(--mdt-t-rotulo); font-weight: 600; color: var(--mdt-c-texto-2); background: var(--mdt-c-superficie-2); border-radius: 999px; padding: 4px 10px; }
+
+/* Barra del detalle de Nóminas: acciones del circuito arriba; documento y vista en
+   una fila aparte (en teléfono, una sola línea deslizable para no empujar el contenido). */
+.mdt-barra-nomina { margin: var(--mdt-e-3) 20px; }
+.mdt-barra-nomina__docs { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: var(--mdt-e-2); justify-content: flex-end;
+  border-top: 1px solid var(--mdt-c-borde); padding-top: var(--mdt-e-2); }
+@media (max-width: 599px) {
+  .mdt-barra-nomina { margin: var(--mdt-e-2) 0; }
+  .mdt-barra-nomina__docs { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; -webkit-overflow-scrolling: touch; }
+  .mdt-barra-nomina__docs > button { flex: 0 0 auto; }
+}

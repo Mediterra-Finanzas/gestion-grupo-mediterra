@@ -48,6 +48,7 @@ import {
   vincularPlantaciones, retirarAnexo, tieneRespaldo,
   resumenEliminaciones, aplicarAsignacionEnViveros,
 } from "./osiris/anexosPlantas";
+import { medidasLogoPDF, tamanoJpeg } from "./diseno/logoExport.js";
 import {
   fusionarTandas,
   darDeBajaPlantacion,
@@ -904,11 +905,13 @@ async function exportarReportePDF(tituloDoc, kpis, tablas, nombreArchivo) {
   const logo = await getLogoDataUrl().catch(()=>null);
   // Banda superior
   doc.setFillColor(15,45,74); doc.rect(0,0,W,24,"F");
-  if(logo){ try{ doc.addImage(logo,"JPEG",10,4,16,16); }catch(e){} }
+  // Logo en su proporción real dentro de la banda (antes 16×16: un logo 2,75:1 forzado a cuadrado).
+  let xTxt = 10;
+  if(logo){ try{ const m = medidasLogoPDF(doc, logo, 44, 16); doc.addImage(logo,"JPEG",10,4+(16-m.h)/2,m.w,m.h); xTxt = 10 + m.w + 6; }catch(e){} }
   doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont(undefined,"bold");
-  doc.text(tituloDoc, logo?30:10, 12);
+  doc.text(tituloDoc, xTxt, 12);
   doc.setFontSize(9); doc.setFont(undefined,"normal");
-  doc.text("Osiris Plant Management · Grupo Mediterra · "+new Date().toLocaleDateString("es-CL"), logo?30:10, 19);
+  doc.text("Osiris Plant Management · Grupo Mediterra · "+new Date().toLocaleDateString("es-CL"), xTxt, 19);
   let y = 32;
   // KPIs
   if(kpis&&kpis.length){
@@ -1204,7 +1207,10 @@ async function exportCSV(rowsOrSections, headers, nombre, opts={}) {
   ${sheetRelsItems}
 </Relationships>`;
 
-  // Drawing XML (para el logo)
+  // Drawing XML (para el logo). Alto fijo (como antes) y ancho desde la proporción real
+  // del JPEG (antes 1600200×685800 EMU: 2,33:1 para un logo de 2,75:1).
+  const tamLogo = logo ? tamanoJpeg(logo.buffer) : null;
+  const logoCy = 685800, logoCx = tamLogo ? Math.round(logoCy * tamLogo.ancho / tamLogo.alto) : 1600200;
   const drawingXml = logo ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
           xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -1214,7 +1220,7 @@ async function exportCSV(rowsOrSections, headers, nombre, opts={}) {
       <xdr:col>0</xdr:col><xdr:colOff>95250</xdr:colOff>
       <xdr:row>0</xdr:row><xdr:rowOff>38100</xdr:rowOff>
     </xdr:from>
-    <xdr:ext cx="1600200" cy="685800"/>
+    <xdr:ext cx="${logoCx}" cy="${logoCy}"/>
     <xdr:pic>
       <xdr:nvPicPr>
         <xdr:cNvPr id="1" name="Logo Osiris"/>
@@ -1225,7 +1231,7 @@ async function exportCSV(rowsOrSections, headers, nombre, opts={}) {
         <a:stretch><a:fillRect/></a:stretch>
       </xdr:blipFill>
       <xdr:spPr>
-        <a:xfrm><a:off x="0" y="0"/><a:ext cx="1600200" cy="685800"/></a:xfrm>
+        <a:xfrm><a:off x="0" y="0"/><a:ext cx="${logoCx}" cy="${logoCy}"/></a:xfrm>
         <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
       </xdr:spPr>
     </xdr:pic>
@@ -6704,9 +6710,10 @@ function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],va
             <div style={{display:"flex",gap:10,alignItems:"center"}}>
               <input value={form.imagen} placeholder="https://...  (.gif, .png, .jpg)" onChange={e=>setForm(p=>({...p,imagen:e.target.value}))}
                 style={{flex:1,padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-              <div style={{width:36,height:36,borderRadius:8,flexShrink:0,overflow:"hidden",border:`1px solid ${C.border}`,background:(form.imagen||emojiEspecie(form.nombre))?"#fff":form.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>
+              <div data-testid="especie-vista-previa" style={{width:48,height:48,borderRadius:8,flexShrink:0,overflow:"hidden",border:`1px solid ${C.border}`,background:(form.imagen||emojiEspecie(form.nombre))?"#fff":form.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>
+                {/* contain: la imagen o GIF se ve completa, sin recorte ni deformación */}
                 {form.imagen
-                  ? <img src={form.imagen} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";}}/>
+                  ? <img src={form.imagen} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}} onError={e=>{e.target.style.display="none";}}/>
                   : emojiEspecie(form.nombre)||null}
               </div>
             </div>
@@ -6748,10 +6755,10 @@ function MaestroEspecies({especies,setEspecies,can,obtentores=[],contratos=[],va
                 s + ((c.plantaciones||[]).filter(p=>p.especie?.toLowerCase().trim() === e.nombre.toLowerCase().trim()).length), 0);
               return (
                 <tr key={e.id} style={{borderBottom:`1px solid ${C.border}22`,background:i%2===0?C.card:C.rowAlt}}>
-                  <td style={{padding:"6px 10px",width:32}}>
+                  <td style={{padding:"6px 10px",width:36}}>
                     {e.imagen
-                      ? <div style={{width:26,height:26,borderRadius:6,overflow:"hidden",background:"#fff",boxShadow:"0 1px 3px #0002"}}>
-                          <img src={e.imagen} alt={e.nombre} style={{width:"100%",height:"100%",objectFit:"cover"}}
+                      ? <div data-testid="especie-imagen" style={{width:32,height:32,borderRadius:6,overflow:"hidden",background:"#fff",boxShadow:"0 1px 3px #0002"}}>
+                          <img src={e.imagen} alt={e.nombre} style={{width:"100%",height:"100%",objectFit:"contain",display:"block"}}
                             onError={ev=>{ev.target.parentNode.style.background=e.color||C.muted;ev.target.style.display="none";}}/>
                         </div>
                       : emojiEspecie(e.nombre)

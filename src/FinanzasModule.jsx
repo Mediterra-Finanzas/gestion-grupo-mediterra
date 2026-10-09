@@ -1,6 +1,7 @@
 /* eslint-disable */
 import { useFuenteGrafico, EncabezadoModulo, Circuito } from "./diseno/componentes.jsx";
 import { pasosNomina } from "./diseno/circuito.js";
+import { medidasLogoPDF } from "./diseno/logoExport.js";
 import { pedirTexto, elegirOpcion, useUltimo, huella, sigueIgual, avisarDesactualizado } from "./diseno/dialogos.jsx";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -12123,7 +12124,9 @@ function _pdfAddHeader(doc, semana, fechaStr, isFirst, logo) {
   // Logo Mediterra
   if(logo) {
     try {
-      doc.addImage(logo, "PNG", 12, isFirst ? 8 : 5, isFirst ? 30 : 18, isFirst ? 22 : 13);
+      // Proporción real (antes 30×22 / 18×13 mm: el logo salía ≈ 23 % más angosto).
+      const m = medidasLogoPDF(doc, logo, isFirst ? 34 : 24, isFirst ? 22 : 13);
+      doc.addImage(logo, "PNG", 12, (isFirst ? 8 : 5) + ((isFirst ? 22 : 13) - m.h) / 2, m.w, m.h);
     } catch(e) {}
   }
   // Texto del header
@@ -17851,20 +17854,16 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
 
   return (
     <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",color:C.text}}>
-      {/* Header */}
-      <div className="no-print" style={{background:C.bg2,borderBottom:`1px solid ${C.border}`,padding:"12px 20px",
-        display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-        <button onClick={onBack}
-          style={{background:C.card2,border:`1px solid ${C.border}`,color:C.muted,
-            borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12}}>
-          ← Volver
-        </button>
-        <div style={{flex:1}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <span style={{fontWeight:800,fontSize:15,color:C.text}}>
-              {nombreFormal}
-            </span>
-            {onSwitchNomina&&(
+      {/* Encabezado de la nómina: sistema común (mdt-cabmod / mdt-boton). Mismas acciones,
+          condiciones y permisos que antes; solo cambia la presentación. */}
+      <header className="no-print mdt-cabmod mdt-barra-nomina" data-testid="barra-nomina">
+        <div className="mdt-cabmod__id" style={{flexWrap:"wrap"}}>
+          <button type="button" onClick={onBack} className="mdt-boton mdt-boton--secundario mdt-boton--chico">← Volver</button>
+          <div style={{minWidth:0,flex:"1 1 200px"}}>
+            <div className="mdt-cabmod__ruta">Finanzas · Nóminas</div>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <h1 className="mdt-cabmod__titulo">{nombreFormal}</h1>
+              {onSwitchNomina&&(
               <select value={nom.id}
                 onChange={e=>{
                   const val=e.target.value;
@@ -17874,8 +17873,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                     onCrearYAbrir(val.replace("_crear_",""));
                   }
                 }}
-                style={{padding:"5px 10px",borderRadius:8,border:`1px solid ${C.border}`,
-                  background:C.card2,color:C.text,fontSize:12,fontWeight:600,outline:"none",cursor:"pointer"}}>
+                aria-label="Cambiar de nómina" style={{minHeight:32,width:"auto",maxWidth:240,padding:"0 10px",borderRadius:"var(--mdt-r-2)",border:"1px solid var(--mdt-c-borde)",background:"var(--mdt-c-superficie)",color:"var(--mdt-c-texto)",fontSize:"var(--mdt-t-chico)",fontWeight:600,cursor:"pointer",maxWidth:"100%"}}>
                 {nominasHermanas.map(nh=>(
                   <option key={nh.id} value={nh.id}>{nh.empresa}{nh.numero>1?` N°${nh.numero}`:""}</option>
                 ))}
@@ -17887,74 +17885,58 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                 }
               </select>
             )}
-          </div>
-          <div style={{fontSize:11,color:C.muted}}>
-            Semana {nom.semana} · {nom.año} · {nom.fecha}
+            </div>
           </div>
         </div>
-        <BadgeEstado estado={nom.estado}/>
-        {/* Solo Ver / Editar toggle */}
-        <button onClick={()=>setSoloVer(!soloVer)}
-          style={{background:soloVer?"#3b82f6":"transparent",border:`1px solid ${soloVer?"#3b82f6":C.border}`,
-            color:soloVer?"#fff":C.muted,borderRadius:8,padding:"6px 12px",cursor:"pointer",
-            fontSize:11,fontWeight:600}}>
-          {soloVer?"👁 Solo ver":"✏️ Editar"}
-        </button>
-        {/* Mensaje de bloqueo si no puede avanzar */}
-        {mensajeBloqueo&&!puedeAvanzar&&(
-          <span style={{fontSize:10,color:"#f59e0b",background:"#fef3c7",padding:"5px 12px",
-            borderRadius:8,fontWeight:600,border:"1px solid #fde68a"}}>
-            {mensajeBloqueo}
-          </span>
-        )}
-        {puedeAvanzar&&(
-          <button onClick={avanzarEstado} disabled={transicionando}
-            style={{background:nom.estado==="aprobada1"?"#16a34a":"#3b82f6",border:"none",color:"#fff",borderRadius:8,
-              padding:"7px 16px",cursor:transicionando?"wait":"pointer",fontWeight:700,fontSize:12,opacity:transicionando?0.6:1}}>
-            {transicionando ? "Guardando…" : textoAvanzar}
+        <dl className="mdt-cabmod__contexto">
+          <div className="mdt-cabmod__dato"><dt>Semana</dt><dd>{nom.semana} · {nom.año}</dd></div>
+          <div className="mdt-cabmod__dato"><dt>Fecha</dt><dd>{nom.fecha}</dd></div>
+          <div className="mdt-cabmod__dato"><dt>Estado</dt><dd><BadgeEstado estado={nom.estado}/></dd></div>
+        </dl>
+        <div className="mdt-cabmod__acciones">
+          {/* Mensaje de bloqueo si no puede avanzar */}
+          {mensajeBloqueo&&!puedeAvanzar&&(
+            <span className="mdt-guardado-chip" style={{color:"var(--mdt-c-aviso)"}}>{mensajeBloqueo}</span>
+          )}
+          {puedeAvanzar&&(
+            <button type="button" onClick={avanzarEstado} disabled={transicionando}
+              className={`mdt-boton ${nom.estado==="aprobada1"?"mdt-boton--ok":"mdt-boton--primario"}`}
+              style={transicionando?{cursor:"wait"}:undefined}>
+              {transicionando ? "Guardando…" : textoAvanzar}
+            </button>
+          )}
+          {nom.estado!=="borrador"&&puedeRetroceder&&!soloVer&&(
+            <button type="button" onClick={retrocederEstado} disabled={transicionando} className="mdt-boton mdt-boton--secundario">
+              {textoRetroceder}
+            </button>
+          )}
+        </div>
+        {/* Nueva nómina, documento y vista: fila propia (en teléfono se desliza en una línea). */}
+        <div className="mdt-barra-nomina__docs" aria-label="Documento y vista">
+          {/* + Nueva nómina misma empresa/semana (crea otra nómina: no es un paso del circuito) */}
+          {canEdit&&onCrearNueva&&(
+            <button type="button" onClick={()=>onCrearNueva(nom.empresa, nom.semana, nom.año)} className="mdt-boton mdt-boton--secundario mdt-boton--chico">
+              + Nueva Nómina
+            </button>
+          )}
+          {/* Solo Ver / Editar toggle */}
+          <button type="button" onClick={()=>setSoloVer(!soloVer)} aria-pressed={soloVer}
+            className={`mdt-boton mdt-boton--chico ${soloVer?"mdt-boton--primario":"mdt-boton--secundario"}`}>
+            {soloVer?"Solo ver":"Editar"}
           </button>
-        )}
-        {nom.estado!=="borrador"&&puedeRetroceder&&!soloVer&&(
-          <button onClick={retrocederEstado} disabled={transicionando}
-            style={{background:"#fef3c7",border:`1px solid #fde68a`,color:"#92400e",
-              borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11,fontWeight:600}}>
-            {textoRetroceder}
+          <button type="button" onClick={exportarExcelNomina} className="mdt-boton mdt-boton--secundario mdt-boton--chico">Exportar Excel</button>
+          <button type="button" onClick={()=>{window.print();}} className="mdt-boton mdt-boton--secundario mdt-boton--chico">Imprimir</button>
+          <button type="button" onClick={()=>setShowAudit(true)} className="mdt-boton mdt-boton--secundario mdt-boton--chico">Auditoría</button>
+          <button type="button" onClick={expedientePDF} disabled={genPdf} className="mdt-boton mdt-boton--secundario mdt-boton--chico"
+            style={genPdf?{cursor:"wait"}:undefined}>
+            {genPdf?"Generando…":"Expediente PDF"}
           </button>
-        )}
-        {/* + Nueva nómina misma empresa/semana */}
-        {canEdit&&onCrearNueva&&(
-          <button onClick={()=>onCrearNueva(nom.empresa, nom.semana, nom.año)}
-            style={{background:"#0f766e",border:"none",color:"#fff",borderRadius:8,
-              padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:11}}>
-            + Nueva Nómina
+          <button type="button" onClick={descargarExpediente} disabled={descExpediente} className="mdt-boton mdt-boton--secundario mdt-boton--chico"
+            style={descExpediente?{cursor:"wait"}:undefined}>
+            {descExpediente?"Generando…":"Expediente ZIP"}
           </button>
-        )}
-        <button onClick={exportarExcelNomina}
-          style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,
-            borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11}}>
-          📥 Excel
-        </button>
-        <button onClick={()=>{window.print();}}
-          style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,
-            borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11}}>
-          🖨️ Imprimir
-        </button>
-        <button onClick={()=>setShowAudit(true)}
-          style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,
-            borderRadius:8,padding:"7px 12px",cursor:"pointer",fontSize:11}}>
-          🔍 Auditoría
-        </button>
-        <button onClick={expedientePDF} disabled={genPdf}
-          style={{background:genPdf?"transparent":`${C.blue}1a`,border:`1px solid ${C.blue}`,color:C.blue,
-            borderRadius:8,padding:"7px 12px",cursor:genPdf?"wait":"pointer",fontSize:11,fontWeight:700}}>
-          {genPdf?"📄 Generando…":"📄 Expediente PDF"}
-        </button>
-        <button onClick={descargarExpediente} disabled={descExpediente}
-          style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,
-            borderRadius:8,padding:"7px 12px",cursor:descExpediente?"wait":"pointer",fontSize:11}}>
-          {descExpediente?"⬇ Generando…":"⬇ Expediente ZIP"}
-        </button>
-      </div>
+        </div>
+      </header>
 
       {/* Banner nómina bloqueada */}
       {estadoBloqueado&&(
