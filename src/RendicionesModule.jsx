@@ -11,7 +11,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import * as XLSX from "xlsx-js-style";
 import { theme as T } from "./theme";
-import { Modal as ModalComun, EstadoVista } from "./diseno/componentes.jsx";
+import { Modal as ModalComun, EstadoVista, Circuito } from "./diseno/componentes.jsx";
+import { pasosRendicion } from "./diseno/circuito.js";
 import { capacidadesRendiciones } from "./diseno/capacidades";
 import { pedirTexto, useUltimo, huella, sigueIgual, avisarDesactualizado } from "./diseno/dialogos.jsx";
 import {
@@ -2183,6 +2184,22 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
           </button>
         )}
       </div>
+
+      {/* Circuito de aprobación: mismo componente que Nóminas. */}
+      <Circuito pasos={pasosRendicion(rend)} titulo="Circuito de la rendición" testid="circuito-rendicion"/>
+      {(() => {
+        // Documentos: cada gasto (salvo kilometraje) necesita su respaldo para enviarse
+        // (regla de enviar(); aquí solo se informa el avance).
+        const conDoc = (rend.gastos || []).filter(g => g.categoria !== "kilometraje");
+        const listos = conDoc.filter(g => g.adjuntoUrl).length;
+        if (!conDoc.length) return null;
+        const completo = listos === conDoc.length;
+        return (
+          <div data-testid="respaldos-resumen" role="status" className={`mdt-estado ${completo ? "" : "mdt-estado--aviso"}`} style={{ marginBottom: 16 }}>
+            <div style={{ flex: 1 }}><b>Respaldos: {listos} de {conDoc.length}</b> {completo ? "· todos los gastos tienen su documento." : "· falta adjuntar boleta, factura o comprobante para poder enviar."}</div>
+          </div>
+        );
+      })()}
 
       {/* Rendir en nombre de otra persona (delegación: ej. secretaria por gerente) */}
       {puedeRendirPorOtros && editable && (

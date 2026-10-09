@@ -10,6 +10,7 @@
 // ═══════════════════════════════════════════════════════════════════
 import { meTocaAprobar } from "../RendicionesModule.jsx";
 import { capacidadesRendiciones } from "./capacidades";
+import { puedeAvanzarNomina } from "../FinanzasModule.jsx";
 
 const n = (s) => String(s || "").trim().toLowerCase();
 
@@ -55,9 +56,10 @@ export function resumenTareas(instancias, nombre) {
 
 // Número para el distintivo de «Pendientes». null si alguna fuente que
 // corresponde al perfil no está disponible (no se muestra un total parcial).
-export function totalAccionable({ tareas, rendiciones, usaTareas, usaRendiciones }) {
-  if ((usaTareas && !tareas) || (usaRendiciones && !rendiciones)) return null;
+export function totalAccionable({ tareas, rendiciones, usaTareas, usaRendiciones, nominas, usaNominas }) {
+  if ((usaTareas && !tareas) || (usaRendiciones && !rendiciones) || (usaNominas && !nominas)) return null;
   let t = 0;
+  if (usaNominas) t += nominas.porAprobar;
   if (usaTareas) t += tareas.vencidas.length + tareas.porRevisar.length;
   if (usaRendiciones) t += rendiciones.teTocaAprobar + rendiciones.mias.devuelta + (rendiciones.puedePagar ? (rendiciones.porPagar || 0) : 0);
   return t;
@@ -69,4 +71,19 @@ export function esSoloRendiciones(modulos, pestanasFinanzas) {
   const ms = (modulos || []).filter(Boolean);
   return ms.length === 1 && ms[0] === "finanzas"
     && pestanasFinanzas.length === 1 && pestanasFinanzas[0].id === "rendiciones";
+}
+
+// Nóminas: qué espera una decisión TUYA (aprobar), con la regla del módulo
+// (puedeAvanzarNomina). Ver ≠ hacer: «enCurso» es información, no pendiente.
+// canEdit = la pestaña Nóminas está en "editar" para el perfil.
+export function resumenNominas(nominas, usuario, canEdit) {
+  if (!Array.isArray(nominas) || !usuario) return null;
+  const vivas = nominas.filter(x => x && x.estadoNomina !== "inactiva");
+  const porAprobar = vivas.filter(x => (x.estado === "revision" || x.estado === "aprobada1") && puedeAvanzarNomina(x.estado, usuario, canEdit));
+  const enCurso = vivas.filter(x => x.estado && x.estado !== "aprobada" && x.estado !== "borrador");
+  return {
+    porAprobar: porAprobar.length,
+    detalle: porAprobar.map(x => ({ nombre: `${x.empresa} · S${x.semana} N°${x.numero || ""}`.trim(), detalle: x.estado === "aprobada1" ? "con V°B°" : "en revisión" })),
+    enCurso: enCurso.length,
+  };
 }

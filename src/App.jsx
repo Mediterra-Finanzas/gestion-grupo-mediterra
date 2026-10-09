@@ -1,7 +1,7 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import OsirisModule from "./OsirisModule.jsx";
-import FinanzasModule, { EMPRESAS_KEYS_ALL, pestanasVisiblesFinanzas } from "./FinanzasModule.jsx";
+import FinanzasModule, { EMPRESAS_KEYS_ALL, pestanasVisiblesFinanzas, leerNominasParaInicio } from "./FinanzasModule.jsx";
 import AllegriaModule from "./AllegriaModule.jsx";
 import FriskuComercialModule from "./FriskuComercialModule.jsx";
 import ContabilidadModule from "./ContabilidadModule.jsx";
@@ -25,7 +25,7 @@ import { LimiteError } from "./diseno/componentes.jsx";
 import { DialogosHost } from "./diseno/dialogos.jsx";
 import Inicio from "./diseno/Inicio.jsx";
 import { useClaseVentana } from "./diseno/useClaseVentana";
-import { resumenRendiciones, resumenTareas, totalAccionable, esSoloRendiciones } from "./diseno/resumenInicio";
+import { resumenRendiciones, resumenTareas, totalAccionable, esSoloRendiciones, resumenNominas } from "./diseno/resumenInicio";
 import { dbLoadGeneric } from "./friskuHelpers";
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
@@ -1827,6 +1827,7 @@ export default function App(){
   const [mostrarPermisos,setMostrarPermisos]=useState(false);
   const [cargaMainOk,setCargaMainOk]=useState(false);
   const [rendHub,setRendHub]=useState({estado:"cargando",datos:null});
+  const [nomHub,setNomHub]=useState({estado:"cargando",datos:null});
   const claseVentana=useClaseVentana();
   const [loginNombre,setLoginNombre]=useState("");
   const [loginEmail,setLoginEmail]=useState("");
@@ -1951,6 +1952,24 @@ export default function App(){
     try{ const d=await dbLoadGeneric("rendiciones"); setRendHub({estado:"ok",datos:Array.isArray(d)?d:[]}); }
     catch(e){ console.warn("[Inicio] rendiciones no leídas:",e); setRendHub({estado:"error",datos:null}); }
   },[]);
+  // Nóminas para «Requiere tu decisión»: SOLO LECTURA con la misma función del
+  // módulo, únicamente si el perfil ve la pestaña Nóminas. Si falla: «no disponible».
+  const veNominasActual = !!usuarioFresco && modulosDeUsuarioSeguro(usuarioFresco).includes("finanzas")
+    && pestanasVisiblesFinanzas(usuarioFresco, getTabPermisosModulo(usuarioFresco,"finanzas")).some(t=>t.id==="nominas");
+  const cargarNomHub=useCallback(async()=>{
+    setNomHub(r=>({...r,estado:"cargando"}));
+    try{
+      const ep = Array.isArray(usuarioFresco?.empresas_permitidas) && usuarioFresco.empresas_permitidas.length && usuarioFresco.rol!=="admin" && !usuarioFresco.esCFO ? usuarioFresco.empresas_permitidas : null;
+      const d=await leerNominasParaInicio(ep);
+      const fallidas=Object.values(d.filas||{}).filter(f=>f.estado==="error").length;
+      setNomHub(fallidas?{estado:"error",datos:null}:{estado:"ok",datos:d.nominas||[]});
+    }catch(e){ console.warn("[Inicio] nóminas no leídas:",e); setNomHub({estado:"error",datos:null}); }
+  // eslint-disable-next-line
+  },[usuarioFresco?.nombre]);
+  useEffect(()=>{
+    if(usuarioActual && !moduloActivo && veNominasActual) cargarNomHub();
+  // eslint-disable-next-line
+  },[usuarioActual?.nombre, moduloActivo, veNominasActual]);
   useEffect(()=>{
     if(usuarioActual && !moduloActivo && puedeRendirActual) cargarRendHub();
   // eslint-disable-next-line
@@ -3768,8 +3787,13 @@ Equipo Mediterra`);
   const rendResumenNav = rendHub.estado === "ok" ? resumenRendiciones(rendHub.datos, uNav) : null;
   const rendNav = !puedeRendirActual ? null
     : { estado: rendHub.estado === "ok" && rendResumenNav ? "ok" : rendHub.estado === "ok" ? "error" : rendHub.estado, resumen: rendResumenNav, reintentar: cargarRendHub };
+  const nomResumenNav = nomHub.estado === "ok"
+    ? resumenNominas(nomHub.datos, uNav, uNav?.rol === "admin" || !["ver","sin_acceso"].includes(getTabPerm(uNav,"finanzas","nominas"))) : null;
+  const nomNav = !veNominasActual ? null
+    : { estado: nomHub.estado === "ok" && nomResumenNav ? "ok" : nomHub.estado === "ok" ? "error" : nomHub.estado, resumen: nomResumenNav, reintentar: cargarNomHub };
   const badgeNav = totalAccionable({ tareas: tareasNav?.estado === "ok" ? tareasNav.resumen : null,
-    rendiciones: rendNav?.estado === "ok" ? rendNav.resumen : null, usaTareas: !!tareasNav, usaRendiciones: !!rendNav });
+    rendiciones: rendNav?.estado === "ok" ? rendNav.resumen : null, usaTareas: !!tareasNav, usaRendiciones: !!rendNav,
+    nominas: nomNav?.estado === "ok" ? nomNav.resumen : null, usaNominas: !!nomNav });
   const irA = (dest, tabFin) => {
     if (dest === "inicio" || dest === "pendientes") {
       setModuloActivo(null); setVistaInicio(dest); sessionStorage.removeItem('mediterra_modulo'); window.scrollTo(0, 0); return;
@@ -3793,7 +3817,7 @@ Equipo Mediterra`);
   const marco = (contenido) => (
     <Navegacion clase={claseVentana} usuario={uNav} modulos={soloRendicionesNav ? [] : modulosNav}
       activo={moduloActivo || vistaInicio} onIr={irA} puedeRendir={puedeRendirActual}
-      mostrarPendientes={!soloRendicionesNav && !!(tareasNav || rendNav)} badgePendientes={badgeNav} herramientas={herramientasNav}>
+      mostrarPendientes={!soloRendicionesNav && !!(tareasNav || rendNav || nomNav)} badgePendientes={badgeNav} herramientas={herramientasNav}>
       <DialogosHost/>
       <LimiteError clave={moduloActivo || vistaInicio} nombre={(MODULOS_DISPONIBLES.find(m => m.id === moduloActivo) || {}).label || "esta pantalla"} onSalir={() => irA("inicio")}>
         {contenido}
@@ -4509,7 +4533,7 @@ Equipo Mediterra`);
       )}
       {marco(
         <Inicio clase={claseVentana} usuario={uNav} vista={vistaInicio} soloRendiciones={soloRendicionesNav}
-          tareas={tareasNav} rend={rendNav} puedeRendir={puedeRendirActual}
+          tareas={tareasNav} rend={rendNav} nominas={nomNav} puedeRendir={puedeRendirActual}
           modulos={modulosNav.map(m => m.id === "finanzas"
             ? { ...m, accesos: pestanasFinNav.map(t => ({ id: t.id, label: t.label.replace(/^\S+\s/, "") })) } : m)}
           avisos={BACKUP_AUTOMATICO_SUSPENDIDO && uNav?.rol === "admin"

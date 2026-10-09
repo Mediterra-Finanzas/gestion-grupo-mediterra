@@ -62,15 +62,21 @@ export function storeDiseno(hoy = new Date()) {
     'm13__Allegria Foods': { estadoResp: 'verde', estadoSup: 'gris', aprobado: false }, // Michelle → revisa Carol
     m5: { estadoResp: 'verde', estadoSup: 'verde', aprobado: true },
   };
-  const g = (id, monto, desc) => ({ id, fecha: hace(10).slice(0, 10), monto, moneda: 'CLP', categoria: 'otros', descripcion: desc, tipoDoc: 'Boleta', adjuntoUrl: '' });
+  // Respaldo ficticio: imagen embebida (data:), sin ninguna petición de red.
+  const DOC = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  const g = (id, monto, glosa, categoria = 'movilizacion', doc = true) => ({ id, fecha: hace(10).slice(0, 10), monto, moneda: 'CLP', categoria, glosa,
+    docTipo: 'Boleta', docNumero: String(1000 + monto % 997), adjuntoUrl: doc ? DOC : '', adjuntoNombre: doc ? `boleta-${id}.png` : '' });
+  const gastos = (folio, completo = true) => [g(`g${folio}a`, 18000 + folio * 1000, 'Peaje Ruta 5 (ida y vuelta)'),
+    g(`g${folio}b`, 32500, 'Almuerzo con proveedor de embalaje', 'alimentacion'), g(`g${folio}c`, 12990, 'Materiales de oficina', 'otros', completo)];
   const r = (folio, trabajador, email, estado, extra = {}) => ({ id: `r${folio}`, folio, titulo: `Rendición de ejemplo ${folio}`, trabajador, trabajadorEmail: email,
     creadaPor: trabajador, empresa: 'Allegria Service', periodo: hace(12).slice(0, 10), monedaPago: 'CLP', fechaTC: hace(12).slice(0, 10), estado,
-    gastos: [g(`g${folio}`, 18000 + folio * 1000, 'Gasto de ejemplo')], historial: [{ accion: 'creada', usuario: trabajador, fecha: hace(12), comentario: '' }],
+    gastos: gastos(folio, folio !== 1), historial: [{ accion: 'creada', usuario: trabajador, fecha: hace(12), comentario: '' }],
     creadoEn: hace(12), enviadoEn: estado === 'borrador' ? null : hace(8), ...extra });
   st.rendiciones = { updated_at: hace(0.3), value: [
     r(1, 'Operario Planta', 'operario.planta@ejemplo.cl', 'borrador'),
     r(2, 'Operario Planta', 'operario.planta@ejemplo.cl', 'rechazada', { devuelta: true, comentarioRevisor: 'Falta la boleta del peaje' }),
-    r(3, 'Operario Planta', 'operario.planta@ejemplo.cl', 'enviada'),
+    r(3, 'Operario Planta', 'operario.planta@ejemplo.cl', 'enviada', { cadena: [{ email: 'cmachuca@grupomediterra.cl', nombre: 'Carol Machuca' }, { email: 'ahuerta@grupomediterra.cl', nombre: 'Angelo Huerta' }], nivelActual: 1,
+      aprobaciones: [{ email: 'cmachuca@grupomediterra.cl', nombre: 'Carol Machuca', fecha: hace(6), comentario: '', nivel: 0 }] }),
     r(4, 'Operario Planta', 'operario.planta@ejemplo.cl', 'pagada'),
     r(5, 'Carol Machuca', 'cmachuca@grupomediterra.cl', 'borrador'),
     r(6, 'Gerente Frisku', 'gerente.frisku@ejemplo.cl', 'enviada'),

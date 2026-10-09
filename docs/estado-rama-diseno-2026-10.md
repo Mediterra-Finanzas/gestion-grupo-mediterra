@@ -454,6 +454,42 @@ Firefox ni equipos reales; nada corrido en producción.
   `claude/diseno-grupo2-borrador` (no está listo para revisión); no se extiende el patrón hasta
   validar el grupo 1 en Figma.
 
+## 6e. Muestra ejecutiva (09-10) — para tu revisión antes de extender
+
+Herramienta: React + vista previa aislada (Figma queda como referencia; no hay otro conector de
+diseño disponible en esta sesión). Diagnóstico del conjunto y plan por módulos:
+`docs/diseno/homogeneidad-y-plan.md`. Capturas: `docs/diseno/muestra/` (computador 1440,
+laptop 1280, tablet 834, teléfono 390).
+
+- **Inicio ejecutivo del CFO**: franja «Requiere tu decisión» con lo que el perfil puede
+  ejecutar (nóminas por aprobar, rendiciones por aprobar y por pagar, tareas por revisar y
+  vencidas), luego «Seguimiento» (lo que viene, sin repetir cifras) y módulos. En teléfono, la
+  franja es una lista táctil y el detalle está en la bandeja de Pendientes.
+  Nóminas: se leen con la misma función del módulo (solo lectura) y se cuentan con la regla del
+  botón de avance, extraída a `puedeAvanzarNomina` **sin cambiar su tabla de verdad** (prueba).
+  El distintivo de Pendientes suma las nóminas aprobables. No se agregaron cifras financieras al
+  inicio: viven en Finanzas → Dashboard (una sola fuente). Llevarlas al inicio exige un
+  selector de solo lectura de esas cifras: propuesta, no hecho.
+- **Inicio de quien solo rinde**: sin cambios de contenido (ya era simple); pasa la revisión en
+  los 4 tamaños.
+- **Flujo Empresas**: encabezado común `EncabezadoModulo` (empresa, moneda, horizonte; logo sin
+  deformar). Corrige el rótulo «64 meses» a los 63 reales (sale de `horizonte.js`).
+- **Formulario con documentos y circuito de aprobación**: componente común `Circuito`
+  (`src/diseno/circuito.js`, puro) en el editor de Rendiciones y en el detalle de Nómina, más el
+  resumen «Respaldos: X de Y» en la rendición. Solo presentación: no cambia estados ni reglas.
+- **Semilla de la vista previa**: rendiciones con 3 gastos, respaldos como imagen embebida (sin
+  red) y una cadena de 2 niveles.
+- **Pruebas** (build congelado `main.547c9bcf.js`, Chromium emulado, datos ficticios):
+  `muestra-ejecutiva.mjs` 65/65; `grupo1-finanzas` 203/203 (con comparación de impresión
+  contra main); `piloto-sistema` 34/34 (la comprobación del título mide ahora el encabezado
+  común; en teléfono el encabezado se compactó para que el resumen del flujo siga en la
+  primera pantalla); `dialogos-app` 27/27; nóminas (guardado, condicionado, crédito),
+  `apertura-sin-cambios` y `aislamiento` OK; jest 1.754/1.754 en UTC y Chile; `hub-navegacion` 77/77 con dos comprobaciones actualizadas por diseño (en teléfono el
+  «no disponible» con Reintentar está en Pendientes; las cifras de decisión se muestran también
+  en cero); unitarias nuevas en `muestraEjecutiva.test.js`.
+- **Pendiente de decisión**: logos deformados en 4 exportaciones y GIF de especies recortados
+  (ver `homogeneidad-y-plan.md` §3); no se tocaron.
+
 ## 7. Archivos
 
 Nuevos: `src/diseno/{tokens.js,useClaseVentana.js,resumenInicio.js,Navegacion.jsx,Inicio.jsx}`,

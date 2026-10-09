@@ -136,12 +136,16 @@ await s.ctx.close();
 
 // ── 4. Lectura fallida: «no disponible», nunca cero; reintentar ──
 s = await sesion('analista', 'telefono', { fallarRend: true });
+// En teléfono el detalle (y su «no disponible» con Reintentar) está en la bandeja de Pendientes.
+check('Lectura fallida: «Requiere tu decisión» dice no disponible, nunca cero', /No disponible/.test(await s.page.getByTestId('decisiones').innerText()));
+await s.page.getByTestId('nav-pendientes').click(); await s.page.waitForTimeout(600);
 check('Lectura de rendiciones fallida: aviso y sin cifras', await hay(s.page, 'error-rendiciones') && !(await hay(s.page, 'cifra-rend-aprobar')));
 check('Lectura fallida: el distintivo de Pendientes no muestra un total parcial', !(await s.page.getByTestId('nav-distintivo').count()));
 await foto(s.page, 'analista-telefono-lectura-fallida');
 s.control.fallarRend = false;
 await s.page.getByTestId('reintentar-rendiciones').click(); await s.page.waitForTimeout(1200);
-check('Reintentar: aparecen las cifras (teléfono: solo las distintas de cero)', await cifra(s.page, 'cifra-rend-pagar') === 1 && await cifra(s.page, 'cifra-rend-borrador') === 1 && !(await hay(s.page, 'cifra-rend-aprobar')));
+// Diseño de la muestra ejecutiva: «Requiere tu decisión» muestra también los ceros («Al día»).
+check('Reintentar: aparecen las cifras (las de decisión, también en cero)', await cifra(s.page, 'cifra-rend-pagar') === 1 && await cifra(s.page, 'cifra-rend-borrador') === 1 && await cifra(s.page, 'cifra-rend-aprobar') === 0);
 await s.ctx.close();
 
 // ── 5. Tareas: el inicio cuenta SIEMPRE el mes en curso (DD5) ──

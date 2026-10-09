@@ -22,6 +22,60 @@ export function Encabezado({ titulo, sub, acciones, children }) {
   );
 }
 
+// ── Encabezado de módulo con contexto ──────────────────────────────
+// Mismo lugar y misma forma en todos los módulos: ruta, título, logo de la
+// empresa o del grupo (sin deformar: alto fijo, ancho automático), contexto
+// (empresa, moneda, período) y, a la derecha, el estado de guardado y las
+// acciones. `contexto`: [{ rotulo, valor }]. Los botones que repiten la
+// navegación llevan la clase mdt-dup-nav (en teléfono los oculta la barra).
+export function EncabezadoModulo({ ruta, titulo, logo, logoAlt = "", contexto = [], estado, acciones, testid, oscuro = false }) {
+  return (
+    <header className={cx("mdt-cabmod", oscuro && "mdt-cabmod--oscuro")} data-testid={testid || "encabezado-modulo"}>
+      <div className="mdt-cabmod__id">
+        {logo && <img className="mdt-cabmod__logo" src={logo} alt={logoAlt} onError={e => { e.currentTarget.style.display = "none"; }}/>}
+        <div style={{ minWidth: 0 }}>
+          {ruta && <div className="mdt-cabmod__ruta">{ruta}</div>}
+          <h1 className="mdt-cabmod__titulo">{titulo}</h1>
+        </div>
+      </div>
+      {contexto.length > 0 && (
+        <dl className="mdt-cabmod__contexto">
+          {contexto.filter(c => c && c.valor).map(c => (
+            <div key={c.rotulo} className="mdt-cabmod__dato"><dt>{c.rotulo}</dt><dd>{c.valor}</dd></div>
+          ))}
+        </dl>
+      )}
+      {(estado || acciones) && <div className="mdt-cabmod__acciones">{estado}{acciones}</div>}
+    </header>
+  );
+}
+
+// ── Circuito de aprobación ──────────────────────────────────────────
+// pasos: ver src/diseno/circuito.js. Horizontal en pantallas anchas, vertical
+// en teléfono. El paso en curso se anuncia (aria-current="step").
+export function Circuito({ pasos, titulo = "Circuito de aprobación", testid }) {
+  if (!pasos || !pasos.length) return null;
+  const icono = { hecho: "✓", actual: "●", devuelto: "↩", pendiente: "" };
+  return (
+    <section className="mdt-circuito" aria-label={titulo} data-testid={testid || "circuito"}>
+      <div className="mdt-circuito__titulo">{titulo}</div>
+      <ol className="mdt-circuito__pasos">
+        {pasos.map((p, i) => (
+          <li key={p.id} className={cx("mdt-circuito__paso", `mdt-circuito__paso--${p.devolucion ? "devuelto" : p.estado}`)}
+            aria-current={p.estado === "actual" ? "step" : undefined} data-estado={p.estado}>
+            <span className="mdt-circuito__marca" aria-hidden>{icono[p.devolucion ? "devuelto" : p.estado] || i + 1}</span>
+            <span className="mdt-circuito__texto">
+              <span className="mdt-circuito__rotulo">{p.rotulo}</span>
+              {(p.quien || p.cuando) && <span className="mdt-circuito__quien">{[p.quien, p.cuando].filter(Boolean).join(" · ")}</span>}
+              {p.nota && <span className="mdt-circuito__nota">{p.nota}</span>}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 // items: [{id, label, oculto?}] — los ocultos (sin permiso) no se dibujan.
 // Botones con aria-pressed (no role="tab"): sin paneles vinculados, un patrón de
 // pestañas a medias confunde más a un lector de pantalla que botones bien marcados.

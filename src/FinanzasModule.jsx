@@ -1,5 +1,6 @@
 /* eslint-disable */
-import { useFuenteGrafico } from "./diseno/componentes.jsx";
+import { useFuenteGrafico, EncabezadoModulo, Circuito } from "./diseno/componentes.jsx";
+import { pasosNomina } from "./diseno/circuito.js";
 import { pedirTexto, elegirOpcion, useUltimo, huella, sigueIgual, avisarDesactualizado } from "./diseno/dialogos.jsx";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -40,7 +41,7 @@ import {
   puedeBorrarAnticipo, nuevoIdAnticipo, clasificarRealizacionVsSaldos, conciliacionRealizaciones,
   pendientesVencidos,
 } from './anticipos.js';
-import { generarMeses } from './horizonte.js';
+import { generarMeses, MESES as MESES_HZ } from './horizonte.js';
 import {
   movimientosLado, resumenLado, movimientosSaldos, normalizarPrograma, normalizarCuota,
   cuotaAcordado, cuotaPendiente, cuotaRealizado, estPendiente, estDisponible,
@@ -15344,48 +15345,24 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           </div>
         </div>
       )}
-      {/* ── Header ─────────────────────────────────────────── */}
-      <div style={{
-        background:C.primary,
-        borderRadius:14,
-        padding:"14px 20px",
-        marginBottom:20,
-        display:"flex",justifyContent:"space-between",alignItems:"center",
-        flexWrap:"wrap",gap:8,
-        border:"1px solid rgba(255,255,255,0.10)",
-        boxShadow:"0 4px 16px rgba(16,24,40,0.20)",
-      }}>
-        <div style={{display:"flex",alignItems:"center",gap:14}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,flexWrap:"wrap"}}>
-            <button className="mdt-dup-nav" onClick={onBack} style={{background:"none",border:"none",color:"rgba(255,255,255,0.7)",cursor:"pointer",fontSize:13,fontWeight:500,padding:0}}>Mediterra</button>
-            <span className="mdt-dup-nav" style={{color:"rgba(255,255,255,0.45)"}}>›</span>
-            {/* Antes color C.accent = mismo azul del fondo: el título no se veía. */}
-            <span style={{color:"#fff",fontWeight:700,fontSize:14}}>Finanzas</span>
-          </div>
-          <div style={{borderLeft:"1px solid rgba(255,255,255,0.2)",paddingLeft:14}}>
-            <img src="/med.png" alt="Mediterra" style={{height:30,objectFit:"contain"}}
-              onError={e=>{e.target.style.display="none";}}/>
-          </div>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.7)"}}>Apr-2026 → Jun-2031 · 64 meses · USD</div>
-          {/* Qué versión está cargada. Solo lectura: no hay que editar nada para
-              poder descartar un bundle viejo en caché. */}
-          {/* Solo administrador (DD10): para el resto es texto técnico sin uso. */}
-          {usuarioActual?.rol==="admin"&&<div data-testid="marcador-build" title="Versión de la aplicación cargada en este navegador"
-            style={{fontSize:9,color:"rgba(255,255,255,0.45)",fontFamily:"ui-monospace, monospace",whiteSpace:"nowrap"}}>
-            {marcaBuild}
-          </div>}
-        </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          {saved&&<span style={{fontSize:11,color:"rgba(255,255,255,0.85)",background:"rgba(255,255,255,0.1)",
-            borderRadius:20,padding:"3px 10px",border:"1px solid rgba(255,255,255,0.2)"}}>{saved}</span>}
-          <button className="mdt-dup-nav" onClick={onLogout} style={{
-            background:"transparent",
-            border:"1px solid rgba(255,255,255,0.4)",
-            color:"#fff",borderRadius:8,
-            padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:600,
-          }}>Salir</button>
-        </div>
-      </div>
+      {/* ── Encabezado común (EncabezadoModulo): contexto de empresa, moneda y
+          período en el mismo lugar que el resto de los módulos. El horizonte se
+          rotula desde horizonte.js (antes decía «64 meses»: son los de MESES). */}
+      <EncabezadoModulo testid="encabezado-finanzas"
+        ruta={<><button className="mdt-dup-nav mdt-cabmod__volver" onClick={onBack}>Mediterra</button><span className="mdt-dup-nav" aria-hidden> › </span>Finanzas</>}
+        titulo={{dashboard:"Dashboard",flujo:"Flujo Empresas",bancos:"Saldos Bancos",creditos:"Créditos",nominas:"Nóminas",reporte:"Reporte Semanal",params:"Parámetros",auditoria:"Auditoría",eeff:"Estados financieros",rendiciones:"Rendiciones"}[tab]||"Finanzas"}
+        logo="/med.png" logoAlt="Grupo Mediterra"
+        contexto={[
+          {rotulo:"Empresa", valor: esAccesoCompletoUsuario(usuarioActual) ? "Grupo Mediterra" : getEmpresasPermitidasUsuario(usuarioActual).join(", ")},
+          {rotulo:"Moneda", valor:"USD"},
+          {rotulo:"Horizonte", valor:`${MESES_HZ[0]} → ${MESES_HZ[MESES_HZ.length-1]} · ${MESES_HZ.length} meses`},
+        ]}
+        estado={saved ? <span className="mdt-guardado-chip">{saved}</span> : null}
+        acciones={<>
+          {usuarioActual?.rol==="admin"&&<span data-testid="marcador-build" title="Versión de la aplicación cargada en este navegador"
+            style={{fontSize:11,color:"var(--mdt-c-texto-2)",fontFamily:"ui-monospace, monospace",whiteSpace:"nowrap"}}>{marcaBuild}</span>}
+          <button className="mdt-dup-nav mdt-boton mdt-boton--secundario mdt-boton--chico" onClick={onLogout}>Salir</button>
+        </>}/>
 
       {/* ── Pestañas ───────────────────────────────────────── */}
       <div className="mdt-pestanas" role="group" aria-label="Secciones de Finanzas" style={{marginBottom:20}}>
@@ -16056,6 +16033,25 @@ const transporteNominas = {
   },
 };
 const filaNominaDe = (empresa) => `nominas_${slugEmpresaNom(empresa)}`;
+
+// ── Autorización de avance de una nómina (una sola definición) ──────────
+// Flujo: borrador → preparada → revision → aprobada1 (V°B°) → aprobada (CFO/CEO).
+//   - Cualquier editor de Nóminas: borrador → preparada → revision
+//   - SOLO Carol o Michelle: revision → aprobada1 (V°B°)
+//   - SOLO CFO/CEO (admin): aprobada1 → aprobada
+// La usan el detalle de la nómina (botón) y el inicio (qué espera tu decisión).
+export const AUTORIZADORES_NOMINA = ["Carol Machuca","Michelle Garcia"];
+export function puedeAvanzarNomina(estado, usuario, canEdit) {
+  if (!canEdit) return false;
+  if (estado === "aprobada") return false;
+  if (estado === "borrador" || estado === "preparada") return true;
+  if (estado === "revision") return AUTORIZADORES_NOMINA.includes(usuario?.nombre);
+  if (estado === "aprobada1") return usuario?.rol === "admin";
+  return false;
+}
+// Lectura de nóminas para el inicio: la misma función del módulo (sin registrar
+// versiones de guardado: es solo lectura).
+export { dbLoadNominas as leerNominasParaInicio };
 
 // Carga nóminas POR EMPRESA. Cada fila queda con su estado:
 //   "ok"          → leída; se guarda condicionada a su versión;
@@ -17809,21 +17805,12 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
   //   - Cualquier editor puede: borrador → preparada → revision
   //   - SOLO Carol o Michelle pueden: revision → aprobada1 (V°B°)
   //   - SOLO CFO/CEO (admin) puede: aprobada1 → aprobada
-  const AUTORIZADORES = ["Carol Machuca","Michelle Garcia"];
-  const esAutorizadorNom = AUTORIZADORES.includes(usuario?.nombre);
+  const esAutorizadorNom = AUTORIZADORES_NOMINA.includes(usuario?.nombre);
   const esAdmin = usuario?.rol === "admin";
 
-  const puedeAvanzar = (() => {
-    // La capacidad de AVANZAR ESTADO es independiente de editActivo
-    // (Carol puede dar V°B° aunque no pueda editar items)
-    if(soloVer) return false;
-    if(!canEdit) return false;
-    if(nom.estado === "aprobada") return false;
-    if(nom.estado === "borrador" || nom.estado === "preparada") return true; // cualquier editor
-    if(nom.estado === "revision") return esAutorizadorNom; // SOLO Carol o Michelle
-    if(nom.estado === "aprobada1") return esAdmin; // SOLO CFO/CEO
-    return false;
-  })();
+  // La capacidad de AVANZAR ESTADO es independiente de editActivo
+  // (Carol puede dar V°B° aunque no pueda editar items). Regla en puedeAvanzarNomina.
+  const puedeAvanzar = !soloVer && puedeAvanzarNomina(nom.estado, usuario, canEdit);
 
   // Texto del botón de avanzar según estado
   const textoAvanzar = (() => {
@@ -18008,6 +17995,8 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
       <div id="nomina-print-area" style={{padding:"20px 24px",maxWidth:1400,margin:"0 auto"}}>
         {/* ═══ Contenido interactivo — solo pantalla, oculto al imprimir ═══ */}
         <div className="screen-only">
+        {/* Circuito de aprobación (mismo componente que Rendiciones). Solo pantalla. */}
+        <Circuito pasos={pasosNomina(nom)} titulo="Circuito de la nómina" testid="circuito-nomina"/>
         {/* Info header — versión compacta para impresión */}
         <div className="nomina-info-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:20}}>
           <div style={{background:C.card2,borderRadius:10,padding:"12px 16px",border:`1px solid ${C.border}`}}>

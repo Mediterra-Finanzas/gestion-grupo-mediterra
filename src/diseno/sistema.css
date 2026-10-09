@@ -233,3 +233,62 @@ html[data-nav="compacta"] .mdt-dup-nav { display: none; }
   .mdt-tab { min-height: 42px; }
   button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) { min-height: 36px; }
 }
+
+/* ── Encabezado de módulo con contexto (EncabezadoModulo) ───────────
+   Superficie clara y sobria; logo con alto fijo y ancho automático (nunca se
+   deforma). Contexto como pares rótulo/valor. En teléfono se apila. */
+.mdt-cabmod {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--mdt-e-3) var(--mdt-e-6);
+  background: var(--mdt-c-superficie); border: 1px solid var(--mdt-c-borde); border-radius: var(--mdt-r-3);
+  padding: var(--mdt-e-3) var(--mdt-e-4); margin-bottom: var(--mdt-e-4);
+}
+.mdt-cabmod__id { display: flex; align-items: center; gap: var(--mdt-e-3); min-width: 0; }
+.mdt-cabmod__logo { height: 32px; width: auto; max-width: 120px; object-fit: contain; flex: 0 0 auto; }
+.mdt-cabmod__ruta { font-size: var(--mdt-t-rotulo); color: var(--mdt-c-texto-2); }
+.mdt-cabmod__titulo { margin: 0; font-size: var(--mdt-t-titulo); font-weight: 800; color: var(--mdt-c-texto); line-height: 1.2; }
+.mdt-cabmod__contexto { display: flex; flex-wrap: wrap; gap: var(--mdt-e-2) var(--mdt-e-4); margin: 0; }
+.mdt-cabmod__dato { display: flex; flex-direction: column; min-width: 0; }
+.mdt-cabmod__dato dt { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--mdt-c-texto-2); }
+.mdt-cabmod__dato dd { margin: 0; font-size: var(--mdt-t-chico); font-weight: 600; color: var(--mdt-c-texto); white-space: nowrap; }
+.mdt-cabmod__acciones { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: var(--mdt-separacion); }
+@media (max-width: 599px) {
+  /* Teléfono: una franja compacta para no empujar el contenido (el resumen del flujo
+     debe verse en la primera pantalla). */
+  .mdt-cabmod { padding: var(--mdt-e-2) var(--mdt-e-3); gap: var(--mdt-e-1) var(--mdt-e-3); margin-bottom: var(--mdt-e-3); }
+  .mdt-cabmod__logo { height: 24px; }
+  .mdt-cabmod__titulo { font-size: var(--mdt-t-destacado); }
+  .mdt-cabmod__ruta { display: none; }
+  .mdt-cabmod__dato dt { font-size: 11px; letter-spacing: .02em; }
+  .mdt-cabmod__dato dd { font-size: var(--mdt-t-rotulo); }
+  .mdt-cabmod__acciones { margin-left: 0; }
+  .mdt-cabmod [data-testid="marcador-build"] { display: none; }
+}
+@media print { .mdt-cabmod { border: none; padding: 0 0 8px; } }
+
+/* ── Circuito de aprobación (Circuito) ─────────────────────────────── */
+.mdt-circuito { background: var(--mdt-c-superficie); border: 1px solid var(--mdt-c-borde); border-radius: var(--mdt-r-3); padding: var(--mdt-e-3) var(--mdt-e-4); margin-bottom: var(--mdt-e-4); }
+.mdt-circuito__titulo { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--mdt-c-texto-2); margin-bottom: var(--mdt-e-2); }
+.mdt-circuito__pasos { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--mdt-e-2); }
+.mdt-circuito__paso { display: flex; gap: var(--mdt-e-2); align-items: flex-start; min-width: 0; padding-top: var(--mdt-e-2); border-top: 3px solid var(--mdt-c-borde); }
+.mdt-circuito__paso--hecho { border-top-color: var(--mdt-c-ok); }
+.mdt-circuito__paso--actual { border-top-color: var(--mdt-c-marca); }
+.mdt-circuito__paso--devuelto { border-top-color: var(--mdt-c-aviso); }
+.mdt-circuito__marca { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; background: var(--mdt-c-superficie-2); color: var(--mdt-c-texto-2); }
+.mdt-circuito__paso--hecho .mdt-circuito__marca { background: var(--mdt-c-ok); color: #fff; }
+.mdt-circuito__paso--actual .mdt-circuito__marca { background: var(--mdt-c-marca); color: #fff; }
+.mdt-circuito__paso--devuelto .mdt-circuito__marca { background: var(--mdt-c-aviso); color: #fff; }
+.mdt-circuito__texto { display: flex; flex-direction: column; min-width: 0; }
+.mdt-circuito__rotulo { font-size: var(--mdt-t-chico); font-weight: 700; color: var(--mdt-c-texto); }
+.mdt-circuito__paso--pendiente .mdt-circuito__rotulo { color: var(--mdt-c-texto-2); font-weight: 600; }
+.mdt-circuito__quien { font-size: var(--mdt-t-rotulo); color: var(--mdt-c-texto-2); overflow-wrap: anywhere; }
+.mdt-circuito__nota { font-size: var(--mdt-t-rotulo); color: var(--mdt-c-aviso); margin-top: 2px; overflow-wrap: anywhere; }
+@media (max-width: 599px) {
+  .mdt-circuito__pasos { grid-auto-flow: row; grid-auto-columns: auto; }
+  .mdt-circuito__paso { border-top: none; border-left: 3px solid var(--mdt-c-borde); padding: 0 0 0 var(--mdt-e-2); }
+  .mdt-circuito__paso--hecho { border-left-color: var(--mdt-c-ok); }
+  .mdt-circuito__paso--actual { border-left-color: var(--mdt-c-marca); }
+  .mdt-circuito__paso--devuelto { border-left-color: var(--mdt-c-aviso); }
+}
+.mdt-cabmod__volver { background: none; border: none; padding: 0; color: var(--mdt-c-info); font: inherit; cursor: pointer; }
+.mdt-guardado-chip { font-size: var(--mdt-t-rotulo); font-weight: 600; color: var(--mdt-c-texto-2); background: var(--mdt-c-superficie-2); border-radius: 999px; padding: 4px 10px; }

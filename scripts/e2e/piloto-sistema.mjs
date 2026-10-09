@@ -62,18 +62,19 @@ for (const [tam, vp, tactil] of [['telefono', [390, 844], true], ['tablet', [834
   await s.page.locator('main').getByRole('button', { name: /Allegria Foods/ }).first().click(); await s.page.waitForTimeout(2500);
   const t = await s.page.evaluate(() => {
     const pest = [...document.querySelectorAll('.mdt-pestanas')].map(e => Math.round(e.getBoundingClientRect().height));
-    const tit = [...document.querySelectorAll('span')].find(x => x.textContent.trim() === 'Finanzas');
+    // Encabezado común (muestra ejecutiva): el título del módulo es el h1 del EncabezadoModulo.
+    const tit = document.querySelector('[data-testid="encabezado-finanzas"] .mdt-cabmod__titulo');
     const tabla = [...document.querySelectorAll('table')].sort((a, b) => b.querySelectorAll('td').length - a.querySelectorAll('td').length)[0];
     let c = tabla?.parentElement; while (c && !/auto|scroll/.test(getComputedStyle(c).overflowX)) c = c.parentElement;
     const td = tabla?.querySelector('tbody tr td'), th = tabla?.querySelector('thead th');
     const resumen = [...document.querySelectorAll('main *')].find(d => [...d.childNodes].some(n => n.nodeType === 3 && /saldo banco usd/i.test(n.textContent)));
-    return { pest, titColor: tit && getComputedStyle(tit).color, fondo: tit && getComputedStyle(tit.closest('div[style*="border-radius: 14px"]') || tit.parentElement).backgroundColor,
+    return { pest, titColor: tit && getComputedStyle(tit).color, fondo: tit && getComputedStyle(tit.closest('header') || tit.parentElement).backgroundColor,
       scroll: !!c && c.scrollWidth > c.clientWidth - 1 || (tabla && tabla.getBoundingClientRect().width <= (c?.clientWidth || 0)),
       foco: c?.tabIndex === 0, primeraFija: td && getComputedStyle(td).position === 'sticky', encabezadoFijo: th && getComputedStyle(th).position === 'sticky',
       yResumen: resumen ? Math.round(resumen.getBoundingClientRect().top + scrollY) : null };
   });
   if (tam === 'telefono') check('A · teléfono: pestañas y empresas en una línea deslizable (no se apilan)', t.pest.length >= 2 && t.pest.every(x => x <= 60), t.pest.join(','));
-  check(`A · ${tam}: el título «Finanzas» se ve (color ≠ fondo)`, t.titColor && t.titColor !== t.fondo, `${t.titColor} sobre ${t.fondo}`);
+  check(`A · ${tam}: el título del módulo se ve (color ≠ fondo)`, t.titColor && t.titColor !== t.fondo, `${t.titColor} sobre ${t.fondo}`);
   check(`A · ${tam}: tabla de flujo con encabezado y 1.ª columna fijos, enfocable con teclado`, t.primeraFija && t.encabezadoFijo && t.foco, JSON.stringify({ f: t.primeraFija, e: t.encabezadoFijo, k: t.foco }));
   if (tam === 'telefono') check('A · teléfono: el resumen de la empresa aparece antes de los 600 px', t.yResumen != null && t.yResumen < 600, String(t.yResumen));
   // teclado: la tabla se desplaza con la flecha derecha

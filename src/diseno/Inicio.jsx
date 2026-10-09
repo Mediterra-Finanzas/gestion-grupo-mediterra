@@ -35,24 +35,6 @@ function Cifra({ valor, label, tono, onClick, testid }) {
   );
 }
 
-// Teléfono: solo las cifras distintas de cero, en una línea que se ajusta. Las cifras
-// en cero son datos reales (no faltan), así que si todas lo son se dice «Al día».
-function Pastillas({ items, testid }) {
-  const conValor = items.filter(i => i.valor > 0);
-  if (!conValor.length) return <div data-testid={`${testid}-al-dia`} style={{ fontSize: TXT.chico + 1, color: COL.ok, fontWeight: 600 }}>Al día</div>;
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-      {conValor.map(i => (
-        <button key={i.testid} data-testid={i.testid} onClick={i.onClick}
-          style={{ minHeight: 36, padding: `0 ${ESP.m}px`, borderRadius: 18, border: `1px solid ${COL.borde}`, background: COL.fondo, cursor: "pointer",
-            fontFamily: FUENTE, fontSize: TXT.chico + 1, color: COL.texto, display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <b style={{ color: i.tono === "peligro" ? COL.peligro : i.tono === "aviso" ? COL.aviso : COL.marca }}><span data-cifra>{i.valor}</span></b>{i.label.toLowerCase()}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function ListaTareas({ titulo, items, max = 5, tono }) {
   if (!items.length) return null;
   return (
@@ -77,15 +59,10 @@ function TarjetaTareas({ tareas, onAbrir, detalle, compacta }) {
       </div>
       {tareas.estado !== "ok" ? <SinDatos estado={tareas.estado} que="tareas" onReintentar={tareas.reintentar}/> : (
         <>
-          {compacta && !detalle ? <Pastillas testid="tareas" items={[
-            { testid: "cifra-tareas-vencidas", valor: tareas.resumen.vencidas.length, label: "Vencidas", tono: "peligro", onClick: onAbrir },
-            { testid: "cifra-tareas-porvencer", valor: tareas.resumen.porVencer.length, label: "Vencen en 2 días", tono: "aviso", onClick: onAbrir },
-            { testid: "cifra-tareas-revisar", valor: tareas.resumen.porRevisar.length, label: "Por revisar", onClick: onAbrir }]}/> :
+          {/* Vencidas y por revisar ya están en «Requiere tu decisión»: aquí, lo que viene. */}
           <div style={{ display: "flex", gap: ESP.s, flexWrap: "wrap" }}>
-            <Cifra testid="cifra-tareas-vencidas" valor={tareas.resumen.vencidas.length} label="Vencidas" tono="peligro" onClick={onAbrir}/>
             <Cifra testid="cifra-tareas-porvencer" valor={tareas.resumen.porVencer.length} label="Vencen en 2 días" tono="aviso" onClick={onAbrir}/>
-            <Cifra testid="cifra-tareas-revisar" valor={tareas.resumen.porRevisar.length} label="Por revisar" onClick={onAbrir}/>
-          </div>}
+          </div>
           {detalle && <>
             <ListaTareas titulo="Vencidas" items={tareas.resumen.vencidas} tono={COL.peligro}/>
             <ListaTareas titulo="Vencen en 2 días" items={tareas.resumen.porVencer} tono={COL.aviso}/>
@@ -105,18 +82,12 @@ function TarjetaRendiciones({ rend, onVer, compacta }) {
         <div style={{ fontSize: TXT.destacado, fontWeight: 700, color: COL.texto }}>Rendiciones</div>
         <button onClick={() => onVer()} style={{ border: "none", background: "none", color: COL.info, fontSize: TXT.chico, fontWeight: 600, cursor: "pointer", minHeight: 32 }}>Abrir</button>
       </div>
-      {rend.estado !== "ok" ? <SinDatos estado={rend.estado} que="rendiciones" onReintentar={rend.reintentar}/> : compacta ? (
-        <Pastillas testid="rend" items={[
-          { testid: "cifra-rend-aprobar", valor: r.teTocaAprobar, label: "Te toca aprobar", tono: "aviso", onClick: () => onVer() },
-          { testid: "cifra-rend-devueltas", valor: r.mias.devuelta, label: "Devueltas a ti", tono: "peligro", onClick: () => onVer() },
-          ...(r.porPagar != null ? [{ testid: "cifra-rend-pagar", valor: r.porPagar, label: r.puedePagar ? "Aprobadas por pagar" : "Por pagar (solo ver)", onClick: () => onVer() }] : []),
-          { testid: "cifra-rend-borrador", valor: r.mias.borrador, label: "Tus borradores", onClick: () => onVer() }]}/>
-      ) : (
+      {rend.estado !== "ok" ? <SinDatos estado={rend.estado} que="rendiciones" onReintentar={rend.reintentar}/> : (
+        // Por aprobar y por pagar ya están en «Requiere tu decisión»: aquí, lo tuyo.
         <div style={{ display: "flex", gap: ESP.s, flexWrap: "wrap" }}>
-          <Cifra testid="cifra-rend-aprobar" valor={r.teTocaAprobar} label="Te toca aprobar" tono="aviso" onClick={() => onVer()}/>
           <Cifra testid="cifra-rend-devueltas" valor={r.mias.devuelta} label="Devueltas a ti" tono="peligro" onClick={() => onVer()}/>
-          {r.porPagar != null && <Cifra testid="cifra-rend-pagar" valor={r.porPagar} label={r.puedePagar ? "Aprobadas por pagar" : "Por pagar · solo ver"} onClick={() => onVer()}/>}
           <Cifra testid="cifra-rend-borrador" valor={r.mias.borrador} label="Tus borradores" onClick={() => onVer()}/>
+          {r.porPagar != null && !r.puedePagar && <Cifra testid="cifra-rend-pagar" valor={r.porPagar} label="Por pagar · solo ver" onClick={() => onVer()}/>}
         </div>
       )}
     </section>
@@ -170,6 +141,71 @@ function Avisos({ avisos }) {
   );
 }
 
+// ── «Requiere tu decisión» ────────────────────────────────────────────
+// Solo lo que ESTE perfil puede ejecutar (ver ≠ hacer), con las reglas de cada
+// módulo. Una fuente sin leer se dice «no disponible», nunca cero.
+function Decisiones({ items, compacta }) {
+  if (!items.length) return null;
+  const total = items.reduce((a, i) => a + (i.estado === "ok" ? i.valor : 0), 0);
+  const algunaFalta = items.some(i => i.estado !== "ok");
+  return (
+    <section data-testid="decisiones" aria-label="Requiere tu decisión">
+      <div style={{ display: "flex", alignItems: "baseline", gap: ESP.s, marginBottom: ESP.s }}>
+        <Rotulo>Requiere tu decisión</Rotulo>
+        {!algunaFalta && total === 0 && <span data-testid="decisiones-al-dia" style={{ fontSize: TXT.chico, color: COL.ok, fontWeight: 600 }}>Nada espera tu decisión</span>}
+      </div>
+      <div style={{ display: "grid", gap: compacta ? 0 : ESP.m, gridTemplateColumns: compacta ? "1fr" : "repeat(auto-fit, minmax(200px, 1fr))",
+        ...(compacta ? { ...tarjeta, overflow: "hidden" } : {}) }}>
+        {items.map((i, k) => {
+          const activo = i.estado === "ok" && i.valor > 0;
+          const color = !activo ? COL.texto2 : i.tono === "peligro" ? COL.peligro : COL.marca;
+          if (compacta) return (
+            <button key={i.id} data-testid={i.estado === "ok" ? i.testid : `decision-${i.id}`} onClick={i.estado === "ok" ? i.onClick : i.reintentar}
+              style={{ display: "flex", alignItems: "center", gap: ESP.m, minHeight: 56, padding: `${ESP.s}px ${ESP.l}px`, border: "none",
+                borderTop: k ? `1px solid ${COL.borde}` : "none", background: COL.superficie, textAlign: "left", cursor: "pointer", fontFamily: FUENTE, width: "100%" }}>
+              <span style={{ minWidth: 34, fontSize: TXT.titulo, fontWeight: 800, color, fontVariantNumeric: "tabular-nums" }}>{i.estado === "ok" ? <span data-cifra>{i.valor}</span> : "—"}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: TXT.cuerpo, fontWeight: 600, color: COL.texto }}>{i.label}</span>
+                <span style={{ display: "block", fontSize: TXT.chico, color: i.estado === "ok" ? COL.texto2 : COL.aviso }}>{i.estado === "ok" ? i.sub : i.estado === "cargando" ? "Leyendo…" : "No disponible · tocar para reintentar"}</span>
+              </span>
+              <span aria-hidden style={{ color: COL.texto2, fontSize: 18 }}>›</span>
+            </button>
+          );
+          return (
+            <button key={i.id} data-testid={i.estado === "ok" ? i.testid : `decision-${i.id}`} onClick={i.estado === "ok" ? i.onClick : i.reintentar}
+              style={{ ...tarjeta, textAlign: "left", cursor: "pointer", fontFamily: FUENTE, padding: `${ESP.m}px ${ESP.l}px`, minHeight: 112,
+                display: "flex", flexDirection: "column", gap: 4, borderTop: `3px solid ${activo ? color : COL.borde}` }}>
+              <span style={{ fontSize: TXT.chico, fontWeight: 700, color: COL.texto2 }}>{i.modulo}</span>
+              <span style={{ fontSize: 30, fontWeight: 800, color, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{i.estado === "ok" ? <span data-cifra>{i.valor}</span> : "—"}</span>
+              <span style={{ fontSize: TXT.cuerpo, fontWeight: 600, color: COL.texto }}>{i.label}</span>
+              <span style={{ fontSize: TXT.chico, color: i.estado === "ok" ? COL.texto2 : COL.aviso, marginTop: "auto" }}>
+                {i.estado === "ok" ? (activo ? "Abrir ›" : "Al día") : i.estado === "cargando" ? "Leyendo…" : "No disponible · reintentar"}</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function TarjetaNominas({ nominas, onAbrir, compacta }) {
+  const r = nominas.resumen;
+  return (
+    <section data-testid="pend-nominas" style={{ ...tarjeta, padding: compacta ? ESP.m : ESP.l }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: ESP.s }}>
+        <div style={{ fontSize: TXT.destacado, fontWeight: 700, color: COL.texto }}>Nóminas de pago</div>
+        <button onClick={onAbrir} style={{ border: "none", background: "none", color: COL.info, fontSize: TXT.chico, fontWeight: 600, cursor: "pointer", minHeight: 32 }}>Abrir</button>
+      </div>
+      {nominas.estado !== "ok" ? <SinDatos estado={nominas.estado} que="nóminas" onReintentar={nominas.reintentar}/> : (
+        <>
+          <div style={{ fontSize: TXT.chico, color: COL.texto2 }}>{r.enCurso} en curso (preparadas, en revisión o con V°B°)</div>
+          <ListaTareas titulo="Esperan tu aprobación" items={r.detalle} tono={COL.marca}/>
+        </>
+      )}
+    </section>
+  );
+}
+
 // ── Entrada simple para quien solo rinde gastos ───────────────────────
 function InicioRendiciones({ clase, rend, onNueva, onVer }) {
   const r = rend.resumen;
@@ -208,7 +244,7 @@ function InicioRendiciones({ clase, rend, onNueva, onVer }) {
   );
 }
 
-export default function Inicio({ clase, usuario, vista = "inicio", soloRendiciones, tareas, rend, puedeRendir, modulos, avisos,
+export default function Inicio({ clase, usuario, vista = "inicio", soloRendiciones, tareas, rend, nominas, puedeRendir, modulos, avisos,
   onAbrirModulo, onNuevaRendicion, onVerRendiciones, onAbrirTareas }) {
   const compacta = clase === "compacta";
   const hoy = new Date();
@@ -228,16 +264,30 @@ export default function Inicio({ clase, usuario, vista = "inicio", soloRendicion
           {vista === "pendientes" ? "Pendientes" : saludo}
         </h1>
         <div style={{ fontSize: TXT.chico, color: COL.texto2, marginTop: 2 }}>
-          <span>{fecha}</span> · {temporada}
+          <span>{fecha}</span> · {temporada}{!compacta && usuario?.cargo ? ` · ${usuario.cargo}` : ""}
         </div>
       </div>
     </header>
   );
 
-  const pendientes = (tareas || rend) ? (
+  const decisiones = [
+    nominas && { id: "nominas", testid: "cifra-nominas-aprobar", modulo: "Finanzas · Nóminas", label: "Nóminas por aprobar", sub: "Revisión, V°B° o aprobación CFO",
+      estado: nominas.estado, valor: nominas.resumen?.porAprobar || 0, reintentar: nominas.reintentar, onClick: () => onAbrirModulo("finanzas", "nominas") },
+    rend && { id: "rend-aprobar", testid: "cifra-rend-aprobar", modulo: "Finanzas · Rendiciones", label: "Rendiciones por aprobar", sub: "Te toca en la cadena",
+      estado: rend.estado, valor: rend.resumen?.teTocaAprobar || 0, reintentar: rend.reintentar, onClick: () => onVerRendiciones() },
+    rend && rend.resumen?.puedePagar && rend.resumen?.porPagar != null && { id: "rend-pagar", testid: "cifra-rend-pagar", modulo: "Finanzas · Rendiciones", label: "Rendiciones por pagar", sub: "Aprobadas, listas para pago",
+      estado: rend.estado, valor: rend.resumen.porPagar, reintentar: rend.reintentar, onClick: () => onVerRendiciones() },
+    tareas && { id: "tareas-revisar", testid: "cifra-tareas-revisar", modulo: "Tareas", label: "Tareas por revisar", sub: "Como supervisor",
+      estado: tareas.estado, valor: tareas.resumen?.porRevisar.length || 0, reintentar: tareas.reintentar, onClick: onAbrirTareas },
+    tareas && { id: "tareas-vencidas", testid: "cifra-tareas-vencidas", modulo: "Tareas", label: "Tareas vencidas", sub: "Tuyas, del mes en curso", tono: "peligro",
+      estado: tareas.estado, valor: tareas.resumen?.vencidas.length || 0, reintentar: tareas.reintentar, onClick: onAbrirTareas },
+  ].filter(Boolean);
+
+  const pendientes = (tareas || rend || nominas) ? (
     <div style={{ display: "grid", gap: compacta ? ESP.s : ESP.l, alignItems: "start", gridTemplateColumns: !compacta && tareas && rend ? "repeat(auto-fit, minmax(320px, 1fr))" : "1fr" }}>
       {tareas && <TarjetaTareas tareas={tareas} onAbrir={onAbrirTareas} detalle={vista === "pendientes" || !compacta} compacta={compacta}/>}
       {rend && <TarjetaRendiciones rend={rend} onVer={onVerRendiciones} compacta={compacta && vista !== "pendientes"}/>}
+      {nominas && <TarjetaNominas nominas={nominas} onAbrir={() => onAbrirModulo("finanzas", "nominas")} compacta={compacta}/>}
     </div>
   ) : null;
 
@@ -245,15 +295,21 @@ export default function Inicio({ clase, usuario, vista = "inicio", soloRendicion
   if (soloRendiciones) {
     cuerpo = <InicioRendiciones clase={clase} rend={rend} onNueva={onNuevaRendicion} onVer={onVerRendiciones}/>;
   } else if (vista === "pendientes") {
-    cuerpo = pendientes || <div style={{ fontSize: TXT.cuerpo, color: COL.texto2 }}>Tu perfil no tiene tareas ni rendiciones asignadas.</div>;
+    cuerpo = pendientes ? (
+      <div style={{ display: "flex", flexDirection: "column", gap: ESP.l }}>
+        <Decisiones items={decisiones} compacta={compacta}/>
+        <div><Rotulo style={{ marginBottom: ESP.s }}>Seguimiento</Rotulo>{pendientes}</div>
+      </div>
+    ) : <div style={{ fontSize: TXT.cuerpo, color: COL.texto2 }}>Tu perfil no tiene tareas ni rendiciones asignadas.</div>;
   } else {
     cuerpo = (
       <div style={{ display: "flex", flexDirection: "column", gap: compacta ? ESP.l : ESP.xl }}>
         {!compacta && <Avisos avisos={avisos}/>}
         {puedeRendir && compacta && <BotonPrincipal testid="inicio-nueva-rendicion" onClick={onNuevaRendicion}>+ Nueva rendición</BotonPrincipal>}
-        {pendientes && (
+        <Decisiones items={decisiones} compacta={compacta}/>
+        {pendientes && !compacta && (
           <div>
-            <Rotulo style={{ marginBottom: ESP.s }}>Pendientes</Rotulo>
+            <Rotulo style={{ marginBottom: ESP.s }}>Seguimiento</Rotulo>
             {pendientes}
           </div>
         )}
