@@ -456,11 +456,17 @@ función (`bloqueoPorFechasSelladas`), que usan la pantalla y la acción, así q
 divergir y la acción sigue comprobándolo por su cuenta. Con una regla alcanzable el diálogo
 pregunta como siempre, con la diferencia real.
 
+**Y la celda lo dice por lo que es.** Una fila protegida por un antecedente que ya se retiró no
+"tiene factura o pago": tiene la protección conservada. La vista previa las distingue, porque
+describir algo que no está es la misma clase de defecto que los avisos que se corrigieron antes.
+Lo encontré en el navegador, después de la corrección: el importe estaba bien y el rótulo no.
+
 **Contrapruebas, cada una restaurada con hash idéntico:**
 
 | | Qué se revirtió | Pruebas que caen |
 |---|---|---|
 | **CP-H** | la protección conservada deja de contar en la Regla 4 | **10** |
+| **CP-K** | la celda vuelve a decir siempre "tiene factura o pago" | **1** |
 | **CP-I** | la pantalla deja de conservar la protección al escribir | **3** |
 | **CP-J** | el diálogo vuelve a preguntar antes de rechazar | **1** |
 
