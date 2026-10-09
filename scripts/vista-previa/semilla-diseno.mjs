@@ -78,5 +78,17 @@ export function storeDiseno(hoy = new Date()) {
   ] };
   st.rendiciones_config = { updated_at: hace(0.3), value: { valorKm: 0, aprobadores: {} } };
   st.maestro_tc = { updated_at: hace(0.3), value: {} };
+  // Nóminas ficticias de Osiris en tres estados, para recorrer aprobación y devolución.
+  // NOMR está con V°B° (aprobada1): es la que el CFO puede devolver (en «revision» devuelven Carol o Michelle).
+  const hoyISO = iso(hoy).slice(0, 10);
+  const item = (id, concepto, usd) => ({ id, seccion: 'pagos_usd', tipoDoc: 'Factura', proveedor: 'Proveedor ficticio', rut: '', nDoc: '1', fDoc: hoyISO, fVenc: '', semVenc: '',
+    concepto, montoCLP: 0, montoUSD: usd, montoPEN: 0, comentario: '', pagado: false, anticipo: 0, estadoLinea: 'activa', historial: [],
+    documentos: [{ id: `d-${id}`, nombre: 'respaldo.pdf', path: `nominas/osiris/${id}/respaldo.pdf`, estado: 'activo', hash: 'ficticio' }] });
+  const nom = (id, numero, estado, semana) => ({ id, empresa: 'Osiris', semana, 'año': hoy.getFullYear(), numero, fecha: hoyISO, tc: 955, estado,
+    preparadoPor: 'Carol Machuca', revisadoPor: estado === 'preparada' ? '' : 'Carol Machuca', aprobadoPor: estado === 'aprobada' ? 'Angelo Huerta' : '',
+    aprobado1Por: (estado === 'aprobada' || estado === 'aprobada1') ? 'Michelle Garcia' : '', fechaAprobacion: '', fechaAprobacion1: '',
+    items: [item(`${id}-1`, 'Servicio ficticio', 1200), item(`${id}-2`, 'Arriendo ficticio', 800)], bancos: {}, notas: '', seccionesExtra: [], estadoNomina: 'activa', historial: [] });
+  st.nominas_v2_done = { value: JSON.stringify({ migrado: true }), updated_at: hace(0.3) };
+  st.nominas_osiris = { updated_at: hace(0.3), value: JSON.stringify({ nominas: [nom('NOMP', 3, 'preparada', 41), nom('NOMR', 2, 'aprobada1', 40), nom('NOMA', 1, 'aprobada', 39)] }) };
   return st;
 }

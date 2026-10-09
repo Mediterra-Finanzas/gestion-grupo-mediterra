@@ -1,0 +1,101 @@
+/* ═══════════════════════════════════════════════════════════════════
+   CAPA HEREDADA (en retiro gradual) — única ubicación de las adaptaciones
+   por atributo (`[style*=…]`) que corrigen estilos en línea de los módulos.
+
+   Reglas de esta capa:
+   · Todo va dentro de :where(), que no suma especificidad: cualquier clase del
+     sistema (src/diseno/sistema.css) gana sin necesitar excepciones.
+   · No se agregan reglas nuevas: un módulo que necesita un ajuste adopta los
+     componentes o clases del sistema. La prueba
+     src/__tests__/capasEstilo.test.js falla si esta capa crece o si aparece
+     un selector por atributo fuera de ella.
+   · Cada regla dice qué corrige, a quién afecta y cuándo se retira.
+
+   Origen: la hoja que App.jsx inyectaba al iniciar (id mediterra-responsive-css)
+   y el bloque «MÓVIL ≤ 700px» de index.css (main 0b86538), más DD7/DD8.
+   Se eliminaron dos reglas que nunca aplicaban (buscaban `gridTemplateColumns` y
+   `maxWidth` en el atributo style, donde React escribe grid-template-columns y
+   max-width; verificado en los 7 módulos).
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* L0 · Los contenedores raíz usan fontFamily:"sans-serif" en línea: se cambia a Inter.
+   Todos los módulos. Se retira cuando los módulos tomen la fuente del sistema. */
+:where([style*="sans-serif"]) { font-family: var(--mediterra-font) !important; }
+
+/* L1 · Contenedores con desplazamiento horizontal acotados a la ventana, para que
+   las tablas anchas se desplacen dentro de su marco. Todos los módulos.
+   Se retira cuando las tablas usen .mdt-tabla. */
+:where([style*="overflow-x: auto"], [style*="overflow-x:auto"]) {
+  max-width: calc(100vw - 40px);
+  min-width: 0;
+  -webkit-overflow-scrolling: touch;
+}
+/* L1b · Inercia de desplazamiento en contenedores con scroll vertical (iOS). */
+:where([style*="overflow-y: auto"], [style*="overflow-y:auto"]) { -webkit-overflow-scrolling: touch; }
+
+@media (max-width: 767px) {
+  /* L2 · Toda tabla se desplaza sola en teléfono. Todos los módulos.
+     Se retira cuando las tablas usen .mdt-tabla. */
+  :where(table) { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  :where(table)::-webkit-scrollbar { height: 4px; }
+  :where(table)::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
+
+  /* L3 · Márgenes interiores grandes reducidos en teléfono. Todos los módulos.
+     Se retira cuando los contenedores usen el espaciado del sistema. */
+  :where([style*="padding: 20px"], [style*="padding:20px"]) { padding: 12px !important; }
+  :where([style*="padding: 24px"], [style*="padding:24px"]) { padding: 14px !important; }
+  :where([style*="padding: 36px"], [style*="padding:36px"]) { padding: 16px !important; }
+
+  /* L4 · Filas flexibles con separación se parten en varias líneas en teléfono.
+     Todos los módulos. Las barras del sistema (.mdt-pestanas) no se parten: ganan
+     por especificidad, sin excepción. Se retira cuando cada fila declare su
+     comportamiento (wrap, desplazamiento o apilado).
+     No aplica a columnas (flex-direction: column): con wrap, cada «línea» de una
+     columna toma el ancho de su contenido más ancho y una tabla con desplazamiento
+     propio ensanchaba la columna entera más allá de la pantalla (Créditos → Análisis
+     CFO y Conciliación, Rendiciones → Maestros; venía así desde main). */
+  :where([style*="display: flex"][style*="gap"]:not([style*="flex-direction: column"]),
+    [style*="display:flex"][style*="gap"]:not([style*="flex-direction: column"])) { flex-wrap: wrap !important; }
+
+  /* L5 · Controles mínimos en pantallas angostas con mouse (en táctil manda el sistema). */
+  :where(input, select, textarea) { font-size: 16px !important; }
+  :where(button) { min-height: 36px; }
+}
+
+@media (max-width: 700px) {
+  /* L6 · Tarjetas de modal (hijo directo de un fondo a pantalla completa) no se salen
+     de la pantalla. Todos los módulos. Se retira cuando el modal use .mdt-modal. */
+  :where(div[style*="inset: 0"] > div, div[style*="inset:0"] > div) { max-width: 96vw !important; min-width: 0 !important; }
+
+  /* L7 · El tope de ancho de escritorio (100vw − 80px) se relaja en teléfono. Finanzas
+     (tablas del flujo). Se retira cuando esas tablas usen .mdt-tabla. */
+  :where([style*="calc(100vw - 80px)"]) { max-width: calc(100vw - 20px) !important; }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  /* L8 · Grillas «auto-fill» a 2 columnas en tablet. Todos los módulos.
+     Se retira cuando las grillas usen columnas mínimas propias. */
+  :where([style*="repeat(auto-fill"]) { grid-template-columns: repeat(2, 1fr) !important; }
+}
+
+@media (hover: none) {
+  /* L9 · Sin desplazamientos de «hover» en pantallas táctiles. Todos los módulos. */
+  :where([style*="translateY"]) { transform: none !important; }
+}
+
+@media (max-width: 1023px) {
+  /* L10 (DD8) · Texto mínimo 11 px en Finanzas en teléfono y tablet. Solo Finanzas.
+     No aplica a gráficos (sus rótulos se escalan con useFuenteGrafico). Se retira
+     pestaña por pestaña cuando sus tamaños usen la escala del sistema. */
+  :where(.mdt-finanzas [style*="font-size: 6px"], .mdt-finanzas [style*="font-size: 6.5px"],
+    .mdt-finanzas [style*="font-size: 7px"], .mdt-finanzas [style*="font-size: 7.5px"],
+    .mdt-finanzas [style*="font-size: 8px"], .mdt-finanzas [style*="font-size: 8.5px"],
+    .mdt-finanzas [style*="font-size: 9px"], .mdt-finanzas [style*="font-size: 9.5px"],
+    .mdt-finanzas [style*="font-size: 10px"], .mdt-finanzas [style*="font-size: 10.5px"]):not(text):not(tspan) { font-size: 11px !important; }
+
+  /* L11 (DD7) · Tabla de cuentas de Saldos Bancos más compacta junto al riel. Solo
+     Saldos Bancos. Se retira cuando esa tabla use .mdt-tabla. */
+  :where(.mdt-tabla-saldos th, .mdt-tabla-saldos td) { padding-left: 6px !important; padding-right: 6px !important; }
+  :where(.mdt-tabla-saldos th) { white-space: normal !important; }
+  :where(.mdt-tabla-saldos input) { width: 100px !important; }
+}

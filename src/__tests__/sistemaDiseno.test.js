@@ -33,3 +33,61 @@ test("estado de error ofrece reintentar y no inventa cifras", () => {
   expect(re).toHaveBeenCalled();
   expect(screen.getByRole("alert").textContent).not.toMatch(/\d/);
 });
+
+describe("diálogos de la app (reemplazo de window.prompt/confirm)", () => {
+  const { DialogosHost, pedirTexto, elegirOpcion, confirmar } = require("../diseno/dialogos.jsx");
+  const { act } = require("@testing-library/react");
+  test("pedirTexto: aceptar devuelve el texto escrito; cancelar devuelve null", async () => {
+    render(<DialogosHost/>);
+    let p; act(() => { p = pedirTexto("Motivo", "inicial", { titulo: "Devolver" }); });
+    const campo = await screen.findByLabelText(/Respuesta/);
+    expect(campo.value).toBe("inicial");
+    fireEvent.change(campo, { target: { value: "falta boleta" } });
+    fireEvent.click(screen.getByTestId("dialogo-aceptar"));
+    await expect(p).resolves.toBe("falta boleta");
+    let q; act(() => { q = pedirTexto("Otro"); });
+    fireEvent.click(await screen.findByText("Cancelar"));
+    await expect(q).resolves.toBeNull();
+  });
+  test("obligatorio: no deja aceptar vacío", async () => {
+    render(<DialogosHost/>);
+    act(() => { pedirTexto("Motivo", "", { obligatorio: true }); });
+    expect((await screen.findByTestId("dialogo-aceptar")).disabled).toBe(true);
+  });
+  test("elegirOpcion devuelve el valor; confirmar devuelve true/false", async () => {
+    render(<DialogosHost/>);
+    let p; act(() => { p = elegirOpcion("¿A quién?", [{ valor: "1", etiqueta: "Carol" }, { valor: "2", etiqueta: "Michelle" }]); });
+    fireEvent.click(await screen.findByTestId("dialogo-opcion-2"));
+    await expect(p).resolves.toBe("2");
+    let c; act(() => { c = confirmar("¿Seguro?"); });
+    fireEvent.click(await screen.findByTestId("dialogo-aceptar"));
+    await expect(c).resolves.toBe(true);
+  });
+  test("un solo diálogo a la vez: la segunda solicitud se responde como cancelar", async () => {
+    render(<DialogosHost/>);
+    let p; act(() => { p = pedirTexto("Primero"); });
+    await screen.findByTestId("dialogo-app");
+    await expect(pedirTexto("Segundo")).resolves.toBeNull();
+    await expect(confirmar("Tercero")).resolves.toBe(false);
+    expect(screen.getAllByTestId("dialogo-app")).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText(/Respuesta/), { target: { value: "ok" } });
+    fireEvent.click(screen.getByTestId("dialogo-aceptar"));
+    await expect(p).resolves.toBe("ok");
+    // Cerrado el primero, se puede pedir otro.
+    let q; act(() => { q = pedirTexto("Cuarto"); });
+    fireEvent.keyDown(window, { key: "Escape" });   // Esc = cancelar
+    await expect(q).resolves.toBeNull();
+  });
+  test("datos vigentes: sigueIgual detecta un cambio del registro durante la espera", () => {
+    const { huella, sigueIgual } = require("../diseno/dialogos.jsx");
+    const antes = { id: 1, estado: "aprobada1", items: [{ m: 10 }] };
+    const h = huella(antes);
+    expect(sigueIgual({ id: 1, estado: "aprobada1", items: [{ m: 10 }] }, h)).toBe(true);
+    expect(sigueIgual({ id: 1, estado: "aprobada", items: [{ m: 10 }] }, h)).toBe(false);
+    expect(sigueIgual(undefined, h)).toBe(false);           // el registro desapareció
+  });
+  test("sin anfitrión montado usa el diálogo del navegador (nunca peor que antes)", async () => {
+    const orig = window.prompt; window.prompt = jest.fn(() => "nativo");
+    try { await expect(pedirTexto("x")).resolves.toBe("nativo"); } finally { window.prompt = orig; }
+  });
+});

@@ -79,9 +79,8 @@
   background: var(--mdt-c-marca); border-color: var(--mdt-c-marca); color: var(--mdt-c-marca-texto);
 }
 @media (max-width: 599px) {
-  /* !important: varias barras de los módulos traen flex-wrap:wrap en línea. */
   .mdt-pestanas {
-    flex-wrap: nowrap !important; overflow-x: auto !important; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
     margin-left: calc(-1 * var(--mdt-e-2)); margin-right: calc(-1 * var(--mdt-e-2));
     padding: 0 var(--mdt-e-2) var(--mdt-e-1); scrollbar-width: none;
     max-width: calc(100% + 2 * var(--mdt-e-2));
@@ -191,3 +190,46 @@
 
 /* Contenedor de tabla enfocable con teclado (flechas para desplazar). */
 .mdt-tabla-foco:focus-visible, .mdt-tabla:focus-visible { outline: 2px solid var(--mdt-c-marca); outline-offset: 2px; }
+
+/* DD12 · Tabla de flujo: tamaño de celdas por variable. En pantalla todo el texto de
+   la tabla queda en 11 px (13 px con «Letra grande»); los totales, 1 px más. Al imprimir
+   cada celda vuelve EXACTAMENTE al tamaño que imprimía main (8 a 14 px): los
+   tamaños en línea le ganaban a la regla de 7 px de la hoja de impresión, y las celdas
+   sin tamaño propio (la columna de etiquetas) siguen tomando esos 7 px. */
+.mdt-tabla-flujo {
+  --mdt-fs-flujo: 11px;
+  --mdt-fs-f8: var(--mdt-fs-flujo);
+  --mdt-fs-f10: calc(var(--mdt-fs-flujo) + 1px);
+  --mdt-fs-f105: calc(var(--mdt-fs-flujo) + 1px);
+  --mdt-fs-f11: var(--mdt-fs-flujo);
+  --mdt-fs-f12: calc(var(--mdt-fs-flujo) + 1px);
+  --mdt-fs-f13: calc(var(--mdt-fs-flujo) + 2px);
+  --mdt-fs-f14: calc(var(--mdt-fs-flujo) + 3px);
+}
+.mdt-tabla-flujo--grande { --mdt-fs-flujo: 13px; }
+@media print {
+  .mdt-tabla-flujo, .mdt-tabla-flujo--grande {
+    --mdt-fs-flujo: 9px; --mdt-fs-f8: 8px; --mdt-fs-f10: 10px; --mdt-fs-f105: 10.5px;
+    --mdt-fs-f11: 11px; --mdt-fs-f12: 12px; --mdt-fs-f13: 13px; --mdt-fs-f14: 14px;
+  }
+}
+
+
+/* Utilidad: columna cuyos bloques no ensanchan la página (Saldos Bancos). */
+.mdt-col-ajustada > * { max-width: 100%; min-width: 0; }
+
+/* Con barra inferior (teléfono), «← Volver/Mediterra» y «Salir» de los encabezados de
+   los módulos repiten Inicio y Más → Salir (DD11). */
+html[data-nav="compacta"] .mdt-dup-nav { display: none; }
+
+/* Pestañas cómodas al dedo en pantallas angostas. */
+@media (max-width: 700px) { .mdt-tab { min-height: 42px; } }
+
+/* Pantallas táctiles (teléfono y tablet, también sobre 700 px) · DD9: campos de 16 px
+   (iOS no hace zoom al enfocarlos), pestañas de 42 px y controles de 36 px mínimo.
+   El 16 px necesita !important porque los campos lo declaran en línea. */
+@media (pointer: coarse) {
+  input, select, textarea { font-size: 16px !important; }
+  .mdt-tab { min-height: 42px; }
+  button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) { min-height: 36px; }
+}

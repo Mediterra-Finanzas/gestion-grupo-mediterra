@@ -1,5 +1,6 @@
 /* eslint-disable */
 import { useFuenteGrafico } from "./diseno/componentes.jsx";
+import { pedirTexto, elegirOpcion, useUltimo, huella, sigueIgual, avisarDesactualizado } from "./diseno/dialogos.jsx";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import InputNumero from "./InputNumero.jsx";
@@ -1769,8 +1770,9 @@ function KPI({label,value,color=C.green}) {
 }
 function Btn({onClick,active,children,color=C.accent,small=false}) {
   return (
-    <button onClick={onClick}
-      className={`mdt-btn${active?" mdt-btn--active":""}`}
+    <button type="button" onClick={onClick} aria-pressed={!!active}
+      // Sistema compartido: alto táctil y separación por CSS (mdt-boton); colores propios.
+      className={`mdt-boton mdt-boton--chico mdt-btn${active?" mdt-btn--active":""}`}
       style={{padding:small?"4px 10px":"6px 14px",borderRadius:C.radius.sm,cursor:"pointer",fontWeight:600,fontSize:small?10:11,
         border:`1px solid ${active?color:C.border}`,background:active?`${color}1f`:"transparent",color:active?color:C.muted}}>
       {children}
@@ -4635,8 +4637,18 @@ export function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, 
 // ═══════════════════════════════════════════════════════════════════
 // CONSOLIDADO — dentro de Flujo Empresas
 // ═══════════════════════════════════════════════════════════════════
+// DD12 · Letra de las celdas del flujo: 11 px (normal) o 13 px (grande). Preferencia de
+// cada persona en este navegador, compartida por Flujo Empresas y Consolidado; no toca
+// valores, fórmulas, impresión ni exportaciones.
+function useLetraFlujo(){
+  const [letraGrande,setLetraGrande]=useState(()=>{try{return localStorage.getItem("mdt-flujo-letra")==="grande";}catch(e){return false;}});
+  const cambiarLetra=(g)=>{setLetraGrande(g);try{localStorage.setItem("mdt-flujo-letra",g?"grande":"normal");}catch(e){}};
+  return [letraGrande,cambiarLetra];
+}
+
 function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={},escenarioNombre=null,paramsPart={},onSaveParamsPart=null}) {
   const empNames=Object.keys(empresas);
+  const [letraGrande,cambiarLetra]=useLetraFlujo();
   // Consolidación proporcional de Allpa (opción por empresa): se puede incluir
   // Allpa Chile, Allpa Perú, o ambas al mismo tiempo — cada una escalada por su
   // participación de Mediterra. Toggles independientes.
@@ -4804,7 +4816,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   const THead=()=>(
     <thead style={{position:"sticky",top:0,zIndex:5}}>
       <tr style={{background:C.bg}}>
-        <th style={{padding:"9px 14px",textAlign:"left",color:C.muted,fontSize:10,position:"sticky",left:0,top:0,background:C.bg,zIndex:6,minWidth:180,borderRight:`1px solid ${C.border}`,borderBottom:`2px solid ${C.border2}`}}>
+        <th style={{padding:"9px 14px",textAlign:"left",color:C.muted,fontSize:"var(--mdt-fs-f10)",position:"sticky",left:0,top:0,background:C.bg,zIndex:6,minWidth:180,borderRight:`1px solid ${C.border}`,borderBottom:`2px solid ${C.border2}`}}>
           {vistaConsolidado==="sumada"?"Concepto":"Empresa / Concepto"}
         </th>
         {cols.map(col=>{
@@ -4820,7 +4832,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
               background:col.collapsed?C.bg2:col.tipo==="temporada"?C.card:C.bg,
               borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`,
               borderBottom:`2px solid ${C.border2}`,
-              fontSize:col.tipo==="temporada"?10:9,fontWeight:col.tipo==="temporada"?800:600,
+              fontSize:col.tipo==="temporada"?"var(--mdt-fs-f10)":"var(--mdt-fs-flujo)",fontWeight:col.tipo==="temporada"?800:600,
               color:col.collapsed?C.accentL:col.tipo==="temporada"?"#fff":col.isFirstInSeason?C.accentL:C.muted,
               whiteSpace:"nowrap",minWidth:col.tipo==="temporada"?110:col.collapsed?80:agrup==="semana"?44:68,
               cursor:clickable?"pointer":"default",userSelect:"none"}}>
@@ -4836,7 +4848,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
           if(col.tipo==="temporada"||rendered[col.mes]) return;
           const count=cols.filter(c=>c.mes===col.mes&&!c.collapsed).length;
           rendered[col.mes]=true;
-          cells.push(<th key={`mh-${col.mes}`} colSpan={count} style={{padding:"4px 6px",textAlign:"center",background:C.card,fontSize:9,fontWeight:700,color:C.accentL,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}44`,whiteSpace:"nowrap"}}>{col.labelMes}</th>);
+          cells.push(<th key={`mh-${col.mes}`} colSpan={count} style={{padding:"4px 6px",textAlign:"center",background:C.card,fontSize:"var(--mdt-fs-flujo)",fontWeight:700,color:C.accentL,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}44`,whiteSpace:"nowrap"}}>{col.labelMes}</th>);
         });
         return(<tr style={{background:C.primary}}><th style={{position:"sticky",left:0,top:0,background:C.primary,zIndex:6,borderRight:`1px solid ${C.border}`}}/>{cells}</tr>);
       })()}
@@ -4854,10 +4866,10 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
         <tr style={{background:`${color}0d`,cursor:"pointer",borderTop:`1px solid ${C.border}33`}}
           onClick={()=>toggleCat(cat)}>
           <td style={{padding:"7px 14px",position:"sticky",left:0,background:C.bg2,zIndex:1,borderRight:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>
-            <span style={{fontSize:11,fontWeight:800,color,textTransform:"uppercase",letterSpacing:"0.5px",display:"flex",alignItems:"center",gap:6}}>
-              <span style={{fontSize:9,display:"inline-block",transform:expanded?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.15s"}}>▶</span>
+            <span style={{fontSize:"var(--mdt-fs-f11)",fontWeight:800,color,textTransform:"uppercase",letterSpacing:"0.5px",display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:"var(--mdt-fs-flujo)",display:"inline-block",transform:expanded?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.15s"}}>▶</span>
               {signo} {label}
-              <span style={{fontSize:8,color:C.muted,fontWeight:400,textTransform:"none",letterSpacing:0}}>total</span>
+              <span style={{fontSize:"var(--mdt-fs-f8)",color:C.muted,fontWeight:400,textTransform:"none",letterSpacing:0}}>total</span>
             </span>
           </td>
           {cols.map(col=>{
@@ -4865,7 +4877,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
               const sec=empresasConOverrides[n].sections.find(s=>s.cat===cat);
               return sum+(sec?sec.lines.reduce((a,l)=>a+colVal(l.proy,col),0):0);
             },0);
-            return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:10,color,background:`${color}0d`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{v!==0?$$(v):"—"}</td>);
+            return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:"var(--mdt-fs-f10)",color,background:`${color}0d`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{v!==0?$$(v):"—"}</td>);
           })}
         </tr>
         {expanded && empNamesConsolidado.map(n=>{
@@ -4873,12 +4885,12 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
           const sec=emp.sections.find(s=>s.cat===cat);
           return (
             <tr key={n} style={{background:`${color}06`}}>
-              <td style={{padding:"5px 14px 5px 28px",position:"sticky",left:0,background:C.bg2,zIndex:1,borderRight:`1px solid ${C.border}`,fontSize:10,color:emp.color,whiteSpace:"nowrap"}}>
+              <td style={{padding:"5px 14px 5px 28px",position:"sticky",left:0,background:C.bg2,zIndex:1,borderRight:`1px solid ${C.border}`,fontSize:"var(--mdt-fs-f10)",color:emp.color,whiteSpace:"nowrap"}}>
                 {emp.emoji} {n}
               </td>
               {cols.map(col=>{
                 const v=sec?sec.lines.reduce((a,l)=>a+colVal(l.proy,col),0):0;
-                return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:9,color:v!==0?color:C.muted2,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{v!==0?$$(v):"—"}</td>);
+                return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:"var(--mdt-fs-flujo)",color:v!==0?color:C.muted2,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{v!==0?$$(v):"—"}</td>);
               })}
             </tr>
           );
@@ -4890,10 +4902,10 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
   const FilaSaldoBanco=({nombre})=>(
     <tr style={{background:`${C.blue}15`,borderBottom:`2px solid ${C.border2}`}}>
       <td style={{padding:"7px 14px",position:"sticky",left:0,zIndex:1,background:`${C.blue}15`,borderRight:`1px solid ${C.border}`}}>
-        <div style={{fontSize:11,fontWeight:700,color:C.blue}}>🏦 Saldo Banco USD</div>
-        <div style={{fontSize:9,color:C.muted}}>{nombre==="_consolidado"?`Suma ${empNamesConsolidado.length} empresas · último saldo de cada cuenta a hoy`:"último saldo de cada cuenta a hoy"}</div>
+        <div style={{fontSize:"var(--mdt-fs-f11)",fontWeight:700,color:C.blue}}>🏦 Saldo Banco USD</div>
+        <div style={{fontSize:"var(--mdt-fs-flujo)",color:C.muted}}>{nombre==="_consolidado"?`Suma ${empNamesConsolidado.length} empresas · último saldo de cada cuenta a hoy`:"último saldo de cada cuenta a hoy"}</div>
         {(nombre==="_consolidado"?Object.keys(avisosSaldoIncompleto).length>0:!!avisosSaldoIncompleto[nombre])&&(
-          <div style={{fontSize:9,color:C.orange,fontWeight:700}}>⚠ incompleto: hay cuentas sin TC guardado excluidas</div>
+          <div style={{fontSize:"var(--mdt-fs-flujo)",color:C.orange,fontWeight:700}}>⚠ incompleto: hay cuentas sin TC guardado excluidas</div>
         )}
       </td>
       {cols.map(col=>{
@@ -4904,7 +4916,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
               ? empNamesConsolidado.reduce((s,n)=>s+(saldoIniPorEmp[n]||0),0)
               : (saldoIniPorEmp[nombre]||0))
           : null;
-        return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:9,color:val==null?C.muted2:C.blue,background:`${C.blue}0d`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{val==null?"—":$$(val)}</td>);
+        return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:"var(--mdt-fs-flujo)",color:val==null?C.muted2:C.blue,background:`${C.blue}0d`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{val==null?"—":$$(val)}</td>);
       })}
     </tr>
   );
@@ -4918,47 +4930,47 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
     <>
       <tr style={{background:`${color}1a`,borderTop:`2px solid ${C.border2}`,cursor:isTotal?"pointer":undefined}}
         onClick={isTotal?()=>toggleCat("flujo_neto"):undefined}>
-        <td style={{padding:"8px 14px",fontWeight:800,color,fontSize:isTotal?12:11,position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}`}}>
+        <td style={{padding:"8px 14px",fontWeight:800,color,fontSize:isTotal?"var(--mdt-fs-f12)":"var(--mdt-fs-f11)",position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}`}}>
           {isTotal?(
             <span style={{display:"flex",alignItems:"center",gap:6}}>
-              <span style={{fontSize:9,display:"inline-block",transform:expFlujo?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.15s"}}>▶</span>
+              <span style={{fontSize:"var(--mdt-fs-flujo)",display:"inline-block",transform:expFlujo?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.15s"}}>▶</span>
               Σ FLUJO NETO CONSOLIDADO
             </span>
           ):"Flujo Neto"}
         </td>
-        {cols.map(col=>{const v=colVal(flujoArr,col);return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?10:9,color:cf(v),background:`${cf(v)===C.green?C.green:C.red}0a`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{$$(v)}</td>);})}
+        {cols.map(col=>{const v=colVal(flujoArr,col);return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?"var(--mdt-fs-f10)":"var(--mdt-fs-flujo)",color:cf(v),background:`${cf(v)===C.green?C.green:C.red}0a`,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{$$(v)}</td>);})}
       </tr>
       {expFlujo && drilldownFlujo && empNamesConsolidado.map(n=>{
         const emp=empresasConOverrides[n];
         return (
           <tr key={n} style={{background:`${color}08`}}>
-            <td style={{padding:"5px 14px 5px 28px",position:"sticky",left:0,background:C.bg2,zIndex:1,borderRight:`1px solid ${C.border}`,fontSize:10,color:emp.color,whiteSpace:"nowrap"}}>
+            <td style={{padding:"5px 14px 5px 28px",position:"sticky",left:0,background:C.bg2,zIndex:1,borderRight:`1px solid ${C.border}`,fontSize:"var(--mdt-fs-f10)",color:emp.color,whiteSpace:"nowrap"}}>
               {emp.emoji} {n}
             </td>
-            {cols.map(col=>{const v=colVal(drilldownFlujo[n]||[],col);return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:9,color:v!==0?cf(v):C.muted2,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{v!==0?$$(v):"—"}</td>);})}
+            {cols.map(col=>{const v=colVal(drilldownFlujo[n]||[],col);return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:"var(--mdt-fs-flujo)",color:v!==0?cf(v):C.muted2,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{v!==0?$$(v):"—"}</td>);})}
           </tr>
         );
       })}
       <tr style={{background:`${C.blue}0a`,cursor:isTotal?"pointer":undefined}}
         onClick={isTotal?()=>toggleCat("saldo_acum"):undefined}>
-        <td style={{padding:"8px 14px",fontWeight:800,color:C.blue,fontSize:isTotal?12:11,position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}`}}>
+        <td style={{padding:"8px 14px",fontWeight:800,color:C.blue,fontSize:isTotal?"var(--mdt-fs-f12)":"var(--mdt-fs-f11)",position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}`}}>
           {isTotal?(
             <span style={{display:"flex",alignItems:"center",gap:6}}>
-              <span style={{fontSize:9,display:"inline-block",transform:expAcum?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.15s"}}>▶</span>
+              <span style={{fontSize:"var(--mdt-fs-flujo)",display:"inline-block",transform:expAcum?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.15s"}}>▶</span>
               Σ SALDO ACUMULADO CONSOLIDADO
             </span>
           ):"Saldo Acumulado"}
         </td>
-        {cols.map(col=>{const lastIdx=col.indices[col.indices.length-1];const v=acumArr[lastIdx];const esNull=v==null;return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?10:9,color:esNull?C.muted2:cf(v||0),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{esNull?"—":$$(v||0)}</td>);})}
+        {cols.map(col=>{const lastIdx=col.indices[col.indices.length-1];const v=acumArr[lastIdx];const esNull=v==null;return(<td key={col.key} style={{padding:"7px 5px",textAlign:"right",fontWeight:isTotal?900:700,fontSize:isTotal?"var(--mdt-fs-f10)":"var(--mdt-fs-flujo)",color:esNull?C.muted2:cf(v||0),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{esNull?"—":$$(v||0)}</td>);})}
       </tr>
       {expAcum && drilldownAcum && empNamesConsolidado.map(n=>{
         const emp=empresasConOverrides[n];
         return (
           <tr key={n} style={{background:`${C.blue}06`}}>
-            <td style={{padding:"5px 14px 5px 28px",position:"sticky",left:0,background:C.bg2,zIndex:1,borderRight:`1px solid ${C.border}`,fontSize:10,color:emp.color,whiteSpace:"nowrap"}}>
+            <td style={{padding:"5px 14px 5px 28px",position:"sticky",left:0,background:C.bg2,zIndex:1,borderRight:`1px solid ${C.border}`,fontSize:"var(--mdt-fs-f10)",color:emp.color,whiteSpace:"nowrap"}}>
               {emp.emoji} {n}
             </td>
-            {cols.map(col=>{const lastIdx=col.indices[col.indices.length-1];const v=(drilldownAcum[n]||[])[lastIdx];const esNull=v==null;return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:9,color:esNull?C.muted2:cf(v||0),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{esNull?"—":$$(v||0)}</td>);})}
+            {cols.map(col=>{const lastIdx=col.indices[col.indices.length-1];const v=(drilldownAcum[n]||[])[lastIdx];const esNull=v==null;return(<td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontSize:"var(--mdt-fs-flujo)",color:esNull?C.muted2:cf(v||0),borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>{esNull?"—":$$(v||0)}</td>);})}
           </tr>
         );
       })}
@@ -5035,6 +5047,13 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
                 </button>
               ))}
             </div>
+            {(vistaConsolidado==="sumada"||vistaConsolidado==="por_empresa")&&(
+              <button className="mdt-boton mdt-boton--chico" aria-pressed={letraGrande} onClick={()=>cambiarLetra(!letraGrande)}
+                style={{marginLeft:8,padding:"6px 12px",borderRadius:8,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:12,fontWeight:600,
+                  background:letraGrande?C.accent:"transparent",color:letraGrande?"#fff":C.muted}}>
+                <span data-testid="consolidado-letra">{letraGrande?"A− Letra normal":"A+ Letra grande"}</span>
+              </button>
+            )}
           </div>
           {vistaConsolidado!=="waterfall"&&(<>
           <div>
@@ -5120,7 +5139,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
       {/* Vista sumada */}
       {vistaConsolidado==="sumada"&&(
         <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`,minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
-          <table id="flujo-table-consolidado" style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:600}}>
+          <table id="flujo-table-consolidado" className={`mdt-tabla-flujo${letraGrande?" mdt-tabla-flujo--grande":""}`} style={{borderCollapse:"separate",borderSpacing:0,fontSize:"var(--mdt-fs-f11)",minWidth:600}}>
             <THead/>
             <tbody>
               <FilaSaldoBanco nombre="_consolidado"/>
@@ -5143,7 +5162,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
       {/* Vista por empresa - solo subtotales por categoría */}
       {vistaConsolidado==="por_empresa"&&(
         <div style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`,minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
-          <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:600}}>
+          <table className={`mdt-tabla-flujo${letraGrande?" mdt-tabla-flujo--grande":""}`} style={{borderCollapse:"separate",borderSpacing:0,fontSize:"var(--mdt-fs-f11)",minWidth:600}}>
             <THead/>
             <tbody>
               {empNamesConsolidado.map((n,ei)=>{
@@ -5152,21 +5171,21 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
                   <React.Fragment key={n}>
                     <tr style={{background:`${emp.color}22`}}>
                       <td colSpan={cols.length+1} style={{padding:"8px 14px",position:"sticky",left:0,background:`${emp.color}22`,borderTop:ei>0?`3px solid ${C.border2}`:"none"}}>
-                        <div style={{fontSize:13,fontWeight:900,color:emp.color}}>{emp.emoji} {n}</div>
-                        <div style={{fontSize:10,color:C.muted}}>{emp.desc}</div>
+                        <div style={{fontSize:"var(--mdt-fs-f13)",fontWeight:900,color:emp.color}}>{emp.emoji} {n}</div>
+                        <div style={{fontSize:"var(--mdt-fs-f10)",color:C.muted}}>{emp.desc}</div>
                       </td>
                     </tr>
                     <FilaSaldoBanco nombre={n}/>
                     {emp.sections.map(sec=>(
                       <tr key={sec.cat} style={{background:C.bg2, borderTop:`1px solid ${C.border}33`}}>
                         <td style={{padding:"7px 14px",position:"sticky",left:0,background:C.bg2,borderRight:`1px solid ${C.border}`,zIndex:1,whiteSpace:"nowrap"}}>
-                          <span style={{fontSize:11,fontWeight:800,color:CAT_COLOR[sec.cat]||C.muted,textTransform:"uppercase",letterSpacing:"0.5px"}}>
+                          <span style={{fontSize:"var(--mdt-fs-f11)",fontWeight:800,color:CAT_COLOR[sec.cat]||C.muted,textTransform:"uppercase",letterSpacing:"0.5px"}}>
                             {CAT_SIGNO[sec.cat]} {sec.label}
                           </span>
                         </td>
                         {cols.map(col=>{
                           const v=sec.lines.reduce((a,l)=>a+colVal(l.proy,col),0);
-                          return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:10,color:CAT_COLOR[sec.cat]||C.muted,background:C.bg2,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{v!==0?$$(v):"—"}</td>);
+                          return(<td key={col.key} style={{padding:"6px 5px",textAlign:"right",fontWeight:700,fontSize:"var(--mdt-fs-f10)",color:CAT_COLOR[sec.cat]||C.muted,background:C.bg2,borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}22`}}>{v!==0?$$(v):"—"}</td>);
                         })}
                       </tr>
                     ))}
@@ -6029,6 +6048,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
 function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBancos,onSaveProy,onResolverOverride,usuario="",subLines={},onSaveSubLines,addedLinesInit={},onSaveAddedLines,creditosData=CREDITOS_DEFAULT}) {
   const emp=empresas[empNombre];
   const [vista,setVista]=useState("mensual");
+  const [letraGrande,cambiarLetra]=useLetraFlujo();   // DD12
   const [openSeason,setOpenSeason]=useState({[SEASON_KEYS[0]]:true,[SEASON_KEYS[1]]:true});
   const [openMonth,setOpenMonth]=useState({});
   const [showReal,setShowReal]=useState(false);
@@ -6539,14 +6559,14 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
 
     return (
       <div tabIndex={0} role="region" aria-label="Tabla del flujo de caja (se desplaza con las flechas)" className="mdt-tabla-foco" style={{overflowX:"auto",overflowY:"auto",maxHeight:"80vh",borderRadius:12,border:`1px solid ${C.border}`,position:"relative",minWidth:0,maxWidth:"calc(100vw - 80px)"}}>
-        <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:600}}>
+        <table className={`mdt-tabla-flujo${letraGrande?" mdt-tabla-flujo--grande":""}`} style={{borderCollapse:"separate",borderSpacing:0,fontSize:"var(--mdt-fs-flujo)",minWidth:600}}>
           <thead style={{position:"sticky",top:0,zIndex:5}}>
             {/* Fila 1: temporadas */}
             <tr style={{background:C.bg}}>
-              <th style={{padding:"8px 14px",textAlign:"left",color:C.muted,fontSize:10,
+              <th style={{padding:"8px 14px",textAlign:"left",color:C.muted,fontSize:"var(--mdt-fs-f10)",
                 position:"sticky",left:0,background:C.bg,zIndex:6,minWidth:210,
                 borderRight:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`}}>
-                Línea {canEdit&&<span style={{fontSize:8,color:C.accentL,marginLeft:4}}>✏️ editable</span>}
+                Línea {canEdit&&<span style={{fontSize:"var(--mdt-fs-f8)",color:C.accentL,marginLeft:4}}>✏️ editable</span>}
               </th>
               {colStructure.map(({season:s,collapsed,cols})=>{
                 const span=collapsed?1:Math.max(cols.length,1);
@@ -6556,7 +6576,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       background:!collapsed?C.card:C.bg,
                       borderLeft:`2px solid ${C.border2}`,cursor:"pointer",
                       borderBottom:`1px solid ${C.border}`,
-                      fontSize:10,fontWeight:700,color:C.text,whiteSpace:"nowrap"}}>
+                      fontSize:"var(--mdt-fs-f10)",fontWeight:700,color:C.text,whiteSpace:"nowrap"}}>
                     {!collapsed?"▾":"▸"} {s.label}
                   </th>
                 );
@@ -6580,7 +6600,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         background:isMonthOpen(mes)?C.card:C.bg,
                         borderLeft:isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}44`,
                         borderBottom:`1px solid ${C.border}`,
-                        cursor:"pointer",fontSize:9,fontWeight:700,
+                        cursor:"pointer",fontSize:"var(--mdt-fs-flujo)",fontWeight:700,
                         color:isMonthOpen(mes)?C.accentL:C.muted,whiteSpace:"nowrap"}}>
                       {isMonthOpen(mes)?"▾":"▸"} {mes}
                     </th>
@@ -6593,7 +6613,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
               <th style={{position:"sticky",left:0,background:C.bg,zIndex:6,borderRight:`1px solid ${C.border}`,borderBottom:`2px solid ${C.border2}`}}/>
               {colStructure.map(({season:s,collapsed,cols})=>{
                 if(collapsed) return (
-                  <th key={s.key} style={{padding:"4px 8px",color:C.muted,fontSize:9,
+                  <th key={s.key} style={{padding:"4px 8px",color:C.muted,fontSize:"var(--mdt-fs-flujo)",
                     borderLeft:`2px solid ${C.border2}`,textAlign:"center",background:C.bg,borderBottom:`2px solid ${C.border2}`}}>
                     {s.months.length}m
                   </th>
@@ -6605,7 +6625,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     <th key={`${s.key}-${col.label}-${ci}`}
                       style={{padding:"4px 6px",textAlign:"center",
                         color:isTot?C.yellow:col.type==="month_collapsed"?C.accentL:C.muted,
-                        fontSize:isTot?8:col.type==="month_collapsed"?9:8,
+                        fontSize:isTot?"var(--mdt-fs-f8)":col.type==="month_collapsed"?"var(--mdt-fs-flujo)":"var(--mdt-fs-f8)",
                         fontWeight:isTot?800:col.type==="month_collapsed"?700:500,
                         whiteSpace:"nowrap",
                         minWidth:isTot?70:vista==="semanal"?46:68,
@@ -6626,14 +6646,14 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
             <tr style={{background:`${C.blue}18`,borderBottom:`2px solid ${C.border2}`}}>
               <td style={{padding:"7px 14px",position:"sticky",left:0,
                 background:`${C.blue}18`,borderRight:`1px solid ${C.border}`,zIndex:1}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.blue}}>🏦 Saldo Banco (USD)</div>
-                <div style={{fontSize:9,color:C.muted}}>
+                <div style={{fontSize:"var(--mdt-fs-f11)",fontWeight:700,color:C.blue}}>🏦 Saldo Banco (USD)</div>
+                <div style={{fontSize:"var(--mdt-fs-flujo)",color:C.muted}}>
                   {saldoBancoUSD!=null
                     ? `${mesHoyLabel} ${semanaHoy} · desde Saldos Bancos`
                     : `sin saldo registrado`}
                 </div>
                 {avisoSaldoBanco&&(
-                  <div data-testid="flujo-saldo-incompleto" style={{fontSize:9,color:C.orange,fontWeight:700,maxWidth:260,whiteSpace:"normal"}}>
+                  <div data-testid="flujo-saldo-incompleto" style={{fontSize:"var(--mdt-fs-flujo)",color:C.orange,fontWeight:700,maxWidth:260,whiteSpace:"normal"}}>
                     ⚠ {avisoSaldoBanco}
                   </div>
                 )}
@@ -6641,7 +6661,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
               {colStructure.map(({season:s,collapsed,cols})=>{
                 if(collapsed) return (
                   <td key={s.key} style={{padding:"7px 8px",textAlign:"right",
-                    fontSize:11,color:C.blue,borderLeft:`2px solid ${C.border2}`}}>
+                    fontSize:"var(--mdt-fs-f11)",color:C.blue,borderLeft:`2px solid ${C.border2}`}}>
                     {""}
                   </td>
                 );
@@ -6660,7 +6680,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     <td key={`banco-${col.mes}-${ci}`}
                       {...(mostrar && saldoBancoUSD!=null ? {"data-testid":"flujo-saldo-banco","data-usd":saldoBancoUSD} : {})}
                       style={{padding:"6px 5px",textAlign:"right",fontWeight:700,
-                        fontSize:9,color:C.blue,
+                        fontSize:"var(--mdt-fs-flujo)",color:C.blue,
                         background:mostrar?`${C.blue}20`:`${C.blue}08`,
                         borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                       {mostrar && saldoBancoUSD!=null ? $$(saldoBancoUSD) : ""}
@@ -6680,12 +6700,12 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   onClick={()=>toggleSection(sec.cat)}>
                   <td style={{padding:"5px 14px",position:"sticky",left:0,
                     background:C.bg,borderRight:`1px solid ${C.border}`,zIndex:1}}>
-                    <span style={{fontSize:10,fontWeight:700,color:CAT_COLOR[sec.cat]||C.muted,
+                    <span style={{fontSize:"var(--mdt-fs-f10)",fontWeight:700,color:CAT_COLOR[sec.cat]||C.muted,
                       textTransform:"uppercase",letterSpacing:"0.5px",display:"flex",alignItems:"center",gap:6}}>
-                      <span style={{fontSize:9,transition:"transform 0.15s",display:"inline-block",
+                      <span style={{fontSize:"var(--mdt-fs-flujo)",transition:"transform 0.15s",display:"inline-block",
                         transform:isCollapsed?"rotate(0deg)":"rotate(90deg)"}}>▶</span>
                       {CAT_SIGNO[sec.cat]} {sec.label}
-                      {isCollapsed&&<span style={{fontSize:8,color:C.muted,fontWeight:400,textTransform:"none",letterSpacing:0,marginLeft:4}}>({sec.lines.filter(l=>!l.label.startsWith("  ")).length} líneas)</span>}
+                      {isCollapsed&&<span style={{fontSize:"var(--mdt-fs-f8)",color:C.muted,fontWeight:400,textTransform:"none",letterSpacing:0,marginLeft:4}}>({sec.lines.filter(l=>!l.label.startsWith("  ")).length} líneas)</span>}
                     </span>
                   </td>
                   {colStructure.map(({season:s,collapsed:sColl,cols})=>{
@@ -6705,7 +6725,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       },0);
                       return (
                         <td key={s.key} style={{padding:"5px 8px",textAlign:"right",fontWeight:800,
-                          color:CAT_COLOR[sec.cat],fontSize:10,borderLeft:`2px solid ${C.border2}`,background:C.bg}}>
+                          color:CAT_COLOR[sec.cat],fontSize:"var(--mdt-fs-f10)",borderLeft:`2px solid ${C.border2}`,background:C.bg}}>
                           {total!==0?$$(total):"—"}
                         </td>
                       );
@@ -6728,7 +6748,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         },0) + sumAddedLinesSemana(sec.cat, col.idx, col.semIdx);
                       }
                       return (
-                        <td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontWeight:700,fontSize:9,
+                        <td key={col.key} style={{padding:"5px 5px",textAlign:"right",fontWeight:700,fontSize:"var(--mdt-fs-flujo)",
                           color:CAT_COLOR[sec.cat]||C.muted,
                           borderLeft:ci===0?`2px solid ${C.border2}`:`1px solid ${C.border}22`,
                           background:C.bg}}>
@@ -6745,17 +6765,17 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   return (
                   <React.Fragment key={line.label}>
                   <tr style={{borderBottom:`1px solid ${C.border}11`}}>
-                    <td style={{padding:"5px 14px",color:line.formula?C.yellow:C.text,fontSize:11,
+                    <td style={{padding:"5px 14px",color:line.formula?C.yellow:C.text,fontSize:"var(--mdt-fs-f11)",
                       position:"sticky",left:0,background:C.card,zIndex:1,
                       borderRight:`1px solid ${C.border}`,whiteSpace:"nowrap",
                       maxWidth:240,overflow:"hidden",textOverflow:"ellipsis"}}>
                       <div style={{display:"flex",alignItems:"center",gap:3}}>
-                        {line.formula&&<span style={{fontSize:9}}>⚡</span>}
-                        {proyOverrides[line.label]&&<span style={{fontSize:8,color:C.accentL}} title="Editado">●</span>}
+                        {line.formula&&<span style={{fontSize:"var(--mdt-fs-flujo)"}}>⚡</span>}
+                        {proyOverrides[line.label]&&<span style={{fontSize:"var(--mdt-fs-f8)",color:C.accentL}} title="Editado">●</span>}
                         {line.subLines&&(
                           <button onClick={()=>setExpandedSubs(p=>({...p,[line.label]:!p[line.label]}))}
                             style={{background:"none",border:"none",cursor:"pointer",padding:"0 1px",
-                              color:C.blue,fontSize:9,fontWeight:700,flexShrink:0}}>
+                              color:C.blue,fontSize:"var(--mdt-fs-flujo)",fontWeight:700,flexShrink:0}}>
                             {expandedSubs[line.label]?"▼":"▶"}
                           </button>
                         )}
@@ -6763,17 +6783,17 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       </div>
                       {line.subLines&&expandedSubs[line.label]&&canEdit&&(
                         <div style={{marginTop:3,paddingLeft:14}}>
-                          <button onClick={()=>{
+                          <button onClick={async()=>{
                             const isAportes=line.label==="Aportes de Capital";
                             const isFin=line.label.includes("Financiamiento")||line.label.includes("Crédito")||line.label==="Capital Calls";
                             const msg=isAportes?"Empresa que recibe el aporte:"
                               :isFin?"Institución / detalle:"
                               :line.label.includes("Cobrar")?"Nombre del cliente:":"Nombre del acreedor:";
-                            const n=prompt(msg);
+                            const n=await pedirTexto(msg,"",{titulo:"Nueva línea",etiqueta:"Nombre"});
                             if(!n?.trim())return;
                             const cur=subLines[line.label]||[];
                             if(onSaveSubLines) onSaveSubLines(line.label,[...cur,{label:n.trim(),vals:{}}]);
-                          }} style={{fontSize:9,color:C.blue,background:"none",border:`1px dashed ${C.blue}44`,
+                          }} style={{fontSize:"var(--mdt-fs-flujo)",color:C.blue,background:"none",border:`1px dashed ${C.blue}44`,
                             borderRadius:4,padding:"2px 8px",cursor:"pointer"}}>
                             {line.label==="Aportes de Capital"?"+ agregar empresa"
                              :line.label.includes("Financiamiento")||line.label.includes("Crédito")||line.label==="Capital Calls"?"+ agregar institución"
@@ -6793,10 +6813,10 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         return (
                           <td key={s.key} style={{padding:"5px 8px",textAlign:"right",
                             color:total!==0?(sec.signo>0?C.green:C.red):C.muted2,
-                            fontSize:10,fontWeight:total!==0?600:400,
+                            fontSize:"var(--mdt-fs-f10)",fontWeight:total!==0?600:400,
                             borderLeft:`2px solid ${C.border2}`,background:C.card}}>
                             {/* Total temporada para esta línea */}
-                            <div style={{fontSize:8,color:C.muted,marginBottom:1}}>Total T</div>
+                            <div style={{fontSize:"var(--mdt-fs-f8)",color:C.muted,marginBottom:1}}>Total T</div>
                             {total!==0?$$(total):"—"}
                           </td>
                         );
@@ -6842,13 +6862,13 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         const isEditable=canEdit && !formulaBloquea && !isTot && col.type!=="month_collapsed";
                         return (
                           <td key={`${col.mes}-${col.label}-${line.label}-${ci}`}
-                            style={{padding:"4px 5px",textAlign:"right",fontSize:9,
+                            style={{padding:"4px 5px",textAlign:"right",fontSize:"var(--mdt-fs-flujo)",
                               background:isTot?`${C.yellow}12`:C.card,
                               borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                             {isTot ? (
                               // Columna total mes: siempre solo muestra, no edita
                               <span style={{color:val!==0?(sec.signo>0?C.green:C.red):C.muted2,
-                                fontWeight:val!==0?700:400,fontSize:9}}>
+                                fontWeight:val!==0?700:400,fontSize:"var(--mdt-fs-flujo)"}}>
                                 {val!==0?$$(val):"—"}
                               </span>
                             ) : col.type==="month_collapsed" ? (
@@ -6897,17 +6917,17 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     return filas.map((f,fi)=>(
                       <tr key={`fc-${line.label}-${f.key}`} style={{borderBottom:`1px solid ${C.border}11`,background:`${C.red}06`,
                         borderTop:f.comp&&(fi===0||!filas[fi-1].comp)?`1px dashed ${C.border}`:undefined}}>
-                        <td style={{padding:"4px 14px 4px 28px",fontSize:10,position:"sticky",left:0,
+                        <td style={{padding:"4px 14px 4px 28px",fontSize:"var(--mdt-fs-f10)",position:"sticky",left:0,
                           background:`${C.red}06`,zIndex:1,borderRight:`1px solid ${C.border}`,color:C.muted}}>
                           <div style={{display:"flex",alignItems:"center",gap:4}}>
-                            <span style={{color:f.color,fontSize:9}}>{f.icono}</span>
+                            <span style={{color:f.color,fontSize:"var(--mdt-fs-flujo)"}}>{f.icono}</span>
                             <span style={{fontWeight:f.comp?500:600,fontStyle:f.comp?"italic":"normal"}}>{f.label}</span>
                           </div>
                         </td>
                         {colStructure.map(({season:s,collapsed,cols})=>{
                           if(collapsed){
                             const tot=s.indices.reduce((a,i)=>a+(f.mes[i]||0),0);
-                            return <td key={s.key} style={{padding:"4px 6px",textAlign:"right",fontSize:9,
+                            return <td key={s.key} style={{padding:"4px 6px",textAlign:"right",fontSize:"var(--mdt-fs-flujo)",
                               color:tot?f.color:C.muted2,fontWeight:tot?700:400,
                               borderLeft:`2px solid ${C.border2}`}}>{tot?$$(tot):"—"}</td>;
                           }
@@ -6919,7 +6939,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                             const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                             return (
                               <td key={`fc-${f.key}-${col.mes||""}-${ci}`}
-                                style={{padding:"4px 5px",textAlign:"right",fontSize:9,
+                                style={{padding:"4px 5px",textAlign:"right",fontSize:"var(--mdt-fs-flujo)",
                                   background:isTot?`${C.yellow}12`:`${C.red}06`,
                                   borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                                 <span style={{color:disp?f.color:C.muted2,fontWeight:disp&&!f.comp?700:400,fontStyle:f.comp?"italic":"normal"}}>
@@ -6937,17 +6957,17 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     const desgloseIng = calcIngresoRenovacionDesglose(empNombre, creditosData);
                     return Object.entries(desgloseIng).map(([acreedor, proyArr])=>(
                       <tr key={`ingr-${acreedor}`} style={{borderBottom:`1px solid ${C.border}11`,background:`${C.blue}06`}}>
-                        <td style={{padding:"4px 14px 4px 28px",fontSize:10,position:"sticky",left:0,
+                        <td style={{padding:"4px 14px 4px 28px",fontSize:"var(--mdt-fs-f10)",position:"sticky",left:0,
                           background:`${C.blue}06`,zIndex:1,borderRight:`1px solid ${C.border}`,color:C.muted}}>
                           <div style={{display:"flex",alignItems:"center",gap:4}}>
-                            <span style={{color:C.blue,fontSize:9}}>↺</span>
+                            <span style={{color:C.blue,fontSize:"var(--mdt-fs-flujo)"}}>↺</span>
                             <span style={{fontWeight:600}}>{acreedor}</span>
                           </div>
                         </td>
                         {colStructure.map(({season:s,collapsed,cols})=>{
                           if(collapsed){
                             const tot=s.indices.reduce((a,i)=>a+(proyArr[i]||0),0);
-                            return <td key={s.key} style={{padding:"4px 6px",textAlign:"right",fontSize:9,
+                            return <td key={s.key} style={{padding:"4px 6px",textAlign:"right",fontSize:"var(--mdt-fs-flujo)",
                               color:tot?C.blue:C.muted2,fontWeight:tot?700:400,
                               borderLeft:`2px solid ${C.border2}`}}>{tot?$$(tot):"—"}</td>;
                           }
@@ -6957,7 +6977,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                             const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                             return (
                               <td key={`ingr-${acreedor}-${col.mes||""}-${ci}`}
-                                style={{padding:"4px 5px",textAlign:"right",fontSize:9,
+                                style={{padding:"4px 5px",textAlign:"right",fontSize:"var(--mdt-fs-flujo)",
                                   background:col.isTotalMes?`${C.yellow}12`:`${C.blue}06`,
                                   borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                                 <span style={{color:disp?C.blue:C.muted2,fontWeight:disp?700:400}}>
@@ -7027,19 +7047,19 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                     };
                     return (
                       <tr key={`sl-${line.label}-${sli}`} style={{borderBottom:`1px solid ${C.border}11`,background:`${C.blue}06`}}>
-                        <td style={{padding:"4px 14px 4px 28px",fontSize:10,position:"sticky",left:0,
+                        <td style={{padding:"4px 14px 4px 28px",fontSize:"var(--mdt-fs-f10)",position:"sticky",left:0,
                           background:`${C.blue}06`,zIndex:1,borderRight:`1px solid ${C.border}`,color:C.muted}}>
                           <div style={{display:"flex",alignItems:"center",gap:4}}>
                             <span style={{color:C.blue}}>↳</span><span>{slLabel}</span>
                             {canEdit&&<button onClick={()=>{
                               if(onSaveSubLines) onSaveSubLines(line.label,(subLines[line.label]||[]).filter((_,j)=>j!==sli));
-                            }} style={{marginLeft:4,background:"none",border:"none",color:"#ef444488",cursor:"pointer",fontSize:10}}>×</button>}
+                            }} style={{marginLeft:4,background:"none",border:"none",color:"#ef444488",cursor:"pointer",fontSize:"var(--mdt-fs-f10)"}}>×</button>}
                           </div>
                         </td>
                         {colStructure.map(({season:s,collapsed,cols})=>{
                           if(collapsed){
                             const tot=s.indices.reduce((a,i)=>a+getSlValMes(i),0);
-                            return <td key={s.key} style={{padding:"4px 6px",textAlign:"right",fontSize:9,
+                            return <td key={s.key} style={{padding:"4px 6px",textAlign:"right",fontSize:"var(--mdt-fs-flujo)",
                               color:tot?C.blue:C.muted2,borderLeft:`2px solid ${C.border2}`}}>{tot?$$(tot):"—"}</td>;
                           }
                           return cols.map((col,ci)=>{
@@ -7059,7 +7079,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                             const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                             return (
                               <td key={`sl-${sli}-${col.mes||""}-${ci}`}
-                                style={{padding:"4px 5px",textAlign:"right",fontSize:9,
+                                style={{padding:"4px 5px",textAlign:"right",fontSize:"var(--mdt-fs-flujo)",
                                   background:isTot?`${C.yellow}12`:`${C.blue}06`,
                                   borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                                 {isTot
@@ -7093,12 +7113,12 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   });
                   return (
                   <tr key={`al-${sec.cat}-${ali}`} style={{borderBottom:`1px solid ${C.border}11`,background:C.card}}>
-                    <td style={{padding:"5px 14px",fontSize:11,position:"sticky",left:0,background:C.card,zIndex:1,
+                    <td style={{padding:"5px 14px",fontSize:"var(--mdt-fs-f11)",position:"sticky",left:0,background:C.card,zIndex:1,
                       borderRight:`1px solid ${C.border}`,whiteSpace:"nowrap",
                       maxWidth:240,overflow:"hidden",textOverflow:"ellipsis"}}>
                       <div style={{display:"flex",alignItems:"center",gap:3,color:C.text}}>
                         {canEdit&&<button onClick={()=>setAddedLines(p=>({...p,[sec.cat]:(p[sec.cat]||[]).filter((_,i)=>i!==ali)}))}
-                          style={{background:"none",border:"none",color:"#ef444488",cursor:"pointer",fontSize:10,
+                          style={{background:"none",border:"none",color:"#ef444488",cursor:"pointer",fontSize:"var(--mdt-fs-f10)",
                             padding:0,flexShrink:0}}>×</button>}
                         <span>{alLabel}</span>
                       </div>
@@ -7120,7 +7140,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                           }
                           return a+sum;
                         },0);
-                        return <td key={s.key} style={{padding:"5px 8px",textAlign:"right",fontSize:9,
+                        return <td key={s.key} style={{padding:"5px 8px",textAlign:"right",fontSize:"var(--mdt-fs-flujo)",
                           color:tot?CAT_COLOR[sec.cat]:C.muted2,fontWeight:tot?600:400,
                           borderLeft:`2px solid ${C.border2}`}}>{tot?$$(tot):"—"}</td>;
                       }
@@ -7148,7 +7168,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                         const mensualCalculado = esMes && hasAnySemMes;
                         return (
                           <td key={`al-${ali}-${col.mes||""}-${ci}`}
-                            style={{padding:"4px 5px",textAlign:"right",fontSize:9,
+                            style={{padding:"4px 5px",textAlign:"right",fontSize:"var(--mdt-fs-flujo)",
                               background:isTot?`${C.yellow}12`:(mensualCalculado?`${C.bg2}66`:C.card),
                               borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                             {isTot?(
@@ -7177,11 +7197,11 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                 {!isCollapsed && canEdit&&(
                   <tr>
                     <td colSpan={999} style={{padding:"2px 14px",position:"sticky",left:0,zIndex:1}}>
-                      <button onClick={()=>{
-                        const nombre=prompt(`Nueva línea en "${sec.label}":`);
+                      <button onClick={async()=>{
+                        const nombre=await pedirTexto(`Nueva línea en "${sec.label}":`,"",{titulo:"Nueva línea",etiqueta:"Nombre"});
                         if(!nombre?.trim())return;
                         setAddedLines(p=>({...p,[sec.cat]:[...(p[sec.cat]||[]),{label:nombre.trim(),vals:{}}]}));
-                      }} style={{fontSize:9,color:CAT_COLOR[sec.cat]||C.muted,background:"none",
+                      }} style={{fontSize:"var(--mdt-fs-flujo)",color:CAT_COLOR[sec.cat]||C.muted,background:"none",
                         border:`1px dashed ${CAT_COLOR[sec.cat]||C.border}44`,
                         borderRadius:4,padding:"2px 10px",cursor:"pointer"}}>
                         + agregar concepto
@@ -7191,7 +7211,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                 )}
                 {/* Subtotal sección — solo si expandido (colapsado ya muestra en header) */}
                 {!isCollapsed && <tr style={{background:C.primary}}>
-                  <td style={{padding:"5px 14px",fontWeight:700,color:CAT_COLOR[sec.cat],fontSize:10,
+                  <td style={{padding:"5px 14px",fontWeight:700,color:CAT_COLOR[sec.cat],fontSize:"var(--mdt-fs-f10)",
                     position:"sticky",left:0,background:C.bg2,borderRight:`1px solid ${C.border}`,zIndex:1}}>
                     Σ {sec.label}
                   </td>
@@ -7208,8 +7228,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       },0);
                       return (
                         <td key={s.key} style={{padding:"5px 8px",textAlign:"right",fontWeight:800,
-                          color:CAT_COLOR[sec.cat],fontSize:10,borderLeft:`2px solid ${C.border2}`,background:C.bg2}}>
-                          <div style={{fontSize:8,color:C.muted,marginBottom:1}}>Total T</div>
+                          color:CAT_COLOR[sec.cat],fontSize:"var(--mdt-fs-f10)",borderLeft:`2px solid ${C.border2}`,background:C.bg2}}>
+                          <div style={{fontSize:"var(--mdt-fs-f8)",color:C.muted,marginBottom:1}}>Total T</div>
                           {total!==0?$$(total):"—"}
                         </td>
                       );
@@ -7244,7 +7264,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                       return (
                         <td key={`sub-${col.mes}-${col.label}-${ci}`}
                           style={{padding:"4px 5px",textAlign:"right",fontWeight:isTot?800:700,
-                            color:CAT_COLOR[sec.cat],fontSize:isTot?10:9,
+                            color:CAT_COLOR[sec.cat],fontSize:isTot?"var(--mdt-fs-f10)":"var(--mdt-fs-flujo)",
                             background:isTot?`${C.yellow}18`:C.bg2,
                             borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                           {total!==0?$$(total):"—"}
@@ -7290,7 +7310,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   const saldoCaja = saldoBancoUSD != null ? saldoBancoUSD : emp.saldo_ini;
                   return (
                     <tr style={{background:`${C.teal}11`, borderTop:`1px solid ${C.teal}44`, borderBottom:`1px solid ${C.teal}44`}}>
-                      <td style={{padding:"6px 14px",fontWeight:800,color:C.teal,fontSize:11,
+                      <td style={{padding:"6px 14px",fontWeight:800,color:C.teal,fontSize:"var(--mdt-fs-f11)",
                         position:"sticky",left:0,background:`${C.teal}11`,borderRight:`1px solid ${C.border}`,zIndex:1}}>
                         💰 Saldo Caja Operacional
                       </td>
@@ -7300,7 +7320,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                           const lastIdx = s.indices[s.indices.length-1];
                           if(lastIdx < mesIdxInicioSaldo) {
                             return (
-                              <td key={s.key} style={{padding:"6px 8px",textAlign:"right",fontSize:10,color:C.muted2,borderLeft:`2px solid ${C.border2}`,background:`${C.teal}11`}}>—</td>
+                              <td key={s.key} style={{padding:"6px 8px",textAlign:"right",fontSize:"var(--mdt-fs-f10)",color:C.muted2,borderLeft:`2px solid ${C.border2}`,background:`${C.teal}11`}}>—</td>
                             );
                           }
                           const acumFlujoOp = s.indices.reduce((a,i)=>
@@ -7308,8 +7328,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                           const saldoOp = saldoCaja + acumFlujoOp;
                           return (
                             <td key={s.key} style={{padding:"6px 8px",textAlign:"right",fontWeight:800,
-                              fontSize:10,color:cf(saldoOp),borderLeft:`2px solid ${C.border2}`,background:`${C.teal}11`}}>
-                              <div style={{fontSize:8,color:C.muted,marginBottom:1}}>Total T</div>
+                              fontSize:"var(--mdt-fs-f10)",color:cf(saldoOp),borderLeft:`2px solid ${C.border2}`,background:`${C.teal}11`}}>
+                              <div style={{fontSize:"var(--mdt-fs-f8)",color:C.muted,marginBottom:1}}>Total T</div>
                               {$$(saldoOp)}
                             </td>
                           );
@@ -7321,7 +7341,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                             const isFirst = col.isFirstInSeason || col.isFirstInMonth;
                             return (
                               <td key={`opCaja-${col.mes}-${col.label}-${ci}`}
-                                style={{padding:"6px 5px",textAlign:"right",fontSize:isTot?10:9,color:C.muted2,
+                                style={{padding:"6px 5px",textAlign:"right",fontSize:isTot?"var(--mdt-fs-f10)":"var(--mdt-fs-flujo)",color:C.muted2,
                                   background:isTot?`${C.yellow}18`:`${C.teal}05`,
                                   borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>—</td>
                             );
@@ -7339,7 +7359,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                           return (
                             <td key={`sco-${col.mes}-${col.label}-${ci}`}
                               style={{padding:"5px 5px",textAlign:"right",fontWeight:isTot?900:800,
-                                fontSize:isTot?10:9,color:cf(saldoOp),
+                                fontSize:isTot?"var(--mdt-fs-f10)":"var(--mdt-fs-flujo)",color:cf(saldoOp),
                                 background:isTot?`${C.yellow}18`:`${C.teal}11`,
                                 borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                               {$$(saldoOp)}
@@ -7356,7 +7376,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
 
             {/* FLUJO NETO ──────────────────────────────────────── */}
             <tr style={{background:`${C.accent}18`,borderTop:`2px solid ${C.border2}`}}>
-              <td style={{padding:"7px 14px",fontWeight:800,color:C.accentL,fontSize:11,
+              <td style={{padding:"7px 14px",fontWeight:800,color:C.accentL,fontSize:"var(--mdt-fs-f11)",
                 position:"sticky",left:0,background:C.card,borderRight:`1px solid ${C.border}`,zIndex:1}}>
                 FLUJO NETO
               </td>
@@ -7365,8 +7385,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   const total=s.indices.reduce((a,i)=>a+flujoArr[i],0);
                   return (
                     <td key={s.key} style={{padding:"7px 8px",textAlign:"right",fontWeight:800,
-                      fontSize:11,color:cf(total),borderLeft:`2px solid ${C.border2}`}}>
-                      <div style={{fontSize:8,color:C.muted,marginBottom:1}}>Total T</div>
+                      fontSize:"var(--mdt-fs-f11)",color:cf(total),borderLeft:`2px solid ${C.border2}`}}>
+                      <div style={{fontSize:"var(--mdt-fs-f8)",color:C.muted,marginBottom:1}}>Total T</div>
                       {$$(total)}
                     </td>
                   );
@@ -7379,7 +7399,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   return (
                     <td key={`flujo-${col.mes}-${col.label}-${ci}`}
                       style={{padding:"6px 5px",textAlign:"right",fontWeight:isTot?900:800,
-                        fontSize:isTot?10:9,color:cf(val),
+                        fontSize:isTot?"var(--mdt-fs-f10)":"var(--mdt-fs-flujo)",color:cf(val),
                         background:isTot?`${C.yellow}18`:"transparent",
                         borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                       {$$(val)}
@@ -7391,7 +7411,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
 
             {/* SALDO ACUMULADO ─────────────────────────────────── */}
             <tr style={{background:`${C.blue}11`}}>
-              <td style={{padding:"7px 14px",fontWeight:800,color:C.blue,fontSize:11,
+              <td style={{padding:"7px 14px",fontWeight:800,color:C.blue,fontSize:"var(--mdt-fs-f11)",
                 position:"sticky",left:0,background:C.card,borderRight:`1px solid ${C.border}`,zIndex:1}}>
                 SALDO ACUM.
               </td>
@@ -7401,8 +7421,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   const v = acumArr[last];
                   return (
                     <td key={s.key} style={{padding:"7px 8px",textAlign:"right",fontWeight:800,
-                      fontSize:11,color:v==null?C.muted2:cf(v),borderLeft:`2px solid ${C.border2}`}}>
-                      <div style={{fontSize:8,color:C.muted,marginBottom:1}}>Fin T</div>
+                      fontSize:"var(--mdt-fs-f11)",color:v==null?C.muted2:cf(v),borderLeft:`2px solid ${C.border2}`}}>
+                      <div style={{fontSize:"var(--mdt-fs-f8)",color:C.muted,marginBottom:1}}>Fin T</div>
                       {v==null?"—":$$(v)}
                     </td>
                   );
@@ -7414,7 +7434,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   return (
                     <td key={`acum-${col.mes}-${col.label}-${ci}`}
                       style={{padding:"6px 5px",textAlign:"right",fontWeight:isTot?900:700,
-                        fontSize:isTot?10:9,color:v==null?C.muted2:cf(v),
+                        fontSize:isTot?"var(--mdt-fs-f10)":"var(--mdt-fs-flujo)",color:v==null?C.muted2:cf(v),
                         background:isTot?`${C.yellow}18`:"transparent",
                         borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                       {v==null?"—":$$(v)}
@@ -7426,18 +7446,18 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
             {/* ESCENARIO: incluyendo cuotas por conciliar (potencialmente impagas) */}
             {escPC.impacto>0.5&&(
             <tr style={{background:"#ede9fe"}}>
-              <td style={{padding:"7px 14px",fontWeight:800,color:"#5b21b6",fontSize:10,
+              <td style={{padding:"7px 14px",fontWeight:800,color:"#5b21b6",fontSize:"var(--mdt-fs-f10)",
                 position:"sticky",left:0,background:"#ede9fe",borderRight:`1px solid ${C.border}`,zIndex:1}}
                 title="Escenario: si las cuotas históricas por conciliar resultaran impagas, se pagarían en el mes en curso">
                 SALDO ACUM. incl. por conciliar
-                <div style={{fontSize:8,fontWeight:600}}>escenario · −{$$(escPC.impacto)}{escPC.provisional?" · PROVISIONAL":""}</div>
-                {escPC.superposicionUSD>0.5&&<div style={{fontSize:8,fontWeight:600,color:C.red}}>puede superponerse con valor manual ({$$(escPC.superposicionUSD)})</div>}
+                <div style={{fontSize:"var(--mdt-fs-f8)",fontWeight:600}}>escenario · −{$$(escPC.impacto)}{escPC.provisional?" · PROVISIONAL":""}</div>
+                {escPC.superposicionUSD>0.5&&<div style={{fontSize:"var(--mdt-fs-f8)",fontWeight:600,color:C.red}}>puede superponerse con valor manual ({$$(escPC.superposicionUSD)})</div>}
               </td>
               {colStructure.map(({season:s,collapsed,cols})=>{
                 if(collapsed){
                   const last=s.indices[s.indices.length-1];
                   const v = acumArr[last]==null ? null : acumArr[last]-escPC.impacto;
-                  return <td key={s.key} style={{padding:"7px 8px",textAlign:"right",fontWeight:800,fontSize:11,color:v==null?C.muted2:cf(v),borderLeft:`2px solid ${C.border2}`}}>{v==null?"—":$$(v)}</td>;
+                  return <td key={s.key} style={{padding:"7px 8px",textAlign:"right",fontWeight:800,fontSize:"var(--mdt-fs-f11)",color:v==null?C.muted2:cf(v),borderLeft:`2px solid ${C.border2}`}}>{v==null?"—":$$(v)}</td>;
                 }
                 return cols.map((col,ci)=>{
                   const isTot=col.isTotalMes;
@@ -7446,7 +7466,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                   const v = b==null ? null : b - escPC.impacto;
                   return (
                     <td key={`acumpc-${col.mes}-${col.label}-${ci}`}
-                      style={{padding:"6px 5px",textAlign:"right",fontWeight:isTot?900:700,fontSize:isTot?10:9,color:v==null?C.muted2:cf(v),
+                      style={{padding:"6px 5px",textAlign:"right",fontWeight:isTot?900:700,fontSize:isTot?"var(--mdt-fs-f10)":"var(--mdt-fs-flujo)",color:v==null?C.muted2:cf(v),
                         borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:isFirst?`1px solid ${C.border}44`:`1px solid ${C.border}11`}}>
                       {v==null?"—":$$(v)}
                     </td>
@@ -7493,6 +7513,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         <Btn active={vista==="mensual"} onClick={()=>setVista("mensual")} color={emp.color}>📅 Mensual</Btn>
         <Btn active={vista==="semanal"} onClick={()=>setVista("semanal")} color={emp.color}>📊 Semanal</Btn>
+        <Btn active={letraGrande} onClick={()=>cambiarLetra(!letraGrande)} color={C.muted}><span data-testid="flujo-letra">{letraGrande?"A− Letra normal":"A+ Letra grande"}</span></Btn>
         <div style={{marginLeft:8,display:"flex",gap:5,flexWrap:"wrap"}}>
           <span style={{fontSize:10,color:C.muted,alignSelf:"center"}}>Temporadas:</span>
           {SEASONS.map(s=>(
@@ -8092,8 +8113,8 @@ function PanelCreditosPendientes({creditosServidor, canEdit, onReintentar, usuar
                   style={{padding:"3px 10px",borderRadius:6,border:"none",background:C.primary,color:"#fff",cursor:"pointer",fontSize:11}}>Reintentar</button>}
               </div>);
           })}
-          {canEdit&&<button disabled={!!ocupado} onClick={()=>{
-            const motivo = window.prompt("Descartar estos cambios SIN registrarlos en el servidor.\nSe pierden de este navegador. Motivo (obligatorio):");
+          {canEdit&&<button disabled={!!ocupado} onClick={async()=>{
+            const motivo = await pedirTexto("Descartar estos cambios SIN registrarlos en el servidor.\nSe pierden de este navegador. Motivo (obligatorio):");
             if(!motivo||!motivo.trim()) return;
             const reg = pendientesCreditos.descartar(e.id, motivo.trim(), usuario);
             if(window.auditLog) window.auditLog("descartar", { modulo:"finanzas", seccion:"creditos", descripcion:`Cambios de Créditos sin confirmar descartados: ${motivo.trim()}`, registroId:e.id, detalle:reg });
@@ -8107,6 +8128,7 @@ function PanelCreditosPendientes({creditosServidor, canEdit, onReintentar, usuar
 // ── Detalle de un crédito: calendario, pagos, historial ──────────────
 function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
   const hoy = hoyISO();
+  const credActual = useUltimo(credito);
   const sinConfirmar = pagosSinConfirmar(useCreditosPendientes(usuario));
   const e = useMemo(()=>estadoCredito(credito, hoy),[credito, hoy]);
   const mon = credito.moneda||"USD";
@@ -8138,18 +8160,24 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
     } catch(err){ alert(err.message); }
   }
   async function anular(p){
-    const motivo = window.prompt(`Anular el pago del ${fmtDate(p.fecha)} por ${$c(totalPago(p),mon)}.\nEl pago queda en el historial como anulado. Motivo (obligatorio):`);
+    const h = huella(credito);
+    const motivo = await pedirTexto(`Anular el pago del ${fmtDate(p.fecha)} por ${$c(totalPago(p),mon)}.\nEl pago queda en el historial como anulado. Motivo (obligatorio):`, "", {titulo:"Anular pago", etiqueta:"Motivo", obligatorio:true, aceptar:"Anular pago"});
     if(motivo===null) return;
+    if(!sigueIgual(credActual.current, h)) { await avisarDesactualizado("El crédito"); return; }
     try { await onSave(anularPago(credito, p.id, motivo, usuario)); } catch(err){ alert(err.message); }
   }
   async function confirmarImp(v){
-    const nota = window.prompt(`Confirmar como IMPAGA la cuota del ${fmtDate(v.fecha)} por ${$c(v.pendienteTotal,mon)}.\nRespaldo (cartola, certificado de deuda, correo del acreedor):`);
+    const h = huella(credito);
+    const nota = await pedirTexto(`Confirmar como IMPAGA la cuota del ${fmtDate(v.fecha)} por ${$c(v.pendienteTotal,mon)}.\nRespaldo (cartola, certificado de deuda, correo del acreedor):`, "", {titulo:"Confirmar impaga", etiqueta:"Respaldo", obligatorio:true});
     if(nota===null) return;
+    if(!sigueIgual(credActual.current, h)) { await avisarDesactualizado("El crédito"); return; }
     try { await onSave(confirmarImpaga(credito, v.key, nota, usuario)); } catch(err){ alert(err.message); }
   }
   async function anularConc(x){
-    const motivo = window.prompt(`Anular la confirmación de impaga (${x.vencKey}). La cuota vuelve a "por conciliar". Motivo:`);
+    const h = huella(credito);
+    const motivo = await pedirTexto(`Anular la confirmación de impaga (${x.vencKey}). La cuota vuelve a "por conciliar". Motivo:`, "", {titulo:"Anular confirmación", etiqueta:"Motivo", obligatorio:true});
     if(motivo===null) return;
+    if(!sigueIgual(credActual.current, h)) { await avisarDesactualizado("El crédito"); return; }
     try { await onSave(anularConciliacion(credito, x.id, motivo, usuario)); } catch(err){ alert(err.message); }
   }
   async function guardarDesglose(){
@@ -8499,7 +8527,7 @@ function AnalisisCreditos({creditos, empresas}){
           "Por conciliar" no suma al total: es el impacto potencial si esas cuotas históricas resultaran impagas.</div>
       </Card>
 
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(300px,100%),1fr))",gap:14}}>
         <Card>
           <SectionTitle>Vencidos impagos ({vencidos.length})</SectionTitle>
           {vencidos.length===0?<div style={{fontSize:11,color:C.green}}>Sin vencidos impagos.</div>:
@@ -8520,7 +8548,7 @@ function AnalisisCreditos({creditos, empresas}){
         </Card>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(300px,100%),1fr))",gap:14}}>
         <Card>
           <SectionTitle>Créditos que vencen o se renuevan en 180 días</SectionTitle>
           {porVencer.length===0?<div style={{fontSize:11,color:C.muted}}>Ninguno.</div>:
@@ -8721,6 +8749,7 @@ function textoTC(t){
 function ConciliacionAcreedores({creditos, saldosInformados=[], onSaveSaldosInformados, canEdit, usuario, creditosConfig={}, onSaveCreditosConfig, tcData}){
   const hoy = hoyISO();
   const tolerancias = creditosConfig?.tolerancias || null;
+  const informadosActual = useUltimo(saldosInformados);
   const filas = useMemo(()=>conciliacionAcreedores(creditos, saldosInformados, hoy, {tolerancias, tcData}),[creditos, saldosInformados, hoy, tolerancias, tcData]);
   const [form,setForm]=useState(null);
   const [abierta,setAbierta]=useState(null);   // clave con movimientos desplegados
@@ -8750,8 +8779,10 @@ function ConciliacionAcreedores({creditos, saldosInformados=[], onSaveSaldosInfo
     setForm(null);
   }
   async function anular(inf){
-    const motivo = window.prompt(`Anular el saldo informado por ${inf.acreedor} al ${fmtDate(inf.fecha)} (${$c(inf.capital,inf.moneda)}). Queda en el historial. Motivo:`);
+    const h = huella((saldosInformados||[]).find(x=>x.id===inf.id));
+    const motivo = await pedirTexto(`Anular el saldo informado por ${inf.acreedor} al ${fmtDate(inf.fecha)} (${$c(inf.capital,inf.moneda)}). Queda en el historial. Motivo:`, "", {titulo:"Anular saldo informado", etiqueta:"Motivo", obligatorio:true});
     if(!motivo||!motivo.trim()) return;
+    if(!sigueIgual((informadosActual.current||[]).find(x=>x.id===inf.id), h)) { await avisarDesactualizado("El saldo informado"); return; }
     const res = await onSaveSaldosInformados((saldosInformados||[]).map(x=>x.id===inf.id?{...x,anulado:true,motivoAnulacion:motivo.trim(),anuladoPor:usuario,anuladoTs:new Date().toISOString()}:x));
     if(res && res.ok===false) alert("No se guardó en el servidor; reintenta.");
   }
@@ -8987,6 +9018,7 @@ function ContrasteUF({tcData, creditos=[]}){
 function ConciliacionCreditos({creditos, creditosTodos, empresas, realData={}, onConciliarOverride, onSaveOne, canEdit, usuario, abrirDetalle,
   saldosInformados=[], onSaveSaldosInformados, creditosConfig={}, onSaveCreditosConfig, tcData, onGuardarCobertura}){
   const [cobForm,setCobForm]=useState(null); // {r, sel:Set, nota}
+  const creditosActual = useUltimo(creditos);
   const hoy = hoyISO();
   const filas = useMemo(()=>porConciliarCartera(creditos, hoy),[creditos, hoy]);
   const porEmp = {};
@@ -9018,14 +9050,16 @@ function ConciliacionCreditos({creditos, creditosTodos, empresas, realData={}, o
   const pendOv = ovFilas.filter(r=>!r.decision);
 
   async function confirmar(v){
-    const nota = window.prompt(`Confirmar como IMPAGA la cuota del ${fmtDate(v.fecha)} de ${v.acreedor} (${v.empresa}) por ${$c(v.pendienteTotal,v.moneda)}.\n\nPasará a "vencida" y se proyectará en el mes y semana en curso (conservando su fecha original).\nRespaldo de la confirmación (cartola, certificado de deuda, correo del acreedor…):`);
+    const h = huella(v.credito);
+    const nota = await pedirTexto(`Confirmar como IMPAGA la cuota del ${fmtDate(v.fecha)} de ${v.acreedor} (${v.empresa}) por ${$c(v.pendienteTotal,v.moneda)}.\n\nPasará a "vencida" y se proyectará en el mes y semana en curso (conservando su fecha original).\nRespaldo de la confirmación (cartola, certificado de deuda, correo del acreedor…):`, "", {titulo:"Confirmar impaga", etiqueta:"Respaldo", obligatorio:true});
     if(nota===null) return;
+    if(!sigueIgual((creditosActual.current||[]).find(c=>uidCredito(c)===uidCredito(v.credito)), h)) { await avisarDesactualizado("El crédito"); return; }
     try { await onSaveOne(confirmarImpaga(v.credito, v.key, nota, usuario)); } catch(err){ alert(err.message); }
   }
   async function resolverOv(r, decision){
     let nota = "";
     if(decision==="mantener"){
-      nota = window.prompt(`Mantener el valor manual ${$$(r.manual)} en ${r.label} ${r.mes} (${r.emp}) en vez de ${$$(r.creditos)} de Créditos.\nMotivo (p. ej. cuota no registrada todavía en Créditos):`);
+      nota = await pedirTexto(`Mantener el valor manual ${$$(r.manual)} en ${r.label} ${r.mes} (${r.emp}) en vez de ${$$(r.creditos)} de Créditos.\nMotivo (p. ej. cuota no registrada todavía en Créditos):`);
       if(nota===null) return;
     } else if(!window.confirm(`${r.emp} · ${r.label} · ${r.mes}\nValor manual ${$$(r.manual)} → Créditos ${$$(r.creditos)} (diferencia ${$$(r.dif)}).\n\nSe retira el valor manual de ese mes; queda el registro de la decisión.`)) return;
     const res = await onConciliarOverride(r.emp, {cat:r.cat, label:r.label, idx:r.idx, decision, manual:r.manual, creditos:r.creditos, nota});
@@ -9179,6 +9213,7 @@ const diasEntreISO = (a,b)=>{ const pa=partesISO(a), pb=partesISO(b); if(!pa||!p
 
 function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canEdit=false, empresasPermitidas, nextCreditId, usuario="", realData={}, onConciliarOverride,
   tcEstado, saldosInformados=[], onSaveSaldosInformados, creditosConfig={}, onSaveCreditosConfig, tcData, onGuardarCobertura}) {
+  const creditosDataActual = useUltimo(creditosData);   // vigente mientras se espera un diálogo
   // Subset de empresas que el usuario puede ver. Todos los créditos,
   // KPIs y deudas se computan SOLO sobre este subset. Defensa adicional
   // en guardar/pagos/anulación para descartar registros fuera del subset.
@@ -9258,14 +9293,14 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   const updCuotaSocio = (ci,patch)=>setForm(p=>{const arr=[...(p.cuotas_socio||[])];arr[ci]={...arr[ci],...patch};return {...p,cuotas_socio:arr};});
   const delCuotaSocio = (ci)=>setForm(p=>({...p,cuotas_socio:(p.cuotas_socio||[]).filter((_,j)=>j!==ci)}));
   // Genera cuotas "solo interés" trimestrales desde una fecha (aplazable) hasta la última cuota.
-  function generarInteresTrimestralSocio(){
+  async function generarInteresTrimestralSocio(){
     const des = form.fecha_desembolso;
     const existentes = (form.cuotas_socio||[]).filter(c=>c.fecha_vencimiento);
     const amortiz = existentes.filter(c=>(c.modo||"cuota")!=="interes");
     if(!des){ alert("Define primero la fecha de desembolso."); return; }
     if(!amortiz.length){ alert("Agrega al menos una cuota de amortización (fecha final) primero."); return; }
     const finISO = existentes.map(c=>c.fecha_vencimiento).sort().slice(-1)[0]; // última cuota
-    const inicio = window.prompt("Primer pago de interés (AAAA-MM-DD) — puedes aplazarlo (ej. la primera cuota de intereses):", des);
+    const inicio = await pedirTexto("Primer pago de interés (AAAA-MM-DD) — puedes aplazarlo (ej. la primera cuota de intereses):", des);
     if(!inicio) return;
     const gen = generarInteresPeriodico(inicio, finISO, 3);
     if(!gen.length){ alert("No se generaron cuotas. Revisa que la fecha de inicio sea anterior a la última cuota."); return; }
@@ -9382,13 +9417,15 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     setModal(false);
   }
   // No se borra: se anula con motivo (queda en la lista "Anulados").
-  function anularCredito(c){
+  async function anularCredito(c){
     if(!puedeAnularCredito(c)){
       alert("Este crédito tiene pagos registrados: no se puede anular. Si fue un error, anula primero los pagos (quedan en el historial).");
       return;
     }
-    const motivo = window.prompt(`Anular el crédito ${c.acreedor} (${c.empresa}).\nNo se borra: queda en "Anulados" y deja de proyectarse. Motivo (obligatorio):`);
+    const h = huella(c);
+    const motivo = await pedirTexto(`Anular el crédito ${c.acreedor} (${c.empresa}).\nNo se borra: queda en "Anulados" y deja de proyectarse. Motivo (obligatorio):`, "", {titulo:"Anular crédito", etiqueta:"Motivo", obligatorio:true});
     if(!motivo || !motivo.trim()) return;
+    if(!sigueIgual((creditosDataActual.current||[]).find(x=>uidCredito(x)===uidCredito(c)), h)) { await avisarDesactualizado("El crédito"); return; }
     const ts=new Date().toISOString();
     guardarUno({...c, anulado:true, motivoAnulacion:motivo.trim(), anuladoPor:usuario, anuladoTs:ts,
       historial:[...(c.historial||[]),{ts,usuario,accion:"anulación",detalle:motivo.trim()}]}).catch(err=>alert(err.message));
@@ -9449,7 +9486,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
       {/* Subpestañas de Créditos */}
-      <div className="mdt-pestanas" role="group" aria-label="Vistas de créditos" style={{display:"flex",gap:6}}>
+      <div className="mdt-pestanas" role="group" aria-label="Vistas de créditos">
         {[["creditos","💳 Créditos"],["conciliacion","🔎 Conciliación"],["analisis","📊 Análisis CFO"],["prepago","🧮 Simular prepago"],["saldomes","📅 Saldo por Mes"]].map(([id,lbl])=>(
           <button key={id} onClick={()=>setVistaCred(id)}
             className={`mdt-tab${vistaCred===id?" mdt-tab--active":""}`}
@@ -13344,14 +13381,14 @@ function ReporteUmbralesEditor({umbralesConfig, onSave, canEdit}) {
 
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {REPORTE_EMPRESAS.map(emp=>(
-          <div key={emp} style={{display:"grid",gridTemplateColumns:"1fr 200px 100px",gap:10,alignItems:"center",padding:"8px 12px",background:C.card2,borderRadius:6}}>
+          <div key={emp} style={{display:"grid",gridTemplateColumns:"minmax(72px,1fr) minmax(90px,200px) minmax(max-content,100px)",gap:10,alignItems:"center",padding:"8px 12px",background:C.card2,borderRadius:6}}>
             <div style={{fontSize:12,fontWeight:700,color:C.text}}>{emp}</div>
             <InputNumero formato="monto"
               disabled={!canEdit}
               value={local[emp] || ""}
               onChange={n=>setLocal(p=>({...p,[emp]:n}))}
               placeholder="USD"
-              style={{padding:"6px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:12,textAlign:"right"}}
+              style={{padding:"6px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:12,textAlign:"right",width:"100%",minWidth:0,boxSizing:"border-box"}}
             />
             <div style={{fontSize:11,color:C.muted,textAlign:"right"}}>{_formatUSD(local[emp]||0)}</div>
           </div>
@@ -15351,7 +15388,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       </div>
 
       {/* ── Pestañas ───────────────────────────────────────── */}
-      <div className="mdt-pestanas" role="group" aria-label="Secciones de Finanzas" style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
+      <div className="mdt-pestanas" role="group" aria-label="Secciones de Finanzas" style={{marginBottom:20}}>
         {TABS.map(t=>(
           <button key={t.id} aria-pressed={tab===t.id} onClick={()=>setTab(t.id)}
             className={`mdt-tab${tab===t.id?" mdt-tab--active":""}`}
@@ -15397,7 +15434,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                   se cambia entre escenarios (arrastra/consolida lo de cada uno).
                   La gestión de escenarios se hace desde las empresas. */}
               {puedoEdit("flujo")&&empTab!=="_consolidado"&&empTab!=="_intercompany"&&(
-                <button onClick={()=>{const n=window.prompt("Nombre del nuevo escenario (copia del ORIGINAL, todas las empresas):");if(n)crearEscenario(n);}} disabled={escBusy}
+                <button onClick={async()=>{const n=await pedirTexto("Nombre del nuevo escenario (copia del ORIGINAL, todas las empresas):","",{titulo:"Nuevo escenario",etiqueta:"Nombre"});if(n)crearEscenario(n);}} disabled={escBusy}
                   style={{padding:"5px 12px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,
                     border:`1px dashed ${C.border}`,background:"transparent",color:C.muted}}>
                   ＋ Nuevo escenario
@@ -15418,7 +15455,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
             </div>
           )}
           {/* Selector empresa + botón Consolidado */}
-          <div className="mdt-pestanas" role="group" aria-label="Empresa" style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+          <div className="mdt-pestanas" role="group" aria-label="Empresa" style={{marginBottom:12,alignItems:"center"}}>
             {accesoCompletoEmpresas&&(<>
             <button onClick={()=>{setEmpTab("_consolidado");setFlujoSubTab("flujo");}}
               style={{padding:"7px 14px",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:600,
@@ -16219,7 +16256,7 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
     setModo(null);
   }
   async function anular(){
-    const motivo = window.prompt(`Anular el pago registrado en Créditos desde esta línea (${fmtDate(pago.fecha)} · ${$c(totalPago(pago),cred.moneda)}).\nQueda en el historial como anulado y la cuota vuelve a quedar pendiente. Motivo:`);
+    const motivo = await pedirTexto(`Anular el pago registrado en Créditos desde esta línea (${fmtDate(pago.fecha)} · ${$c(totalPago(pago),cred.moneda)}).\nQueda en el historial como anulado y la cuota vuelve a quedar pendiente. Motivo:`);
     if(motivo===null) return;
     const r = await onPagoCredito("anular", {uid:vin.uid, pagoId:pago.id, motivo, clave});
     if(!r?.ok) alert(`No se anuló: ${r?.motivo||"error"}`);
@@ -16411,9 +16448,9 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                 <td style={{padding:"3px 6px",minWidth:130}}>
                   {canEdit
                     ? <div style={{display:"flex",gap:2,alignItems:"center"}}>
-                        <select value={it.tipoDoc||""} onChange={e=>{
+                        <select value={it.tipoDoc||""} onChange={async e=>{
                           if(e.target.value==="__nuevo__"){
-                            const nuevo=prompt("Ingrese el nuevo tipo de documento:");
+                            const nuevo=await pedirTexto("Nuevo tipo de documento:","",{titulo:"Tipo de documento",etiqueta:"Nombre"});
                             if(nuevo&&nuevo.trim()){
                               const n=nuevo.trim();
                               if(!TIPOS_DOCUMENTO.includes(n)) TIPOS_DOCUMENTO.push(n);
@@ -16555,10 +16592,10 @@ function TablaItems({items, seccion, onChange, canEdit, tc, moneda="ambas", sema
                 <td style={{padding:"3px 6px",minWidth:120}}>
                   {canEdit
                     ? <input value={it.comentario||""} onChange={e=>updItem(it.id,"comentario",e.target.value)}
-                        onBlur={e=>{
+                        onBlur={async e=>{
                           const val = (e.target.value||"").trim().toLowerCase();
                           if(val.includes("aplaza")) {
-                            const semDestino = prompt(`El item "${it.proveedor||it.tipoDoc||"sin nombre"}" será aplazado.\n\n¿A qué semana desea moverlo? (ingrese número, ej: 18)`);
+                            const semDestino = await pedirTexto(`El item "${it.proveedor||it.tipoDoc||"sin nombre"}" será aplazado.\n\n¿A qué semana desea moverlo? (ingrese número, ej: 18)`);
                             if(semDestino && !isNaN(Number(semDestino))) {
                               const semNum = Number(semDestino);
                               // Guardar info de aplazamiento en el item para que NominaDetalle lo procese
@@ -17098,6 +17135,7 @@ function PanelBancosNomina({empresa, saldosBancos}) {
 function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos, nominasHermanas=[], onSwitchNomina, onCrearYAbrir, onCrearNueva, onAplazar,
   creditosData=[], puedePagarCredito=false, onPagoCredito}) {
   const nom = nomina;
+  const nomActual = useUltimo(nomina);   // la nómina vigente mientras se espera un diálogo
   const esCFO = usuario?.rol==="admin" || usuario?.esCFO;
   const [soloVer, setSoloVer] = useState(false);
   const [transicionando, setTransicionando] = useState(false); // guardando un cambio de estado
@@ -17628,8 +17666,10 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     if(next==="revision") {
       patch.revisadoPor = usuario?.nombre||"";
       // Milagros/Pablo seleccionan a quién enviar (Carol o Michelle)
-      const revisor = window.prompt("¿A quién enviar para revisión?\n\n1 = Carol Machuca\n2 = Michelle Garcia\n\nIngrese 1 o 2:");
+      const hNom = huella(nom);
+      const revisor = await elegirOpcion("¿A quién enviar para revisión?", [{valor:"1",etiqueta:"Carol Machuca"},{valor:"2",etiqueta:"Michelle Garcia"}], {titulo:"Enviar a revisión"});
       if(!revisor || !["1","2"].includes(revisor.trim())) { alert("Operación cancelada"); return; }
+      if(!sigueIgual(nomActual.current, hNom)) { await avisarDesactualizado("La nómina"); return; }
       const esCarol = revisor.trim() === "1";
       const destEmail = esCarol ? "cmachuca@grupomediterra.cl" : "mgarcia@grupomediterra.cl";
       const destNombre = esCarol ? "Carol Machuca" : "Michelle Garcia";
@@ -17675,8 +17715,11 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     const flujo = ["borrador","preparada","revision","aprobada1","aprobada"];
     const idx = flujo.indexOf(nom.estado);
     if(idx <= 0) return;
-    const comentario = window.prompt("Motivo de la devolución (obligatorio):");
-    if(!comentario || !comentario.trim()) { alert("Debe ingresar un motivo para devolver la nómina."); return; }
+    const hNom = huella(nom);
+    const comentario = await pedirTexto("La nómina vuelve al paso anterior con este motivo.", "", {titulo:"Devolver nómina", etiqueta:"Motivo de la devolución", obligatorio:true, aceptar:"Devolver"});
+    if(comentario === null) return;   // canceló o cerró: no cambia nada
+    if(!comentario.trim()) { alert("Debe ingresar un motivo para devolver la nómina."); return; }
+    if(!sigueIgual(nomActual.current, hNom)) { await avisarDesactualizado("La nómina"); return; }
     const prev = flujo[idx-1];
     const notifs = [];
     const patch = {estado: prev, ultimaDevolucion: {por: usuario?.nombre||"", fecha: new Date().toISOString(), motivo: comentario.trim(), desdeEstado: nom.estado}};

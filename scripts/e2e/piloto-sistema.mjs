@@ -27,7 +27,7 @@ const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromi
 
 async function sesion(email, [w, h], tactil, { st = storeDiseno(), fallarRend = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: tactil, deviceScaleFactor: 2, timezoneId: 'America/Santiago' });
-  await instalarFake(ctx, st);
+  st.__dialogosApp = true; await instalarFake(ctx, st);
   const control = { fallarRend };
   await ctx.route(/calendario_data.*id=eq\.rendiciones(&|$)/, r => control.fallarRend && r.request().method() === 'GET'
     ? r.fulfill({ status: 500, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"message":"fallo simulado"}' }) : r.fallback());

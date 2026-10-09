@@ -130,3 +130,28 @@ export function fuenteGraficoUnidades(escala, minimoPx = 11, base = 0) {
   if (!(escala > 0)) return Math.max(base || 0, minimoPx);
   return Math.max(base || 0, minimoPx / escala);
 }
+
+// Límite de error por módulo: si un módulo falla al dibujarse, la navegación sigue en
+// pie y se muestra el error con salida, en vez de dejar toda la app en blanco. No
+// reintenta solo ni guarda nada: el estado del módulo se pierde como antes.
+export class LimiteError extends React.Component {
+  constructor(p) { super(p); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error(`[${this.props.nombre || "módulo"}] error al dibujar:`, error, info?.componentStack); }
+  componentDidUpdate(prev) { if (prev.clave !== this.props.clave && this.state.error) this.setState({ error: null }); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div style={{ padding: 24 }}>
+        <EstadoVista tipo="error" testid="modulo-error">
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>No se pudo mostrar {this.props.nombre || "este módulo"}.</div>
+          <div>Lo guardado antes del error sigue en el servidor; lo que estaba sin guardar en esta pantalla puede no haberse registrado. Revisa lo último que ingresaste antes de continuar. Si se repite, avisa con la hora.</div>
+          <div className="mdt-acciones" style={{ marginTop: 12 }}>
+            {this.props.onSalir && <Boton tipo="secundario" onClick={this.props.onSalir}>Volver al inicio</Boton>}
+            <Boton tipo="fantasma" onClick={() => window.location.reload()}>Recargar</Boton>
+          </div>
+        </EstadoVista>
+      </div>
+    );
+  }
+}

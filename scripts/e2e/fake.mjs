@@ -62,6 +62,12 @@ export function leerFila(store, id) {
 }
 
 export async function instalarFake(context, store, log = () => {}) {
+  // Diálogos: las pruebas anteriores responden prompt/confirm nativos (page.on('dialog')).
+  // Las pruebas del sistema de diseño ponen store.__dialogosApp = true y usan los de la app.
+  if (!store.__dialogosApp) await context.addInitScript(() => { window.__MDT_DIALOGOS_NATIVOS = true; });
+  // La app consulta la portada de producción para detectar versiones nuevas: en las
+  // pruebas no sale (y queda registrado si se intenta).
+  await context.route(/gestion-grupo-mediterra\.vercel\.app/, (route) => { (store.__salidasProduccion = store.__salidasProduccion || []).push(route.request().url()); return route.abort(); });
   await context.route('**bywovqayuzodbzwsriet.supabase.co/**', async (route) => {
     const req = route.request();
     const url = new URL(req.url());

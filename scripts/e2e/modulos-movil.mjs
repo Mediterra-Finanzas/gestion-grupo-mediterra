@@ -78,7 +78,7 @@ const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromi
 const filas = [];
 for (const [tam, [w, h]] of Object.entries(TAM)) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, timezoneId: 'America/Santiago', deviceScaleFactor: 2, hasTouch: true, isMobile: tam === 'telefono' });
-  await instalarFake(ctx, storeDiseno());
+  await instalarFake(ctx, Object.assign(storeDiseno(), { __dialogosApp: true }));
   await ctx.route(/open\.er-api\.com|mindicador\.cl|frankfurter\.app|emailjs/, r => r.abort());
   await ctx.route(/\/rest\/v1\/(?!calendario_data)[a-z_]+/, r => r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.abort());
   await ctx.routeWebSocket(/realtime\/v1\/websocket/, () => {});
@@ -150,7 +150,7 @@ fs.writeFileSync(`${OUT}/medicion.json`, JSON.stringify(filas, null, 1));
 // ── Computador (mouse, 1440 px): nada de DD8/DD9/DD11 debe aplicarse ──
 {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  await instalarFake(ctx, storeDiseno());
+  await instalarFake(ctx, Object.assign(storeDiseno(), { __dialogosApp: true }));
   await ctx.routeWebSocket(/realtime\/v1\/websocket/, () => {});
   const page = await ctx.newPage();
   await page.goto(process.env.APP_URL);

@@ -3,8 +3,9 @@
 Documento único de esta rama. La rama funcional (`claude/fervent-bell-uu6ae8`) tiene el suyo
 (`docs/estado-rama-2026-10.md`); las dos se aprueban por separado.
 
-- **Base:** `origin/main` 0b86538 (Merge PR #43, Créditos). No trae nada de la rama funcional:
-  ni remuneraciones, ni facultades, ni realtime por fila, ni la matriz de permisos.
+- **Base:** `origin/main` c9c5792 (Merge PR #44, hotfix Nóminas: respaldo junto a Crédito),
+  integrado el 09-10 con un merge sin conflictos (antes 0b86538). No trae nada de la rama
+  funcional: ni remuneraciones, ni facultades, ni realtime por fila, ni la matriz de permisos.
 - **Alcance aprobado:** dirección A con bandeja en teléfono (decisión de Angelo, 08-10).
   Esta etapa implementa **solo el inicio y la navegación**. Las pantallas internas de los
   módulos no cambian.
@@ -139,6 +140,16 @@ bien no prueba cómo se ven con los volúmenes reales.
   mes elegido en Tareas, y también el mes guardado en la fila `main`, que la app restaura al cargar.
   Prueba: tres casos nuevos en `hub-navegacion.mjs` (rótulo, cambiar de mes en Tareas, mes
   distinto guardado en `main`).
+- **DD12 · Letra de las celdas del flujo en computador — IMPLEMENTADA (09-10).** Ver §6c.
+- **DD13 · Limitaciones que dependen de la rama funcional (no se corrigen aquí).** Las brechas de
+  permisos se llevaron a la rama funcional (commit a4f2318, `docs/estado-rama-2026-10.md` §4.18):
+  menú de Allegria Service por página, reportería de Frisku según la clave `bi` explícita y las
+  claves de Frisku que faltaban en la pantalla de permisos. En esta rama siguen como en main:
+  (a) Allegria Service muestra todas sus páginas aunque la ficha diga `sin_acceso` en alguna;
+  (b) Frisku decide la reportería con un OR de claves; (c) «Por pagar» usa la regla de main
+  (DD2); (d) Contabilidad no tiene permisos por pestaña (decisión pendiente en ambas ramas);
+  (e) las páginas de Service sin clave propia quedan visibles (decisión pendiente). Ninguna de
+  estas pantallas se amplió en esta rama.
 - **DD6 · Lectura de `rendiciones` en el inicio.** Usa `dbLoadGeneric`, que registra la versión
   leída en el contrato de guardado. Solo ocurre con el módulo cerrado y el módulo vuelve a leer
   al abrir; no escribe. Se deja anotado por si se prefiere una lectura sin registro.
@@ -227,7 +238,7 @@ una hoja «responsive» con reglas por atributo para < 768 px: parte en varias l
 flexible con separación (lo que apilaba las 9 pestañas de Finanzas en 4 filas), convierte toda tabla
 en bloque, fuerza 2 columnas en tablet, y trae una regla de grillas que nunca aplica
 (`gridTemplateColumns` no aparece así en el HTML). Por ahora se exceptúan las barras del sistema
-(`:not(.mdt-pestanas)`); propuesta: migrar esa capa a `sistema.css` módulo por módulo.
+(`:not(.mdt-pestanas)`). Migrada en el grupo 1 a una capa heredada única sin excepciones (§6c).
 
 ### Etapa 2 · Piloto (`scripts/e2e/piloto-sistema.mjs`, 34 comprobaciones)
 
@@ -242,9 +253,7 @@ en bloque, fuerza 2 columnas en tablet, y trae una regla de grillas que nunca ap
   lienzo de 460, es decir **≈ 4 px en teléfono**. Ahora miden 14 px de caja en teléfono y tablet y
   17 en computador (≥ 11 px de letra), el margen de montos crece con su largo y los rótulos de meses
   se eligen para **no encimarse** (el último siempre se muestra).
-- Pendiente de decisión (**DD12**): en computador las celdas del flujo siguen en **9 px**. Subirlas
-  ensancha la tabla de 63 meses que se usa a diario; propongo 11 px también en computador, a validar
-  con capturas.
+- **DD12** (celdas del flujo en 9 px en computador): implementada en el grupo 1, ver §6c.
 
 **Formulario: rendición de gastos (teléfono táctil)**: hoja inferior a lo ancho, 5 campos de 44 px
 o más con letra de 16 px (sin zoom de iOS), la barra inferior no la tapa.
@@ -274,6 +283,92 @@ Pruebas de la etapa (Chromium emulado, datos ficticios): piloto 34/34 · `modulo
 Alcance de la evidencia: Chromium emulado, datos ficticios. No probado en Safari, Firefox ni
 equipos reales.
 
+## 6c. Etapa 3 · Grupo 1: Finanzas y Rendiciones (09-10)
+
+Pruebas sobre un **build congelado** (copia de `build/` servida aparte, que no se toca durante la
+ejecución) y comparación contra un build de `main` c9c5792 sin cambios. Chromium emulado, datos
+ficticios, Supabase falso con escrituras a producción bloqueadas.
+
+### DD12 · Letra del flujo en computador
+
+- Celdas de **Flujo Empresas** y de **Consolidado** (vistas «Sumada» y «Por empresa»): todo el
+  texto de la tabla en **11 px o más** (antes 8–10 px). Botón **«A+ Letra grande»** (13 px), en
+  ambas pantallas, con la preferencia guardada en el navegador de cada persona.
+- Se conservan la columna fija, el encabezado fijo, el desplazamiento horizontal y vertical, las
+  temporadas plegables y los **63 meses** (Apr-26 → Jun-31, comprobado con las temporadas abiertas
+  y desplazando hasta Jun-31; la columna de conceptos sigue a 1 px del borde).
+- **Valores idénticos** con letra normal y grande (4.837 caracteres de la tabla, iguales).
+- **Impresión idéntica a main celda por celda** (220 celdas en Flujo Empresas, todas las del
+  Consolidado). Cómo: cada tamaño original quedó como variable (`--mdt-fs-f8`…`f14`), que en
+  pantalla vale 11 px o más y al imprimir vuelve exactamente al tamaño de main (8, 9, 10, 10,5, 11,
+  12, 13, 14 px). La columna de conceptos imprime en 7 px, igual que en main (allí manda la hoja
+  de impresión). «Letra grande» no cambia el impreso.
+- Excel y PDF no se tocaron (se generan desde los datos, no desde la tabla en pantalla).
+- Capturas: `docs/diseno/grupo1/DD12-*.png`.
+
+### Capa responsive heredada: migración gradual
+
+- La hoja que `App.jsx` inyectaba al iniciar y el bloque móvil de `index.css` pasan a **una sola
+  capa**, `src/diseno/legado.css`, importada **antes** de `sistema.css`. Todo selector va dentro de
+  `:where()` (especificidad cero): el sistema gana sin excepciones. Se eliminó la excepción
+  `:not(.mdt-pestanas)` y dos reglas que nunca aplicaban.
+- `src/__tests__/capasEstilo.test.js`: falla si la capa supera **20 reglas** (el tope solo baja) o
+  si aparece un selector por atributo (`[style*=…]`) fuera de ella. Cada regla dice qué corrige, a
+  quién afecta y cuándo se retira; los grupos siguientes las retiran módulo por módulo.
+- **Defecto heredado de main corregido:** la regla que parte en varias líneas las filas flexibles en
+  teléfono también se aplicaba a **columnas** (`flex-direction: column`). En una columna, cada
+  «línea» toma el ancho de su contenido más ancho: una tabla con desplazamiento propio ensanchaba
+  la columna entera y se cortaban tarjetas y montos (Créditos → Análisis CFO y Conciliación,
+  Rendiciones → Maestros). Ahora la regla excluye las columnas.
+
+### Diálogos de la app en lugar de los del navegador
+
+`src/diseno/dialogos.jsx`: `pedirTexto`, `elegirOpcion` y `confirmar` devuelven lo mismo que
+`prompt`/`confirm` (texto o nada; sí o no), así cada uso cambió en una línea y la lógica que sigue
+no cambió. Se dibujan con el modal del sistema (hoja inferior en teléfono, Esc cancela, foco en el
+campo). Convertidos en este grupo: devolución de nómina (motivo **obligatorio**: no deja aceptar
+vacío), elección de revisor de nómina, anular/impaga/saldo informado/descartar en Créditos,
+resolver override, interés trimestral de socio, nombre de escenario, nueva línea, tipo de
+documento, aplazar semana, motivo de rechazo en ANF, RUT y nombre de tercero en EEFF y la
+devolución en el editor de Rendiciones. Las pruebas antiguas de main que responden diálogos
+nativos siguen funcionando: el Supabase falso de las pruebas activa el modo nativo (nunca en
+producción).
+
+### Otros cambios del grupo
+
+- **Límite de error por módulo** (`LimiteError`): si una pantalla falla, se ve un aviso con
+  «Volver al inicio» y «Recargar» en vez de dejar toda la app en blanco.
+- Botones de Finanzas con las clases del sistema y `aria-pressed`; barras de pestañas sin estilos
+  en línea que compitan.
+- Reporte Semanal → Umbrales: la fila (empresa, monto, USD) ya no se sale en teléfono.
+- Créditos → Análisis CFO: los dos paneles lado a lado se apilan cuando no caben (en tablet la
+  columna izquierda medía 472 px por el ancho mínimo de su tabla y cortaba la derecha).
+
+### Recorrido (`scripts/e2e/grupo1-finanzas.mjs`)
+
+26 pantallas × 3 tamaños (computador 1440, tablet 834 táctil, teléfono 390 táctil): Dashboard,
+Flujo (consolidado, por empresa, matriz, waterfall, semanal, empresa, parámetros), Saldos Bancos,
+Créditos (5 vistas), Nóminas, Reporte Semanal y Umbrales, Auditoría, EEFF (3 vistas) y
+Rendiciones (5 vistas). En cada una: sin errores de página, sin diálogos del navegador, sin
+desborde ni cifras recortadas, nada fijo bajo la barra inferior, rótulos de gráficos ≥ 11 px y,
+en táctil, pestañas y botones del sistema de 44 px. Más DD12 y la devolución de una nómina con V°B°
+en teléfono (perfil CFO): diálogo de la app, motivo obligatorio, la nómina vuelve a «revisión»
+con el motivo y el historial.
+
+### Lo que queda pendiente en este grupo (honesto)
+
+- **Controles táctiles de Finanzas.** El recorrido informa, por pantalla, cuántos controles miden
+  menos de 44 px y cuántos pares quedan a menos de 8 px. Rendiciones (piloto) está en 0; Finanzas
+  no: Saldos Bancos 112 de 129 controles bajo 44 px, Créditos 175 de 189 con 114 pares juntos,
+  Conciliación 78 de 92. Son los campos y botones dentro de las tablas editables (36 px en táctil).
+  Llevarlos a 44 px exige convertir esas tablas a tarjetas o filas expandibles en teléfono: es
+  rediseño de esas pestañas, no un ajuste de estilo. Propuesta: hacerlo pestaña por pestaña, con
+  Créditos primero. **No está hecho.**
+- Las celdas del flujo en **teléfono y tablet** siguen la regla DD8 (11 px); DD12 cubre el
+  computador.
+- Prompts nativos que quedan en otros módulos: Osiris 12, Allegria Service 1, Frisku 1
+  (grupos siguientes).
+
 ## 7. Archivos
 
 Nuevos: `src/diseno/{tokens.js,useClaseVentana.js,resumenInicio.js,Navegacion.jsx,Inicio.jsx}`,
@@ -292,5 +387,13 @@ indicadores, tabla de cuentas desplazable), y la posición de los avisos fijos e
 `OsirisModule.jsx`, `AllegriaModule.jsx`, `AvisoPersistencia.jsx`,
 `proceso/ui/components/base.jsx` y `App.jsx`. Nuevos: `src/__tests__/barraInferiorCapas.test.js`,
 `scripts/e2e/modulos-movil.mjs`, `docs/diseno/modulos/*.png`.
+
+Grupo 1 (§6c): nuevos `src/diseno/{legado.css,dialogos.jsx}`, `src/__tests__/capasEstilo.test.js`,
+`scripts/e2e/grupo1-finanzas.mjs`, `docs/diseno/grupo1/*.png`; modificados `src/diseno/{sistema.css,
+componentes.jsx}`, `src/index.{css,js}`, `src/App.jsx` (diálogos, límite de error, sin hoja
+inyectada), `src/FinanzasModule.jsx` (DD12, diálogos, botones, umbrales, análisis CFO),
+`src/RendicionesModule.jsx`, `src/anf/AnfTab.jsx`, `src/EEFFModule.jsx` (diálogos),
+`scripts/e2e/fake.mjs` (modo de diálogos nativos para pruebas antiguas y bloqueo de
+`*.vercel.app`) y `scripts/vista-previa/semilla-diseno.mjs` (nóminas ficticias).
 
 Sin cambios de cálculos financieros, remuneraciones, permisos ni persistencia.

@@ -3,6 +3,7 @@
 // Sub-tab "Análisis Financiero" dentro del módulo EEFF.
 // Flujo: seleccionar filial+período → subir Excel → revisar → aprobar → exportar.
 
+import { pedirTexto, useUltimo, huella, sigueIgual, avisarDesactualizado } from '../diseno/dialogos.jsx';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx-js-style';
 import { theme } from '../theme';
@@ -1393,6 +1394,7 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
 
   // Estado del informe cargado
   const [informe,     setInforme]     = useState(null);
+  const informeActual = useUltimo(informe);   // vigente mientras se espera el diálogo de rechazo
   const [esf,         setEsf]         = useState([]);
   const [er,          setEr]          = useState([]);
   const [justif,      setJustif]      = useState([]);
@@ -1605,8 +1607,10 @@ export default function AnfTab({ canEdit, usuarioActual, empresaDefault, mesDefa
 
   // ── Rechazar informe ───────────────────────────────────────────────────────
   async function rechazar() {
-    const obs = window.prompt('Motivo del rechazo (opcional):');
+    const h = huella(informe);
+    const obs = await pedirTexto('El informe queda rechazado con esta observación.', '', { titulo: 'Rechazar informe', etiqueta: 'Motivo del rechazo (opcional)', aceptar: 'Rechazar' });
     if (obs === null) return; // canceló
+    if (!sigueIgual(informeActual.current, h)) { await avisarDesactualizado('El informe'); return; }
     try {
       await actualizarEstadoInforme(informe.id, 'rechazado', {
         rechazadoPor: usuarioActual?.nombre,

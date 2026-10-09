@@ -1,4 +1,5 @@
 /* eslint-disable */
+import { pedirTexto } from './diseno/dialogos.jsx';
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   CAT_GRUPO, ESF_SECCIONES, ER_BLOQUES,
@@ -815,12 +816,12 @@ export default function EEFFModule({ canEdit, usuarioActual, empresasPermitidas 
     }
   }, [tercerosMaestro, usuarioActual]);
 
-  const handleAgregarTerceroManual = useCallback(() => {
-    const rut = prompt('RUT (ej: 76.351.274-6):');
+  const handleAgregarTerceroManual = useCallback(async () => {
+    const rut = await pedirTexto('RUT del tercero (ej: 76.351.274-6):', '', { titulo: 'Agregar tercero', etiqueta: 'RUT' });
     if (!rut) return;
     const rutNorm = normalizeRut(rut);
     if (!rutNorm) { alert('RUT inválido'); return; }
-    const nombre = prompt('Nombre / razón social:') || '';
+    const nombre = (await pedirTexto('Nombre o razón social:', '', { titulo: 'Agregar tercero', etiqueta: 'Nombre' })) || '';
     setTercerosMaestro(prev => {
       const mapa = { ...(prev || {}), [rutNorm]: {
         nombre, activo: true, fuente: 'manual', updatedAt: new Date().toISOString(),

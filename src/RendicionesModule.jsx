@@ -13,6 +13,7 @@ import * as XLSX from "xlsx-js-style";
 import { theme as T } from "./theme";
 import { Modal as ModalComun, EstadoVista } from "./diseno/componentes.jsx";
 import { capacidadesRendiciones } from "./diseno/capacidades";
+import { pedirTexto, useUltimo, huella, sigueIgual, avisarDesactualizado } from "./diseno/dialogos.jsx";
 import {
   dbLoadGeneric, dbSaveGeneric,
   uploadArchivoFrisku, eliminarArchivoFrisku, pathDesdeUrlStorage,
@@ -985,6 +986,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
   }, [rendiciones]); // eslint-disable-line
 
   // ── Mutadores ──
+  const rendActuales = useUltimo(rendiciones);
   const upsert = useCallback((rend) => {
     dirtyIdsRef.current.add(rend.id);      // marcar como cambio propio a persistir
     deletedIdsRef.current.delete(rend.id); // por si se recrea/reactiva
@@ -1191,7 +1193,11 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
 
   // Devolver una rendición YA APROBADA (no pagada) al trabajador para que corrija/incorpore un gasto.
   // La usa quien la aprobó o un admin. Al reenviarla, vuelve a pasar por la cadena desde el nivel 1.
+  // r es la rendición tal como estaba al abrir el diálogo. Si mientras se respondía cambió
+  // (otra sesión, otro aprobador), no se aplica: se escribiría la copia vieja encima.
   const devolverParaCorreccion = (r, motivo) => {
+    const actual = (rendActuales.current || []).find(x => x.id === r.id);
+    if (!sigueIgual(actual, huella(r))) { avisarDesactualizado("La rendición"); return; }
     upsert(pushHist({
       ...r, estado: "rechazada", devuelta: true,
       comentarioRevisor: motivo || "Devuelta para incorporar o corregir un gasto.",
@@ -1275,7 +1281,7 @@ export default function RendicionesModule({ usuarioActual, esAdmin, esSoloConsul
       </div>
 
       {/* Tabs */}
-      <div className="mdt-pestanas" role="group" aria-label="Secciones de rendiciones" style={{ gap: 6, borderBottom: `1px solid ${C.border}`, marginBottom: 18 }}>
+      <div className="mdt-pestanas" role="group" aria-label="Secciones de rendiciones" style={{ borderBottom: `1px solid ${C.border}`, marginBottom: 18 }}>
         {TABS.map(t => (
           <button key={t.id} aria-pressed={tab === t.id} onClick={() => setTab(t.id)}
             style={{
@@ -2167,8 +2173,8 @@ function EditorRendicion({ rend, upsert, onClose, onEnviar, esDueno, esAprobador
           <span style={{ fontSize: 12.5, color: C.danger, background: C.dangerBg, padding: "3px 10px", borderRadius: 7 }}>❌ {rend.comentarioRevisor}</span>
         )}
         {puedeDevolver && (
-          <button onClick={() => {
-            const motivo = window.prompt("Devolver al trabajador para corregir/incorporar un gasto.\n\nNota para el trabajador (opcional):", "Falta incorporar un gasto.");
+          <button onClick={async () => {
+            const motivo = await pedirTexto("Devolver al trabajador para corregir o incorporar un gasto.", "Falta incorporar un gasto.", { titulo: `Devolver #${rend.folio} para corrección`, etiqueta: "Nota para el trabajador (opcional)", aceptar: "Devolver al trabajador" });;
             if (motivo === null) return;
             onDevolver?.(rend, motivo);
             onClose();
