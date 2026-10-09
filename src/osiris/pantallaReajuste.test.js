@@ -1837,7 +1837,7 @@ describe("D-12 · borrar un antecedente desde la pantalla no mueve el importe", 
     const t2 = document.body.textContent.replace(/\s+/g, " ");
     // Y lo dice por lo que es: el antecedente se retiro, asi que la fila no
     // "tiene factura o pago"; tiene la proteccion conservada.
-    expect(t2).toMatch(/protegida: proteccion conservada/);
+    expect(t2).toMatch(/protegida: antecedentes retirados el 20\d\d-\d\d-\d\d · proteccion conservada/);
     expect(t2).not.toMatch(/protegida: tiene factura o pago/);
   });
 
@@ -1846,7 +1846,7 @@ describe("D-12 · borrar un antecedente desde la pantalla no mueve el importe", 
     abrirCobrosCon(BASE({ [t]: { nFact: "999" } }), () => {});
     const txt = document.body.textContent.replace(/\s+/g, " ");
     expect(txt).toMatch(/protegida: tiene factura o pago/);
-    expect(txt).not.toMatch(/protegida: proteccion conservada/);
+    expect(txt).not.toMatch(/proteccion conservada/);
   });
 
   test("corregirlo por otro numero tampoco mueve el total", () => {

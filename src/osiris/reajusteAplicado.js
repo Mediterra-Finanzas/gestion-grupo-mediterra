@@ -188,11 +188,24 @@ export function antecedentesDeCobro(pagoDeTemporada) {
   const pr = p.proteccion || null;
   const conservados = pr && Array.isArray(pr.motivos) ? pr.motivos.filter(txt) : [];
   const conservada = conservados.length > 0;
-  if (conservada)
+  // Si el antecedente volvio -se corrigio el numero despues de borrarlo-, la
+  // fila esta protegida por el vivo y el conservado no se nombra: repetirlo
+  // ensuciaba el mensaje con un antecedente que ya no es la razon. El registro
+  // se conserva igual, por si el vivo se retira otra vez.
+  const soloPorConservada = conservada && motivos.length === 0;
+  if (soloPorConservada)
     motivos.push("proteccion conservada: " + conservados.join("; ") +
       (txt(pr.desde) ? " (retirado el " + txt(pr.desde) + ")" : ""));
-  return { hay: motivos.length > 0, motivos, overrideHa, conservada, conservados };
+  return {
+    hay: motivos.length > 0, motivos, overrideHa,
+    conservada, conservados, soloPorConservada,
+    desdeConservada: pr ? txt(pr.desde) : "",
+  };
 }
+
+export const MOTIVO_PROTECCION_CONSERVADA =
+  "Se retiraron los antecedentes de cobro. La proteccion se conserva: levantarla es una " +
+  "operacion economica con su propio flujo, que no esta habilitado en este paquete.";
 
 // Lo que hay que guardar para que la proteccion no se pierda. Se compara el
 // antes con el despues: si la fila estaba protegida y la edicion la dejaria
@@ -207,12 +220,15 @@ export function conProteccionConservada(filaAntes, filaDespues, hoy) {
   const motivos = previos && Array.isArray(previos.motivos) && previos.motivos.length
     ? previos.motivos
     : antes.motivos;
+  // El parrafo explicativo NO va dentro de la fila. `upd` audita cada cambio
+  // con JSON.stringify(...).slice(0,200), asi que guardarlo por fila dejaba la
+  // bitacora de cualquier edicion de cobros truncada hasta ser inutil: una fila
+  // con factura viva serializa en 29 caracteres y una con el parrafo en 275.
+  // El texto vive en una constante y lo muestran la pantalla y el modelo.
   return Object.assign({}, filaDespues, {
     proteccion: {
       motivos,
       desde: txt(hoy) || new Date().toISOString().slice(0, 10),
-      motivo: "Se retiraron los antecedentes de cobro. La proteccion se conserva: levantarla " +
-        "es una operacion economica con su propio flujo, que no esta habilitado en este paquete.",
     },
   });
 }

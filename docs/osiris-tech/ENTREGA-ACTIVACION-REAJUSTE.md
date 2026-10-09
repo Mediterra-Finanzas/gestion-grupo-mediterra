@@ -423,8 +423,9 @@ Medido: con la factura cargada **647.533,99**; borrándola **655.240,69**; **+7.
 retiraron— y sigue protegiéndola. El campo se edita igual: corregir un número de factura es
 tarea normal y no se bloqueó nada operativo. Lo que no pasa es que el importe vuelva al
 recálculo por eso. Levantar la protección es una operación económica con su propio flujo, que
-**no está en este paquete**: nada de lo que hay acá la quita, y hay una prueba que comprueba que
-el módulo no exporta ninguna función que lo haga.
+**no está en este paquete**: nada de lo que hay acá la quita, y hay una prueba de comportamiento
+que lo comprueba: trece ediciones distintas sobre una fila conservada, y ninguna la quita ni
+mueve el importe (ver R-1 a R-3 más abajo).
 
 **Cubre los cinco antecedentes, no una lista de campos.** La conservación compara el *antes*
 contra el *después* con la misma función que usa la Regla 4, así que alcanza a `nFact`, `pagado`,
@@ -469,6 +470,71 @@ Lo encontré en el navegador, después de la corrección: el importe estaba bien
 | **CP-K** | la celda vuelve a decir siempre "tiene factura o pago" | **1** |
 | **CP-I** | la pantalla deja de conservar la protección al escribir | **3** |
 | **CP-J** | el diálogo vuelve a preguntar antes de rechazar | **1** |
+
+#### Lo que la undécima revisión encontró del propio arreglo
+
+Aprobó D-12 y el diálogo, con una **regresión que yo introduje** y cuatro hallazgos. Las tres
+primeras quedaron corregidas; las dos últimas se declaran.
+
+**R-1 · La bitácora de ediciones de cobros quedaba truncada. Corregido.** `upd` audita cada
+cambio con `JSON.stringify(...).slice(0, 200)`. Al guardar el párrafo explicativo **dentro de
+cada fila**, la protección conservada se comía esa ventana: la revisión midió 29 caracteres para
+una fila con factura viva, **275** para una conservada y **823** con tres. El párrafo salió de la
+fila a una constante exportada (`MOTIVO_PROTECCION_CONSERVADA`) que muestran la pantalla y el
+modelo; la fila guarda sólo `{motivos, desde}`. Medido ahora: la conservación agrega **menos de
+90 caracteres** por fila. Lo que **no** se afirma: un `rcPagos` con varias temporadas conservadas
+sigue pasándose de 200. Eso es la deuda del audit, anterior a esto; lo que este arreglo evita es
+agravarla fila por fila. La prueba lo pincha en los dos sentidos.
+
+**R-2 · La pantalla no decía que la protección era conservada. Corregido** —lo había visto yo en
+el navegador y ya estaba a medias; con el pedido de la revisión la celda ahora nombra también la
+fecha: *"protegida: antecedentes retirados el AAAA-MM-DD · protección conservada"*. Con el
+antecedente vivo dice lo de siempre.
+
+**R-3 · La marca conservada no se limpiaba al volver el antecedente. Corregido.** Corregir el
+número después de borrarlo dejaba dos motivos para una sola fila (`"número de factura 1000"` y
+`"proteccion conservada: número de factura 999…"`). Ahora el conservado se informa **cuando es la
+razón** (`soloPorConservada`), no además de la viva. El registro se conserva igual: si el vivo se
+retira otra vez, vuelve a ser la razón, y hay prueba de las dos transiciones. Sin efecto
+económico en ningún caso: la fila estaba protegida por cualquiera de los dos.
+
+**R-4 · La protección es falsificable por dato, no por pantalla. Declarado, no cerrado.**
+`antecedentesDeCobro({proteccion:{motivos:["inventado"]}})` protege la fila. No hay ruta de
+interfaz que lo escriba, y cualquiera que pueda editar el JSON del contrato ya podía poner un
+`nFact` falso, así que el riesgo no cambia con esto. Lo que sí es cierto es que el estado nuevo no
+trae atadura de identidad —ni autor, ni firma, ni correlativo— mientras el resto del paquete sí es
+exigente con la identidad en las operaciones económicas. Atarlo es diseño de otra entrega.
+
+**R-5 · Quedan tres rutas que preguntan antes de validar. Declaradas, no cerradas.** Son la misma
+clase que el diálogo que se acaba de corregir, y la revisión midió que son **idénticas en los dos
+commits**, o sea preexistentes:
+
+| Ruta | Qué hace hoy |
+|---|---|
+| Términos de la activación incompletos | pregunta *"Diferencia que se aplica: US$ 0.00 · ¿Confirmas?"* y recién después avisa que faltan los términos |
+| Configuración antigua **operando** | pregunta lo mismo y después aplica el rechazo B-2. Es justo el caso que anunciaba US$ 0,00 con un impacto diferido de −10.379,03 |
+| Todas las filas protegidas | pregunta *"Protegidas por factura o pago: 5 · Diferencia: US$ 0.00"* y **la activación se registra**, con impacto confirmado 0 |
+
+`bloqueoPorFechasSelladas` cubre sólo la vía de las fechas por fila, que es la que estaba
+autorizada. Las tres de arriba no se tocaron para no ampliar el alcance sin autorización, y la
+tercera es la que más conviene mirar, porque ahí sí se escribe un registro.
+
+**Dos límites que la revisión midió y conviene tener a mano**, los dos sin cambio entre commits:
+`haCobrar` baja una fila protegida (41,97 → 30 há: **1.072.974,92 → 1.037.064,92**, −35.910,00)
+porque es un override de hectáreas y la Regla 4 nunca cubrió eso —la protección queda intacta—; y
+el patrón de escritura de `rcPagos` es el *last-write-wins* de siempre, así que dos ediciones de
+temporadas distintas sin re-render intermedio podrían pisarse. Ninguno lo introduce este paquete.
+
+**Y una prueba que la revisión desarmó, con razón.** La que decía *"nada de este paquete levanta
+la protección"* era un grep de nombres exportados: un `limpiarProteccion` habría pasado. La
+reemplazó una que mide comportamiento —trece ediciones distintas sobre una fila conservada, y
+ninguna la quita ni mueve el importe— y el grep quedó como complemento, no como la red. La frase
+del acta estaba sobrevendida y queda corregida acá.
+
+**Contrapruebas de estas tres correcciones**, cada una restaurada con hash idéntico: devolver el
+párrafo a la fila, informar el conservado siempre, y hacer que una edición quite la protección
+→ caen **4** pruebas entre las dos suites.
+
 
 **Lo que no se amplió, por instrucción expresa:** cohortes y fecha de término. Sus efectos quedan
 documentados como límites del cálculo, con cifra, en la sección anterior.
