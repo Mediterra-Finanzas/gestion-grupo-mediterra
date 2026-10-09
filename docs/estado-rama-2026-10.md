@@ -1004,3 +1004,24 @@ Probada en Postgres local: corre completa y rechaza una escritura.
 10. Remuneraciones: las líneas de clasificación explícita siguen en la fila `nominas` (y llegan al navegador de quien prepara nóminas) **hasta que se trasladen**. La pantalla las agrega; los datos no se protegen hasta el traslado.
 11. Rollback de código con remuneraciones en el circuito: ese pago queda fuera de la vista en `main` (§4.16).
 12. El conjunto no está verificado sobre `main` 0b86538 (§4.17).
+
+
+### 4.18 Brechas de permisos detectadas en la rama de diseño (09-10-2026)
+
+La rama de diseño inventarió los 7 módulos y encontró brechas entre la configuración de permisos
+y lo que cada módulo respeta. Se reutilizan las correcciones de esta rama; no se concede ni se
+retira acceso a nadie por inferencia: solo se respeta lo **explícito**.
+
+| Brecha | Estado | Detalle |
+|---|---|---|
+| Allegria Foods ignoraba `tabPermisos` | **Ya corregido** (P5, §4.1) | `permisoTabAllegria`: pantalla y escritura |
+| Finanzas «params» sin efecto | **Ya corregido** (P6) | `permisoParametros` |
+| Contabilidad sin permisos por pestaña | **Pendiente de decisión** | La edición ya depende de la facultad `contabEditar` (matriz 08-10). Permisos por pestaña serían un diseño nuevo: no se inventa |
+| Frisku: claves que el código lee y no se pueden configurar | **Corregido ahora** | `resumen`, `documentos` y `bi` aparecen en Gestión de Usuarios. Ya eran pestañas registradas con el mismo acceso por omisión: nadie gana ni pierde. «dashboard» se rotula «sin efecto» (se conserva por los valores guardados) |
+| Frisku: Reportería BI visible si **cualquiera** de bi/reportes/tablero/resumen | **Corregido ahora** | Si «bi» está guardada explícitamente, manda ella; si no, la regla anterior (`visibilidadReporteriaFrisku`). Sin cambio para nadie hoy |
+| Allegria Service: menú sin filtrar | **Corregido ahora** | Página oculta (menú y contenido) solo si su clave está guardada como «sin_acceso» (`paginaServiceVisible`). Se usa el valor **guardado**, no el resuelto: para «config» el resuelto es «sin_acceso» por omisión y ocultarla sería retirar acceso. Páginas sin clave propia (envases, repaletizaje, clientes, tarifario, servicios, pendientes, bases, reportes automáticos): sin cambio, **pendiente de decisión** si deben tener clave |
+
+Pruebas: `src/__tests__/permisosBrechasModulos.test.js` (9) y `serviceMenuPermisos.test.js` (4;
+**contra el `ProcShell` anterior: 2 fallas, justo los casos denegados**; los permitidos pasan antes
+y después). Jest completo 1.841/1.841 (UTC y Chile), build `CI=true`, `scripts/e2e/permisos.mjs`
+31/31. Alcance: control de la aplicación, no protección en el servidor (§4.14).

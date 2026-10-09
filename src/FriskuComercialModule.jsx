@@ -7,6 +7,7 @@
 //   frisku_exportadoras, frisku_contratos, frisku_programa,
 //   frisku_embarques, frisku_liquidaciones
 // ═══════════════════════════════════════════════════════════════════
+import { visibilidadReporteriaFrisku } from "./permisos/acciones";
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import FriskuModule, {
@@ -10226,7 +10227,7 @@ export default function FriskuComercialModule({
 
   // Reportería BI consolida Dashboard + Reportes + Tablero BI (hojas internas).
   // Visible si el usuario tiene acceso a cualquiera de esas capacidades.
-  const permReporteriaVis = { visible: permReporteria.visible || permReportes.visible || permTablero.visible || permResumen.visible };
+  const permReporteriaVis = { visible: visibilidadReporteriaFrisku(usuarioActual, admin, { bi: permReporteria, reportes: permReportes, tablero: permTablero, resumen: permResumen }) };
   const tabsAll = [
     {id:"resumen",       label:"🏠 Resumen",        count:null,                              perm:permResumen},
     {id:"documentos",    label:"📁 Documentos",    count:clientesConDocsFaltantes||null,    perm:permDocumentos},

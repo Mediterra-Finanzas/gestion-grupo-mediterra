@@ -714,7 +714,13 @@ const TABS_PERMISOS_CONFIG = {
     {id:"cobranza",      label:"📋 Cobranza"},
   ],
   frisku: [
-    {id:"dashboard",     label:"📊 Dashboard"},
+    // resumen, documentos y bi ya eran pestañas registradas (mismo acceso por omisión);
+    // desde ahora se pueden configurar. «dashboard» se conserva por los valores ya
+    // guardados, pero no gobierna ninguna pestaña.
+    {id:"resumen",       label:"🏠 Resumen"},
+    {id:"documentos",    label:"📁 Documentos"},
+    {id:"bi",            label:"📈 Reportería BI"},
+    {id:"dashboard",     label:"📊 Dashboard (sin efecto)"},
     {id:"clientes",      label:"👥 Clientes"},
     {id:"exportadoras",  label:"🏭 Exportadoras"},
     {id:"contratos",     label:"📄 Contratos"},

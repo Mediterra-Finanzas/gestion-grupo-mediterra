@@ -90,3 +90,42 @@ export function permisoParametros({ esAdmin, nivelFlujo, nivelParams }) {
     editar: edita(nivelFlujo) && edita(nivelParams),
   };
 }
+
+// ── Allegria Service: páginas según el permiso EXPLÍCITO de su pestaña ────────
+// Antes el menú no se filtraba: una página configurada «sin acceso» seguía visible
+// (solo se bloqueaba editar). Se oculta SOLO si su clave está guardada como
+// «sin_acceso» en la ficha (tab_permisos.allegria_service). No se usa el valor
+// resuelto: para «config» el resuelto es «sin_acceso» por omisión y ocultaría la
+// página a quien hoy la ve (sería retirar acceso por inferencia).
+// Páginas sin clave propia (envases, repaletizaje, clientes, tarifario, servicios,
+// pendientes, bases, reportes automáticos) no cambian: no hay permiso que respetar.
+export const CLAVE_PAGINA_SERVICE = Object.freeze({
+  centro: "centro",
+  recepciones: "recepciones", recepcion_nueva: "recepciones", recepcion_detalle: "recepciones",
+  lotes: "lotes", lote_detalle: "lotes",
+  programa: "programa",
+  ordenes: "ordenes", orden: "ordenes",
+  pt: "pt",
+  bodega: "pallets", pallet_detalle: "pallets",
+  despachos: "despachos", despacho: "despachos",
+  informes: "informes", informe_detalle: "informes",
+  config: "config",
+});
+export function paginaServiceVisible(usuario, esAdmin, page) {
+  if (esAdmin) return true;
+  const k = CLAVE_PAGINA_SERVICE[page];
+  if (!k) return true;
+  return usuario?.tab_permisos?.allegria_service?.[k] !== "sin_acceso";
+}
+
+// ── Frisku · Reportería BI ─────────────────────────────────────────────────
+// Se muestra si cualquiera de bi/reportes/tablero/resumen lo permite (regla de
+// main). Desde que «bi» se puede configurar en Gestión de Usuarios, si «bi» está
+// guardada explícitamente manda ella; si no, se mantiene la regla anterior. Nadie
+// la tiene configurada hoy: no cambia el acceso de nadie.
+export function visibilidadReporteriaFrisku(usuario, esAdmin, perm) {
+  if (esAdmin) return true;
+  const explicito = usuario?.tab_permisos?.frisku?.bi;
+  if (explicito === "editar" || explicito === "ver" || explicito === "sin_acceso") return explicito !== "sin_acceso";
+  return !!(perm.bi?.visible || perm.reportes?.visible || perm.tablero?.visible || perm.resumen?.visible);
+}

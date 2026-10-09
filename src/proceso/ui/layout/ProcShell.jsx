@@ -3,6 +3,7 @@
 // Navegación por estado (contexto: vista/ir), barra de contexto operacional
 // (tenant/planta/temporada/fecha) y área de contenido. F7.2 habilita el flujo
 // Recepción + QC + Lotes; el resto muestra estado "próxima fase" honesto.
+import { paginaServiceVisible } from "../../../permisos/acciones";
 import React, { useEffect, useState } from "react";
 import { useService } from "../hooks/useServiceContext";
 import { cargarPlantas, cargarTemporadas } from "../../core/procesoDB";
@@ -109,10 +110,20 @@ function BarraContexto() {
 }
 
 export default function ProcShell({ onBack, onLogout, usuario }) {
-  const { toast, vista, ir } = useService();
+  const { toast, vista, ir, esAdmin, usuario: usuarioCtx } = useService();
   const esMovil = useEsMovil();
+  // Permiso explícito «sin_acceso» por página (src/permisos/acciones.js).
+  const u = usuarioCtx || usuario;
+  const visible = (page) => paginaServiceVisible(u, esAdmin, page);
+  const navVisible = NAV.map(g => ({ ...g, items: g.items.filter(i => visible(i.page || i.id)) })).filter(g => g.items.length);
+  const todosVisibles = navVisible.flatMap(g => g.items);
 
   const render = () => {
+    if (!visible(vista.page)) return (
+      <div data-testid="service-sin-acceso" style={{ padding: 24, border: `1px dashed ${C.border}`, borderRadius: 10, color: C.muted, background: C.card }}>
+        No tienes acceso a esta sección de Allegria Service.
+      </div>
+    );
     switch (vista.page) {
       case "centro": return <CentroOperaciones />;
       case "config": return <Configuracion />;
@@ -162,10 +173,10 @@ export default function ProcShell({ onBack, onLogout, usuario }) {
       )}
       {esMovil ? (
         <select style={{ width: "100%", padding: 8, borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }}
-          value={activoId} onChange={(e) => { const it = TODOS.find((i) => i.id === e.target.value); ir(it.page || it.id, it.params || {}); }}>
-          {TODOS.map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}
+          value={activoId} onChange={(e) => { const it = todosVisibles.find((i) => i.id === e.target.value); if (it) ir(it.page || it.id, it.params || {}); }}>
+          {todosVisibles.map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}
         </select>
-      ) : NAV.map((g, gi) => (
+      ) : navVisible.map((g, gi) => (
         <div key={gi} style={{ marginBottom: sp.md }}>
           {g.grupo && <div style={{ fontSize: 10.5, fontWeight: 800, color: C.muted2, textTransform: "uppercase", letterSpacing: .5, margin: "6px 6px 4px" }}>{g.grupo}</div>}
           {g.items.map((i) => {
