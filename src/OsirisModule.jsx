@@ -40,6 +40,7 @@ import {
 import {
   reajusteDeFila as reajusteActivadoDeFila, estadoActivacion, previsualizarActivacion,
   puedeCrearActivacion, puedeEditarTerminos, activar as activarReajuste, desactivar as desactivarReajuste,
+  conProteccionConservada, bloqueoPorFechasSelladas,
   puedeDesactivar, previsualizarDesactivacion, historialActivacion, identidadDe,
   reajusteOperativoConActivacion,
   hayRegistroVigente, hayRegistroDeActivacion, TERMINOS_BLOQUEABLES,
@@ -9808,7 +9809,17 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
               const rcFuturas=rcRows.filter(x=>x.temporada>tempActual);
               const rcFutFact=rcFuturas.reduce((s,x)=>s+(x.montoFact||0),0), rcFutCobro=rcFuturas.reduce((s,x)=>s+(x.montoCobro||0),0);
               // Editores de estado de cobro (se guardan en el contrato).
-              const updRcPago=(temp,campo,val)=>{ const np={...(r.rcPagos||{})}; np[temp]={...(np[temp]||{}),[campo]:val}; upd(r.id,"rcPagos",np); };
+              // D-12 · Vaciar o corregir un antecedente de cobro NO devuelve la fila
+              // al recalculo. Si la edicion dejaria la fila sin antecedentes, se
+              // conserva lo que tenia: el campo se edita igual -corregir un numero
+              // de factura es tarea normal-, pero la proteccion queda. Levantarla es
+              // una operacion economica con su propio flujo, que no esta en este
+              // paquete, asi que nada de aca la quita. Cubre los cinco antecedentes
+              // porque compara el ANTES contra el DESPUES con la misma funcion que
+              // usa la Regla 4, no una lista de campos.
+              const updRcPago=(temp,campo,val)=>{ const np={...(r.rcPagos||{})};
+                const antes=np[temp]||{}; const despues={...antes,[campo]:val};
+                np[temp]=conProteccionConservada(antes,despues); upd(r.id,"rcPagos",np); };
               const inp={padding:"3px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11};
               // Parcialidades del RC por temporada (para dividir el cobro en varias líneas/facturas)
               const parcialesDe=(temp)=>(((r.rcPagos||{})[temp]||{}).parciales)||[];
@@ -10212,6 +10223,14 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                 if(!can){ window.alert("Sin permiso de edicion en esta pestana."); return; }
                                 const ident = identidadDe(usuarioActual);
                                 if(!ident.valida){ window.alert(ident.motivo); return; }
+                                // Si falta la fecha que la regla exige, se bloquea ACA, antes
+                                // de ofrecer confirmar "US$ 0,00". Preguntar primero y rechazar
+                                // despues es pedirle al usuario que acepte un cero causado por
+                                // informacion ausente. La accion lo vuelve a comprobar.
+                                const bloq = bloqueoPorFechasSelladas({
+                                  reglaFecha: ra.reglaFecha, filas: rcRowsBase,
+                                  antecedentesDe: antecedentesDeFila, mesCobro: r.rcMesCobro});
+                                if(bloq){ window.alert(bloq.motivo); return; }
                                 const ok = window.confirm(
                                   "Activar el reajuste cambia importes.\n\n"+
                                   "Filas que cambian: "+prev.filasQueCambian+"\n"+

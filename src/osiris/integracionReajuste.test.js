@@ -1322,3 +1322,110 @@ dCrear("D-11 · activar rechaza una regla por fila sin fecha que sellar", () => 
     expect(r2(filasDe(res.contrato).reduce((s, f) => s + f.montoFact, 0))).toBeCloseTo(655240.69, 2);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+// D-12 · La protección de la Regla 4 no se pierde porque se vacíe un campo.
+//
+// El defecto: `antecedentesDeCobro` se evaluaba en vivo sobre `rcPagos`, así
+// que borrar el número de factura de una fila protegida la devolvía al
+// recálculo y le aplicaba el reajuste sin vista previa ni confirmación.
+// Medido: 647.533,99 → 655.240,69 (+7.706,70) borrando el `nFact` de
+// 2029/2030. Es otro mecanismo que D-11: no mueve el ancla, quita la
+// protección.
+//
+// Ahora la protección queda CONSERVADA en `rcPagos[t].proteccion`. El campo se
+// puede editar o corregir —es tarea normal—, pero el importe no vuelve al
+// recálculo. Levantarla es una operación económica con su propio flujo, que no
+// está en este paquete.
+describe("D-12 · la proteccion de la Regla 4 se conserva", () => {
+  const { CONTRATO } = require("./fixturesReajuste");
+  const {
+    antecedentesDeCobro, conProteccionConservada, reajusteDeFila, estadoActivacion,
+  } = require("./reajusteAplicado");
+
+  const total = (ct) => r2(filasDe(ct).reduce((s, f) => s + f.montoFact, 0));
+  const ACTIVA = (rcPagos) => CONTRATO({
+    reajusteActivacion: Object.assign({}, ACTIVACION),
+    rcPagos: rcPagos || {},
+  });
+  // Los cinco antecedentes que `antecedentesDeCobro` reconoce, cada uno con el
+  // valor que lo activa y el valor que lo borraria.
+  const ANTECEDENTES = [
+    { campo: "nFact", puesto: "999", vacio: "" },
+    { campo: "pagado", puesto: true, vacio: false },
+    { campo: "fechaPago", puesto: "2030-06-02", vacio: "" },
+    { campo: "montoFacturado", puesto: "125910", vacio: "" },
+    { campo: "parciales", puesto: [{ id: "p1", nFact: "901", monto: "100" }], vacio: [] },
+  ];
+
+  test("el caso que el defecto movia: con factura, la fila no se recalcula", () => {
+    const con = ACTIVA({ "2029/2030": { nFact: "999" } });
+    expect(total(con)).toBeCloseTo(647533.99, 2);
+    // Sin la correccion, vaciarla devolvia la fila al recalculo.
+    const crudo = ACTIVA({ "2029/2030": {} });
+    expect(total(crudo)).toBeCloseTo(655240.69, 2);
+    expect(r2(total(crudo) - total(con))).toBeCloseTo(7706.7, 2);
+  });
+
+  ANTECEDENTES.forEach(({ campo, puesto, vacio }) => {
+    test("borrar " + campo + " conserva la proteccion y el importe", () => {
+      const antes = { [campo]: puesto };
+      expect(antecedentesDeCobro(antes).hay).toBe(true);
+      const despues = conProteccionConservada(antes, { [campo]: vacio }, "2026-10-09");
+      // El campo queda editado, y la proteccion conservada.
+      expect(despues[campo]).toEqual(vacio);
+      expect(despues.proteccion).toBeTruthy();
+      expect(despues.proteccion.desde).toBe("2026-10-09");
+      expect(antecedentesDeCobro(despues).hay).toBe(true);
+      expect(antecedentesDeCobro(despues).conservada).toBe(true);
+      // Y el importe de la fila no se mueve.
+      const ct = ACTIVA({ "2029/2030": despues });
+      expect(total(ct)).toBeCloseTo(647533.99, 2);
+      const d = reajusteDeFila(ct, filasDe(ct)[3], { mesCobro: ct.rcMesCobro, antecedentes: despues });
+      expect(d.intocable).toBe(true);
+      expect(d.motivo).toMatch(/proteccion conservada/);
+    });
+  });
+
+  test("corregir el numero de factura no necesita conservar nada: sigue vivo", () => {
+    const antes = { nFact: "999" };
+    const despues = conProteccionConservada(antes, { nFact: "1000" }, "2026-10-09");
+    expect(despues.nFact).toBe("1000");
+    expect(despues.proteccion).toBeUndefined();      // no hace falta: el antecedente esta
+    expect(antecedentesDeCobro(despues).hay).toBe(true);
+    const ct = ACTIVA({ "2029/2030": despues });
+    expect(total(ct)).toBeCloseTo(647533.99, 2);
+  });
+
+  test("una fila que nunca tuvo antecedentes no gana proteccion de la nada", () => {
+    const despues = conProteccionConservada({}, { fechaEst: "2030-04-01" }, "2026-10-09");
+    expect(despues.proteccion).toBeUndefined();
+    expect(antecedentesDeCobro(despues).hay).toBe(false);
+    // Y el contrato activo sigue aplicando en esa fila.
+    expect(total(ACTIVA({ "2029/2030": despues }))).toBeCloseTo(655240.69, 2);
+  });
+
+  test("la proteccion conservada sobrevive al viaje de ida y vuelta", () => {
+    const despues = conProteccionConservada({ nFact: "999" }, { nFact: "" }, "2026-10-09");
+    const ct = ACTIVA({ "2029/2030": despues });
+    const ida = JSON.parse(JSON.stringify(ct));           // guardar y recargar
+    expect(ida.rcPagos["2029/2030"].proteccion.motivos.join(" ")).toMatch(/número de factura 999/);
+    expect(total(ida)).toBeCloseTo(647533.99, 2);
+    expect(estadoActivacion(ida).activo).toBe(true);
+  });
+
+  test("insistir no apila: la proteccion conserva lo que tenia la primera vez", () => {
+    const uno = conProteccionConservada({ nFact: "999" }, { nFact: "" }, "2026-10-09");
+    const dos = conProteccionConservada(uno, { nFact: "", pagado: false }, "2026-11-20");
+    expect(dos.proteccion.motivos).toEqual(uno.proteccion.motivos);
+    expect(dos.proteccion.desde).toBe("2026-11-20");
+    expect(antecedentesDeCobro(dos).hay).toBe(true);
+  });
+
+  test("nada de este paquete levanta la proteccion", () => {
+    // No hay funcion exportada que la quite: levantarla es un flujo aparte.
+    const mod = require("./reajusteAplicado");
+    const quitan = Object.keys(mod).filter((k) => /(levantar|quitarProteccion|desproteger)/i.test(k));
+    expect(quitan).toEqual([]);
+  });
+});
