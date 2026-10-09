@@ -2320,7 +2320,7 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
         onRecuperar={()=>resolverConflicto("servidor")}
         onConservar={()=>resolverConflicto("local")} />
       {estadoPersist!=="idle" && (
-        <div role="status" style={{position:"fixed",left:16,bottom:16,zIndex:9998,padding:"7px 12px",
+        <div role="status" style={{position:"fixed",left:16,bottom:"calc(16px + var(--mdt-barra-inf, 0px))",zIndex:9998,padding:"7px 12px",
           borderRadius:8,fontSize:11.5,fontWeight:700,fontFamily:"sans-serif",
           border:"1px solid "+(estadoPersist==="ok"?"#16a34a":estadoPersist==="guardando"?"#38bdf8":"#f59e0b"),
           background:"#111827",color:(estadoPersist==="ok"?"#4ade80":estadoPersist==="guardando"?"#38bdf8":"#fbbf24")}}>

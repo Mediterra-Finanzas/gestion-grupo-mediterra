@@ -57,7 +57,7 @@ export default function AvisoPersistencia({ aviso, onCerrar }) {
     ? { bg: "#ecfdf5", bd: "#059669", tx: "#065f46" }
     : { bg: "#fef2f2", bd: "#dc2626", tx: "#991b1b" };
   return (
-    <div role="status" style={{ position: "fixed", right: 16, bottom: 16, zIndex: 99999, maxWidth: 440,
+    <div role="status" style={{ position: "fixed", right: 16, bottom: "calc(16px + var(--mdt-barra-inf, 0px))", zIndex: 99999, maxWidth: 440,
       background: col.bg, border: `2px solid ${col.bd}`, borderRadius: 10, padding: "12px 14px",
       boxShadow: "0 6px 24px rgba(0,0,0,0.25)", fontSize: 12.5, color: col.tx, lineHeight: 1.45 }}>
       <div style={{ fontWeight: 800, marginBottom: 5 }}>

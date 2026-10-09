@@ -1760,8 +1760,8 @@ function KPI({label,value,color=C.green}) {
   return (
     <div style={{position:"relative",background:C.card,border:`1px solid ${C.border}`,borderRadius:C.radius.md,padding:"12px 16px 12px 18px",boxShadow:C.shadowSm,overflow:"hidden"}}>
       <div style={{position:"absolute",left:0,top:0,bottom:0,width:4,background:color}}/>
-      <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.6px",fontWeight:600,marginBottom:5}}>{label}</div>
-      <div style={{fontSize:19,fontWeight:800,color,fontVariantNumeric:"tabular-nums",letterSpacing:"-0.2px"}}>{value}</div>
+      <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.6px",fontWeight:600,marginBottom:5,overflowWrap:"anywhere"}}>{label}</div>
+      <div style={{fontSize:19,fontWeight:800,color,fontVariantNumeric:"tabular-nums",letterSpacing:"-0.2px",overflowWrap:"anywhere"}}>{value}</div>
     </div>
   );
 }
@@ -8166,7 +8166,7 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
             {credito.documentos.map((d,i)=>d.url?<a key={i} href={d.url} target="_blank" rel="noreferrer" style={{marginRight:10,color:C.blue}}>{d.nombre||d.url}</a>:<span key={i} style={{marginRight:10}}>{d.nombre}</span>)}
           </div>
         )}
-        <div style={{padding:"0 20px 10px",display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
+        <div style={{padding:"0 20px 10px",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(145px,calc(50% - 5px)),1fr))",gap:10}}>
           <KPI label="Saldo capital" value={$c(e.saldoCapital,mon)} color={C.red}/>
           <KPI label="Intereses pendientes" value={$c(e.interesPend,mon)} color={C.orange}/>
           <KPI label="Otros cargos pendientes" value={$c(e.cargosPend,mon)} color={C.muted}/>
@@ -8354,7 +8354,7 @@ function AnalisisCreditos({creditos, empresas}){
   );
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(145px,calc(50% - 5px)),1fr))",gap:10}}>
         <KPI label={`Saldo capital identificado (USD)${sHoy.estimado?" · ESTIMADO":""}${sHoy.incompleto?" · INCOMPLETO":""}`} value={$$(tot.cap)} color={C.red}/>
         <KPI label="Cuotas sin desglosar" value={$$(tot.sd)} color={tot.sd>0?C.yellow:C.muted}/>
         <KPI label="Vencido impago confirmado" value={$$(tot.venc)} color={tot.venc>0?C.red:C.green}/>
@@ -8602,7 +8602,7 @@ function SimuladorPrepago({creditos, onSaveOne, canEdit, usuario}){
               <SectionTitle>Resultado {res.estimacion?"— ESTIMACIÓN":""}</SectionTitle>
               {res.estimacion&&<span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#fef9c3",color:"#854d0e"}}>Estimación</span>}
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(145px,calc(50% - 5px)),1fr))",gap:10}}>
               <KPI label="Capital a prepagar" value={$c(res.capital,mon)} color={C.red}/>
               <KPI label="Interés devengado a la fecha" value={res.devengado==null?"falta dato":$c(res.devengado,mon)} color={C.orange}/>
               <KPI label="Comisión / penalidad" value={res.comision==null?"falta dato":$c(res.comision,mon)} color={C.orange}/>
@@ -9449,7 +9449,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
       })()}
 
       {vistaCred==="creditos" && (<>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(145px,calc(50% - 5px)),1fr))",gap:10}}>
         <KPI label={`Saldo capital identificado (USD)${sHoyCred.estimado?" · ESTIMADO":""}${sHoyCred.incompleto?" · INCOMPLETO":""}`} value={$$(kpi.cap)} color={C.red}/>
         <KPI label="Cuotas sin desglosar"     value={$$(kpi.sd)}  color={kpi.sd>0?C.yellow:C.muted}/>
         <KPI label="Vencido impago confirmado" value={$$(kpi.venc)} color={kpi.venc>0?C.red:C.green}/>
@@ -10464,8 +10464,8 @@ export function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
   },[CUENTAS_VISIBLES]);
 
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:14}}>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
+    <div className="mdt-col-ajustada" style={{display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(min(160px,calc(50% - 5px)),1fr))",gap:10}}>
         <div style={{background:C.card,border:`2px solid ${C.accent}`,borderRadius:10,
           padding:"12px 16px",gridColumn:"span 2"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}}>
@@ -10664,7 +10664,7 @@ export function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
               </button>
 
               {isOpen&&(
-                <div style={{borderTop:`1px solid ${C.border}`}}>
+                <div style={{borderTop:`1px solid ${C.border}`,overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                     <thead>
                       <tr style={{background:C.card2}}>
@@ -13174,7 +13174,7 @@ function ReporteSemanalModule({
       {subTab === "generar" && (
         <div>
           {/* KPIs del grupo */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(145px,calc(50% - 5px)),1fr))",gap:10,marginBottom:14}}>
             {[
               {label:"Saldo Bancos Grupo", val:_formatUSD(kpisGrupo.saldoTotal), color:C.green},
               {label:"Compromisos 4 Sem.", val:_formatUSD(kpisGrupo.compromisos4S), color:C.red},
@@ -13183,7 +13183,7 @@ function ReporteSemanalModule({
             ].map((kpi,i)=>(
               <div key={i} style={{padding:"10px 12px",background:C.card,borderRadius:8,border:`1px solid ${C.border}`}}>
                 <div style={{fontSize:9,color:C.muted2,textTransform:"uppercase",letterSpacing:0.5}}>{kpi.label}</div>
-                <div style={{fontSize:14,fontWeight:800,color:kpi.color,marginTop:4}}>{kpi.val}</div>
+                <div style={{fontSize:14,fontWeight:800,color:kpi.color,marginTop:4,overflowWrap:"anywhere"}}>{kpi.val}</div>
               </div>
             ))}
           </div>
@@ -15190,7 +15190,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           `.catch(()=>{})` de la carga lo tragaba y la caja aparecía en cero como
           si fuera el dato real. */}
       {avisoCargaBancos && (
-        <div role="status" data-testid="aviso-carga-bancos" style={{position:"fixed",left:16,bottom:16,zIndex:99999,maxWidth:440,
+        <div role="status" data-testid="aviso-carga-bancos" style={{position:"fixed",left:16,bottom:"calc(16px + var(--mdt-barra-inf, 0px))",zIndex:99999,maxWidth:440,
           background:"#fffbeb",border:"2px solid #d97706",borderRadius:10,padding:"12px 14px",
           boxShadow:"0 6px 24px rgba(0,0,0,0.25)",fontSize:12.5,color:"#92400e",lineHeight:1.45}}>
           <div style={{fontWeight:800,marginBottom:5}}>No se pudieron cargar los Saldos de Bancos</div>
@@ -15204,7 +15204,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           que el servidor lo confirmó; "guardando" permanece mientras está en vuelo,
           así la guía no depende de adivinar cuánto esperar. */}
       {estadoPersist!=="idle" && (
-        <div style={{position:"fixed",right:16,bottom:16,zIndex:9998,
+        <div style={{position:"fixed",right:16,bottom:"calc(16px + var(--mdt-barra-inf, 0px))",zIndex:9998,
           padding:"8px 14px",borderRadius:8,fontSize:12,fontWeight:600,
           border:"1px solid "+( estadoPersist==="ok"?C.green: estadoPersist==="guardando"?C.accent:"#dc2626"),
           background:( estadoPersist==="ok"?C.green: estadoPersist==="guardando"?C.accent:"#dc2626")+"1f",

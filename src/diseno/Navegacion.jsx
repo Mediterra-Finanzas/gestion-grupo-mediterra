@@ -14,6 +14,12 @@
 import React, { useEffect, useState } from "react";
 import { FUENTE, TXT, ESP, COL, ANCHO_LATERAL, ANCHO_RIEL, ALTO_BARRA_INF, TACTIL } from "./tokens";
 
+// Prioridad de dibujo de la barra inferior: sobre los encabezados fijos de las tablas
+// (los módulos usan hasta 10) y BAJO cualquier modal o panel de los módulos (el más bajo
+// usa 199: EEFF; varios de Tareas y Osiris usan 300). Con 300 la barra tapaba los botones
+// inferiores de esos modales en el teléfono (scripts/e2e/modulos-movil.mjs).
+export const Z_BARRA_INF = 100;
+
 const CORTO = { tareas: "Tareas", osiris: "Osiris", finanzas: "Finanzas", allegria: "Allegria",
   frisku: "Frisku", contabilidad: "Contab.", allegria_service: "A. Service" };
 
@@ -95,6 +101,14 @@ function ItemLateral({ activo, onClick, children, testid, badge }) {
 
 export default function Navegacion({ clase, usuario, modulos, activo, onIr, puedeRendir, mostrarPendientes, badgePendientes, herramientas, children }) {
   const [mas, setMas] = useState(false);
+  // Altura que ocupa la barra inferior, para que los avisos fijos de los módulos
+  // («Guardado», «NO se guardó», etc.) se dibujen sobre ella y no detrás ni encima.
+  // Los módulos la usan como bottom: calc(16px + var(--mdt-barra-inf, 0px)).
+  useEffect(() => {
+    const raiz = document.documentElement;
+    raiz.style.setProperty("--mdt-barra-inf", clase === "compacta" ? `calc(${ALTO_BARRA_INF}px + env(safe-area-inset-bottom, 0px))` : "0px");
+    return () => raiz.style.removeProperty("--mdt-barra-inf");
+  }, [clase]);
 
   if (clase === "expandida") {
     return (
@@ -189,8 +203,8 @@ export default function Navegacion({ clase, usuario, modulos, activo, onIr, pued
   );
   return (
     <div style={{ minHeight: "100vh", fontFamily: FUENTE, paddingBottom: `calc(${ALTO_BARRA_INF}px + env(safe-area-inset-bottom))` }}>
-      {children}
-      <nav data-testid="nav-inferior" aria-label="Principal" style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 300, background: COL.superficie,
+      <main>{children}</main>
+      <nav data-testid="nav-inferior" aria-label="Principal" style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: Z_BARRA_INF, background: COL.superficie,
         borderTop: `1px solid ${COL.borde}`, display: "flex", height: ALTO_BARRA_INF, paddingBottom: "env(safe-area-inset-bottom)", boxShadow: "0 -2px 10px rgba(16,24,40,0.06)" }}>
         <BotonInf id="inicio" testid="nav-inicio" label="Inicio" icono={<Icono tipo="inicio"/>}/>
         {mostrarPendientes && <BotonInf id="pendientes" testid="nav-pendientes" label="Pendientes" icono={<Icono tipo="pendientes"/>} badge={badgePendientes}/>}

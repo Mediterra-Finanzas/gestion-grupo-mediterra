@@ -4537,7 +4537,7 @@ Equipo Mediterra`);
     <AppErrorBoundary>
       {avisosPersistencia}
       {nuevaVersion&&(
-        <div style={{position:"fixed",bottom:claseVentana==="compacta"?84:20,right:20,zIndex:99999,maxWidth:320,background:C.card,color:C.text,padding:"14px 18px",borderRadius:12,boxShadow:"0 8px 32px #0004",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:8,fontSize:13,fontFamily:"sans-serif"}}>
+        <div style={{position:"fixed",bottom:"calc(20px + var(--mdt-barra-inf, 0px))",right:20,zIndex:99999,maxWidth:320,background:C.card,color:C.text,padding:"14px 18px",borderRadius:12,boxShadow:"0 8px 32px #0004",border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",gap:8,fontSize:13,fontFamily:"sans-serif"}}>
           <div style={{fontWeight:700,display:"flex",alignItems:"center",gap:8}}>🔄 Nueva versión disponible</div>
           <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Puedes seguir trabajando sin problema. Cuando termines lo que estás cargando, haz click en Actualizar para usar la versión nueva.</div>
           <div style={{display:"flex",gap:8,marginTop:4,justifyContent:"flex-end"}}>

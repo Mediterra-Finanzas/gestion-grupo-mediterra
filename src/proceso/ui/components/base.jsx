@@ -258,7 +258,7 @@ export function ProcToast({ toast }) {
   if (!toast) return null;
   const t = TONO[toast.tono || (toast.tipo === "error" ? "danger" : "success")] || TONO.success;
   return (
-    <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 2000,
+    <div style={{ position: "fixed", bottom: "calc(24px + var(--mdt-barra-inf, 0px))", left: "50%", transform: "translateX(-50%)", zIndex: 2000,
       background: t.bg, color: t.color, border: `1px solid ${t.color}`, borderRadius: 10, padding: "10px 18px",
       fontSize: 13.5, fontWeight: 600, boxShadow: C.shadow, maxWidth: "90vw" }}>
       {toast.texto}

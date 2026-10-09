@@ -11338,7 +11338,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   // Chip global de guardado (se inyecta en todas las vistas del módulo)
   const problema = saveState==="error" || saveState==="conflicto";
   const guardadoChip = (
-    <div style={{position:"fixed",right:16,bottom:16,zIndex:99999,maxWidth:problema?420:undefined,
+    <div style={{position:"fixed",right:16,bottom:"calc(16px + var(--mdt-barra-inf, 0px))",zIndex:99999,maxWidth:problema?420:undefined,
       background:problema?"#fef2f2":"#fff",border:`${problema?2:1}px solid ${problema?"#dc2626":C.border}`,
       borderRadius:10,padding:problema?"10px 14px":"7px 12px",boxShadow:"0 4px 16px #0003",fontSize:12}}>
       <div style={{display:"flex",alignItems:"center",gap:8}}>

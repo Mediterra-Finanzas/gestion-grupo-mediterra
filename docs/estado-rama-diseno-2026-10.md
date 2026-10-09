@@ -71,7 +71,7 @@ módulo cargó con éxito (regla 9). Cada pulsación crea uno; «Rendir» / «Mi
 | Prueba | Resultado |
 |---|---|
 | `CI=true react-scripts build` | compila |
-| Jest completo, UTC y `TZ=America/Santiago` | 1.726 / 1.726 (52 omitidas, como en main) |
+| Jest completo, UTC y `TZ=America/Santiago` | 1.726 / 1.726 (52 omitidas, como en main); tras §6: 1.729 / 1.729 en UTC |
 | `src/__tests__/resumenInicio.test.js` (nueva) | 11 / 11 |
 | `scripts/e2e/hub-navegacion.mjs` (nueva): 6 perfiles × 4 tamaños + mes en curso | 76 / 76 |
 | `apertura-sin-cambios.mjs` (main) | pasa: abrir y navegar no escribe |
@@ -135,9 +135,7 @@ bien no prueba cómo se ven con los volúmenes reales.
   `HubScreen`; la funcional le agrega `AvisosPermisos`, reintento de facultades y aviso de
   transición), `FinanzasModule.jsx` y `RendicionesModule.jsx`. Habrá conflictos a resolver a mano:
   los avisos de la funcional deben ir al inicio nuevo, en una línea en teléfono.
-- **DD4 · Módulos dentro del marco.** Los módulos ahora se ven con la barra lateral, el riel o la
-  barra inferior. Sus pantallas internas no se tocaron. No revisé módulo por módulo si algún
-  elemento fijo abajo queda tapado por la barra inferior del teléfono. Es la siguiente etapa.
+- **DD4 · Módulos dentro del marco — REVISADA (08-10).** Ver §6: lo que tapaba la barra o cortaba cifras está corregido; quedan DD7–DD11.
 - **DD5 · Mes de los contadores de tareas — RESUELTA (Angelo, 08-10): mes en curso.**
   `estaVencida` / `estaProxima` aceptan un mes opcional; sin él se comportan como siempre (vista
   de Tareas, resumen por correo). El inicio les pasa el mes en curso. Antes el inicio heredaba el
@@ -148,7 +146,54 @@ bien no prueba cómo se ven con los volúmenes reales.
   leída en el contrato de guardado. Solo ocurre con el módulo cerrado y el módulo vuelve a leer
   al abrir; no escribe. Se deja anotado por si se prefiere una lectura sin registro.
 
-## 6. Archivos
+## 6. Revisión de módulos en teléfono y tablet (08-10)
+
+Recorrido `scripts/e2e/modulos-movil.mjs` (CFO, que ve todo; datos ficticios; Chromium; teléfono
+390×844 y tablet 834×1112): 7 módulos y las 9 pestañas de Finanzas, arriba y al final de cada
+pantalla. Mide desborde, elementos fijos bajo la barra, alcance del último control, **texto
+recortado** (montos cortados por el contenedor), texto < 12 px y controles < 32 px. Resultado
+final: **93 / 93**. Capturas antes/después en `docs/diseno/modulos/`.
+
+### Corregido
+
+| Hallazgo | Origen | Corrección | Prueba |
+|---|---|---|---|
+| La barra inferior quedaba **encima** de 7 modales de Tareas y Osiris (prioridad 300) y del panel de EEFF y Frisku (199–200): tapaba sus botones de abajo | navegación nueva | La barra baja a prioridad 100: sobre los encabezados fijos de tablas (máx. 10), bajo todo modal | `barraInferiorCapas.test.js` lee el código de todos los módulos; falla con 300 |
+| Los avisos fijos de guardado («Guardado / Guardar ahora», «NO se guardó», carga de bancos, Allegria, Allegria Service, versión nueva) quedaban dentro de la franja de la barra; el de Osiris tapaba el botón «Más» | navegación nueva | Variable `--mdt-barra-inf` (64 px en teléfono, 0 en el resto): esos 7 avisos suben esa altura | misma prueba, regla 3: todo fijo anclado abajo debe usarla; falla sin el cambio |
+| En teléfono el contenido no iba dentro de `<main>` (lectores de pantalla) | navegación nueva | `<main>` también en teléfono | recorrido |
+| **Créditos**: 6 y 7 indicadores en columnas fijas; en teléfono y tablet los montos salían cortados («$6,» por $6.727.365) | **existe en main** (medido igual en 0b86538) | Columnas que se acomodan al ancho (mín. 145 px, siempre ≥ 2 por fila) y el monto pasa de línea en vez de cortarse | recorrido + comparación main vs rama en 390/834/1280/1440: 0 cifras cortadas, sin cambio en computador |
+| **Saldos Bancos** en teléfono: la página medía ~800 px y el contenedor del módulo escondía la mitad derecha (saldo consolidado, aviso «SIN PARIDAD», tipos de cambio) | **existe en main** | Los bloques de esa columna no pueden exceder el ancho disponible (`.mdt-col-ajustada`) | recorrido |
+| **Saldos Bancos** en tablet: la tabla de cuentas perdía «A paridad de hoy» y «Fecha» sin forma de verlas | **causado por el riel** (en main a 834 px cabía: Fecha termina en 810 px) | La tabla se desplaza de lado dentro de su tarjeta; comprobado que al desplazar aparece Fecha | prueba de desplazamiento en navegador |
+| **Reporte Semanal**: 4 indicadores en columnas fijas; en teléfono «6 de 7» cortado | existe en main | Igual que Créditos | recorrido |
+
+Las mismas columnas adaptables en las 5 grillas de indicadores de Finanzas no cambian la vista de
+computador (medido a 1280 y 1440 px).
+
+### Pendiente (no corregido: es tipografía y densidad interna de los módulos, decisión tuya)
+
+- **DD7 · Tabla de cuentas en tablet.** Con el riel la tabla de Saldos Bancos necesita desplazarse
+  de lado, cosa que en main a 834 px no pasaba. Opciones: riel de 64 px solo con íconos (gana 20 px,
+  podría no bastar con más cuentas) o compactar la columna Moneda, que hoy se parte en dos líneas.
+- **DD8 · Texto muy chico en Finanzas.** Flujo Empresas y Dashboard usan textos de hasta **6 px**;
+  Saldos y Créditos, de 8–9 px (cientos de elementos). En teléfono y tablet no es legible. Corregirlo
+  es una pasada tipográfica por un archivo de 17.000 líneas: propongo hacerla por pestaña, con
+  capturas antes/después.
+- **DD9 · Tablet con densidad de computador.** Las reglas táctiles de main (campos de 16 px,
+  pestañas de 42 px) aplican solo hasta 700 px de ancho; una tablet (834 px) no las recibe y la
+  mayoría de sus controles mide menos de 32 px (Créditos 180/191, Saldos 114/131). Propuesta:
+  aplicarlas por tipo de puntero (`pointer: coarse`) en vez de por ancho; cambia filas de tablas
+  densas y conviene verlo antes.
+- **DD10 · Texto técnico en el encabezado de Finanzas**: «bundle: main.xxxx.js» se ve en todos los
+  equipos. Propongo quitarlo o dejarlo solo para administrador.
+- **DD11 · Botones repetidos.** Los encabezados de los módulos conservan «← Mediterra» y «Salir»,
+  que ahora también están en la navegación. Se pueden quitar en teléfono para ganar alto.
+- Tareas muestra «34 vencidas» del equipo completo y el inicio «5» propias: es correcto, pero el
+  encabezado de Tareas podría decir «del equipo».
+
+Alcance: solo el perfil CFO y datos ficticios; Chromium emulado; los modales se verificaron por
+código (todas las prioridades declaradas) y con un modal de prueba, no abriendo cada uno.
+
+## 7. Archivos
 
 Nuevos: `src/diseno/{tokens.js,useClaseVentana.js,resumenInicio.js,Navegacion.jsx,Inicio.jsx}`,
 `src/__tests__/resumenInicio.test.js`, `scripts/e2e/hub-navegacion.mjs`,
@@ -159,5 +204,12 @@ lectura de rendiciones para contadores), `src/FinanzasModule.jsx` (regla de pest
 prop `destino`), `src/RendicionesModule.jsx` (`meTocaAprobar` exportada, `accionInicial`),
 `src/data/__tests__/qa-hotfix-a.test.js` (ancla del aviso), `scripts/vista-previa/{armar.mjs,shim.js}`
 (modo `--diseno`; la vista previa de Créditos no cambia).
+
+Revisión de módulos (§6): `src/diseno/Navegacion.jsx` (prioridad de la barra, `--mdt-barra-inf`,
+`<main>`), `src/index.css` (`.mdt-col-ajustada`), `src/FinanzasModule.jsx` (grillas de
+indicadores, tabla de cuentas desplazable), y la posición de los avisos fijos en
+`OsirisModule.jsx`, `AllegriaModule.jsx`, `AvisoPersistencia.jsx`,
+`proceso/ui/components/base.jsx` y `App.jsx`. Nuevos: `src/__tests__/barraInferiorCapas.test.js`,
+`scripts/e2e/modulos-movil.mjs`, `docs/diseno/modulos/*.png`.
 
 Sin cambios de cálculos financieros, remuneraciones, permisos ni persistencia.
