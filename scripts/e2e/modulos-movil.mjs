@@ -52,6 +52,12 @@ const medir = () => {
     .map(e => ({ t: (e.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 30), cifra: /\d/.test(e.innerText || '') }));
   return {
     recortados: recortados.slice(0, 8), recortadosN: recortados.length, recortadasCifras: recortados.filter(x => x.cifra).length,
+    // DD8: texto HTML (fuera de gráficos SVG) bajo 11 px dentro de Finanzas.
+    finanzasMenor11: todos.filter(e => e.closest('.mdt-finanzas') && !e.closest('svg') && !fuera(e) && visible(e) && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 11).slice(0, 5).map(e => `${desc(e)} ${getComputedStyle(e).fontSize}`),
+    controlesMenor36: controles.filter(e => e.getBoundingClientRect().height < 35.5).length,
+    tactil: matchMedia('(pointer: coarse)').matches,
+    dupNavVisibles: [...document.querySelectorAll('.mdt-dup-nav')].filter(e => e.getBoundingClientRect().height > 0).length,
+    dupNavTotal: document.querySelectorAll('.mdt-dup-nav').length,
     desborde: document.documentElement.scrollWidth - W, anchos, fijos,
     textoChico: textoChico.length, textoMin: textoChico.length ? Math.min(...textoChico.map(e => parseFloat(getComputedStyle(e).fontSize))) : null,
     controlesChicos: controles.filter(e => e.getBoundingClientRect().height < 32).length, controles: controles.length,
@@ -107,6 +113,12 @@ for (const [tam, [w, h]] of Object.entries(TAM)) {
         if (!(await b.count())) { filas.push({ tam, pantalla: `finanzas · ${t}`, ausente: true }); continue; }
         await b.first().click(); await page.waitForTimeout(1800);
         await registrar(`finanzas-${t.split(' ').slice(1).join('_')}`);
+        if (t === '🏦 Saldos Bancos' && tam === 'tablet') {
+          const r = await page.evaluate(() => { const th = [...document.querySelectorAll('th')].find(x => x.innerText.trim().toLowerCase() === 'fecha');
+            if (!th) return null; const c = th.closest('table').parentElement; return { th: Math.round(th.getBoundingClientRect().right), c: Math.round(c.getBoundingClientRect().right) }; });
+          check('Tablet · Saldos Bancos: la columna Fecha se ve sin desplazar la tabla (DD7)', r && r.th <= r.c + 1, JSON.stringify(r));
+        }
+        if (t === '📊 Dashboard') check(`${tam} · Finanzas: el CFO ve el marcador de versión (DD10)`, (await page.getByTestId('marcador-build').count()) === 1);
       }
     } else await registrar(id);
   }
@@ -126,14 +138,38 @@ for (const [tam, [w, h]] of Object.entries(TAM)) {
   check(`${tam}: sin errores de página al recorrer los módulos`, errores.length === 0, errores.slice(0, 2).join(' | '));
   await ctx.close();
 }
-await browser.close();
-
 for (const f of filas.filter(f => !f.ausente)) {
   check(`${f.tam} · ${f.pantalla}: ningún elemento fijo del módulo bajo la barra inferior`, !f.fijos.length, f.fijos.map(x => `${x.d} z=${x.z}`).join(', '));
   check(`${f.tam} · ${f.pantalla}: el último control queda sobre la barra`, f.alcanzable, f.ultimo || '');
+  if (f.pantalla.startsWith('finanzas')) check(`${f.tam} · ${f.pantalla}: sin texto bajo 11 px en Finanzas (DD8)`, !f.finanzasMenor11.length, f.finanzasMenor11.join(', '));
+  if (f.dupNavTotal) check(`${f.tam} · ${f.pantalla}: «Volver/Salir» del encabezado ${f.tam === 'telefono' ? 'escondidos' : 'visibles'} (DD11)`, f.tam === 'telefono' ? f.dupNavVisibles === 0 : f.dupNavVisibles > 0, `${f.dupNavVisibles}/${f.dupNavTotal}`);
+  check(`${f.tam} · ${f.pantalla}: pantalla táctil reconocida (DD9)`, f.tactil);
   check(`${f.tam} · ${f.pantalla}: ninguna cifra recortada`, !f.recortadasCifras, f.recortados.filter(x => x.cifra).map(x => x.t).join(' | '));
 }
 fs.writeFileSync(`${OUT}/medicion.json`, JSON.stringify(filas, null, 1));
+// ── Computador (mouse, 1440 px): nada de DD8/DD9/DD11 debe aplicarse ──
+{
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await instalarFake(ctx, storeDiseno());
+  await ctx.routeWebSocket(/realtime\/v1\/websocket/, () => {});
+  const page = await ctx.newPage();
+  await page.goto(process.env.APP_URL);
+  await page.locator('input[type=email]').fill('ahuerta@grupomediterra.cl'); await page.locator('input[type=password]').fill(PIN); await page.keyboard.press('Enter');
+  await page.getByTestId('inicio').waitFor({ timeout: 20000 });
+  await page.getByTestId('nav-modulo-finanzas').click(); await page.waitForTimeout(4000);
+  await page.locator('main').getByRole('button', { name: '💳 Créditos', exact: true }).first().click(); await page.waitForTimeout(1800);
+  const d = await page.evaluate(() => ({
+    tactil: matchMedia('(pointer: coarse)').matches,
+    chico: [...document.querySelectorAll('.mdt-finanzas [style*="font-size: 9px"]')].filter(e => !e.closest('svg')).map(e => getComputedStyle(e).fontSize).slice(0, 3),
+    dup: [...document.querySelectorAll('.mdt-dup-nav')].filter(e => e.getBoundingClientRect().height > 0).length,
+  }));
+  check('Computador: sin regla táctil (mouse)', !d.tactil);
+  check('Computador: los textos de 9 px de Finanzas siguen en 9 px (DD8 solo ≤ 1023 px)', d.chico.length > 0 && d.chico.every(x => x === '9px'), d.chico.join(','));
+  check('Computador: «Volver/Salir» del encabezado siguen visibles', d.dup > 0, String(d.dup));
+  await ctx.close();
+}
+await browser.close();
+
 console.log('\nPantalla | desborde px | recortados (con cifras) | texto <12px (mín) | controles <32px | elementos que desbordan');
 for (const f of filas) console.log(f.ausente ? `${f.tam} · ${f.pantalla}: pestaña no encontrada`
   : `${f.tam} · ${f.pantalla} | ${f.desborde} | ${f.recortadosN} (${f.recortadasCifras}) | ${f.textoChico} (${f.textoMin ?? '-'}) | ${f.controlesChicos}/${f.controles} | ${f.anchos.join('; ')}`);

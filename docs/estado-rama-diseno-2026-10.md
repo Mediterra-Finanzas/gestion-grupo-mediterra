@@ -122,12 +122,9 @@ bien no prueba cómo se ven con los volúmenes reales.
 
 ## 5. Hallazgos y decisiones pendientes
 
-- **DD1 · Socios en consulta y Rendiciones — RESUELTA (Angelo, 08-10): sí rinden gastos.**
-  Hoy ya pueden porque su ficha no configura `rendiciones` y main lo toma como «editar» por
-  omisión; esta rama no cambia código por esto. Pendiente para la rama funcional: dejarlo
-  explícito en la ficha (`rendiciones: "ver"` = cargan y ven lo suyo) en vez de depender del
-  valor por omisión, ya que ahí el rol consulta tiene tope «ver». No se aplicó: es un cambio de
-  permisos y se hace con la vista previa de la matriz.
+- **DD1 · Socios en consulta y Rendiciones — PENDIENTE.** El 08-10 se respondió «sí» y el 09-10
+  Angelo indicó que sigue sin decidirse. Se conserva el comportamiento actual (la ficha no configura
+  `rendiciones` y main la toma como «editar», así que hoy pueden cargar) y no se cambia ningún permiso.
 - **DD2 · «Por pagar» al integrar con la rama funcional.** Aquí usa la regla de main (ve todas).
   Con la matriz de la rama funcional paga solo quien tiene la facultad `rendPagar`; al integrar,
   este contador debe usar esa misma regla, o Michelle y Pablo verían rendiciones «por pagar» que no pueden pagar.
@@ -169,24 +166,28 @@ final: **93 / 93**. Capturas antes/después en `docs/diseno/modulos/`.
 Las mismas columnas adaptables en las 5 grillas de indicadores de Finanzas no cambian la vista de
 computador (medido a 1280 y 1440 px).
 
-### Pendiente (no corregido: es tipografía y densidad interna de los módulos, decisión tuya)
+### DD7 a DD11 — aplicadas (09-10)
 
-- **DD7 · Tabla de cuentas en tablet.** Con el riel la tabla de Saldos Bancos necesita desplazarse
-  de lado, cosa que en main a 834 px no pasaba. Opciones: riel de 64 px solo con íconos (gana 20 px,
-  podría no bastar con más cuentas) o compactar la columna Moneda, que hoy se parte en dos líneas.
-- **DD8 · Texto muy chico en Finanzas.** Flujo Empresas y Dashboard usan textos de hasta **6 px**;
-  Saldos y Créditos, de 8–9 px (cientos de elementos). En teléfono y tablet no es legible. Corregirlo
-  es una pasada tipográfica por un archivo de 17.000 líneas: propongo hacerla por pestaña, con
-  capturas antes/después.
-- **DD9 · Tablet con densidad de computador.** Las reglas táctiles de main (campos de 16 px,
-  pestañas de 42 px) aplican solo hasta 700 px de ancho; una tablet (834 px) no las recibe y la
-  mayoría de sus controles mide menos de 32 px (Créditos 180/191, Saldos 114/131). Propuesta:
-  aplicarlas por tipo de puntero (`pointer: coarse`) en vez de por ancho; cambia filas de tablas
-  densas y conviene verlo antes.
-- **DD10 · Texto técnico en el encabezado de Finanzas**: «bundle: main.xxxx.js» se ve en todos los
-  equipos. Propongo quitarlo o dejarlo solo para administrador.
-- **DD11 · Botones repetidos.** Los encabezados de los módulos conservan «← Mediterra» y «Salir»,
-  que ahora también están en la navegación. Se pueden quitar en teléfono para ganar alto.
+- **DD7 · Moneda compacta** (Saldos Bancos): código en una línea (el símbolo va en el monto; el
+  nombre completo queda en el título), y bajo 1024 px celdas de 6 px de margen, títulos en dos
+  líneas y campo de monto de 100 px. En tablet la tabla cabe sin desplazar con los datos de prueba
+  (667 de 668 px). Con montos reales más largos puede volver a desplazarse: nunca se esconde.
+- **DD8 · Texto mínimo 11 px en Finanzas bajo 1024 px** (`index.css`, clase `.mdt-finanzas`); el
+  computador no cambia (medido a 1440 px: los textos de 9 px siguen en 9). **No cubre los gráficos
+  SVG** (Flujo y Dashboard tienen etiquetas de 6 px): queda abierto, ver la ampliación de alcance.
+- **DD9 · Reglas táctiles por tipo de puntero** (`pointer: coarse`): campos de 16 px, pestañas de
+  42 px, controles de 36 px mínimo. Con mouse no cambia. En tablet: 0 controles bajo 32 px (antes
+  180/191 en Créditos). Que midan 36 px no prueba que sean cómodos: la separación entre controles no
+  está evaluada todavía.
+- **DD10 · Marcador de versión solo para administrador** (prueba jest nueva para quien no lo es).
+- **DD11 · «← Mediterra / Volver» y «Salir» de los encabezados** se esconden en teléfono (la barra
+  ofrece Inicio y Más → Salir); en tablet y computador siguen.
+
+Evidencia (Chromium emulado, datos ficticios): `modulos-movil.mjs` **177 comprobaciones** (no son
+módulos: 7 módulos y 9 pestañas de Finanzas × teléfono y tablet, varias comprobaciones por
+pantalla, más 3 de computador), jest 1.730/1.730, `hub-navegacion` 76/76, y de main
+`apertura-sin-cambios`, `aislamiento`, `creditos`, `creditos-guardado-fallas`.
+
 - Tareas muestra «34 vencidas» del equipo completo y el inicio «5» propias: es correcto, pero el
   encabezado de Tareas podría decir «del equipo».
 

@@ -10665,7 +10665,7 @@ export function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
 
               {isOpen&&(
                 <div style={{borderTop:`1px solid ${C.border}`,overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                  <table className="mdt-tabla-saldos" style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                     <thead>
                       <tr style={{background:C.card2}}>
                         {["Banco","Moneda","Último saldo",canEdit?"Nuevo saldo":"","US$ (flujo)","TC aplicado","A paridad de hoy","Fecha"].filter(Boolean).map(h=>(
@@ -10692,10 +10692,12 @@ export function SaldosBancos({saldos,onSave,canEdit,empresasPermitidas}) {
                           <tr key={c.key} style={{borderBottom:`1px solid ${C.border}22`,
                             background:isDirty?`${C.yellow}08`:"transparent"}}>
                             <td style={{padding:"8px 14px",color:C.text,fontWeight:500}}>{c.banco}</td>
-                            <td style={{padding:"8px 14px"}}>
-                              <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,
+                            {/* Moneda compacta en una línea (DD7): solo el código; el símbolo
+                                va en el monto y el nombre completo en el título. */}
+                            <td style={{padding:"8px 8px",whiteSpace:"nowrap"}}>
+                              <span title={mon?.label} style={{fontSize:10,padding:"2px 7px",borderRadius:20,whiteSpace:"nowrap",
                                 background:C.card2,border:`1px solid ${C.border}`,color:C.muted}}>
-                                {mon?.flag} {mon?.label}
+                                {mon?.flag} {String(mon?.label||"").split(" ")[0]}
                               </span>
                             </td>
                             <td style={{padding:"8px 14px",textAlign:"right",
@@ -15171,7 +15173,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   );
 
   return (
-    <div style={{
+    <div className="mdt-finanzas" style={{
       fontFamily:"'IBM Plex Sans','Segoe UI',system-ui,sans-serif",
       color:C.text,
       minHeight:"100vh",
@@ -15290,7 +15292,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       }}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
           <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,flexWrap:"wrap"}}>
-            <button onClick={onBack} style={{background:"none",border:"none",color:"rgba(255,255,255,0.7)",cursor:"pointer",fontSize:13,fontWeight:500,padding:0}}>Mediterra</button>
+            <button className="mdt-dup-nav" onClick={onBack} style={{background:"none",border:"none",color:"rgba(255,255,255,0.7)",cursor:"pointer",fontSize:13,fontWeight:500,padding:0}}>Mediterra</button>
             <span style={{color:"rgba(255,255,255,0.45)"}}>›</span>
             <span style={{color:C.accent,fontWeight:700,fontSize:14}}>Finanzas</span>
           </div>
@@ -15301,15 +15303,16 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           <div style={{fontSize:10,color:"rgba(255,255,255,0.7)"}}>Apr-2026 → Jun-2031 · 64 meses · USD</div>
           {/* Qué versión está cargada. Solo lectura: no hay que editar nada para
               poder descartar un bundle viejo en caché. */}
-          <div data-testid="marcador-build" title="Versión de la aplicación cargada en este navegador"
+          {/* Solo administrador (DD10): para el resto es texto técnico sin uso. */}
+          {usuarioActual?.rol==="admin"&&<div data-testid="marcador-build" title="Versión de la aplicación cargada en este navegador"
             style={{fontSize:9,color:"rgba(255,255,255,0.45)",fontFamily:"ui-monospace, monospace",whiteSpace:"nowrap"}}>
             {marcaBuild}
-          </div>
+          </div>}
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           {saved&&<span style={{fontSize:11,color:"rgba(255,255,255,0.85)",background:"rgba(255,255,255,0.1)",
             borderRadius:20,padding:"3px 10px",border:"1px solid rgba(255,255,255,0.2)"}}>{saved}</span>}
-          <button onClick={onLogout} style={{
+          <button className="mdt-dup-nav" onClick={onLogout} style={{
             background:"transparent",
             border:"1px solid rgba(255,255,255,0.4)",
             color:"#fff",borderRadius:8,

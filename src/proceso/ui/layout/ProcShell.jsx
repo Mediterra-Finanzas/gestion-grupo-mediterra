@@ -195,8 +195,8 @@ export default function ProcShell({ onBack, onLogout, usuario }) {
           <BarraContexto />
           <div style={{ display: "flex", gap: sp.sm, alignItems: "center" }}>
             {usuario?.nombre && <span style={{ fontSize: 12, color: C.muted }}>{usuario.nombre}</span>}
-            {onBack && <ProcButton kind="ghost" small onClick={onBack}>← Volver</ProcButton>}
-            {onLogout && <ProcButton kind="ghost" small onClick={onLogout}>Salir</ProcButton>}
+            {onBack && <span className="mdt-dup-nav"><ProcButton kind="ghost" small onClick={onBack}>← Volver</ProcButton></span>}
+            {onLogout && <span className="mdt-dup-nav"><ProcButton kind="ghost" small onClick={onLogout}>Salir</ProcButton></span>}
           </div>
         </div>
         <div style={{ padding: sp.xl, maxWidth: 1240, margin: "0 auto" }}>{render()}</div>

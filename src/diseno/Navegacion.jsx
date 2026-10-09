@@ -107,7 +107,10 @@ export default function Navegacion({ clase, usuario, modulos, activo, onIr, pued
   useEffect(() => {
     const raiz = document.documentElement;
     raiz.style.setProperty("--mdt-barra-inf", clase === "compacta" ? `calc(${ALTO_BARRA_INF}px + env(safe-area-inset-bottom, 0px))` : "0px");
-    return () => raiz.style.removeProperty("--mdt-barra-inf");
+    // DD11: con barra inferior, los botones «← Mediterra / Volver» y «Salir» de los
+    // encabezados de los módulos repiten Inicio y Más → Salir; el CSS los esconde.
+    raiz.setAttribute("data-nav", clase);
+    return () => { raiz.style.removeProperty("--mdt-barra-inf"); raiz.removeAttribute("data-nav"); };
   }, [clase]);
 
   if (clase === "expandida") {

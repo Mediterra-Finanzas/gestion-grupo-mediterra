@@ -180,3 +180,41 @@ img, video, canvas { max-width: 100%; height: auto; }
    derecha (montos y avisos cortados, sin forma de verlos). Así cada bloque mide como
    máximo el ancho disponible y lo ancho se desplaza dentro de su propia tarjeta. */
 .mdt-col-ajustada > * { max-width: 100%; min-width: 0; }
+
+/* DD8 · Texto mínimo legible en Finanzas en teléfono y tablet (≤ 1023 px). Finanzas
+   declara textos de 6 a 10,5 px pensados para computador; acá suben a 11 px. El
+   computador no cambia. Los gráficos (SVG) quedan fuera: su texto escala con el gráfico.
+   Las líneas internas que no declaran tamaño lo heredan del contenedor. */
+@media (max-width: 1023px) {
+  .mdt-finanzas [style*="font-size: 6px"]:not(text):not(tspan),
+  .mdt-finanzas [style*="font-size: 6.5px"]:not(text):not(tspan),
+  .mdt-finanzas [style*="font-size: 7px"]:not(text):not(tspan),
+  .mdt-finanzas [style*="font-size: 7.5px"]:not(text):not(tspan),
+  .mdt-finanzas [style*="font-size: 8px"]:not(text):not(tspan),
+  .mdt-finanzas [style*="font-size: 8.5px"]:not(text):not(tspan),
+  .mdt-finanzas [style*="font-size: 9px"]:not(text):not(tspan),
+  .mdt-finanzas [style*="font-size: 9.5px"]:not(text):not(tspan),
+  .mdt-finanzas [style*="font-size: 10px"]:not(text):not(tspan),
+  .mdt-finanzas [style*="font-size: 10.5px"]:not(text):not(tspan) { font-size: 11px !important; }
+}
+
+/* DD11 · En teléfono la barra inferior ya ofrece Inicio y Más → Salir: los botones
+   equivalentes de los encabezados de los módulos se esconden para ganar alto. */
+html[data-nav="compacta"] .mdt-dup-nav { display: none !important; }
+
+/* DD9 · Pantallas táctiles (teléfono y tablet, también sobre 700 px): campos de 16 px
+   (iOS no hace zoom al enfocarlos), pestañas de 42 px y controles de al menos 36 px.
+   Con mouse no cambia nada. */
+@media (pointer: coarse) {
+  input, select, textarea { font-size: 16px !important; }
+  .mdt-tab { min-height: 42px; }
+  button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) { min-height: 36px; }
+}
+
+/* DD7 · Tabla de cuentas de Saldos Bancos en tablet y teléfono: celdas y campo de
+   monto más angostos y títulos en dos líneas, para que quepa junto al riel. */
+@media (max-width: 1023px) {
+  .mdt-tabla-saldos th, .mdt-tabla-saldos td { padding-left: 6px !important; padding-right: 6px !important; }
+  .mdt-tabla-saldos th { white-space: normal !important; }
+  .mdt-tabla-saldos input { width: 100px !important; }
+}

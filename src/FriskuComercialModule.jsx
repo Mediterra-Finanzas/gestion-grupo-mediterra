@@ -10256,7 +10256,7 @@ export default function FriskuComercialModule({
           {tab!=="resumen" && (
             <button onClick={()=>setTab("resumen")} style={{background:"rgba(255,255,255,0.10)",border:"1px solid rgba(255,255,255,0.22)",color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>🏠 Inicio Frisku</button>
           )}
-          {onBack && <button onClick={onBack} style={{background:"rgba(255,255,255,0.10)",border:"1px solid rgba(255,255,255,0.22)",color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>← Mediterra</button>}
+          {onBack && <button className="mdt-dup-nav" onClick={onBack} style={{background:"rgba(255,255,255,0.10)",border:"1px solid rgba(255,255,255,0.22)",color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>← Mediterra</button>}
         </div>
       </div>
 

@@ -6479,6 +6479,7 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) 
         {/* Botón volver */}
         {onBack && (
           <button
+            className="mdt-dup-nav"
             onClick={onBack}
             style={{
               background: "rgba(255,255,255,0.10)",

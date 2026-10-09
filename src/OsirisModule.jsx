@@ -11739,12 +11739,12 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             🏠 Osiris Hub
           </button>
         )}
-        <button onClick={onBack}
+        <button className="mdt-dup-nav" onClick={onBack}
           style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",
             color:"rgba(255,255,255,0.7)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
           ← Mediterra
         </button>
-        <button onClick={onLogout||onBack}
+        <button className="mdt-dup-nav" onClick={onLogout||onBack}
           style={{background:"rgba(248,113,113,0.18)",border:"1px solid rgba(248,113,113,0.3)",
             color:"#fca5a5",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12}}>
           Salir

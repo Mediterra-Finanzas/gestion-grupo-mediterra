@@ -289,7 +289,7 @@ function NavBar({breadcrumbItems=[], onLogout}) {
           <AllegriaLogo height={30}/>
         </div>
       </div>
-      {onLogout&&<button onClick={onLogout} style={{background:"rgba(248,113,113,0.18)",border:"1px solid rgba(248,113,113,0.3)",color:"#fca5a5",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>Salir</button>}
+      {onLogout&&<button className="mdt-dup-nav" onClick={onLogout} style={{background:"rgba(248,113,113,0.18)",border:"1px solid rgba(248,113,113,0.3)",color:"#fca5a5",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>Salir</button>}
     </div>
   );
 }

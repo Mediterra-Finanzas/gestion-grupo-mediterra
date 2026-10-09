@@ -4138,7 +4138,7 @@ Equipo Mediterra`);
         <div style={{background:"linear-gradient(135deg,#0f1e3a,#1e3a5f)",padding:"14px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,borderRadius:"14px 14px 0 0",margin:"0 0 0 0"}}>
           <div style={{display:"flex",alignItems:"center",gap:14}}>
             <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13}}>
-              <button onClick={()=>setModuloActivo(null)} style={{background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer",fontSize:13,fontWeight:500,padding:0}}>Mediterra</button>
+              <button className="mdt-dup-nav" onClick={()=>setModuloActivo(null)} style={{background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer",fontSize:13,fontWeight:500,padding:0}}>Mediterra</button>
               <span style={{color:"rgba(255,255,255,0.3)"}}>›</span>
               <span style={{color:"#fff",fontWeight:700,fontSize:14}}>Seguimiento de Tareas</span>
             </div>
@@ -4150,7 +4150,7 @@ Equipo Mediterra`);
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
             {estadoGuardadoUI&&<span style={{fontSize:11,color:"rgba(255,255,255,0.7)"}}>{estadoGuardadoUI.icon} {estadoGuardadoUI.text}</span>}
             {totalVencidas>0&&<button onClick={()=>setModalVencidas(true)} style={{background:C.danger,color:"#fff",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,border:"none",cursor:"pointer"}}>⚠ {totalVencidas} vencidas</button>}
-            <button onClick={doLogout} style={{background:"rgba(248,113,113,0.2)",border:"none",color:"#fca5a5",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12}}>Salir</button>
+            <button className="mdt-dup-nav" onClick={doLogout} style={{background:"rgba(248,113,113,0.2)",border:"none",color:"#fca5a5",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12}}>Salir</button>
           </div>
         </div>
 

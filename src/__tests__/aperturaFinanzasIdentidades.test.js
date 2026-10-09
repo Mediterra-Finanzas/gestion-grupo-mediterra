@@ -126,12 +126,12 @@ beforeAll(() => {
   FinanzasModule = require("../FinanzasModule.jsx").default;
 });
 
-function montar() {
+function montar(usuario = ADMIN) {
   let r;
   act(() => {
     r = render(React.createElement(FinanzasModule, {
       onBack: () => {}, onLogout: () => {},
-      usuarioActual: ADMIN, tabPermisos: {}, usuarios: [ADMIN],
+      usuarioActual: usuario, tabPermisos: {}, usuarios: [usuario],
     }));
   });
   return r;
@@ -399,6 +399,17 @@ describe("marcador de build", () => {
     expect(el.textContent).toBe("build 1234567");
     expect(el.querySelector("input")).toBeNull();
     expect(el.querySelector("button")).toBeNull();
+  });
+  test("quien no es administrador no ve el marcador técnico (DD10)", async () => {
+    process.env.REACT_APP_COMMIT_SHA = "1234567890abcdef";
+    SRV = servidorFalso({
+      finanzas: fila(blobFinanzas(paramsAllegria({ conIds: true }))),
+      finanzas_bancos: fila({ saldos: {} }),
+      finanzas_esc_index: fila({ escenarios: [] }),
+    });
+    montar({ nombre: "Carol Machuca", rol: "editor", email: "c@b.cl" });
+    await dejarPasar();
+    expect(document.querySelector('[data-testid="marcador-build"]')).toBeNull();
   });
 });
 
