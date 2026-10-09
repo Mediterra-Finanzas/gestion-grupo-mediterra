@@ -429,6 +429,31 @@ Firefox ni equipos reales; nada corrido en producción.
   el guardado condicionado de Nóminas; la fila `finanzas` no tiene ese guardia en main. ANF se
   lee bajo demanda (sin realtime): ahí solo protege contra cambios locales.
 
+## 6d. Figma (09-10) — en curso, bloqueado por límites del plan
+
+- **Acceso comprobado:** integración de Figma con lectura y escritura. Archivo privado en los
+  borradores de Angelo: «Mediterra · Sistema de diseño y navegación»
+  (https://www.figma.com/design/MktZLki3Bn1EShwKrqO12p). No se publicó ni se compartió.
+- **Hecho en Figma (no imágenes: variables, estilos y componentes editables):**
+  41 variables con sintaxis `var(--mdt-…)` tomadas de `sistema.css` (color, espaciado, radios,
+  control 36/44, escala tipográfica, medidas de navegación); 9 estilos de texto; 10 componentes
+  con variantes y descripción de su equivalente React (Botón, Pestaña chip/barra, Campo,
+  Filtro, Celda de tabla, Ítem de navegación lateral/riel/inferior, Modal computador/hoja
+  inferior, Estado de la vista con cargando/vacío/error/restringido/aviso/guardado pendiente,
+  Indicador de guardado, Distintivo); hoja de fundamentos y tabla de correspondencia
+  Figma ↔ React; pantalla A «tabla financiera densa» (Flujo Empresas) en computador y tablet,
+  armada con instancias (datos ficticios). La versión teléfono está creada pero sin revisión
+  visual.
+- **Bloqueos:** (1) el plan Starter permite 3 páginas por archivo (se organizó en 3 páginas
+  con secciones); (2) se alcanzó el **límite de llamadas del MCP de Figma del plan Starter**,
+  así que no se puede seguir editando ni revisando hasta que se restablezca o se mejore el plan.
+- **Falta:** formulario con documentos, circuito de aprobación, pantalla comercial, pantalla de
+  operaciones, inicio de quien solo rinde, página de navegación por perfil (ver ≠ ejecutar) y
+  los vínculos del prototipo navegable.
+- **Grupo 2 en pausa:** el avance de Tareas y Contabilidad quedó en la rama
+  `claude/diseno-grupo2-borrador` (no está listo para revisión); no se extiende el patrón hasta
+  validar el grupo 1 en Figma.
+
 ## 7. Archivos
 
 Nuevos: `src/diseno/{tokens.js,useClaseVentana.js,resumenInicio.js,Navegacion.jsx,Inicio.jsx}`,
