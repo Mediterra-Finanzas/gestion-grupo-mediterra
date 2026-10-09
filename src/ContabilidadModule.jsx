@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { Modal as ModalSistema, EstadoVista } from "./diseno/componentes.jsx";
 import * as XLSX from "xlsx-js-style";
 
 // ─── Supabase ───────────────────────────────────────────────────────────────
@@ -99,6 +100,9 @@ function Btn({ children, onClick, color = "primary", size = "md", disabled = fal
   const [hover, setHover] = useState(false);
   return (
     <button
+      type="button"
+      className={size === "sm" ? "mdt-boton mdt-boton--chico" : "mdt-boton"}
+      disabled={disabled}
       onClick={disabled ? undefined : onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -121,68 +125,10 @@ function Btn({ children, onClick, color = "primary", size = "md", disabled = fal
   );
 }
 
+// Modal del sistema (hoja inferior en teléfono, Esc cierra, foco al abrir y al cerrar).
+// Mismas props que antes; las acciones siguen dentro del contenido.
 function Modal({ title, onClose, children, width = 520 }) {
-  useEffect(() => {
-    const handler = (e) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(16,24,40,0.55)",
-        zIndex: 1000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 16,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: C.bgCard,
-          border: `1px solid ${C.border}`,
-          borderRadius: 10,
-          width: "100%",
-          maxWidth: width,
-          maxHeight: "90vh",
-          overflowY: "auto",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            padding: "14px 18px",
-            borderBottom: `1px solid ${C.border}`,
-          }}
-        >
-          <span style={{ fontWeight: 600, fontSize: 15, color: C.text }}>{title}</span>
-          <button
-            onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              color: C.textMuted,
-              cursor: "pointer",
-              fontSize: 18,
-              lineHeight: 1,
-              padding: "2px 6px",
-            }}
-          >
-            ×
-          </button>
-        </div>
-        <div style={{ padding: 18 }}>{children}</div>
-      </div>
-    </div>
-  );
+  return <ModalSistema abierto titulo={title} onCerrar={onClose} ancho={width}>{children}</ModalSistema>;
 }
 
 function Badge({ label, color = "primary" }) {
@@ -214,7 +160,7 @@ function Badge({ label, color = "primary" }) {
 
 function SearchInput({ value, onChange, placeholder = "Buscar..." }) {
   return (
-    <div style={{ position: "relative", display: "inline-block" }}>
+    <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
       <span
         style={{
           position: "absolute",
@@ -239,8 +185,11 @@ function SearchInput({ value, onChange, placeholder = "Buscar..." }) {
           color: C.text,
           fontSize: 13,
           padding: "6px 10px 6px 28px",
+        minHeight: "var(--mdt-control)",
+        boxSizing: "border-box",
           outline: "none",
           width: 220,
+          maxWidth: "100%",
         }}
       />
     </div>
@@ -260,6 +209,7 @@ function SelectInput({ value, onChange, options, style = {}, disabled = false })
         color: value ? C.text : C.textMuted,
         fontSize: 13,
         padding: "6px 10px",
+        minHeight: "var(--mdt-control)",
         outline: "none",
         cursor: disabled ? "not-allowed" : "pointer",
         ...style,
@@ -276,7 +226,7 @@ function SelectInput({ value, onChange, options, style = {}, disabled = false })
 
 function Field({ label, children, required = false }) {
   return (
-    <div style={{ marginBottom: 14 }}>
+    <div className="mdt-campo" style={{ marginBottom: 14 }}>
       <label
         style={{
           display: "block",
@@ -308,6 +258,7 @@ function textInput(value, onChange, placeholder = "", disabled = false) {
         color: C.text,
         fontSize: 13,
         padding: "7px 10px",
+        minHeight: "var(--mdt-control)",
         outline: "none",
         width: "100%",
         boxSizing: "border-box",
@@ -333,7 +284,7 @@ function checkInput(checked, onChange, label) {
 
 function TableWrapper({ children }) {
   return (
-    <div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${C.border}` }}>
+    <div className="mdt-tabla" tabIndex={0} role="region" aria-label="Tabla (se desplaza con las flechas)" style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${C.border}` }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         {children}
       </table>
@@ -406,7 +357,9 @@ function LoadingRow({ cols }) {
   );
 }
 
-function EmptyRow({ cols, msg = "Sin registros" }) {
+// Con `error` no dice «Sin registros»: una lectura fallida no es una lista vacía.
+function EmptyRow({ cols, msg = "Sin registros", error = "" }) {
+  if (error) msg = "No se pudo leer: la lista puede tener registros que no se ven (ver el aviso de arriba).";
   return (
     <tr>
       <td colSpan={cols} style={{ padding: 24, textAlign: "center", color: C.textDim, fontSize: 13 }}>
@@ -532,7 +485,7 @@ function EmpresasTab({ canEdit }) {
           {loading ? (
             <LoadingRow cols={canEdit ? 11 : 10} />
           ) : empresas.length === 0 ? (
-            <EmptyRow cols={canEdit ? 11 : 10} />
+            <EmptyRow error={error} cols={canEdit ? 11 : 10} />
           ) : (
             empresas.map((e) => (
               <Tr key={e.id}>
@@ -1340,14 +1293,14 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
   return (
     <div>
       {/* Sub-tabs */}
-      <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, marginBottom: 16 }}>
-        <button style={subTabStyle("plan")} onClick={() => setSubTab("plan")}>
+      <div className="mdt-pestanas mdt-pestanas--barra" role="group" style={{ borderBottom: `1px solid ${C.border}`, marginBottom: 16 }}>
+        <button aria-pressed={subTab === "plan"} style={{ ...subTabStyle("plan"), borderRadius: 0 }} onClick={() => setSubTab("plan")}>
           Plan de cuentas
         </button>
-        <button style={subTabStyle("importar")} onClick={() => { setSubTab("importar"); resetImport(); }}>
+        <button aria-pressed={subTab === "importar"} style={{ ...subTabStyle("importar"), borderRadius: 0 }} onClick={() => { setSubTab("importar"); resetImport(); }}>
           Importar / homologar
         </button>
-        <button style={subTabStyle("importar_plan")} onClick={() => { setSubTab("importar_plan"); resetIpImport(); }}>
+        <button aria-pressed={subTab === "importar_plan"} style={{ ...subTabStyle("importar_plan"), borderRadius: 0 }} onClick={() => { setSubTab("importar_plan"); resetIpImport(); }}>
           Importar Plan Megasystem
         </button>
       </div>
@@ -1545,7 +1498,7 @@ function PlanCuentasTab({ empresas, empresaId, setEmpresaId, canEdit }) {
                     <div style={{ position: "relative" }}>
                       {textInput(it.codigo, (v) => { setCodigoSugerido(false); upd({ codigo: v }); })}
                       {codigoSugerido && (
-                        <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 10, color: C.info, pointerEvents: "none" }}>
+                        <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 11, color: C.info, pointerEvents: "none" }}>
                           auto
                         </span>
                       )}
@@ -2257,7 +2210,7 @@ function AuxiliaresTab({ canEdit }) {
           {loading ? (
             <LoadingRow cols={canEdit ? 7 : 6} />
           ) : auxiliares.length === 0 ? (
-            <EmptyRow cols={canEdit ? 7 : 6} />
+            <EmptyRow error={error} cols={canEdit ? 7 : 6} />
           ) : (
             auxiliares.map((a) => (
               <Tr key={a.id}>
@@ -2464,7 +2417,7 @@ function CentrosCostoTab({ empresaId, canEdit }) {
             {loading ? (
               <LoadingRow cols={canEdit ? 5 : 4} />
             ) : centros.length === 0 ? (
-              <EmptyRow cols={canEdit ? 5 : 4} />
+              <EmptyRow error={error} cols={canEdit ? 5 : 4} />
             ) : (
               centros.map((c) => (
                 <Tr key={c.id}>
@@ -2599,7 +2552,7 @@ function TiposDocumentoTab({ canEdit }) {
           {loading ? (
             <LoadingRow cols={canEdit ? 6 : 5} />
           ) : tipos.length === 0 ? (
-            <EmptyRow cols={canEdit ? 6 : 5} />
+            <EmptyRow error={error} cols={canEdit ? 6 : 5} />
           ) : (
             tipos.map((t) => (
               <Tr key={t.id}>
@@ -3033,7 +2986,7 @@ function HomologacionTab({ empresaId, canEdit }) {
             {loading ? (
               <LoadingRow cols={canEdit ? 6 : 5} />
             ) : filasFiltradas.length === 0 ? (
-              <EmptyRow cols={canEdit ? 6 : 5} />
+              <EmptyRow error={error} cols={canEdit ? 6 : 5} />
             ) : (
               filasFiltradas.map((h) => {
                 const cuenta = h.cuenta_id ? cuentaMap[h.cuenta_id] : null;
@@ -3875,7 +3828,7 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
               </thead>
               <tbody>
                 {asientosFiltrados.length === 0 ? (
-                  <EmptyRow cols={9} msg="Sin asientos en este período" />
+                  <EmptyRow error={listError} cols={9} msg="Sin asientos en este período" />
                 ) : (
                   asientosFiltrados.map((a) => (
                     <Tr key={a.id} onClick={() => abrirEditar(a)}>
@@ -4101,7 +4054,7 @@ function LibroDiarioTab({ empresaId, canEdit, usuario }) {
                               style={{ background: C.bgInput, border: `1px solid ${C.border}`, borderRadius: 5, color: C.textMuted, fontSize: 11, padding: "3px 7px", width: "100%", outline: "none" }}
                             />
                             {tieneErr && (
-                              <span style={{ color: C.danger, fontSize: 10 }}>{errs.join(" · ")}</span>
+                              <span style={{ color: C.danger, fontSize: 11 }}>{errs.join(" · ")}</span>
                             )}
                           </div>
                         </Td>
@@ -5202,7 +5155,7 @@ function CentralizacionSiiTab({ empresaId, canEdit, usuario }) {
       {error && <div style={{ background: C.dangerBg, border: `1px solid ${C.danger}`, borderRadius: 6, padding: "8px 14px", marginBottom: 12, fontSize: 13, color: C.danger }}>{error} <button onClick={() => setError("")} style={{ marginLeft: 8, background: "none", border: "none", cursor: "pointer", color: C.danger, fontWeight: 700 }}>×</button></div>}
 
       {/* Sub-tabs */}
-      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, marginBottom: 18 }}>
+      <div className="mdt-pestanas mdt-pestanas--barra" role="group" style={{ borderBottom: `1px solid ${C.border}`, marginBottom: 18 }}>
         {VTABS.map(t => {
           const act = vista === t.key;
           return (
@@ -5276,7 +5229,7 @@ function CentralizacionSiiTab({ empresaId, canEdit, usuario }) {
                           <td style={tdR}>{fmtM(doc.monto_neto)}</td>
                           <td style={tdR}>{fmtM(doc.monto_iva)}</td>
                           <td style={tdR}>{fmtM(doc.monto_total)}</td>
-                          <td style={tdS}><span style={{ background: doc.fuente === "rcv_descarga" ? C.successBg : C.infoBg, color: doc.fuente === "rcv_descarga" ? C.success : C.info, fontSize: 10, padding: "1px 5px", borderRadius: 3, fontFamily: "monospace" }}>{doc.fuente}</span></td>
+                          <td style={tdS}><span style={{ background: doc.fuente === "rcv_descarga" ? C.successBg : C.infoBg, color: doc.fuente === "rcv_descarga" ? C.success : C.info, fontSize: 11, padding: "1px 5px", borderRadius: 3, fontFamily: "monospace" }}>{doc.fuente}</span></td>
                           <td style={tdS}><BadgeSt estado={doc.estado} /></td>
                           <td style={{ ...tdS, fontSize: 11, color: ctaSugerida ? C.textMuted : C.danger }}>{ctaSugerida ? `${ctaSugerida.codigo} ${ctaSugerida.nombre}` : "— sin regla"}</td>
                         </tr>
@@ -5945,10 +5898,10 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
 
   // ── Estilos ────────────────────────────────────────────────────────────────────
   const cardS = { background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", marginBottom: 12 };
-  const thS = { padding: "5px 8px", fontSize: 10, fontWeight: 600, color: C.textMuted, borderBottom: `1px solid ${C.border}`, background: C.bgInput, textAlign: "left", whiteSpace: "nowrap" };
+  const thS = { padding: "5px 8px", fontSize: 11, fontWeight: 600, color: C.textMuted, borderBottom: `1px solid ${C.border}`, background: C.bgInput, textAlign: "left", whiteSpace: "nowrap" };
   const thR = { ...thS, textAlign: "right" };
   const tdS = { padding: "5px 8px", fontSize: 11, borderBottom: `0.5px solid ${C.border}`, verticalAlign: "middle" };
-  const tdR = { ...tdS, textAlign: "right", fontFamily: "monospace", fontSize: 10 };
+  const tdR = { ...tdS, textAlign: "right", fontFamily: "monospace", fontSize: 11 };
   const selS = { padding: "4px 8px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 5, background: C.bgInput, color: C.text, cursor: "pointer" };
   const rowFlex = { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 };
   const lbl = { fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" };
@@ -5980,14 +5933,14 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
     const pct = max > 0 && val != null ? Math.min((Math.abs(val) / max) * 100, 100) : 0;
     return (
       <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 14px 10px" }}>
-        <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6 }}>{label}</div>
+        <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6 }}>{label}</div>
         <div style={{ fontSize: 22, fontWeight: 700, color: sem.color, marginBottom: 6 }}>{display}</div>
         <div style={{ height: 4, background: C.border, borderRadius: 2, marginBottom: 8 }}>
           <div style={{ height: 4, width: `${pct}%`, background: sem.color, borderRadius: 2 }} />
         </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ background: sem.bg, color: sem.color, borderRadius: 10, padding: "2px 8px", fontSize: 10, fontWeight: 600 }}>{sem.label}</span>
-          <span style={{ fontSize: 9, color: C.textDim }}>{bench}</span>
+          <span style={{ background: sem.bg, color: sem.color, borderRadius: 10, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>{sem.label}</span>
+          <span style={{ fontSize: 11, color: C.textDim }}>{bench}</span>
         </div>
       </div>
     );
@@ -6049,7 +6002,7 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
         <Btn size="sm" color="ghost" onClick={exportarExcel}>↓ Excel</Btn>
       </div>
       {reporteActivo !== "costos_cuartel" && (
-        <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>
+        <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
           Balance y Estado de Resultados acumulan todos los asientos contabilizados desde el inicio. El filtro de período aplica solo a Costos CeCo.
         </div>
       )}
@@ -6059,7 +6012,7 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
   return (
     <div>
       {/* Tabs principales */}
-      <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${C.border}`, marginBottom: 18 }}>
+      <div className="mdt-pestanas mdt-pestanas--barra" role="group" style={{ borderBottom: `1px solid ${C.border}`, marginBottom: 18 }}>
         {[{ id: "reportes", label: "Reportes EEFF" }, { id: "ratios", label: "Ratios financieros" }, { id: "narrativa", label: "Narrativa ejecutiva" }].map(t => (
           <button key={t.id} onClick={() => setSubTab(t.id)} style={{ background: "none", border: "none", borderBottom: subTab === t.id ? `2px solid ${C.primary}` : "2px solid transparent", color: subTab === t.id ? C.primary : C.textMuted, cursor: "pointer", fontSize: 13, fontWeight: subTab === t.id ? 600 : 400, padding: "8px 18px", whiteSpace: "nowrap" }}>
             {t.label}
@@ -6071,7 +6024,7 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
       {subTab === "reportes" && (
         <div>
           <PanelFiltros conCeCo={reporteActivo === "costos_cuartel"} />
-          <div style={{ display: "flex", gap: 0, borderBottom: `0.5px solid ${C.border}`, marginBottom: 14 }}>
+          <div className="mdt-pestanas mdt-pestanas--barra" role="group" style={{ borderBottom: `0.5px solid ${C.border}`, marginBottom: 14 }}>
             <RepTab id="balance" label="Balance general (8 columnas)" />
             <RepTab id="estado_resultado" label="Estado de resultados" />
             <RepTab id="costos_cuartel" label="Costos por CeCo" />
@@ -6129,7 +6082,7 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
                             const resVal = Number(r.resultado_ingreso || 0) + Number(r.resultado_egreso || 0);
                             return (
                               <tr key={r.codigo}>
-                                <td style={{ ...tdS, fontFamily: "monospace", fontSize: 10, color: C.textMuted }}>{r.codigo}</td>
+                                <td style={{ ...tdS, fontFamily: "monospace", fontSize: 11, color: C.textMuted }}>{r.codigo}</td>
                                 <td style={{ ...tdS, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }} title={r.nombre}>{r.nombre}</td>
                                 <td style={{ ...tdR, borderLeft: `1px solid ${C.borderLight}`, color: Number(r.saldo_deudor) > 0 ? C.info : "transparent" }}>{Number(r.saldo_deudor) > 0 ? fmtM(r.saldo_deudor) : ""}</td>
                                 <td style={{ ...tdR, color: Number(r.saldo_acreedor) > 0 ? C.danger : "transparent" }}>{Number(r.saldo_acreedor) > 0 ? fmtM(r.saldo_acreedor) : ""}</td>
@@ -6216,7 +6169,7 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
                     const p = totalEgr > 0 ? (Number(r.resultado_egreso) / totalEgr) * 100 : 0;
                     return (
                       <div key={r.codigo} style={{ marginBottom: 10 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 2 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 2 }}>
                           <span style={{ color: C.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 170 }}>{r.nombre}</span>
                           <span style={{ fontFamily: "monospace", color: C.textDim, marginLeft: 4 }}>{p.toFixed(1)}%</span>
                         </div>
@@ -6318,17 +6271,17 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
                       { label: "Utilidad neta", value: ratios.utilidad, color: ratios.utilidad >= 0 ? C.success : C.danger },
                     ].map(k => (
                       <div key={k.label} style={{ background: C.bgInput, borderRadius: 6, padding: "10px 12px" }}>
-                        <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4 }}>{k.label}</div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>{k.label}</div>
                         <div style={{ fontSize: 15, fontWeight: 600, color: k.color }}>{fmtM(Math.round(k.value))}</div>
                       </div>
                     ))}
                   </div>
-                  <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4 }}>Estructura financiera (Activo = Pasivo + Patrimonio)</div>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>Estructura financiera (Activo = Pasivo + Patrimonio)</div>
                   <div style={{ display: "flex", height: 14, borderRadius: 4, overflow: "hidden" }}>
                     <div title="Pasivo" style={{ background: C.danger, width: `${(ratios.totalPasivo / ratios.totalActivo) * 100}%`, opacity: 0.75 }} />
                     <div title="Patrimonio" style={{ background: C.teal, flex: 1, opacity: 0.75 }} />
                   </div>
-                  <div style={{ display: "flex", gap: 14, marginTop: 5, fontSize: 10, color: C.textMuted }}>
+                  <div style={{ display: "flex", gap: 14, marginTop: 5, fontSize: 11, color: C.textMuted }}>
                     <span><span style={{ display: "inline-block", width: 8, height: 8, background: C.danger, borderRadius: 2, marginRight: 4, opacity: 0.75 }} />Pasivo {ratios.totalActivo > 0 ? ((ratios.totalPasivo / ratios.totalActivo) * 100).toFixed(0) : 0}%</span>
                     <span><span style={{ display: "inline-block", width: 8, height: 8, background: C.teal, borderRadius: 2, marginRight: 4, opacity: 0.75 }} />Patrimonio {ratios.totalActivo > 0 ? ((ratios.patrimonio / ratios.totalActivo) * 100).toFixed(0) : 0}%</span>
                   </div>
@@ -6353,7 +6306,7 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
               <div style={{ ...lbl, display: "block", marginBottom: 3 }}>Período</div>
               <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
                 {[["mes","Mes"],["anio","Año"],["temporada","Temp."]].map(([v,l]) => (
-                  <button key={v} onClick={() => setModoTemporal(v)} style={{ flex: 1, padding: "3px 0", fontSize: 10, border: `1px solid ${modoTemporal===v ? C.primary : C.border}`, borderRadius: 4, background: modoTemporal===v ? C.primary : C.bgCard, color: modoTemporal===v ? "#fff" : C.textMuted, cursor: "pointer" }}>{l}</button>
+                  <button key={v} onClick={() => setModoTemporal(v)} style={{ flex: 1, padding: "3px 0", fontSize: 11, border: `1px solid ${modoTemporal===v ? C.primary : C.border}`, borderRadius: 4, background: modoTemporal===v ? C.primary : C.bgCard, color: modoTemporal===v ? "#fff" : C.textMuted, cursor: "pointer" }}>{l}</button>
                 ))}
               </div>
               {modoTemporal === "mes" && <div style={{ display: "flex", gap: 4 }}>
@@ -6378,7 +6331,7 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
                 <Btn size="sm" color="ghost" style={{ flex: 1 }} onClick={() => { const blob = new Blob([narTexto], { type: "text/plain" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `informe_ejecutivo_${filtroAnio}.txt`; a.click(); URL.revokeObjectURL(url); }}>.txt</Btn>
               </div>
             )}
-            <div style={{ marginTop: 14, fontSize: 10, color: C.textDim, lineHeight: 1.5 }}>
+            <div style={{ marginTop: 14, fontSize: 11, color: C.textDim, lineHeight: 1.5 }}>
               Análisis determinista — sin IA externa. El texto generado es editable antes de distribuir.
             </div>
           </div>
@@ -6394,7 +6347,7 @@ function InformesAnaliticaTab({ empresaId, canEdit, usuario }) {
             {narTexto && (
               <textarea value={narTexto} onChange={e => setNarTexto(e.target.value)} style={{ width: "100%", minHeight: 430, padding: "12px 14px", fontSize: 12, lineHeight: 1.7, fontFamily: "monospace", border: `1px solid ${C.border}`, borderRadius: 6, background: C.bgInput, color: C.text, resize: "vertical", boxSizing: "border-box" }} />
             )}
-            <div style={{ marginTop: 8, fontSize: 10, color: C.textDim }}>Fuentes: contab_balance_8_columnas · contab_costos_cuartel · contab_saldos_acumulados · Editable antes de exportar.</div>
+            <div style={{ marginTop: 8, fontSize: 11, color: C.textDim }}>Fuentes: contab_balance_8_columnas · contab_costos_cuartel · contab_saldos_acumulados · Editable antes de exportar.</div>
           </div>
         </div>
       )}
@@ -6425,21 +6378,25 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) 
   const [empresas, setEmpresas] = useState([]);
   const [empresaId, setEmpresaId] = useState("");
   const [loadingEmpresas, setLoadingEmpresas] = useState(true);
+  const [errorEmpresas, setErrorEmpresas] = useState("");
 
-  // Cargar empresas una vez al montar
-  useEffect(() => {
-    (async () => {
-      setLoadingEmpresas(true);
-      try {
-        const data = await supaSelect("empresas", "activa=eq.true&order=codigo.asc");
-        setEmpresas(data || []);
-        if (data && data.length > 0) setEmpresaId(data[0].id);
-      } catch (e) {
-        console.error("Error cargando empresas:", e);
-      }
-      setLoadingEmpresas(false);
-    })();
+  // Cargar empresas al montar. Si la lectura falla (o no trae una lista), se dice:
+  // antes quedaba la pantalla como si no hubiera empresas («Sin registros»).
+  const cargarEmpresas = useCallback(async () => {
+    setLoadingEmpresas(true);
+    setErrorEmpresas("");
+    try {
+      const data = await supaSelect("empresas", "activa=eq.true&order=codigo.asc");
+      if (!Array.isArray(data)) throw new Error("respuesta inesperada del servidor");
+      setEmpresas(data);
+      if (data.length > 0) setEmpresaId((id) => id || data[0].id);
+    } catch (e) {
+      console.error("Error cargando empresas:", e);
+      setErrorEmpresas(e.message || "error de conexión");
+    }
+    setLoadingEmpresas(false);
   }, []);
+  useEffect(() => { cargarEmpresas(); }, [cargarEmpresas]);
 
   const empresaOpts = useMemo(
     () => empresas.map((e) => ({ value: e.id, label: `${e.codigo} — ${e.nombre}` })),
@@ -6511,7 +6468,7 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) 
 
         {/* Selector de empresa (solo en tabs que lo necesitan) */}
         {necesitaEmpresa && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", maxWidth: "100%" }}>
             <span style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", whiteSpace: "nowrap" }}>Empresa:</span>
             {loadingEmpresas ? (
               <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>Cargando...</span>
@@ -6529,13 +6486,13 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) 
 
       {/* Tabs */}
       <div
+        className="mdt-pestanas mdt-pestanas--barra"
+        role="group"
+        aria-label="Secciones de Contabilidad"
         style={{
-          display: "flex",
-          gap: 0,
           borderBottom: `1px solid ${C.border}`,
           background: C.bgCard,
           padding: "0 24px",
-          overflowX: "auto",
         }}
       >
         {TABS.map((t) => {
@@ -6544,9 +6501,11 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) 
             <button
               key={t.key}
               onClick={() => setTabActiva(t.key)}
+              aria-pressed={active}
               style={{
                 background: "none",
                 border: "none",
+                borderRadius: 0,
                 borderBottom: active ? `2px solid ${C.primary}` : "2px solid transparent",
                 color: active ? C.primary : C.textMuted,
                 cursor: "pointer",
@@ -6565,6 +6524,14 @@ export default function ContabilidadModule({ usuario, canEdit, esCFO, onBack }) 
 
       {/* Contenido del tab */}
       <div style={{ padding: "20px 24px" }}>
+        {errorEmpresas && (
+          <div style={{ marginBottom: 16 }}>
+            <EstadoVista tipo="error" testid="contab-error-empresas" onReintentar={cargarEmpresas}>
+              <div style={{ fontWeight: 700 }}>No se pudieron leer las empresas.</div>
+              <div>Las pestañas que dependen de una empresa no muestran datos hasta reintentar ({errorEmpresas}).</div>
+            </EstadoVista>
+          </div>
+        )}
         {tabActiva === "empresas" && (
           <EmpresasTab canEdit={canEdit || esCFO} />
         )}

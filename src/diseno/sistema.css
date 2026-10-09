@@ -89,6 +89,12 @@
   .mdt-pestanas > * { scroll-snap-align: start; flex: 0 0 auto; }
 }
 
+/* Variante «barra»: la tira de pestañas de un módulo con su propio estilo (subrayado).
+   Una fila que se desliza en cualquier ancho, sin separación ni margen propios. */
+.mdt-pestanas.mdt-pestanas--barra { flex-wrap: nowrap; overflow-x: auto; gap: 0; margin-bottom: 0; scrollbar-width: thin; }
+.mdt-pestanas.mdt-pestanas--barra > * { flex: 0 0 auto; }
+@media (max-width: 599px) { .mdt-pestanas.mdt-pestanas--barra { margin-left: 0; margin-right: 0; max-width: 100%; } }
+
 /* ── Filtros: fila que se ajusta; en teléfono, un control por línea ── */
 .mdt-filtros { display: flex; flex-wrap: wrap; gap: var(--mdt-separacion); align-items: flex-end; margin-bottom: var(--mdt-e-3); }
 .mdt-filtros > * { min-width: 0; }
@@ -233,3 +239,27 @@ html[data-nav="compacta"] .mdt-dup-nav { display: none; }
   .mdt-tab { min-height: 42px; }
   button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) { min-height: 36px; }
 }
+
+/* ── Tabla apilable: en teléfono cada fila es una tarjeta ──────────
+   La primera celda ocupa el ancho completo; las demás se ordenan en una grilla con
+   su rótulo (atributo data-etiqueta). No cambia el contenido ni las acciones: solo
+   cómo se disponen. En computador y tablet sigue siendo una tabla. */
+@media (max-width: 599px) {
+  table.mdt-tabla-apilable, .mdt-tabla-apilable > tbody { display: block; width: 100%; }
+  .mdt-tabla-apilable > thead { display: none; }
+  .mdt-tabla-apilable > tbody > tr {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+    gap: var(--mdt-e-1) var(--mdt-e-2); padding: var(--mdt-e-2) 0; align-items: start;
+  }
+  .mdt-tabla-apilable > tbody > tr > td { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+  .mdt-tabla-apilable > tbody > tr > td:first-child { grid-column: 1 / -1; align-items: stretch; }
+  .mdt-tabla-apilable > tbody > tr > td[data-etiqueta]::before {
+    content: attr(data-etiqueta); font-size: var(--mdt-t-celda); font-weight: 600; color: var(--mdt-c-texto-2);
+  }
+  .mdt-tabla-apilable > tbody > tr > td:empty { display: none; }
+}
+
+/* ── Control circular (semáforos de Tareas): 28 px; 44 px al dedo ── */
+.mdt-circular { width: 28px; height: 28px; min-height: 0; padding: 0; border-radius: 50%; flex: 0 0 auto; }
+.mdt-circular--chico { width: 26px; height: 26px; }
+@media (pointer: coarse) { .mdt-circular, .mdt-circular--chico { width: var(--mdt-control); height: var(--mdt-control); } }

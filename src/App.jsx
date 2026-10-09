@@ -21,7 +21,7 @@ import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash
 import { credencialPreservada } from "./data/credencialPreservada";
 import { restaurarFilas, mensajeRestauracion } from './restaurarRespaldo.js';
 import Navegacion from "./diseno/Navegacion.jsx";
-import { LimiteError } from "./diseno/componentes.jsx";
+import { LimiteError, Modal, Boton } from "./diseno/componentes.jsx";
 import { DialogosHost } from "./diseno/dialogos.jsx";
 import Inicio from "./diseno/Inicio.jsx";
 import { useClaseVentana } from "./diseno/useClaseVentana";
@@ -3468,20 +3468,20 @@ Equipo Mediterra`);
                   <div style={{fontWeight:600,color:algunaVenc?C.danger:C.text,fontSize:13}}>{t.nombre}</div>
                 </div>
                 <div style={{display:"flex",gap:6,marginTop:2,flexWrap:"wrap",paddingLeft:18}}>
-                  <span style={{fontSize:10,background:cat.bg,color:cat.color,borderRadius:20,padding:"1px 8px",fontWeight:600}}>{t.categoria}</span>
-                  <span style={{fontSize:10,color:C.muted2}}>{frec} · {diaLabel} · por empresa</span>
+                  <span style={{fontSize:11,background:cat.bg,color:cat.color,borderRadius:20,padding:"1px 8px",fontWeight:600}}>{t.categoria}</span>
+                  <span style={{fontSize:11,color:C.muted2}}>{frec} · {diaLabel} · por empresa</span>
                 </div>
               </td>
-              <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{respLabel(t)}</td>
-              <td style={{textAlign:"center",padding:"9px 8px"}}>
+              <td data-etiqueta="Responsable" style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{respLabel(t)}</td>
+              <td data-etiqueta="Estado" style={{textAlign:"center",padding:"9px 8px"}}>
                 <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,
                   background:nVerde===subs.length?C.successBg:C.cardAlt,color:nVerde===subs.length?C.success:C.muted}}>
                   {nVerde}/{subs.length}
                 </span>
               </td>
-              <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{sup?sup.split(" ")[0]:<span style={{color:C.border}}>-</span>}</td>
-              <td style={{textAlign:"center",padding:"9px 8px"}}/>
-              <td style={{textAlign:"center",padding:"9px 8px"}}/>
+              <td data-etiqueta="Supervisor" style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{sup?sup.split(" ")[0]:<span style={{color:C.border}}>-</span>}</td>
+              <td data-etiqueta="Aprobación" style={{textAlign:"center",padding:"9px 8px"}}/>
+              <td data-etiqueta="Comentario" style={{textAlign:"center",padding:"9px 8px"}}/>
             </tr>
             {expanded&&subs.map(({emp,k})=>{
               const est=estados[k]||{estadoResp:"gris",estadoSup:"gris",aprobado:false};
@@ -3506,19 +3506,19 @@ Equipo Mediterra`);
                       <div style={{fontSize:12,color:esNA?C.muted2:vencida?C.danger:C.muted,textDecoration:esNA?"line-through":"none"}}>{emp}</div>
                     </div>
                   </td>
-                  <td style={{textAlign:"center",padding:"7px 8px",fontSize:12,color:C.muted}}>{respLabel(t)}</td>
-                  <td style={{textAlign:"center",padding:"7px 8px"}}>
-                    <button onClick={()=>ciclarResp(k,t,numSem,emp)}
-                      style={{width:26,height:26,borderRadius:"50%",background:semResp.color,border:`3px solid ${semResp.border}`,cursor:puedeResp?"pointer":"not-allowed",outline:"none",opacity:puedeResp?1:0.4,boxShadow:"0 2px 6px #0002",backgroundImage:est.estadoResp==="na"?"repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,0.15) 3px,rgba(0,0,0,0.15) 6px)":undefined}}/>
+                  <td data-etiqueta="Responsable" style={{textAlign:"center",padding:"7px 8px",fontSize:12,color:C.muted}}>{respLabel(t)}</td>
+                  <td data-etiqueta="Estado" style={{textAlign:"center",padding:"7px 8px"}}>
+                    <button aria-label={`Estado del responsable: ${est.estadoResp}`} onClick={()=>ciclarResp(k,t,numSem,emp)}
+                      className="mdt-circular mdt-circular--chico" style={{background:semResp.color,border:`3px solid ${semResp.border}`,cursor:puedeResp?"pointer":"not-allowed",outline:"none",opacity:puedeResp?1:0.4,boxShadow:"0 2px 6px #0002",backgroundImage:est.estadoResp==="na"?"repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,0.15) 3px,rgba(0,0,0,0.15) 6px)":undefined}}/>
                   </td>
-                  <td style={{textAlign:"center",padding:"7px 8px",fontSize:12,color:C.muted}}>{sup?sup.split(" ")[0]:<span style={{color:C.border}}>-</span>}</td>
-                  <td style={{textAlign:"center",padding:"7px 8px"}}>
-                    {sup?<button onClick={()=>ciclarSup(k,t)} style={{width:26,height:26,borderRadius:"50%",background:supActivo?semSup.color:"#e5e7eb",border:`3px solid ${supActivo?semSup.border:C.border}`,cursor:(supActivo&&puedeSup)?"pointer":"not-allowed",outline:"none",opacity:(supActivo&&puedeSup)?1:0.4}}/>
+                  <td data-etiqueta="Supervisor" style={{textAlign:"center",padding:"7px 8px",fontSize:12,color:C.muted}}>{sup?sup.split(" ")[0]:<span style={{color:C.border}}>-</span>}</td>
+                  <td data-etiqueta="Aprobación" style={{textAlign:"center",padding:"7px 8px"}}>
+                    {sup?<button aria-label={`Aprobación del supervisor: ${supActivo?est.estadoSup:"no disponible"}`} onClick={()=>ciclarSup(k,t)} className="mdt-circular mdt-circular--chico" style={{background:supActivo?semSup.color:"#e5e7eb",border:`3px solid ${supActivo?semSup.border:C.border}`,cursor:(supActivo&&puedeSup)?"pointer":"not-allowed",outline:"none",opacity:(supActivo&&puedeSup)?1:0.4}}/>
                     :<span style={{color:C.border,fontSize:12}}>-</span>}
                   </td>
-                  <td style={{textAlign:"center",padding:"7px 8px"}}>
-                    <button onClick={()=>{setEditComentario(k);setTextoComentario(com);}}
-                      style={{background:com?C.infoBg:C.cardAlt,border:"none",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:11,color:com?C.primary:C.muted2,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  <td data-etiqueta="Comentario" style={{textAlign:"center",padding:"7px 8px"}}>
+                    <button className="mdt-boton mdt-boton--chico" aria-label={com?`Comentario: ${com}`:"Agregar comentario"} onClick={()=>{setEditComentario(k);setTextoComentario(com);}}
+                      style={{background:com?C.infoBg:C.cardAlt,border:"none",borderRadius:8,cursor:"pointer",fontSize:11,color:com?C.primary:C.muted2,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                       {com?`[${com.substring(0,10)}...]`:"+"}
                     </button>
                   </td>
@@ -3562,24 +3562,24 @@ Equipo Mediterra`);
               <div style={{fontWeight:500,color:!depOk?C.purple:esNA?C.muted2:vencida?C.danger:C.text,fontSize:13,textDecoration:esNA?"line-through":"none"}}>{t.nombre}</div>
             </div>
             <div style={{display:"flex",gap:6,marginTop:2,flexWrap:"wrap"}}>
-              <span style={{fontSize:10,background:cat.bg,color:cat.color,borderRadius:20,padding:"1px 8px",fontWeight:600}}>{t.categoria}</span>
-              <span style={{fontSize:10,color:C.muted2}}>{frec} · {diaLabel}</span>
+              <span style={{fontSize:11,background:cat.bg,color:cat.color,borderRadius:20,padding:"1px 8px",fontWeight:600}}>{t.categoria}</span>
+              <span style={{fontSize:11,color:C.muted2}}>{frec} · {diaLabel}</span>
             </div>
           </td>
-          <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{respLabel(t)}</td>
-          <td style={{textAlign:"center",padding:"9px 8px"}}>
-            <button onClick={()=>ciclarResp(key,t,numSem)}
-              style={{width:28,height:28,borderRadius:"50%",background:semResp.color,border:`3px solid ${semResp.border}`,cursor:puedeResp?"pointer":"not-allowed",outline:"none",opacity:puedeResp?1:0.4,boxShadow:"0 2px 6px #0002",transition:"transform 0.1s",backgroundImage:est.estadoResp==="na"?"repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,0.15) 3px,rgba(0,0,0,0.15) 6px)":undefined}}
+          <td data-etiqueta="Responsable" style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{respLabel(t)}</td>
+          <td data-etiqueta="Estado" style={{textAlign:"center",padding:"9px 8px"}}>
+            <button aria-label={`Estado del responsable: ${est.estadoResp}`} onClick={()=>ciclarResp(key,t,numSem)}
+              className="mdt-circular" style={{background:semResp.color,border:`3px solid ${semResp.border}`,cursor:puedeResp?"pointer":"not-allowed",outline:"none",opacity:puedeResp?1:0.4,boxShadow:"0 2px 6px #0002",transition:"transform 0.1s",backgroundImage:est.estadoResp==="na"?"repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,0.15) 3px,rgba(0,0,0,0.15) 6px)":undefined}}
               onMouseEnter={e=>{if(puedeResp)e.target.style.transform="scale(1.2)";}} onMouseLeave={e=>e.target.style.transform="scale(1)"}/>
           </td>
-          <td style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{sup?sup.split(" ")[0]:<span style={{color:C.border}}>-</span>}</td>
-          <td style={{textAlign:"center",padding:"9px 8px"}}>
-            {sup?<button onClick={()=>ciclarSup(key,t)} style={{width:28,height:28,borderRadius:"50%",background:supActivo?semSup.color:"#e5e7eb",border:`3px solid ${supActivo?semSup.border:C.border}`,cursor:(supActivo&&puedeSup)?"pointer":"not-allowed",outline:"none",opacity:(supActivo&&puedeSup)?1:0.4}}/>
+          <td data-etiqueta="Supervisor" style={{textAlign:"center",padding:"9px 8px",fontSize:12,color:C.text}}>{sup?sup.split(" ")[0]:<span style={{color:C.border}}>-</span>}</td>
+          <td data-etiqueta="Aprobación" style={{textAlign:"center",padding:"9px 8px"}}>
+            {sup?<button aria-label={`Aprobación del supervisor: ${supActivo?est.estadoSup:"no disponible"}`} onClick={()=>ciclarSup(key,t)} className="mdt-circular" style={{background:supActivo?semSup.color:"#e5e7eb",border:`3px solid ${supActivo?semSup.border:C.border}`,cursor:(supActivo&&puedeSup)?"pointer":"not-allowed",outline:"none",opacity:(supActivo&&puedeSup)?1:0.4}}/>
             :<span style={{color:C.border,fontSize:12}}>-</span>}
           </td>
-          <td style={{textAlign:"center",padding:"9px 8px"}}>
-            <button onClick={()=>{setEditComentario(key);setTextoComentario(com);}}
-              style={{background:com?C.infoBg:C.cardAlt,border:"none",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:11,color:com?C.primary:C.muted2,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          <td data-etiqueta="Comentario" style={{textAlign:"center",padding:"9px 8px"}}>
+            <button className="mdt-boton mdt-boton--chico" aria-label={com?`Comentario: ${com}`:"Agregar comentario"} onClick={()=>{setEditComentario(key);setTextoComentario(com);}}
+              style={{background:com?C.infoBg:C.cardAlt,border:"none",borderRadius:8,cursor:"pointer",fontSize:11,color:com?C.primary:C.muted2,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
               {com?`[${com.substring(0,10)}...]`:"+"}
             </button>
           </td>
@@ -3900,20 +3900,17 @@ Equipo Mediterra`);
     return marco(
       <div style={{fontFamily:"sans-serif",background:C.cardAlt,minHeight:"100vh"}}>
         {avisosPersistencia}
-        {/* Modal editar comentario */}
-        {editComentario&&(
-          <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.55)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <div style={{background:C.card,borderRadius:12,padding:24,width:380,boxShadow:"0 8px 32px #0003"}}>
-              <div style={{fontWeight:700,fontSize:15,marginBottom:10}}>Comentario</div>
-              <textarea value={textoComentario} onChange={e=>setTextoComentario(e.target.value)}
-                style={{width:"100%",height:80,borderRadius:8,border:`1px solid ${C.border}`,padding:8,fontSize:13,resize:"vertical",outline:"none",boxSizing:"border-box"}}/>
-              <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
-                <button onClick={()=>setEditComentario(null)} style={{padding:"6px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:13}}>Cancelar</button>
-                <button onClick={guardarComentario} style={{padding:"6px 16px",borderRadius:8,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>Guardar</button>
-              </div>
-            </div>
+        {/* Modal editar comentario (modal del sistema: hoja inferior en teléfono, Esc cancela) */}
+        <Modal abierto={!!editComentario} titulo="Comentario" onCerrar={()=>setEditComentario(null)} testid="tareas-comentario" ancho={420}
+          pie={<>
+            <Boton tipo="secundario" onClick={()=>setEditComentario(null)}>Cancelar</Boton>
+            <Boton tipo="primario" onClick={guardarComentario} data-testid="tareas-comentario-guardar">Guardar</Boton>
+          </>}>
+          <div className="mdt-campo">
+            <label htmlFor="tareas-comentario-texto">Comentario de la tarea</label>
+            <textarea id="tareas-comentario-texto" value={textoComentario} onChange={e=>setTextoComentario(e.target.value)} rows={4}/>
           </div>
-        )}
+        </Modal>
 
         {/* ═══ Modal alertas tareas puntuales al ingresar ═══ */}
         {modalAlertasTareas&&(
@@ -4106,11 +4103,11 @@ Equipo Mediterra`);
             <div style={{borderLeft:"1px solid rgba(255,255,255,0.15)",paddingLeft:14}}>
               <img src="/med.png" alt="" style={{height:24,objectFit:"contain"}} onError={e=>{e.target.style.display="none";}}/>
             </div>
-            <div style={{fontSize:10,color:"rgba(255,255,255,0.45)"}}>{MESES[mes]} {anio}</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.6)"}}>{MESES[mes]} {anio}</div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
             {estadoGuardadoUI&&<span style={{fontSize:11,color:"rgba(255,255,255,0.7)"}}>{estadoGuardadoUI.icon} {estadoGuardadoUI.text}</span>}
-            {totalVencidas>0&&<button onClick={()=>setModalVencidas(true)} style={{background:C.danger,color:"#fff",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,border:"none",cursor:"pointer"}}>⚠ {totalVencidas} vencidas</button>}
+            {totalVencidas>0&&<button className="mdt-boton mdt-boton--chico" onClick={()=>setModalVencidas(true)} style={{background:C.danger,color:"#fff",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,border:"none",cursor:"pointer"}}>⚠ {totalVencidas} vencidas</button>}
             <button className="mdt-dup-nav" onClick={doLogout} style={{background:"rgba(248,113,113,0.2)",border:"none",color:"#fca5a5",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:12}}>Salir</button>
           </div>
         </div>
@@ -4118,21 +4115,21 @@ Equipo Mediterra`);
         {/* Controles */}
         <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"10px 24px",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            <button onClick={()=>setMes(m=>{const nm=m===0?11:m-1;if(nm===11)setAnio(a=>a-1);return nm;})}
+            <button className="mdt-boton mdt-boton--chico" aria-label="Mes anterior" onClick={()=>setMes(m=>{const nm=m===0?11:m-1;if(nm===11)setAnio(a=>a-1);return nm;})}
               style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:13}}>‹</button>
             <span style={{fontWeight:700,fontSize:14,minWidth:120,textAlign:"center"}}>{MESES[mes]} {anio}</span>
-            <button onClick={()=>setMes(m=>{const nm=m===11?0:m+1;if(nm===0)setAnio(a=>a+1);return nm;})}
+            <button className="mdt-boton mdt-boton--chico" aria-label="Mes siguiente" onClick={()=>setMes(m=>{const nm=m===11?0:m+1;if(nm===0)setAnio(a=>a+1);return nm;})}
               style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:13}}>›</button>
           </div>
-          <select value={filtroPersona} onChange={e=>setFiltroPersona(e.target.value)}
-            style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
+          <select value={filtroPersona} onChange={e=>setFiltroPersona(e.target.value)} aria-label="Filtrar por persona"
+            style={{minHeight:"var(--mdt-control)",padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
             <option value="">Todas las personas</option>
             {WORKERS.filter(w=>esAdmin(usuarioActual?.nombre)||w.nombre===usuarioActual?.nombre||(usuarioActual?.equipo||[]).includes(w.nombre)).map(w=><option key={w.nombre} value={w.nombre}>{w.nombre.split(" ")[0]}</option>)}
           </select>
           {recsActivos.length>0&&(
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               {recsActivos.map(r=>(
-                <button key={r.id} onClick={()=>{setModalEmail({...r,workerNombre:usuarioActual.nombre,workerEmail:usuarioActual.email});}}
+                <button key={r.id} className="mdt-boton mdt-boton--chico" onClick={()=>{setModalEmail({...r,workerNombre:usuarioActual.nombre,workerEmail:usuarioActual.email});}}
                   style={{background:C.warningBg,border:"1px solid #fde68a",borderRadius:8,padding:"4px 10px",fontSize:11,cursor:"pointer",color:"#92400e",fontWeight:600}}>
                   📬 {r.titulo}
                 </button>
@@ -4140,7 +4137,7 @@ Equipo Mediterra`);
             </div>
           )}
           {esAdmin(usuarioActual.nombre)&&puedeEditConfig&&(
-            <button onClick={()=>setMostrarFormTarea(v=>!v)}
+            <button className="mdt-boton mdt-boton--chico" onClick={()=>setMostrarFormTarea(v=>!v)}
               style={{marginLeft:"auto",padding:"6px 14px",borderRadius:8,background:mostrarFormTarea?C.primary:C.cardAlt,color:mostrarFormTarea?"#fff":C.text,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:12,fontWeight:600}}>
               {mostrarFormTarea?"✕ Cancelar":"+ Nueva Tarea"}
             </button>
@@ -4234,7 +4231,7 @@ Equipo Mediterra`);
 
 
         {/* Tab navigation bar */}
-        <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"0 24px",display:"flex",gap:0,overflowX:"auto"}}>
+        <div className="mdt-pestanas mdt-pestanas--barra" role="group" aria-label="Frecuencia de las tareas" style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"0 24px"}}>
           {[
             {id:"diaria",    label:"📋 Diarias",    show:puedeVerDiaria},
             {id:"semanal",   label:"📅 Semanales",  show:puedeVerSemanal},
@@ -4244,9 +4241,9 @@ Equipo Mediterra`);
             {id:"anual",     label:"🗃 Anuales",    show:puedeVerAnual},
             {id:"config",    label:"⚙️ Config",    show:puedeVerConfig},
           ].filter(t=>t.show).map(t=>(
-            <button key={t.id} onClick={()=>setTab(t.id)}
+            <button key={t.id} onClick={()=>setTab(t.id)} aria-pressed={tab===t.id}
               className={`mdt-tab${tab===t.id?" mdt-tab--active":""}`}
-              style={{padding:"12px 18px",border:"none",borderBottom:`3px solid ${tab===t.id?C.primary:"transparent"}`,
+              style={{padding:"12px 18px",border:"none",borderRadius:0,borderBottom:`3px solid ${tab===t.id?C.primary:"transparent"}`,
                 background:"transparent",cursor:"pointer",fontSize:12,fontWeight:tab===t.id?700:400,
                 color:tab===t.id?C.primary:C.muted,whiteSpace:"nowrap"}}>
               {t.label}
@@ -4262,7 +4259,7 @@ Equipo Mediterra`);
               <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
                 <span style={{fontSize:12,color:C.muted,fontWeight:600}}>Semana:</span>
                 {semanas.map(s=>(
-                  <button key={s.num} onClick={()=>setSemanaActiva(s.num)}
+                  <button key={s.num} onClick={()=>setSemanaActiva(s.num)} className="mdt-boton mdt-boton--chico" aria-pressed={semanaActiva===s.num}
                     style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${semanaActiva===s.num?C.primary:C.border}`,
                       background:semanaActiva===s.num?C.infoBg:"#fff",color:semanaActiva===s.num?C.primary:C.text,
                       cursor:"pointer",fontSize:12,fontWeight:600}}>
@@ -4276,7 +4273,7 @@ Equipo Mediterra`);
                     Semana del {s.inicioSem.toLocaleDateString("es-CL")} al {new Date(s.inicioSem.getTime()+6*86400000).toLocaleDateString("es-CL")}
                   </div>
                   <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
+                    <table className="mdt-tabla-apilable" style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
                       {encabezadoTabla}
                       <tbody>
                         <TablaFilas
@@ -4294,7 +4291,7 @@ Equipo Mediterra`);
 
           {tab==="mensual"&&puedeVerMensual&&(
             <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
+              <table className="mdt-tabla-apilable" style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
                 {encabezadoTabla}
                 <tbody>
                   <TablaFilas
@@ -4339,7 +4336,7 @@ Equipo Mediterra`);
                 );
                 return (
                   <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
+                    <table className="mdt-tabla-apilable" style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
                       <thead>
                         <tr style={{background:C.cardAlt,borderBottom:`2px solid ${C.border}`}}>
                           <th style={{padding:"10px 14px",textAlign:"left",fontSize:11,color:C.muted,fontWeight:700}}>Tarea</th>
@@ -4374,16 +4371,16 @@ Equipo Mediterra`);
                               <td style={{padding:"10px 14px"}}>
                                 <div style={{fontWeight:600,fontSize:12,color:C.text}}>{t.nombre}</div>
                                 <div style={{display:"flex",gap:6,marginTop:4}}>
-                                  <span style={{fontSize:9,background:cat.bg,color:cat.color,padding:"1px 8px",borderRadius:20,fontWeight:600}}>{t.categoria}</span>
+                                  <span style={{fontSize:11,background:cat.bg,color:cat.color,padding:"1px 8px",borderRadius:20,fontWeight:600}}>{t.categoria}</span>
                                 </div>
                               </td>
-                              <td style={{padding:"10px 14px",fontSize:12,color:C.muted}}>{t.responsable}</td>
-                              <td style={{padding:"10px 14px",fontSize:12,color:C.muted}}>{sup||"—"}</td>
-                              <td style={{padding:"10px 14px",textAlign:"center",fontSize:12,fontWeight:600,
+                              <td data-etiqueta="Responsable" style={{padding:"10px 14px",fontSize:12,color:C.muted}}>{t.responsable}</td>
+                              <td data-etiqueta="Supervisor" style={{padding:"10px 14px",fontSize:12,color:C.muted}}>{sup||"—"}</td>
+                              <td data-etiqueta="Fecha" style={{padding:"10px 14px",textAlign:"center",fontSize:12,fontWeight:600,
                                 color:vencida?C.danger:proxima?C.warning:C.text}}>
                                 {fechaObj ? fechaObj.toLocaleDateString("es-CL",{day:"2-digit",month:"short",year:"numeric"}) : "—"}
                               </td>
-                              <td style={{padding:"10px 14px",textAlign:"center"}}>
+                              <td data-etiqueta="Días" style={{padding:"10px 14px",textAlign:"center"}}>
                                 {diff !== null ? (
                                   <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,
                                     background:completada?C.successBg:vencida?C.dangerBg:proxima&&diff<=7?C.warningBg:proxima?C.infoBg:C.cardAlt,
@@ -4392,23 +4389,23 @@ Equipo Mediterra`);
                                   </span>
                                 ) : "—"}
                               </td>
-                              <td style={{padding:"10px 14px",textAlign:"center"}}>
-                                <div onClick={()=>puedeResp&&ciclarResp(key,t,null)}
-                                  style={{width:28,height:28,borderRadius:"50%",background:semResp.bg,border:`2px solid ${semResp.border}`,
+                              <td data-etiqueta="Estado" style={{padding:"10px 14px",textAlign:"center"}}>
+                                <button type="button" className="mdt-circular" aria-label={`Estado del responsable: ${est.estadoResp}`} aria-disabled={!puedeResp} onClick={()=>puedeResp&&ciclarResp(key,t,null)}
+                                  style={{background:semResp.bg,border:`2px solid ${semResp.border}`,
                                     display:"inline-flex",alignItems:"center",justifyContent:"center",cursor:puedeResp?"pointer":"default",
                                     transition:"all 0.15s"}}>
                                   <div style={{width:14,height:14,borderRadius:"50%",background:semResp.color}}/>
-                                </div>
+                                </button>
                               </td>
-                              <td style={{padding:"10px 14px",textAlign:"center"}}>
+                              <td data-etiqueta="Aprobación" style={{padding:"10px 14px",textAlign:"center"}}>
                                 {sup ? (
-                                  <div onClick={()=>puedeSup&&supActivo&&ciclarSup(key,t)}
-                                    style={{width:28,height:28,borderRadius:"50%",background:semSup.bg,border:`2px solid ${semSup.border}`,
+                                  <button type="button" className="mdt-circular" aria-label={`Aprobación del supervisor: ${supActivo?est.estadoSup:"no disponible"}`} aria-disabled={!(puedeSup&&supActivo)} onClick={()=>puedeSup&&supActivo&&ciclarSup(key,t)}
+                                    style={{background:semSup.bg,border:`2px solid ${semSup.border}`,
                                       display:"inline-flex",alignItems:"center",justifyContent:"center",
                                       cursor:puedeSup&&supActivo?"pointer":"default",opacity:supActivo?1:0.3,
                                       transition:"all 0.15s"}}>
                                     <div style={{width:14,height:14,borderRadius:"50%",background:semSup.color}}/>
-                                  </div>
+                                  </button>
                                 ) : <span style={{color:"#cbd5e1"}}>—</span>}
                               </td>
                             </tr>
@@ -4424,7 +4421,7 @@ Equipo Mediterra`);
 
           {tab==="diaria"&&puedeVerDiaria&&(
             <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
+              <table className="mdt-tabla-apilable" style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
                 {encabezadoTabla}
                 <tbody>
                   <TablaFilas
@@ -4439,7 +4436,7 @@ Equipo Mediterra`);
 
           {tab==="quincenal"&&puedeVerQuincenal&&(
             <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
+              <table className="mdt-tabla-apilable" style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
                 {encabezadoTabla}
                 <tbody>
                   <TablaFilas
@@ -4454,7 +4451,7 @@ Equipo Mediterra`);
 
           {tab==="anual"&&puedeVerAnual&&(
             <div style={{overflowX:"auto",borderRadius:12,boxShadow:"0 1px 4px #0001"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
+              <table className="mdt-tabla-apilable" style={{width:"100%",borderCollapse:"collapse",background:C.card}}>
                 {encabezadoTabla}
                 <tbody>
                   <TablaFilas
