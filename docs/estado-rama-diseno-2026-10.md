@@ -324,20 +324,42 @@ ficticios, Supabase falso con escrituras a producción bloqueadas.
 ### Diálogos de la app en lugar de los del navegador
 
 `src/diseno/dialogos.jsx`: `pedirTexto`, `elegirOpcion` y `confirmar` devuelven lo mismo que
-`prompt`/`confirm` (texto o nada; sí o no), así cada uso cambió en una línea y la lógica que sigue
-no cambió. Se dibujan con el modal del sistema (hoja inferior en teléfono, Esc cancela, foco en el
-campo). Convertidos en este grupo: devolución de nómina (motivo **obligatorio**: no deja aceptar
-vacío), elección de revisor de nómina, anular/impaga/saldo informado/descartar en Créditos,
-resolver override, interés trimestral de socio, nombre de escenario, nueva línea, tipo de
-documento, aplazar semana, motivo de rechazo en ANF, RUT y nombre de tercero en EEFF y la
-devolución en el editor de Rendiciones. Las pruebas antiguas de main que responden diálogos
-nativos siguen funcionando: el Supabase falso de las pruebas activa el modo nativo (nunca en
-producción).
+`prompt`/`confirm` (texto o nada; sí o no). Se dibujan con el modal del sistema (hoja inferior en
+teléfono, Esc cancela, foco en el campo). Convertidos en este grupo: devolución de nómina,
+elección de revisor, anular pago / impaga / anular conciliación / anular saldo informado / anular
+crédito, resolver override, interés trimestral de socio, nombre de escenario, nueva línea, tipo de
+documento, aplazar semana, rechazo en ANF, RUT y nombre de tercero en EEFF, devolución en el
+editor de Rendiciones.
+
+**No es un cambio mecánico.** `prompt`/`confirm` bloqueaban la página: nada cambiaba mientras se
+respondía. Los diálogos nuevos esperan sin bloquear, así que durante la espera puede llegar un
+cambio de otra sesión (realtime) y la acción, al continuar, escribiría la copia que tenía al
+preguntar. Medidas:
+- **Un solo diálogo a la vez**: una segunda solicitud con uno abierto se responde como «cancelar»
+  (no abre otro ni ejecuta la acción dos veces). Un doble clic en «Aceptar» resuelve una vez.
+- **Datos vigentes**: las acciones que escriben un registro guardan su huella al preguntar y, al
+  volver, comparan con el valor vigente (`useUltimo` + `sigueIgual`). Si cambió, **no aplican
+  nada** y dicen «cambió mientras respondías… revisa y vuelve a intentarlo». Aplicado a: avanzar
+  y devolver nómina, anular pago, confirmar impaga (dos pantallas), anular conciliación, anular
+  saldo informado, anular crédito, devolver rendición (las dos vías) y rechazar informe ANF.
+  Las que crean algo nuevo o modifican por id con la versión vigente (nombre de escenario, nueva
+  línea, tipo de documento, tercero, aplazar, descartar cambios, anular pago desde la nómina) no lo
+  necesitan.
+- **Motivos**: donde el dominio ya exige motivo (anular pago/crédito/conciliación/saldo, impaga,
+  devolución de nómina) el diálogo no deja aceptar vacío ni con solo espacios; el dominio sigue
+  validando. Cancelar la devolución de nómina ya no muestra «Debe ingresar un motivo» (la primera
+  conversión lo hacía: defecto encontrado por la prueba de control).
+
+### Límite de error por módulo
+
+Si una pantalla falla al dibujarse, se ve un aviso dentro del marco con la navegación activa,
+«Volver al inicio» y «Recargar». El texto **no afirma qué se guardó**: «Lo guardado antes del
+error sigue en el servidor; lo que estaba sin guardar en esta pantalla puede no haberse
+registrado». (La primera versión decía «No se guardó nada desde esta pantalla», que no se puede
+asegurar: el guardado pendiente puede completarse al desmontar.)
 
 ### Otros cambios del grupo
 
-- **Límite de error por módulo** (`LimiteError`): si una pantalla falla, se ve un aviso con
-  «Volver al inicio» y «Recargar» en vez de dejar toda la app en blanco.
 - Botones de Finanzas con las clases del sistema y `aria-pressed`; barras de pestañas sin estilos
   en línea que compitan.
 - Reporte Semanal → Umbrales: la fila (empresa, monto, USD) ya no se sale en teléfono.
@@ -355,6 +377,38 @@ en táctil, pestañas y botones del sistema de 44 px. Más DD12 y la devolución
 en teléfono (perfil CFO): diálogo de la app, motivo obligatorio, la nómina vuelve a «revisión»
 con el motivo y el historial.
 
+### Evidencia del grupo 1
+
+- **Main integrado:** `origin/main` **c9c5792** (merge en la rama: 7dda0e1, sin conflictos).
+- **Build probado:** commit **19f3298**, bundle `main.4d6b4c43.js`. El build se congeló (copia
+  servida aparte) y, tras el commit, se recompiló desde el commit: mismo bundle.
+- Las pruebas que no tocan lo cambiado después del build anterior (`main.a3921cd4.js`, mismos
+  cambios salvo diálogos/límite de error) no se repitieron: `regresion-empresas` **12.032 celdas
+  pantalla vs Excel, 0 diferencias, 0 peticiones a producción**, `apertura-sin-cambios`,
+  `aislamiento`, `hub-navegacion` 76/76, `modulos-movil`.
+
+| Prueba (build 19f3298 salvo indicación) | Diálogos | Resultado |
+|---|---|---|
+| `dialogos-app.mjs` (nuevo) | **de la app, modo nativo apagado y comprobado** | 27/27 |
+| `dialogos-app.mjs` contra el build anterior (control) | de la app | 21/27: detecta el aviso espurio al cancelar, el motivo opcional en anular crédito, la **anulación escrita sobre un crédito cambiado por otra sesión** y el texto del límite de error |
+| `grupo1-finanzas.mjs` | de la app (devolución en teléfono) | 203/203 |
+| `piloto-sistema.mjs` | de la app (Rendiciones) | 34/34 |
+| jest UTC / America/Santiago | de la app (RTL, incluye un solo diálogo a la vez, Esc, `sigueIgual`) | 1.749/1.749 en ambas |
+| `creditos`, `creditos-guardado-fallas`, `nomina-respaldo`, `nomina-condicionado`, `nomina-credito`, `nomina-guardado` | **antiguos (modo nativo)**: validan que la lógica posterior al diálogo no cambió | todos OK |
+| `nomina-base-real` (Postgres 16 + PostgREST 12 locales) | antiguos (modo nativo) | OK |
+| `vista-previa-aislamiento` (vista previa rearmada con este build) | — | OK, 0 salidas a producción |
+
+`dialogos-app.mjs` recorre: devolver nómina con Cancelar, Esc y «×» (ni escritura ni cambio de
+estado), motivo vacío y con espacios (no deja aceptar, Enter tampoco), segunda solicitud con el
+diálogo abierto (no abre otro), aceptar con doble clic (una devolución, una escritura); anular
+crédito con Cancelar y Aceptar; **cambio del crédito por realtime mientras el diálogo espera**
+(avisa, no escribe y el cambio de la otra sesión se conserva); límite de error en Contabilidad con
+un dato mal formado (navegación visible, texto sin afirmar guardado, salir por la navegación y por
+«Volver al inicio»).
+
+Alcance: Chromium emulado, Supabase falso o Postgres local, datos ficticios. No probado en Safari,
+Firefox ni equipos reales; nada corrido en producción.
+
 ### Lo que queda pendiente en este grupo (honesto)
 
 - **Controles táctiles de Finanzas.** El recorrido informa, por pantalla, cuántos controles miden
@@ -367,7 +421,13 @@ con el motivo y el historial.
 - Las celdas del flujo en **teléfono y tablet** siguen la regla DD8 (11 px); DD12 cubre el
   computador.
 - Prompts nativos que quedan en otros módulos: Osiris 12, Allegria Service 1, Frisku 1
-  (grupos siguientes).
+  (grupos siguientes). `alert` y `window.confirm` siguen nativos en Finanzas (avisos y
+  confirmaciones simples, p. ej. «Reactivar», «mantener/retirar override»); bloquean, así que no
+  tienen el problema de datos desactualizados.
+- La comprobación de datos vigentes cubre lo que llega a la pantalla (realtime de la fila
+  `finanzas`, estado local). Un cambio en el servidor que todavía no llegó a la pantalla lo frena
+  el guardado condicionado de Nóminas; la fila `finanzas` no tiene ese guardia en main. ANF se
+  lee bajo demanda (sin realtime): ahí solo protege contra cambios locales.
 
 ## 7. Archivos
 
@@ -389,7 +449,7 @@ indicadores, tabla de cuentas desplazable), y la posición de los avisos fijos e
 `scripts/e2e/modulos-movil.mjs`, `docs/diseno/modulos/*.png`.
 
 Grupo 1 (§6c): nuevos `src/diseno/{legado.css,dialogos.jsx}`, `src/__tests__/capasEstilo.test.js`,
-`scripts/e2e/grupo1-finanzas.mjs`, `docs/diseno/grupo1/*.png`; modificados `src/diseno/{sistema.css,
+`scripts/e2e/{grupo1-finanzas,dialogos-app}.mjs`, `docs/diseno/grupo1/*.png`; modificados `src/diseno/{sistema.css,
 componentes.jsx}`, `src/index.{css,js}`, `src/App.jsx` (diálogos, límite de error, sin hoja
 inyectada), `src/FinanzasModule.jsx` (DD12, diálogos, botones, umbrales, análisis CFO),
 `src/RendicionesModule.jsx`, `src/anf/AnfTab.jsx`, `src/EEFFModule.jsx` (diálogos),
