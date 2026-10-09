@@ -171,15 +171,19 @@ export function aniversarioDentroDeTemporada(desde, temporada) {
 // este paquete, asi que nada de lo que hay aca la quita.
 export function antecedentesDeCobro(pagoDeTemporada) {
   const p = pagoDeTemporada || {};
-  const motivos = [];
-  if (txt(p.nFact)) motivos.push("número de factura " + txt(p.nFact));
-  if (p.pagado === true) motivos.push("marcada como pagada");
-  if (aFecha(p.fechaPago)) motivos.push("fecha de pago " + txt(p.fechaPago));
+  // Por CLASE de antecedente, no por valor. Corregir el numero de factura de
+  // 999 a 1000 no retira nada -sigue habiendo factura-; borrarlo si. Comparar
+  // por valor hacia que cada correccion quedara registrada como un retiro.
+  const clases = {};
+  if (txt(p.nFact)) clases.nFact = "número de factura " + txt(p.nFact);
+  if (p.pagado === true) clases.pagado = "marcada como pagada";
+  if (aFecha(p.fechaPago)) clases.fechaPago = "fecha de pago " + txt(p.fechaPago);
   if (p.montoFacturado !== undefined && p.montoFacturado !== null && txt(p.montoFacturado) !== "")
-    motivos.push("monto facturado " + txt(p.montoFacturado));
+    clases.montoFacturado = "monto facturado " + txt(p.montoFacturado);
   const parciales = Array.isArray(p.parciales) ? p.parciales : [];
   const parcialesConDatos = parciales.filter((x) => x && (txt(x.nFact) || txt(x.monto) || aFecha(x.fecha) || x.pagado === true));
-  if (parcialesConDatos.length) motivos.push(parcialesConDatos.length + " parcialidad(es) con datos");
+  if (parcialesConDatos.length) clases.parciales = parcialesConDatos.length + " parcialidad(es) con datos";
+  const motivos = Object.keys(clases).map((k) => clases[k]);
   // `haCobrar` es un override de hectáreas, no un antecedente de cobro. Se
   // nombra aparte para no confundirlo ni ignorarlo.
   const overrideHa = p.haCobrar !== undefined && p.haCobrar !== null && txt(p.haCobrar) !== "";
@@ -195,9 +199,9 @@ export function antecedentesDeCobro(pagoDeTemporada) {
   const soloPorConservada = conservada && motivos.length === 0;
   if (soloPorConservada)
     motivos.push(PREFIJO_CONSERVADA + conservados.join("; ") +
-      (txt(pr.desde) ? " (retirado el " + txt(pr.desde) + ")" : ""));
+      (txt(pr.desde) ? " (ultimo retiro el " + txt(pr.desde) + ")" : ""));
   return {
-    hay: motivos.length > 0, motivos, overrideHa,
+    hay: motivos.length > 0, motivos, clases, overrideHa,
     conservada, conservados, soloPorConservada,
     desdeConservada: pr ? txt(pr.desde) : "",
   };
@@ -215,6 +219,32 @@ export const MOTIVO_PROTECCION_CONSERVADA =
 // igual -corregir un numero de factura es una tarea normal-; lo que no pasa
 // es que el importe vuelva al recalculo por eso.
 const vivos = (a) => (a.motivos || []).filter((m) => String(m).indexOf(PREFIJO_CONSERVADA) !== 0);
+
+// El acumulado tiene tope. Sin el, cada numero de factura distinto que se
+// retira sobre la misma fila agregaba un motivo y nada los recortaba: a los
+// seis retiros el `rcPagos` de una sola fila pasaba los 200 caracteres que
+// audita la bitacora -el defecto que ya se habia corregido, de vuelta por
+// otra via- y el rotulo de la celda llegaba a 540 caracteres. Se conservan
+// los ultimos y se cuenta el resto, que es lo que hace falta para saber que
+// la fila tuvo antecedentes y cuando fue el ultimo.
+export const MAX_MOTIVOS_CONSERVADOS = 5;
+const RE_ANTERIORES = /^(\d+) retiros anteriores$/;
+
+function conTope(lista) {
+  let previos = 0;
+  const limpia = [];
+  lista.forEach((m) => {
+    const c = RE_ANTERIORES.exec(String(m));
+    if (c) previos += Number(c[1]);
+    else limpia.push(m);
+  });
+  if (previos + limpia.length <= MAX_MOTIVOS_CONSERVADOS) {
+    return previos ? [previos + " retiros anteriores"].concat(limpia) : limpia;
+  }
+  const guardados = limpia.slice(-(MAX_MOTIVOS_CONSERVADOS - 1));
+  const resumidos = previos + (limpia.length - guardados.length);
+  return [resumidos + " retiros anteriores"].concat(guardados);
+}
 
 export function conProteccionConservada(filaAntes, filaDespues, hoy) {
   // 1 · Un registro ya conservado no se pierde por NINGUNA escritura, ni por
@@ -236,9 +266,16 @@ export function conProteccionConservada(filaAntes, filaDespues, hoy) {
   // factura y la fecha del primer retiro, que no eran las ultimas.
   const antes = antecedentesDeCobro(filaAntes);
   if (!antes.hay) return base;
-  const retirados = vivos(antes);
-  if (!retirados.length) return base;                        // no habia nada vivo que retirar
-  if (vivos(antecedentesDeCobro(base)).length) return base;  // sigue habiendo uno vivo
+  // Lo que se registra es lo que DESAPARECE en esta edicion, aunque queden
+  // otros antecedentes vivos. Cortar cuando todavia quedaba uno hacia que un
+  // antecedente retirado antes del ultimo no se registrara nunca: con
+  // {nFact:"999", pagado:true}, borrar la factura y despues destildar pagado
+  // dejaba el registro diciendo solo "marcada como pagada", sin la 999.
+  const clasesDespues = antecedentesDeCobro(base).clases || {};
+  const retirados = Object.keys(antes.clases || {})
+    .filter((k) => !clasesDespues[k])
+    .map((k) => antes.clases[k]);
+  if (!retirados.length) return base;                        // no se retiro ninguna clase
 
   // Se acumulan, sin repetir. Y la fila se reescribe completa, asi que una
   // `proteccion` heredada con el parrafo adentro queda saneada al pasar por aca.
@@ -250,7 +287,7 @@ export function conProteccionConservada(filaAntes, filaDespues, hoy) {
   // celda de estado.
   return Object.assign({}, base, {
     proteccion: {
-      motivos: previos.concat(retirados.filter((m) => previos.indexOf(m) < 0)),
+      motivos: conTope(previos.concat(retirados.filter((m) => previos.indexOf(m) < 0))),
       desde: txt(hoy) || new Date().toISOString().slice(0, 10),
     },
   });
@@ -1041,6 +1078,10 @@ function resumenDeFilas(ct, filas, opciones) {
     filasIntocables: detalle.filter((d) => d.intocable).length,
     filasBloqueadasPorReglaPendiente: detalle.filter((d) => d.reglaPendiente).length,
     filasSinFechaSellada: detalle.filter((d) => d.fechaNoSellada).length,
+    // De las protegidas, cuantas lo estan por un antecedente YA retirado. Se
+    // cuenta aparte para que los avisos no les atribuyan una factura que no
+    // tienen.
+    filasProtegidasConservadas: detalle.filter((d) => d.intocable && (d.antecedentes || {}).soloPorConservada).length,
     totalBase: +detalle.reduce((s, d) => s + d.base, 0).toFixed(2),
     totalActual: +detalle.reduce((s, d) => s + d.actual, 0).toFixed(2),
     // Un importe no confirmado NO entra acá. El total refleja lo que se cobraría.
@@ -1121,11 +1162,20 @@ export function reajusteOperativoConActivacion(ct, opciones) {
     // El motivo importa: "protegida por factura" y "pendiente porque su fecha
     // no quedo sellada" no son lo mismo, y decir lo primero cuando pasa lo
     // segundo es el tipo de aviso que miente.
+    // Y tampoco se les atribuye una factura a las filas protegidas por un
+    // antecedente ya retirado: la proteccion conservada protege igual, pero
+    // decir "tienen factura" de una fila que no la tiene es el mismo defecto.
+    const protegidas = f.protegidas
+      ? f.protegidas + (f.protegidasConservadas
+          ? " con factura, pago o proteccion conservada (" + f.protegidasConservadas +
+            " por antecedentes ya retirados)"
+          : " con factura o pago registrado")
+      : "";
     const razon = f.protegidas && f.pendientes
-      ? ": " + f.protegidas + " tienen factura o pago registrado y " + f.pendientes +
+      ? ": " + protegidas + " y " + f.pendientes +
         " quedan pendientes porque su fecha no quedo sellada al activar"
       : f.protegidas
-      ? ": las " + f.protegidas + " que hay tienen factura o pago registrado y no se recalculan"
+      ? ": las " + protegidas + " no se recalculan"
       : f.pendientes
       ? ": las " + f.pendientes + " que hay quedan pendientes porque su fecha no quedo sellada al activar"
       : " todavía";
@@ -1134,7 +1184,8 @@ export function reajusteOperativoConActivacion(ct, opciones) {
   } else {
     llevan = f.cambian;
     aviso = f.cambian + " temporada(s) de esta pantalla llevan el reajuste" +
-      (f.protegidas ? ", " + f.protegidas + " quedan en su valor base por tener factura o pago registrado" : "") +
+      (f.protegidas ? ", " + f.protegidas + " quedan en su valor base por " +
+        (f.protegidasConservadas ? "factura, pago o proteccion conservada" : "tener factura o pago registrado") : "") +
       (f.pendientes ? ", y " + f.pendientes + " quedan pendientes porque su fecha no quedo sellada al activar" : "") +
       ". " + sellado;
   }

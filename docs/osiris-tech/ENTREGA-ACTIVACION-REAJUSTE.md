@@ -584,6 +584,50 @@ que es el lado conservador— pero estaba mal descrita, y así no se reproduce. 
 reversiones simultáneas, 4 caídas; la conservación sola, 11.
 
 
+#### Y lo que trajo el arreglo del registro
+
+La pasada siguiente aprobó esas tres correcciones y encontró dos consecuencias del propio arreglo
+más un texto que seguía atribuyendo facturas. Las tres corregidas.
+
+**El acumulado crecía sin tope, y R-1 volvía por otra vía.** Cada valor distinto retirado sobre la
+misma fila agregaba un motivo y nada los recortaba. Medido por la revisión: a los **seis** retiros
+el `rcPagos` de una sola fila llegaba a **218 caracteres** —por encima de los 200 que audita la
+bitácora, que es el defecto que R-1 había cerrado— y con 21 motivos el rótulo de la celda medía
+**540 caracteres** en un `td` de `fontSize:9`. Ahora el acumulado tiene tope
+(`MAX_MOTIVOS_CONSERVADOS = 5`): se conservan los últimos y el resto se cuenta
+(*"N retiros anteriores"*), sin duplicar el conteo al seguir acumulando. Medido: con 21 retiros la
+fila entra en los 200 y el rótulo queda bajo 180 caracteres, y la fila sigue protegida.
+
+**Un antecedente retirado mientras quedaba otro vivo no se registraba nunca.** Secuencia medida:
+`{nFact:"999", pagado:true}` → borrar la factura → destildar pagado dejaba el registro diciendo
+sólo *"marcada como pagada"*, **sin la 999**. La protección estaba intacta; lo que faltaba era el
+antecedente en el registro que existe justamente para dejar constancia de lo que la fila tuvo. La
+causa: sólo se evaluaba el retiro en la edición en que la fila se quedaba sin ningún antecedente
+vivo. Ahora se registra lo que **desaparece** en cada edición, aunque queden otros.
+
+Y con eso apareció la decisión de fondo: **la comparación es por clase de antecedente, no por
+valor.** Corregir el número de factura de 999 a 1000 no retira nada —sigue habiendo factura—;
+borrarlo sí. Si se comparara por valor, cada corrección de un número quedaría registrada como un
+retiro y el acumulado crecería con el trabajo normal de la oficina. Las cinco clases son `nFact`,
+`pagado`, `fechaPago`, `montoFacturado` y las parcialidades.
+
+**Un texto más que atribuía facturas.** El diálogo ya estaba corregido, pero el **aviso operativo**
+seguía diciendo *"N quedan en su valor base por tener factura o pago registrado"* contando también
+las filas cuya protección es la conservada. Ahora el resumen cuenta las dos cosas aparte
+(`filasProtegidasConservadas`) y el aviso dice *"N con factura, pago o protección conservada (M por
+antecedentes ya retirados)"*. Cuando ninguna es conservada, dice lo de siempre.
+
+**Y el rótulo dejó de aplicar una fecha a toda la lista.** Decía *"(retirado el AAAA-MM-DD)"*
+después de enumerar varios motivos retirados en fechas distintas. Ahora dice *"(último retiro
+el …)"*, que es lo que la fecha guardada significa. Guardar una fecha por motivo queda sin hacer, y
+se declara: para lo que el registro tiene que probar —que la fila tuvo antecedentes y cuándo fue el
+último retiro— alcanza con esto.
+
+**Contrapruebas de estas tres**, cada una restaurada con parche inverso explícito y la suite verde
+después: quitar el tope, comparar por valor en vez de por clase, y que el aviso vuelva a atribuir
+factura → caen **5** pruebas en conjunto.
+
+
 **Lo que no se amplió, por instrucción expresa:** cohortes y fecha de término. Sus efectos quedan
 documentados como límites del cálculo, con cifra, en la sección anterior.
 
