@@ -9712,7 +9712,8 @@ Motivo del retiro:`, "");
               const actualPorTemporada=rcRows.reduce((m,x)=>(m[x.temporada]=x.montoFact,m),{});
               const previaRC=previsualizarActivacion(r, rcRowsBase,
                 {mesCobro:r.rcMesCobro, antecedentesDe:antecedentesDeFila, actualPorTemporada});
-              const filasRC={cambian:previaRC.filasQueCambian, protegidas:previaRC.filasIntocables};
+              const filasRC={cambian:previaRC.filasQueCambian, protegidas:previaRC.filasIntocables,
+                pendientes:previaRC.filasSinFechaSellada};
               const avisoRC=reajusteOperativoConActivacion(r, {filas:filasRC});
               // Royalty Planta por tandas de plantas (entrada directa en el contrato).
               const totPlantasC=(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0);
@@ -10120,10 +10121,16 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                   {/* Desde que la diferencia se mide contra el importe actual puede
                                       ser NEGATIVA. Mostrar solo las positivas ocultaria una baja. */}
                                   <td style={{padding:"4px 8px",textAlign:"right",color:d.diferencia>0?C.success:d.diferencia<0?C.danger:C.muted2}}>{d.diferencia===0?"\u2014":`${d.diferencia>0?"+":"−"}$${N(Math.abs(d.diferencia).toFixed(2))}`}</td>
+                                  {/* La fecha SELLADA se muestra: para una regla que depende
+                                      de una fecha de la fila, es la que el motor va a usar y la
+                                      que el usuario confirma. Y una fila sin fecha sellada se
+                                      nombra como pendiente, no como "sin efecto". */}
                                   <td style={{padding:"4px 8px",fontSize:9,color:C.muted}}>
                                     {d.intocable?"protegida: tiene factura o pago"
                                       :d.reglaPendiente?"bloqueada: regla pendiente"
-                                      :d.aplica?`${d.periodos} periodo(s)`:"sin efecto"}
+                                      :d.fechaNoSellada?"pendiente: sin fecha sellada"
+                                      :d.aplica?`${d.periodos} periodo(s)${d.fechaSellada?` · fecha sellada ${d.fechaSellada} (${d.origenFechaSellada})`:""}`
+                                      :"sin efecto"}
                                   </td>
                                 </tr>
                               ))}
@@ -10133,6 +10140,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                         <div style={{fontSize:10,color:C.muted,marginBottom:8}}>
                           Filas que cambian: <strong>{prev.filasQueCambian}</strong> · protegidas: <strong>{prev.filasIntocables}</strong> ·
                           bloqueadas por regla pendiente: <strong>{prev.filasBloqueadasPorReglaPendiente}</strong> ·
+                          {prev.filasSinFechaSellada>0&&<> pendientes por fecha no sellada: <strong>{prev.filasSinFechaSellada}</strong> · </>}
                           diferencia aplicada: <strong>${N(prev.diferenciaAplicada.toFixed(2))}</strong>
                         </div>
 
@@ -10212,10 +10220,15 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                   "Diferencia que se aplica: US$ "+prev.diferenciaAplicada.toFixed(2)+"\n\n"+
                                   "¿Confirmas?");
                                 if(!ok) return;
+                                // Las filas van a la accion: para una regla que depende de
+                                // una fecha de la fila, el sello guarda ESA fecha, no solo la
+                                // regla. Sin las filas la accion no puede sellarla y rechaza.
                                 const res = activarReajuste(r, {
                                   fechaReferencia: ra.fechaReferencia, respaldo: ra.respaldo,
                                   reglaFecha: ra.reglaFecha, reglaFechaRespaldo: ra.reglaFechaRespaldo,
                                   puedeEditar: can, usuarioActual, confirmado: true,
+                                  filas: rcRowsBase, antecedentesDe: antecedentesDeFila,
+                                  mesCobro: r.rcMesCobro,
                                   impacto: prev.diferenciaAplicada});
                                 if(!res.ok){ window.alert(res.motivo); return; }
                                 upd(r.id,"reajusteActivacion",res.contrato.reajusteActivacion);

@@ -213,6 +213,95 @@ export function reglaFechaAplicable(ct) {
   return { definida: true, regla, respaldo, motivo: "" };
 }
 
+// ── Reglas cuya fecha vive en la FILA, y es editable ──────────────────────
+//
+// Las cuatro reglas no son iguales. Dos resuelven su fecha desde la temporada
+// -`inicioPeriodoServicio` y `finPeriodoServicio` salen de `limitesTemporada`,
+// que es una funcion del rotulo "2026/2027" y de nada mas-. Las otras dos la
+// leen de un campo del cobro, que se edita todos los dias:
+//
+//   · `emision` lee `rcPagos[temporada].fechaEst`
+//   · `pago`    lee `rcPagos[temporada].fechaPago`
+//
+// Ahi estaba el agujero: el sello guardaba la REGLA y no la FECHA a la que esa
+// regla resuelve, asi que el motor seguia leyendo un campo mutable. Con la
+// regla "emision" sellada y sin `fechaEst`, la previa anunciaba cero, la accion
+// sellaba un impacto confirmado de 0, y cargar despues las fechas estimadas
+// movia el total de 629.550 a 655.240,69 -mas 25.690,69- sin previa, sin
+// confirmacion y sin historial. Mover una sola fecha a 2099 lo llevaba a
+// 1.050.741,67.
+//
+// Para estas dos reglas la activacion sella la fecha concreta de CADA fila,
+// con su procedencia, y el motor calcula con esa fecha sellada. Una fila sin
+// fecha sellada queda PENDIENTE: no se le incorpora ningun efecto que nadie
+// confirmo.
+export const REGLAS_POR_FILA = ["emision", "pago"];
+
+const iso = (d) => (d instanceof Date && !isNaN(d) ? d.toISOString().slice(0, 10) : "");
+
+// Las fechas que la activacion sellaria para una regla por fila, y por que
+// cada fila que no entra se queda afuera.
+//
+// Dos condiciones, y las dos son del contrato, no de la pantalla:
+//
+//   · La fecha tiene que estar. Si falta, no hay nada que sellar.
+//   · Y tiene que tener respaldo. Una `fechaEst` sola es una ESTIMACION: no
+//     es la fecha efectiva de emision y no se la trata como tal. El respaldo
+//     de una emision es su antecedente de facturacion.
+//
+// De esas dos sale una consecuencia que conviene leer completa: con la regla
+// "emision", una fila con respaldo tiene antecedente de facturacion, y la
+// Regla 4 no recalcula las filas con antecedentes. Asi que hoy ninguna fila
+// puede a la vez tener la fecha respaldada y entrar al calculo. Con "pago" es
+// mas directo todavia: `fechaPago` ES un antecedente. Esto no se resuelve
+// inventando un respaldo que no existe; se informa y se bloquea la activacion.
+export function fechasSelladasDeFilas(act, contexto) {
+  const regla = txt((act || {}).reglaFecha);
+  if (REGLAS_POR_FILA.indexOf(regla) < 0) return null;   // reglas deterministas: nada que sellar
+  const c = contexto || {};
+  if (!Array.isArray(c.filas)) {
+    return { regla, fechas: {}, faltan: [], sinFilas: true };
+  }
+  const antesDe = c.antecedentesDe || (() => null);
+  const fechas = {};
+  const faltan = [];
+  c.filas.forEach((f) => {
+    const temporada = txt(f && f.temporada);
+    if (!temporada) return;
+    const ant = antesDe(f);
+    const fs = fechasDeLaFila(f, ant, c.mesCobro);
+    const cuando = regla === "emision" ? fs.emision : fs.pago;
+    const a = antecedentesDeCobro(ant);
+    if (!cuando) {
+      faltan.push({
+        temporada,
+        motivo: regla === "emision"
+          ? "no tiene fecha estimada de factura cargada"
+          : "no tiene fecha de pago cargada",
+      });
+      return;
+    }
+    if (regla === "emision" && !a.hay) {
+      faltan.push({
+        temporada,
+        motivo: "la fecha estimada de factura (" + iso(cuando) + ") no tiene respaldo: es una " +
+          "estimacion, no la fecha efectiva de emision",
+      });
+      return;
+    }
+    if (a.hay) {
+      faltan.push({
+        temporada,
+        motivo: "tiene antecedentes de facturacion o pago (" + a.motivos.join("; ") +
+          "), asi que por la Regla 4 no se recalcula",
+      });
+      return;
+    }
+    fechas[temporada] = { fecha: iso(cuando), origen: regla, respaldo: a.motivos.join("; ") };
+  });
+  return { regla, fechas, faltan, sinFilas: false };
+}
+
 // ── Sello de los terminos economicos ──────────────────────────────────────
 //
 // Al activar se sella CON QUE terminos se activo: porcentaje, fecha de
@@ -237,12 +326,18 @@ export function identidadDe(usuario) {
   return { valida: true, autor: nombre || email, email, nombre, motivo: "" };
 }
 
-export function sellarTerminos(cfg, act) {
-  return {
+// `contexto` trae las filas y sus antecedentes. Para una regla por fila es
+// obligatorio: sin las filas no hay fechas que sellar, y sellar la regla sola
+// es exactamente el defecto que esto corrige. `activar()` lo exige.
+export function sellarTerminos(cfg, act, contexto) {
+  const sello = {
     pct: cfg.pct,
     fechaReferencia: txt(act.fechaReferencia),
     reglaFecha: txt(act.reglaFecha),
   };
+  const porFila = fechasSelladasDeFilas(act, contexto);
+  if (porFila) sello.fechasPorFila = porFila.fechas;
+  return sello;
 }
 
 export function terminosVigentes(ct) {
@@ -414,6 +509,40 @@ export function activar(ct, datos) {
       contrato: ct,
     };
 
+  // C · Una regla que depende de una fecha de la fila se sella CON esa fecha,
+  // no sola. Si la fecha que la regla exige no esta, o no tiene respaldo, no
+  // hay nada que sellar y la activacion se RECHAZA diciendo que falta. Un
+  // impacto cero causado por informacion ausente no se acepta: sellar ahi
+  // dejaba un sello cuyo efecto aparecia despues, al cargar las fechas.
+  const contextoFilas = { filas: d.filas, antecedentesDe: d.antecedentesDe, mesCobro: d.mesCobro };
+  const porFila = fechasSelladasDeFilas(d, contextoFilas);
+  if (porFila) {
+    if (porFila.sinFilas)
+      return {
+        ok: false,
+        motivo: 'La regla "' + porFila.regla + '" depende de una fecha de cada fila, y esta accion no ' +
+          "recibio las filas, asi que no puede sellar ninguna fecha. No se registra nada.",
+        contrato: ct,
+      };
+    if (Object.keys(porFila.fechas).length === 0) {
+      const det = porFila.faltan.map((x) => x.temporada + ": " + x.motivo);
+      return {
+        ok: false,
+        motivo: 'La regla declarada es "' + porFila.regla + '", que depende de una fecha de cada fila, y ' +
+          "NINGUNA fila tiene una fecha que se pueda sellar:\n" + det.join("\n") +
+          "\nActivar asi registraria un impacto de cero causado por informacion ausente, y el efecto " +
+          "real apareceria despues, cuando alguien cargue esas fechas. No se registra nada. " +
+          (porFila.regla === "emision"
+            ? "Para esta regla hace falta la fecha efectiva de emision con su respaldo; una fecha " +
+              "estimada no lo es. Y una fila con antecedentes de facturacion no se recalcula (Regla 4)."
+            : "Para esta regla hace falta la fecha de pago, que es a su vez un antecedente de cobro, " +
+              "asi que la fila no se recalcula (Regla 4)."),
+        contrato: ct,
+        faltan: porFila.faltan,
+      };
+    }
+  }
+
   const fecha = txt(d.fecha) || new Date().toISOString().slice(0, 10);
   const act = {
     activado: true,
@@ -424,7 +553,7 @@ export function activar(ct, datos) {
     usuario: ident.autor,
     fecha,
   };
-  act.sello = sellarTerminos(cfg, act);
+  act.sello = sellarTerminos(cfg, act, contextoFilas);
   // Reactivar NO borra lo anterior: el evento previo queda en el historial.
   act.historial = conEvento(previa.historial, {
     evento: previa.activado === false && previa.sello ? "reactivacion" : "activacion",
@@ -692,6 +821,8 @@ export function reajusteDeFila(ct, fila, opciones) {
     ajustado: base,           // SIEMPRE la base mientras esté bloqueado
     diferencia: 0,            // contra el ACTUAL, no contra la base
     motivo: "", escenarios: [], intocable: false, reglaPendiente: false,
+    // Regla por fila sin fecha sellada: pendiente de aplicacion, no aplicada.
+    fechaNoSellada: false, fechaSellada: "", origenFechaSellada: "", respaldoFechaSellada: "",
     fechas, antecedentes: ant,
   };
 
@@ -705,15 +836,39 @@ export function reajusteDeFila(ct, fila, opciones) {
     return salida;
   }
 
-  const anclaRegla = {
-    emision: fechas.emision,
-    inicioPeriodoServicio: fechas.inicioPeriodoServicio,
-    finPeriodoServicio: fechas.finPeriodoServicio,
-    pago: fechas.pago,
-  }[act.regla.regla];
+  // La fecha que manda. Para las reglas por fila NO se vuelve a leer el campo:
+  // se usa la que quedo SELLADA al activar. Asi una edicion posterior de
+  // `fechaEst` o de `fechaPago` no mueve el reajuste confirmado.
+  const reglaSellada = txt(act.regla.regla);
+  const porFila = REGLAS_POR_FILA.indexOf(reglaSellada) >= 0;
+  let anclaRegla = null;
+
+  if (porFila) {
+    const sel = (((ct && ct.reajusteActivacion) || {}).sello || {}).fechasPorFila || {};
+    const sf = sel[temporada];
+    if (!sf || !aFecha(sf.fecha)) {
+      // Fila sin fecha sellada -una temporada que aparecio despues, o una
+      // activacion heredada que sello la regla y no las fechas-. Queda
+      // PENDIENTE: no se le incorpora un efecto que nadie confirmo.
+      salida.fechaNoSellada = true;
+      salida.motivo = 'La regla sellada es "' + reglaSellada + '", que depende de una fecha de esta fila, ' +
+        "y esta fila no tiene fecha sellada. Queda **pendiente de aplicacion**: el importe no cambia. " +
+        "Incorporarla es una operacion economica con su propia vista previa y confirmacion.";
+      return salida;
+    }
+    anclaRegla = aFecha(sf.fecha);
+    salida.fechaSellada = txt(sf.fecha);
+    salida.origenFechaSellada = txt(sf.origen) || reglaSellada;
+    salida.respaldoFechaSellada = txt(sf.respaldo);
+  } else {
+    anclaRegla = {
+      inicioPeriodoServicio: fechas.inicioPeriodoServicio,
+      finPeriodoServicio: fechas.finPeriodoServicio,
+    }[reglaSellada];
+  }
 
   if (!anclaRegla) {
-    salida.motivo = 'La regla declarada es "' + act.regla.regla + '" y esa fecha no está cargada en esta fila. ' +
+    salida.motivo = 'La regla declarada es "' + reglaSellada + '" y esa fecha no está cargada en esta fila. ' +
       "Sin la fecha que manda, no se aplica nada.";
     return salida;
   }
@@ -758,7 +913,7 @@ export function reajusteDeFila(ct, fila, opciones) {
 // en el momento de decidir, y ese cero se guardaria despues como impacto
 // confirmado en el historial. Por eso la previa evalua sobre una copia
 // activada. No toca el contrato real: solo responde la pregunta.
-export function comoSiSeActivara(ct) {
+export function comoSiSeActivara(ct, contexto) {
   const ra = (ct && ct.reajusteActivacion) || {};
   if (ra.activado) return ct;
   // La simulacion construye el sello que `activar()` produciria con los
@@ -772,9 +927,11 @@ export function comoSiSeActivara(ct) {
   //
   // Sellar igual que la accion es lo unico que mantiene a las dos diciendo lo
   // mismo.
+  // Y con el MISMO contexto de filas: si la previa sellara otras fechas que la
+  // accion, volveria el desacuerdo entre lo que se muestra y lo que se aplica.
   const comoQuedaria = Object.assign({}, ra, {
     activado: true,
-    sello: sellarTerminos(configReajuste(ct), ra),
+    sello: sellarTerminos(configReajuste(ct), ra, contexto),
   });
   return Object.assign({}, ct, { reajusteActivacion: comoQuedaria });
 }
@@ -804,6 +961,7 @@ function resumenDeFilas(ct, filas, opciones) {
     filasQueCambian: aplicadas.length,
     filasIntocables: detalle.filter((d) => d.intocable).length,
     filasBloqueadasPorReglaPendiente: detalle.filter((d) => d.reglaPendiente).length,
+    filasSinFechaSellada: detalle.filter((d) => d.fechaNoSellada).length,
     totalBase: +detalle.reduce((s, d) => s + d.base, 0).toFixed(2),
     totalActual: +detalle.reduce((s, d) => s + d.actual, 0).toFixed(2),
     // Un importe no confirmado NO entra acá. El total refleja lo que se cobraría.
@@ -817,7 +975,9 @@ function resumenDeFilas(ct, filas, opciones) {
 // "despues": necesita el contrato apagado de verdad, y usa `resumenDeFilas`
 // directo.
 export function previsualizarActivacion(ct, filas, opciones) {
-  return resumenDeFilas(comoSiSeActivara(ct), filas, opciones);
+  const o = opciones || {};
+  const contexto = { filas, antecedentesDe: o.antecedentesDe, mesCobro: o.mesCobro };
+  return resumenDeFilas(comoSiSeActivara(ct, contexto), filas, opciones);
 }
 
 // ── El aviso operativo, sabiendo si hay una activacion vigente ────────────
@@ -879,14 +1039,24 @@ export function reajusteOperativoConActivacion(ct, opciones) {
       "factura o pago registrado; las que lo tengan quedan en su valor base. " + sellado;
   } else if (!f.cambian) {
     llevan = 0;
-    aviso = "El reajuste está activado, pero NINGUNA temporada de esta pantalla lo lleva" +
-      (f.protegidas ? ": las " + f.protegidas + " que hay tienen factura o pago registrado y no se recalculan"
-                    : " todavía") +
+    // El motivo importa: "protegida por factura" y "pendiente porque su fecha
+    // no quedo sellada" no son lo mismo, y decir lo primero cuando pasa lo
+    // segundo es el tipo de aviso que miente.
+    const razon = f.protegidas && f.pendientes
+      ? ": " + f.protegidas + " tienen factura o pago registrado y " + f.pendientes +
+        " quedan pendientes porque su fecha no quedo sellada al activar"
+      : f.protegidas
+      ? ": las " + f.protegidas + " que hay tienen factura o pago registrado y no se recalculan"
+      : f.pendientes
+      ? ": las " + f.pendientes + " que hay quedan pendientes porque su fecha no quedo sellada al activar"
+      : " todavía";
+    aviso = "El reajuste está activado, pero NINGUNA temporada de esta pantalla lo lleva" + razon +
       ". Los importes son los de la base. " + sellado;
   } else {
     llevan = f.cambian;
     aviso = f.cambian + " temporada(s) de esta pantalla llevan el reajuste" +
-      (f.protegidas ? ", y " + f.protegidas + " quedan en su valor base por tener factura o pago registrado" : "") +
+      (f.protegidas ? ", " + f.protegidas + " quedan en su valor base por tener factura o pago registrado" : "") +
+      (f.pendientes ? ", y " + f.pendientes + " quedan pendientes porque su fecha no quedo sellada al activar" : "") +
       ". " + sellado;
   }
 
