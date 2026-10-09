@@ -367,15 +367,11 @@ Medido sobre el caso de 41,97 há × US$ 3.000 al 2 % con la activación vigente
 |---|---|---|
 | `rcCohortes` 41,97 → 50 há | 655.240,69 → **780.606,02** (+125.365,33) | abierta, operativa, declarada por decisión expresa |
 | `fechaTermino` 2031-06-30 → 2033-06-30 (5 → 7 filas) | 655.240,69 → **936.050,61** (+280.809,92) | abierta; preexistente, idéntica en la base |
-| Borrar el `nFact` de una fila protegida | 647.533,99 → **655.240,69** (+7.706,70 en 2029/2030; la revisión midió +10.379,03 en otra temporada) | **abierta y no declarada hasta ahora** |
+| Borrar el `nFact` de una fila protegida | 647.533,99 → **655.240,69** (+7.706,70 en 2029/2030; la revisión midió +10.379,03 en otra temporada) | **cerrada** por D-12: la protección queda conservada |
 | `valorRoyaltyComercial` 3.000 → 3.300 | movería a **720.764,77** (+65.524,08) | **cerrada** en la pantalla por B-4: con un registro no hay campo editable y `upProtegido` rechaza. La cifra es la magnitud que la guarda impide, no un camino abierto |
 
-La tercera merece su propio párrafo porque es un mecanismo distinto del de D-11. No mueve el
-ancla: **quita la protección de la Regla 4**. Una fila con factura cargada no se recalcula; al
-borrar ese antecedente la fila vuelve a entrar al cálculo y toma el ajuste, sin vista previa ni
-confirmación. `updRcPago` no tiene guarda de registro, igual que `fechaEst`. Es dato operativo de
-`rcPagos`, la categoría que quedó expresamente fuera del bloqueo, así que **se declara y no se
-cierra**; cerrarla es una decisión del CFO del mismo tipo que la de D-11.
+La tercera era un mecanismo distinto del de D-11 —no mueve el ancla, **quita la protección de la
+Regla 4**— y quedó **cerrada en D-12**, por autorización expresa. Ver esa sección.
 
 #### Qué está y qué no está respaldado por pruebas
 
@@ -410,6 +406,66 @@ Dos cosas que **no** están respaldadas, y conviene que se lean acá y no en otr
 que rechaza por lista y avisa; revertir esas cuatro condiciones `disabled` no abre ningún agujero
 de importes, y la revisión lo midió. Lo que vuelve sin ellas es el defecto de interfaz: el campo
 se deja escribir y se pierde lo tecleado. La cobertura nueva es de interfaz y está rotulada así.
+
+
+### D-12 · La protección de la Regla 4 no se pierde al vaciar un campo
+
+Autorizado después del cierre de D-11. Es **otro mecanismo**: no mueve el ancla, quita la
+protección. `antecedentesDeCobro` se evaluaba en vivo sobre `rcPagos`, así que borrar el número
+de factura de una fila protegida la devolvía al recálculo y le aplicaba el reajuste sin vista
+previa ni confirmación.
+
+Medido: con la factura cargada **647.533,99**; borrándola **655.240,69**; **+7.706,70** en
+2029/2030 sobre el caso de 41,97 há × US$ 3.000 al 2 %.
+
+**Lo que se implementó.** Si una edición dejaría la fila sin antecedentes, lo que tenía queda
+**conservado** en `rcPagos[temporada].proteccion` —con los motivos y la fecha en que se
+retiraron— y sigue protegiéndola. El campo se edita igual: corregir un número de factura es
+tarea normal y no se bloqueó nada operativo. Lo que no pasa es que el importe vuelva al
+recálculo por eso. Levantar la protección es una operación económica con su propio flujo, que
+**no está en este paquete**: nada de lo que hay acá la quita, y hay una prueba que comprueba que
+el módulo no exporta ninguna función que lo haga.
+
+**Cubre los cinco antecedentes, no una lista de campos.** La conservación compara el *antes*
+contra el *después* con la misma función que usa la Regla 4, así que alcanza a `nFact`, `pagado`,
+`fechaPago`, `montoFacturado` y las parcialidades, y a cualquiera que se agregue a esa función en
+el futuro. Cada uno tiene su prueba.
+
+**La secuencia completa, probada de punta a punta en pantalla:** fila protegida → borrar el
+número de factura con el control real → el campo queda editado, la fila conserva la protección y
+el total no se mueve → serializar y recargar → el importe sigue intacto, los motivos conservados
+y la fila se sigue mostrando como protegida. También con "pagado" destildado, y corrigiendo el
+número por otro (ahí no hay nada que conservar: el antecedente sigue vivo).
+
+Dos detalles del encuadre de esa prueba, porque sin ellos no probaría nada: el `nFact` sólo es
+editable en las temporadas **vivas** —en las futuras se muestra como texto—, así que la temporada
+se descubre del DOM en vez de fijarse a mano, y la prueba sigue valiendo cuando el calendario
+avance; y la fecha de referencia va en 2023 para que la temporada viva ya tenga períodos
+cumplidos, porque con la fixture de 2026 el ajuste de la primera temporada es cero y borrar su
+factura no movería nada.
+
+### El diálogo de activación
+
+Parte del cierre de D-11, no una mejora posterior. Con la fecha que la regla exige ausente, la
+pantalla preguntaba *"Diferencia que se aplica: US$ 0.00 · ¿Confirmas?"* y **recién después** la
+acción rechazaba. Eso es pedirle al usuario que acepte un cero causado por información ausente.
+
+Ahora el bloqueo ocurre **antes** de ofrecer cualquier confirmación: un aviso con las temporadas
+pendientes y el motivo de cada una, y no se pregunta nada. La comprobación vive en una sola
+función (`bloqueoPorFechasSelladas`), que usan la pantalla y la acción, así que el texto no puede
+divergir y la acción sigue comprobándolo por su cuenta. Con una regla alcanzable el diálogo
+pregunta como siempre, con la diferencia real.
+
+**Contrapruebas, cada una restaurada con hash idéntico:**
+
+| | Qué se revirtió | Pruebas que caen |
+|---|---|---|
+| **CP-H** | la protección conservada deja de contar en la Regla 4 | **10** |
+| **CP-I** | la pantalla deja de conservar la protección al escribir | **3** |
+| **CP-J** | el diálogo vuelve a preguntar antes de rechazar | **1** |
+
+**Lo que no se amplió, por instrucción expresa:** cohortes y fecha de término. Sus efectos quedan
+documentados como límites del cálculo, con cifra, en la sección anterior.
 
 
 ## 3 · Recuperación

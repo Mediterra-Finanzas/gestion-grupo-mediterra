@@ -1733,3 +1733,218 @@ describe("D-6 · los ocho controles de términos quedan deshabilitados (interfaz
     expect(desde.disabled).toBe(false);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+// D-12 · La secuencia completa, desde la pantalla: fila protegida → borrar o
+// corregir el número de factura → guardar y recargar → importe intacto y
+// antecedentes conservados.
+//
+// Dos detalles del encuadre, porque si no la prueba no prueba nada:
+//
+//   · El `nFact` sólo es editable en las temporadas VIVAS (`filaRC(x,true)`);
+//     en las futuras se muestra como texto. Así que la temporada protegida se
+//     descubre del DOM en vez de fijarse a mano: la prueba sigue valiendo
+//     cuando el calendario avance.
+//   · La fecha de referencia va en 2023 para que la temporada viva ya tenga
+//     períodos cumplidos. Con la fixture de 2026 el ajuste de la primera
+//     temporada es cero y borrar su factura no movería nada.
+describe("D-12 · borrar un antecedente desde la pantalla no mueve el importe", () => {
+  const { antecedentesDeCobro, estadoActivacion } = require("./reajusteAplicado");
+
+  const ACT_2023 = {
+    activado: true, fechaReferencia: "2023-07-01", respaldo: "Comprobante sintetico 001",
+    reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula sintetica 1.2.6",
+    usuario: "prueba", fecha: "2026-10-05",
+    sello: { pct: 2, fechaReferencia: "2023-07-01", reglaFecha: "inicioPeriodoServicio" },
+  };
+  const BASE = (rcPagos) => CONTRATO({
+    rcCohortes: [{ id: "c1", ha: 41.97, desde: "2023/2024" }],
+    reajusteActivacion: ACT_2023,
+    rcPagos: rcPagos || {},
+  });
+
+  const abrirCobrosCon = (ct, onSave) => {
+    const u = render(
+      <ControlContratos
+        data={[ct]} setData={onSave || (() => {})}
+        clientes={[]} setClientes={() => {}} viverosData={[]} setViveros={() => {}}
+        can={true} usuarioActual={USUARIO}
+        tiposAnexoPersist={[]} setTiposAnexoPersist={() => {}}
+        tiposContratoPersist={[]} setTiposContratoPersist={() => {}} />
+    );
+    fireEvent.click(screen.getByText(/Ver/));
+    fireEvent.click(screen.getByText(/Cobros derivados/));
+    return u;
+  };
+  const inputsNFact = (doc) => [...doc.querySelectorAll('input[placeholder="F-000"]')];
+  const temporadaDe = (inp) => {
+    const tr = inp.closest("tr");
+    const m = (tr ? tr.textContent : "").match(/20\d\d\/20\d\d/);
+    return m ? m[0] : "";
+  };
+  // La última temporada viva: la que más períodos cumplidos tiene, así el
+  // efecto económico de perder la protección es el mayor de los disponibles.
+  const temporadaViva = () => {
+    const { container, unmount } = abrirCobrosCon(BASE(), () => {});
+    const ts = inputsNFact(container.ownerDocument).map(temporadaDe).filter(Boolean).sort();
+    unmount();
+    expect(ts.length).toBeGreaterThan(0);
+    return ts[ts.length - 1];
+  };
+
+  test("el punto de partida: con factura, esa temporada no se recalcula", () => {
+    const t = temporadaViva();
+    const sin = BASE();
+    const con = BASE({ [t]: { nFact: "999" } });
+    expect(totalDe(con)).toBeLessThan(totalDe(sin));          // la protegida no lleva ajuste
+    expect(estadoActivacion(con).activo).toBe(true);
+  });
+
+  test("borrarlo: el campo se edita, la proteccion queda, el total no se mueve", () => {
+    const t = temporadaViva();
+    let guardado = null;
+    const ct = BASE({ [t]: { nFact: "999" } });
+    const antes = totalDe(ct);
+    const { container } = abrirCobrosCon(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const inp = inputsNFact(container.ownerDocument).find((x) => x.value === "999");
+    expect(inp).toBeTruthy();
+    expect(inp.disabled).toBe(false);                          // es dato operativo: se edita
+    fireEvent.change(inp, { target: { value: "" } });
+    expect(guardado).not.toBe(null);
+    const fila = guardado[0].rcPagos[t];
+    expect(fila.nFact).toBe("");                               // el campo quedo editado
+    expect(fila.proteccion).toBeTruthy();                      // y la proteccion conservada
+    expect(antecedentesDeCobro(fila).hay).toBe(true);
+    expect(totalDe(guardado[0])).toBe(antes);                  // el importe, intacto
+    // Y sin la correccion esto habria subido: la fila volvia al recalculo.
+    const crudo = Object.assign({}, ct, { rcPagos: { [t]: { nFact: "" } } });
+    expect(totalDe(crudo)).toBeGreaterThan(antes);
+  });
+
+  test("guardar y recargar: el importe sigue intacto y los antecedentes conservados", () => {
+    const t = temporadaViva();
+    let guardado = null;
+    const ct = BASE({ [t]: { nFact: "999" } });
+    const antes = totalDe(ct);
+    const { container, unmount } = abrirCobrosCon(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    fireEvent.change(inputsNFact(container.ownerDocument).find((x) => x.value === "999"), { target: { value: "" } });
+    unmount();
+    // La recarga: serializado y de vuelta, como lo haria la persistencia.
+    const recargado = JSON.parse(JSON.stringify(guardado[0]));
+    expect(totalDe(recargado)).toBe(antes);
+    expect(recargado.rcPagos[t].proteccion.motivos.join(" ")).toMatch(/999/);
+    abrirCobrosCon(recargado, () => {});
+    expect(document.body.textContent.replace(/\s+/g, " ")).toMatch(/protegida: tiene factura o pago/);
+  });
+
+  test("corregirlo por otro numero tampoco mueve el total", () => {
+    const t = temporadaViva();
+    let guardado = null;
+    const ct = BASE({ [t]: { nFact: "999" } });
+    const antes = totalDe(ct);
+    const { container } = abrirCobrosCon(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    fireEvent.change(inputsNFact(container.ownerDocument).find((x) => x.value === "999"), { target: { value: "1000" } });
+    expect(guardado[0].rcPagos[t].nFact).toBe("1000");
+    expect(guardado[0].rcPagos[t].proteccion).toBeUndefined();  // no hace falta conservar nada
+    expect(totalDe(guardado[0])).toBe(antes);
+  });
+
+  test("destildar 'pagado' tampoco devuelve la fila al recalculo", () => {
+    const t = temporadaViva();
+    let guardado = null;
+    const ct = BASE({ [t]: { pagado: true } });
+    const antes = totalDe(ct);
+    const { container } = abrirCobrosCon(ct, (f) => { guardado = typeof f === "function" ? f([ct]) : f; });
+    const chk = [...container.ownerDocument.querySelectorAll('input[type=checkbox]')]
+      .find((x) => { const tr = x.closest("tr"); return tr && tr.textContent.includes(t) && x.checked; });
+    expect(chk).toBeTruthy();
+    fireEvent.click(chk);
+    expect(guardado).not.toBe(null);
+    expect(guardado[0].rcPagos[t].pagado).toBe(false);
+    expect(guardado[0].rcPagos[t].proteccion).toBeTruthy();
+    expect(totalDe(guardado[0])).toBe(antes);
+  });
+
+  test("sin antecedentes, la fila sigue tomando el reajuste: no se protege de mas", () => {
+    const sin = BASE();
+    const { container, unmount } = abrirCobrosCon(sin, () => {});
+    const vivos = inputsNFact(container.ownerDocument);
+    expect(vivos.filter((x) => x.value === "").length).toBe(vivos.length);   // ninguna con factura
+    const t = vivos.map(temporadaDe).filter(Boolean).sort().pop();
+    unmount();
+    expect(totalDe(BASE({ [t]: { nFact: "999" } }))).toBeLessThan(totalDe(sin));
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// D-11 · El diálogo. Faltando la fecha que la regla exige, se bloquea ANTES de
+// ofrecer una confirmación de "US$ 0,00": preguntar primero y rechazar después
+// es pedirle al usuario que acepte un cero causado por información ausente.
+dCrear("D-11 · el dialogo no ofrece confirmar un cero por falta de fecha", () => {
+  const dialogos = (fn) => {
+    const orig = { confirm: window.confirm, alert: window.alert, prompt: window.prompt };
+    const vistos = [];
+    window.confirm = (x) => (vistos.push("CONFIRM: " + x), true);
+    window.alert = (x) => { vistos.push("ALERT: " + x); };
+    window.prompt = (x) => (vistos.push("PROMPT: " + x), "x");
+    try { fn(); } finally { Object.assign(window, orig); }
+    return vistos;
+  };
+
+  test("se avisa con las temporadas pendientes y NO se pregunta nada", () => {
+    let guardado = null;
+    const ct = CONTRATO({
+      reajusteActivacion: {
+        activado: false, fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+        reglaFecha: "emision", reglaFechaRespaldo: "Clausula 1.2.6",
+      },
+    });
+    render(
+      <ControlContratos
+        data={[ct]} setData={(f) => { guardado = typeof f === "function" ? f([ct]) : f; }}
+        clientes={[]} setClientes={() => {}} viverosData={[]} setViveros={() => {}}
+        can={true} usuarioActual={USUARIO}
+        tiposAnexoPersist={[]} setTiposAnexoPersist={() => {}}
+        tiposContratoPersist={[]} setTiposContratoPersist={() => {}} />
+    );
+    fireEvent.click(screen.getByText(/Ver/));
+    fireEvent.click(screen.getByText(/Cobros derivados/));
+    const vistos = dialogos(() => { fireEvent.click(screen.getByText("Activar el reajuste")); });
+
+    const confirms = vistos.filter((v) => v.startsWith("CONFIRM"));
+    const alertas = vistos.filter((v) => v.startsWith("ALERT"));
+    expect(confirms.length).toBe(0);                         // no se pregunta
+    expect(alertas.length).toBe(1);
+    expect(alertas[0]).toMatch(/NINGUNA fila tiene una fecha que se pueda sellar/);
+    ["2026/2027", "2027/2028", "2028/2029", "2029/2030", "2030/2031"].forEach((t) => {
+      expect(alertas[0]).toContain(t);
+    });
+    expect(alertas.join(" ")).not.toMatch(/US\$ 0\.00/);
+    expect(guardado).toBe(null);
+  });
+
+  test("con una regla alcanzable, el dialogo sigue preguntando como siempre", () => {
+    let guardado = null;
+    const ct = CONTRATO({
+      reajusteActivacion: {
+        activado: false, fechaReferencia: "2026-07-01", respaldo: "Comprobante",
+        reglaFecha: "inicioPeriodoServicio", reglaFechaRespaldo: "Clausula 1.2.5",
+      },
+    });
+    render(
+      <ControlContratos
+        data={[ct]} setData={(f) => { guardado = typeof f === "function" ? f([ct]) : f; }}
+        clientes={[]} setClientes={() => {}} viverosData={[]} setViveros={() => {}}
+        can={true} usuarioActual={USUARIO}
+        tiposAnexoPersist={[]} setTiposAnexoPersist={() => {}}
+        tiposContratoPersist={[]} setTiposContratoPersist={() => {}} />
+    );
+    fireEvent.click(screen.getByText(/Ver/));
+    fireEvent.click(screen.getByText(/Cobros derivados/));
+    const vistos = dialogos(() => { fireEvent.click(screen.getByText("Activar el reajuste")); });
+    expect(vistos.filter((v) => v.startsWith("CONFIRM")).length).toBe(1);
+    expect(vistos[0]).toMatch(/Diferencia que se aplica: US\$ 25690\.69/);
+    expect(guardado).not.toBe(null);
+    expect(totalDe(guardado[0])).toBeCloseTo(655240.69, 2);
+  });
+});

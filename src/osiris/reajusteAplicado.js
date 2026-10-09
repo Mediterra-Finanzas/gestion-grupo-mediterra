@@ -164,6 +164,11 @@ export function aniversarioDentroDeTemporada(desde, temporada) {
 // TODOS los antecedentes, no solo una fecha. Si hay número de factura, marca
 // de pagado, fecha de pago, monto facturado o cualquier parcialidad con algo
 // cargado, la fila no se recalcula.
+// D-12: la proteccion no se pierde porque se vacie un campo. Si una fila tuvo
+// antecedentes de facturacion o pago, eso queda CONSERVADO en `proteccion` y
+// sigue protegiendola aunque el campo se borre o se corrija. Levantar la
+// proteccion es una operacion economica con su propio flujo, que no esta en
+// este paquete, asi que nada de lo que hay aca la quita.
 export function antecedentesDeCobro(pagoDeTemporada) {
   const p = pagoDeTemporada || {};
   const motivos = [];
@@ -178,7 +183,38 @@ export function antecedentesDeCobro(pagoDeTemporada) {
   // `haCobrar` es un override de hectáreas, no un antecedente de cobro. Se
   // nombra aparte para no confundirlo ni ignorarlo.
   const overrideHa = p.haCobrar !== undefined && p.haCobrar !== null && txt(p.haCobrar) !== "";
-  return { hay: motivos.length > 0, motivos, overrideHa };
+  // La proteccion conservada: lo que la fila TUVO. Se nombra distinto de lo
+  // que tiene hoy, porque son dos cosas y conviene que se vean las dos.
+  const pr = p.proteccion || null;
+  const conservados = pr && Array.isArray(pr.motivos) ? pr.motivos.filter(txt) : [];
+  const conservada = conservados.length > 0;
+  if (conservada)
+    motivos.push("proteccion conservada: " + conservados.join("; ") +
+      (txt(pr.desde) ? " (retirado el " + txt(pr.desde) + ")" : ""));
+  return { hay: motivos.length > 0, motivos, overrideHa, conservada, conservados };
+}
+
+// Lo que hay que guardar para que la proteccion no se pierda. Se compara el
+// antes con el despues: si la fila estaba protegida y la edicion la dejaria
+// sin antecedentes, se conserva lo que tenia. La edicion del campo se hace
+// igual -corregir un numero de factura es una tarea normal-; lo que no pasa
+// es que el importe vuelva al recalculo por eso.
+export function conProteccionConservada(filaAntes, filaDespues, hoy) {
+  const antes = antecedentesDeCobro(filaAntes);
+  const despues = antecedentesDeCobro(filaDespues);
+  if (!antes.hay || despues.hay) return filaDespues;
+  const previos = (filaAntes || {}).proteccion || null;
+  const motivos = previos && Array.isArray(previos.motivos) && previos.motivos.length
+    ? previos.motivos
+    : antes.motivos;
+  return Object.assign({}, filaDespues, {
+    proteccion: {
+      motivos,
+      desde: txt(hoy) || new Date().toISOString().slice(0, 10),
+      motivo: "Se retiraron los antecedentes de cobro. La proteccion se conserva: levantarla " +
+        "es una operacion economica con su propio flujo, que no esta habilitado en este paquete.",
+    },
+  });
 }
 
 // ── Activación ────────────────────────────────────────────────────────────
@@ -396,6 +432,36 @@ function conEvento(historialPrevio, evento) {
   return (Array.isArray(historialPrevio) ? historialPrevio : []).concat([evento]);
 }
 
+// El bloqueo de la activacion por falta de fechas sellables, en un solo lugar.
+// Lo usa `activar()` y tambien la pantalla ANTES de ofrecer una confirmacion:
+// preguntar "¿confirmas US$ 0,00?" y recien despues rechazar es pedirle al
+// usuario que acepte un cero causado por informacion ausente.
+export function bloqueoPorFechasSelladas(datos) {
+  const d = datos || {};
+  const porFila = fechasSelladasDeFilas(d, { filas: d.filas, antecedentesDe: d.antecedentesDe, mesCobro: d.mesCobro });
+  if (!porFila) return null;
+  if (porFila.sinFilas)
+    return {
+      motivo: 'La regla "' + porFila.regla + '" depende de una fecha de cada fila, y esta accion no ' +
+        "recibio las filas, asi que no puede sellar ninguna fecha. No se registra nada.",
+      faltan: [],
+    };
+  if (Object.keys(porFila.fechas).length > 0) return null;
+  const det = porFila.faltan.map((x) => x.temporada + ": " + x.motivo);
+  return {
+    motivo: 'La regla declarada es "' + porFila.regla + '", que depende de una fecha de cada fila, y ' +
+      "NINGUNA fila tiene una fecha que se pueda sellar:\n" + det.join("\n") +
+      "\nActivar asi registraria un impacto de cero causado por informacion ausente, y el efecto " +
+      "real apareceria despues, cuando alguien cargue esas fechas. No se registra nada. " +
+      (porFila.regla === "emision"
+        ? "Para esta regla hace falta la fecha efectiva de emision con su respaldo; una fecha " +
+          "estimada no lo es. Y una fila con antecedentes de facturacion no se recalcula (Regla 4)."
+        : "Para esta regla hace falta la fecha de pago, que es a su vez un antecedente de cobro, " +
+          "asi que la fila no se recalcula (Regla 4)."),
+    faltan: porFila.faltan,
+  };
+}
+
 export function activar(ct, datos) {
   const d = datos || {};
   const permiso = puedeCrearActivacion();
@@ -512,36 +578,10 @@ export function activar(ct, datos) {
   // C · Una regla que depende de una fecha de la fila se sella CON esa fecha,
   // no sola. Si la fecha que la regla exige no esta, o no tiene respaldo, no
   // hay nada que sellar y la activacion se RECHAZA diciendo que falta. Un
-  // impacto cero causado por informacion ausente no se acepta: sellar ahi
-  // dejaba un sello cuyo efecto aparecia despues, al cargar las fechas.
+  // impacto cero causado por informacion ausente no se acepta.
   const contextoFilas = { filas: d.filas, antecedentesDe: d.antecedentesDe, mesCobro: d.mesCobro };
-  const porFila = fechasSelladasDeFilas(d, contextoFilas);
-  if (porFila) {
-    if (porFila.sinFilas)
-      return {
-        ok: false,
-        motivo: 'La regla "' + porFila.regla + '" depende de una fecha de cada fila, y esta accion no ' +
-          "recibio las filas, asi que no puede sellar ninguna fecha. No se registra nada.",
-        contrato: ct,
-      };
-    if (Object.keys(porFila.fechas).length === 0) {
-      const det = porFila.faltan.map((x) => x.temporada + ": " + x.motivo);
-      return {
-        ok: false,
-        motivo: 'La regla declarada es "' + porFila.regla + '", que depende de una fecha de cada fila, y ' +
-          "NINGUNA fila tiene una fecha que se pueda sellar:\n" + det.join("\n") +
-          "\nActivar asi registraria un impacto de cero causado por informacion ausente, y el efecto " +
-          "real apareceria despues, cuando alguien cargue esas fechas. No se registra nada. " +
-          (porFila.regla === "emision"
-            ? "Para esta regla hace falta la fecha efectiva de emision con su respaldo; una fecha " +
-              "estimada no lo es. Y una fila con antecedentes de facturacion no se recalcula (Regla 4)."
-            : "Para esta regla hace falta la fecha de pago, que es a su vez un antecedente de cobro, " +
-              "asi que la fila no se recalcula (Regla 4)."),
-        contrato: ct,
-        faltan: porFila.faltan,
-      };
-    }
-  }
+  const bloqueo = bloqueoPorFechasSelladas(d);
+  if (bloqueo) return Object.assign({ ok: false, contrato: ct }, bloqueo);
 
   const fecha = txt(d.fecha) || new Date().toISOString().slice(0, 10);
   const act = {
