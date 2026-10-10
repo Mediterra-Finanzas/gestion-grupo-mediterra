@@ -456,7 +456,7 @@ Firefox ni equipos reales; nada corrido en producción.
 
 ## Estado al 09-10
 
-Las pruebas de la muestra terminaron (§6e) y las de los ajustes también (§6f). **Siguen
+Las pruebas de la muestra terminaron (§6e), las de los ajustes también (§6f y §6g). **Siguen
 pendientes:** tu revisión visual de la muestra y de los ajustes, y la adaptación de los demás
 módulos (grupos 2 a 5 de `docs/diseno/homogeneidad-y-plan.md` §4), que no empieza hasta esa
 revisión. Nada de esto está aprobado para producción: sin merge a `main` ni despliegue.
@@ -547,6 +547,46 @@ lectura del ZIP, no abiertos en Excel o Acrobat.
 
 **Franja ejecutiva del CFO: propuesta separada, no implementada** (depende de cambios
 funcionales). Ver `docs/diseno/homogeneidad-y-plan.md` §5.
+
+## 6g. Segundos ajustes (10-10) — pruebas terminadas; pendiente tu revisión visual
+
+Sin integrar ramas, sin merge ni despliegue. El grupo 2 sigue sin tocar.
+
+**Reporte Semanal PDF.** La línea de la cabecera de la portada sube de 38 a 34 mm: el título
+«Resumen Ejecutivo» (línea base en 42 mm, 16 pt) quedaba montado sobre ella. Se subió la línea en
+vez de bajar el contenido, así las posiciones, las cifras y la paginación no cambian. Además se
+corrigió una regresión de §6f: en las páginas 2 a 13 el logo, ya con su ancho real (24 mm),
+llegaba al texto que empieza en x = 32 mm; ahora mide 18 mm (el ancho que tenía antes) con su
+proporción. Verificado en el archivo descargado: título desde 37,9 mm y línea hasta 34,75 mm;
+logo de 18,0 mm en las páginas 2 a 13 y de 34,0 mm en la portada, sin deformar; 13 → 13 páginas;
+mismo texto que el build anterior (5a6d71a).
+
+**Barra de Nóminas en teléfono.** A la vista: Volver, título, estado, las acciones del circuito
+(aprobar y devolver, si el perfil puede) y «Más». En «Más»: la semana y la fecha, el selector de
+nómina hermana, nueva nómina, Editar/Solo ver y los documentos, con las **mismas condiciones**
+que antes. Alto: 271 → 153 px. «Más» es el componente común `MenuMas`: `aria-expanded`, el foco
+pasa al panel al abrir, Escape lo cierra y devuelve el foco, un clic fuera lo cierra, y elegir una
+acción la ejecuta igual que antes (con sus propias confirmaciones: «Devolver» sigue pidiendo el
+motivo en el diálogo de la app, y cancelar no escribe). Computador y tablet: sin cambios.
+Observación: en teléfono quedan dos «Más» visibles (el de la barra inferior de navegación y el
+de la nómina); sus nombres accesibles son distintos, pero el rótulo visible es el mismo.
+
+**Franja ejecutiva.** Revisada: ver `homogeneidad-y-plan.md` §5. Caja y deuda se pueden extraer
+como un conjunto independiente **con funciones que ya están en `main`** (no hace falta la rama
+funcional; su cálculo de deuda quedó superado por el modelo de créditos de `main`). El mínimo
+proyectado no: depende del motor del flujo. Prueba de lectura sin efectos de guardado:
+`lecturaInicioSinEfectos.test.js` (4/4, incluido el control que muestra el defecto con la carga
+actual). No se implementó la franja.
+
+**Pruebas** (build congelado `main.875046cd.js`, Chromium emulado, datos ficticios; solo lo que
+cambió): `ajustes-muestra.mjs` con `SECCIONES=exportaciones,nominas EXPORTS=semanal` 26/26 (los
+PDF de Osiris y de PO, el Excel y el GIF no cambiaron y no se repitieron); `muestra-ejecutiva`
+65/65; `grupo1-finanzas` 200/200; `dialogos-app` 27/27; nóminas (guardado, condicionado,
+crédito) OK; jest en hora de Chile 1.761/1.761. En UTC, 1.760/1.761: falló una vez
+`compensacionConcurrencia.test.js` («la segunda sesión no sobrescribe…»), que pasó 3 de 3
+aislada y en la corrida de hora de Chile. No toca nada de este cambio (viene de `main`, commit
+569dcb2), pero su causa no está establecida: queda pendiente revisarla, no se trata como
+inestable. No probado en Safari, Firefox ni dispositivos reales.
 
 ## 7. Archivos
 

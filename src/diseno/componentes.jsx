@@ -50,6 +50,42 @@ export function EncabezadoModulo({ ruta, titulo, logo, logoAlt = "", contexto = 
   );
 }
 
+// ── «Más»: acciones secundarias en un panel desplegable ────────────
+// Botón con aria-expanded / aria-controls; al abrir, el foco va al primer
+// control del panel; Escape o un clic fuera lo cierran y devuelven el foco al
+// botón. Elegir una acción (un <button> del panel) también lo cierra: la acción
+// sigue siendo la misma, con sus propias confirmaciones. No decide permisos: el
+// módulo solo pone dentro lo que la persona puede hacer.
+export function MenuMas({ rotulo = "Más", etiqueta = "Más acciones", testid, children }) {
+  const [abierto, setAbierto] = useState(false);
+  const raiz = useRef(null), boton = useRef(null), panel = useRef(null);
+  const idPanel = useRef(`mdt-mas-${Math.random().toString(36).slice(2, 8)}`).current;
+  const cerrar = (devolverFoco = true) => { setAbierto(false); if (devolverFoco) boton.current?.focus(); };
+  useEffect(() => {
+    if (!abierto) return;
+    panel.current?.querySelector("button, select, [tabindex]")?.focus();
+    const tecla = (e) => { if (e.key === "Escape") { e.preventDefault(); cerrar(); } };
+    const fuera = (e) => { if (raiz.current && !raiz.current.contains(e.target)) cerrar(false); };
+    document.addEventListener("keydown", tecla);
+    document.addEventListener("pointerdown", fuera);
+    return () => { document.removeEventListener("keydown", tecla); document.removeEventListener("pointerdown", fuera); };
+  }, [abierto]);
+  return (
+    <div className="mdt-mas" ref={raiz}>
+      <button type="button" ref={boton} className="mdt-boton mdt-boton--secundario" aria-haspopup="true" aria-expanded={abierto}
+        aria-controls={idPanel} aria-label={etiqueta} data-testid={testid ? `${testid}-boton` : undefined} onClick={() => setAbierto(a => !a)}>
+        {rotulo} <span aria-hidden>{abierto ? "▴" : "▾"}</span>
+      </button>
+      {abierto && (
+        <div id={idPanel} ref={panel} className="mdt-mas__panel" role="group" aria-label={etiqueta} data-testid={testid}
+          onClick={(e) => { if (e.target.closest("button")) cerrar(false); }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Circuito de aprobación ──────────────────────────────────────────
 // pasos: ver src/diseno/circuito.js. Horizontal en pantallas anchas, vertical
 // en teléfono. El paso en curso se anuncia (aria-current="step").

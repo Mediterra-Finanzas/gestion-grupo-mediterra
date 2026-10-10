@@ -68,38 +68,69 @@ Lo común ya resuelto en la rama: navegación (lateral / riel / barra inferior),
 Cada grupo: sin reescribir módulos, sin tocar cálculos, persistencia ni permisos; pruebas solo de
 lo que cambia sobre un build congelado; capturas en los 4 tamaños.
 
-## 5. Franja ejecutiva del CFO (propuesta, no implementada)
+## 5. Franja ejecutiva del CFO (propuesta, no implementada) — revisada el 10-10
 
 **Qué mostraría** (una fila compacta sobre «Requiere tu decisión», solo para quien tiene
-Finanzas → Dashboard): caja hoy (saldos bancarios vigentes, con «INCOMPLETO» si hay cuentas sin
-paridad), deuda (capital por vencer de créditos, con lo «por conciliar» aparte), mínimo de caja
-proyectado con su mes, y alertas (cuentas sin paridad, cuotas por conciliar, mínimo bajo cero).
-Cada cifra lleva al Dashboard o a Créditos, donde está su detalle.
+Finanzas → Dashboard): caja hoy, deuda (capital pendiente, con lo vencido y lo por conciliar
+aparte) y alertas. Cada cifra lleva a la pantalla donde está su detalle.
 
-**Por qué no se implementó en esta rama.** Reutilizar «los cálculos existentes» aquí significa
-reutilizar los del Dashboard de `main`, y dos de ellos no sirven:
+### Corrección a la versión del 09-10
 
-- **Deuda**: el KPI «Créditos Totales Q1-26» es una cifra fija en el código (8.355.763). Llevarla
-  al inicio sería justo la cifra estática que no se debe incorporar.
-- **Mínimo y saldo final**: en `main` suman las 8 sociedades al 100 % (incluidas las JV que van
-  por patrimonio), desde Apr-26 y con el saldo estático. No coinciden con el Consolidado.
+La versión anterior decía que había que integrar la rama funcional. **Es incorrecto para la
+deuda.** `main` (c9c5792, la base de esta rama) ya reemplazó el modelo de créditos: contratos con
+calendario, pagos registrados, conciliaciones y TC al corte, todo en `src/creditos.js`, puro y
+probado. El `capitalPendienteCreditos` de la rama funcional se escribió sobre el modelo anterior
+(marca `pagado`, `f_venc`, `cuota`): no conoce los créditos tipo «contrato» ni los pagos
+registrados, así que llevarlo sería retroceder. Lo que falta en `main` no es el cálculo, es
+usarlo: el KPI del Dashboard sigue mostrando la cifra fija 8.355.763.
 
-Las dos están corregidas en la **rama funcional** (`claude/fervent-bell-uu6ae8`):
-`capitalPendienteCreditos` (capital por vencer, por conciliar) y `cajaGrupoBase` (6 sociedades,
-saldo de Saldos Bancos, arrastre desde el mes en curso), con sus pruebas. Solo la caja de hoy
-tiene aquí una función pura reutilizable (`saldoBancoEmpresaUSD` / `avisoSaldoIncompleto`).
+### Conjunto que sí se puede extraer sin integrar la rama funcional
 
-**Dependencias, en orden:**
+| Cifra | Función (ya existe en `main`, pura) | Lee | Cambio necesario |
+|---|---|---|---|
+| Caja hoy por sociedad y total, con «INCOMPLETO» | `saldoBancoEmpresaUSD`, `avisoSaldoIncompleto` (`src/saldosBancosUSD.js`) | `finanzas_bancos` | ninguno en el cálculo |
+| Deuda: capital pendiente, vencido, por conciliar, sin TC | `valorizarCreditos` + `analisisCartera` (`src/creditos.js`), los mismos de Créditos → «Análisis CFO» | `finanzas.creditos_data`, `maestro_tc` | exportar `EMPRESAS_KEYS_CONSOLIDADO` (hoy constante interna de `FinanzasModule`) para separar las JV |
+| Alertas | `porConciliarCartera` (créditos), `avisoSaldoIncompleto` (bancos), `sinTC` de `analisisCartera` | las mismas filas | ninguno |
 
-1. Integrar la rama funcional (decisión tuya, por etapas; regla 15).
-2. Extraer de `FinanzasModule` un **selector puro de solo lectura**
-   (`resumenEjecutivo({finanzas, bancos, creditos, hoy})`) que use esas mismas funciones, y que
-   el Dashboard pase a leer de él: una sola fuente para Dashboard e inicio.
-3. Que el inicio lea las filas `finanzas` y `finanzas_bancos` con un lector **que no registre
-   la carga en el contrato de guardado** (hoy `dbLoad`/`dbLoadBancos` llaman
-   `persist.registrarCarga`; leer con ellas desde el inicio cambiaría el estado de guardado de
-   Finanzas). Es un cambio de persistencia y por eso va con su prueba propia.
+Selector propuesto: `resumenEjecutivo({ bancos, creditos, tc, hoy })` en un archivo nuevo, que
+solo llame a esas funciones. Sin fórmulas propias y sin cifras fijas.
 
-**Alternativa parcial (no recomendada):** solo «caja hoy» con `saldoBancoEmpresaUSD`, dejando
-deuda y mínimo como enlace a Finanzas. Exige igual el paso 3 y muestra media foto: una caja
-alta sin la deuda al lado induce a una lectura equivocada.
+**Mínimo de caja proyectado: queda fuera de este conjunto.** Necesita el flujo de las 6
+sociedades ya construido (`buildEmpresas` + ajustes de préstamos y Allegria Service + valores
+manuales, líneas agregadas y sublíneas), que hoy se arma **dentro del componente** de Finanzas
+(un `useMemo` y la normalización de `applyData`). Para leerlo desde el inicio habría que
+extraer ese armado a una función pura: es un cambio funcional en el motor del flujo, más grande
+que la franja. Además, la definición correcta del mínimo (`cajaGrupoBase`: 6 sociedades, saldo
+de Saldos Bancos, desde el mes en curso) está solo en la rama funcional (commit 6407e6d) y
+`main` todavía suma las 8 sociedades al 100 %. Mientras tanto, la franja enlaza al Dashboard
+para el mínimo.
+
+### Lectura sin efectos de guardado (requisito previo)
+
+`dbLoad` y `dbLoadBancos` de Finanzas llaman a `persist.registrarCarga`, que **borra el conflicto
+pendiente y la marca de cambios** de la fila y le cambia la versión. Si el inicio leyera
+`finanzas` con ellas mientras Finanzas está en conflicto con otra sesión, el siguiente
+auto-save de Finanzas pisaría el trabajo de la otra persona. `dbLoadGeneric` (para
+`maestro_tc`) registra su propia lectura.
+
+Prueba: `src/__tests__/lecturaInicioSinEfectos.test.js` (4 casos, contra un servidor en memoria):
+
+1. **Control**: leer «como hoy» desde el inicio borra el conflicto, y el guardado siguiente
+   reemplaza el 1.000 de la otra sesión por 7.777. La prueba detecta el defecto.
+2. **Lector propuesto** (solo GET y ninguna llamada al contrato de guardado): el estado de
+   guardado de `finanzas`, `finanzas_bancos` y `maestro_tc` queda idéntico, el conflicto sigue
+   bloqueando el guardado y no sale ninguna escritura.
+3. Una lectura fallida (red o HTTP 503) es un error, nunca una cifra.
+4. Ninguna petición sale del servidor falso.
+
+El lector vive en la prueba: no hay código de producción nuevo. Implementarlo es el primer paso
+cuando autorices la franja.
+
+### Orden propuesto (cuando lo autorices)
+
+1. Lector de solo lectura en `src/diseno/` (el de la prueba) y su uso desde el inicio.
+2. `resumenEjecutivo` con las funciones de la tabla, más una prueba que compare sus cifras con
+   las de Créditos → «Análisis CFO» y Saldos Bancos sobre los mismos datos.
+3. Franja en el inicio, con estados cargando / error / sin permiso.
+4. Aparte, y con su propia decisión: que el Dashboard de `main` deje la cifra fija y use
+   `analisisCartera`; y la extracción del motor del flujo para el mínimo proyectado.

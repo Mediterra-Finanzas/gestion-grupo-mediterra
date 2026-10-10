@@ -1,5 +1,6 @@
 /* eslint-disable */
-import { useFuenteGrafico, EncabezadoModulo, Circuito } from "./diseno/componentes.jsx";
+import { useFuenteGrafico, EncabezadoModulo, Circuito, MenuMas } from "./diseno/componentes.jsx";
+import { useClaseVentana } from "./diseno/useClaseVentana";
 import { pasosNomina } from "./diseno/circuito.js";
 import { medidasLogoPDF } from "./diseno/logoExport.js";
 import { pedirTexto, elegirOpcion, useUltimo, huella, sigueIgual, avisarDesactualizado } from "./diseno/dialogos.jsx";
@@ -12113,7 +12114,10 @@ const _PDF_COLORS = {
 // Helper: agregar header de página
 function _pdfAddHeader(doc, semana, fechaStr, isFirst, logo) {
   const W = doc.internal.pageSize.getWidth();
-  const altura = isFirst ? 38 : 22; // mm
+  // Portada: la línea teal va en 34 mm (antes 38). El título «Resumen Ejecutivo» tiene su
+  // línea base en 42 mm y con 16 pt sube ~4 mm: quedaba montado sobre la línea. Se sube la
+  // línea en vez de bajar el contenido, así cifras, posiciones y paginación no cambian.
+  const altura = isFirst ? 34 : 22; // mm
   // Fondo blanco
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, W, altura, "F");
@@ -12124,8 +12128,9 @@ function _pdfAddHeader(doc, semana, fechaStr, isFirst, logo) {
   // Logo Mediterra
   if(logo) {
     try {
-      // Proporción real (antes 30×22 / 18×13 mm: el logo salía ≈ 23 % más angosto).
-      const m = medidasLogoPDF(doc, logo, isFirst ? 34 : 24, isFirst ? 22 : 13);
+      // Proporción real (antes 30×22 / 18×13 mm: el logo salía ≈ 23 % más angosto). El ancho
+      // máximo deja aire antes del texto (x = 50 en la portada, x = 32 en las demás).
+      const m = medidasLogoPDF(doc, logo, isFirst ? 34 : 18, isFirst ? 22 : 13);
       doc.addImage(logo, "PNG", 12, (isFirst ? 8 : 5) + ((isFirst ? 22 : 13) - m.h) / 2, m.w, m.h);
     } catch(e) {}
   }
@@ -17135,6 +17140,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
   creditosData=[], puedePagarCredito=false, onPagoCredito}) {
   const nom = nomina;
   const nomActual = useUltimo(nomina);   // la nómina vigente mientras se espera un diálogo
+  const claseVentana = useClaseVentana();   // teléfono: acciones del circuito a la vista, el resto en «Más»
   const esCFO = usuario?.rol==="admin" || usuario?.esCFO;
   const [soloVer, setSoloVer] = useState(false);
   const [transicionando, setTransicionando] = useState(false); // guardando un cambio de estado
@@ -17855,15 +17861,10 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
   return (
     <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",color:C.text}}>
       {/* Encabezado de la nómina: sistema común (mdt-cabmod / mdt-boton). Mismas acciones,
-          condiciones y permisos que antes; solo cambia la presentación. */}
-      <header className="no-print mdt-cabmod mdt-barra-nomina" data-testid="barra-nomina">
-        <div className="mdt-cabmod__id" style={{flexWrap:"wrap"}}>
-          <button type="button" onClick={onBack} className="mdt-boton mdt-boton--secundario mdt-boton--chico">← Volver</button>
-          <div style={{minWidth:0,flex:"1 1 200px"}}>
-            <div className="mdt-cabmod__ruta">Finanzas · Nóminas</div>
-            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-              <h1 className="mdt-cabmod__titulo">{nombreFormal}</h1>
-              {onSwitchNomina&&(
+          condiciones y permisos que antes; solo cambia la presentación. En teléfono, las
+          acciones del circuito quedan a la vista y el resto pasa a «Más». */}
+      {(()=>{
+        const selectorHermanas = (onSwitchNomina&&(
               <select value={nom.id}
                 onChange={e=>{
                   const val=e.target.value;
@@ -17873,7 +17874,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                     onCrearYAbrir(val.replace("_crear_",""));
                   }
                 }}
-                aria-label="Cambiar de nómina" style={{minHeight:32,width:"auto",maxWidth:240,padding:"0 10px",borderRadius:"var(--mdt-r-2)",border:"1px solid var(--mdt-c-borde)",background:"var(--mdt-c-superficie)",color:"var(--mdt-c-texto)",fontSize:"var(--mdt-t-chico)",fontWeight:600,cursor:"pointer",maxWidth:"100%"}}>
+                aria-label="Cambiar de nómina" style={{minHeight:32,width:"auto",padding:"0 10px",borderRadius:"var(--mdt-r-2)",border:"1px solid var(--mdt-c-borde)",background:"var(--mdt-c-superficie)",color:"var(--mdt-c-texto)",fontSize:"var(--mdt-t-chico)",fontWeight:600,cursor:"pointer",maxWidth:"100%"}}>
                 {nominasHermanas.map(nh=>(
                   <option key={nh.id} value={nh.id}>{nh.empresa}{nh.numero>1?` N°${nh.numero}`:""}</option>
                 ))}
@@ -17884,20 +17885,8 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
                   ))
                 }
               </select>
-            )}
-            </div>
-          </div>
-        </div>
-        <dl className="mdt-cabmod__contexto">
-          <div className="mdt-cabmod__dato"><dt>Semana</dt><dd>{nom.semana} · {nom.año}</dd></div>
-          <div className="mdt-cabmod__dato"><dt>Fecha</dt><dd>{nom.fecha}</dd></div>
-          <div className="mdt-cabmod__dato"><dt>Estado</dt><dd><BadgeEstado estado={nom.estado}/></dd></div>
-        </dl>
-        <div className="mdt-cabmod__acciones">
-          {/* Mensaje de bloqueo si no puede avanzar */}
-          {mensajeBloqueo&&!puedeAvanzar&&(
-            <span className="mdt-guardado-chip" style={{color:"var(--mdt-c-aviso)"}}>{mensajeBloqueo}</span>
-          )}
+            ));
+        const accionCircuito = (<>
           {puedeAvanzar&&(
             <button type="button" onClick={avanzarEstado} disabled={transicionando}
               className={`mdt-boton ${nom.estado==="aprobada1"?"mdt-boton--ok":"mdt-boton--primario"}`}
@@ -17910,9 +17899,12 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
               {textoRetroceder}
             </button>
           )}
-        </div>
-        {/* Nueva nómina, documento y vista: fila propia (en teléfono se desliza en una línea). */}
-        <div className="mdt-barra-nomina__docs" aria-label="Documento y vista">
+        </>);
+        const aviso = mensajeBloqueo&&!puedeAvanzar ? (
+          <span className="mdt-guardado-chip" style={{color:"var(--mdt-c-aviso)"}}>{mensajeBloqueo}</span>
+        ) : null;
+        // Nueva nómina, documento y vista. Mismas condiciones en las dos presentaciones.
+        const accionesSec = (<>
           {/* + Nueva nómina misma empresa/semana (crea otra nómina: no es un paso del circuito) */}
           {canEdit&&onCrearNueva&&(
             <button type="button" onClick={()=>onCrearNueva(nom.empresa, nom.semana, nom.año)} className="mdt-boton mdt-boton--secundario mdt-boton--chico">
@@ -17935,8 +17927,49 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
             style={descExpediente?{cursor:"wait"}:undefined}>
             {descExpediente?"Generando…":"Expediente ZIP"}
           </button>
-        </div>
-      </header>
+        </>);
+        if(claseVentana==="compacta") return (
+          <header className="no-print mdt-cabmod mdt-barra-nomina mdt-barra-nomina--compacta" data-testid="barra-nomina">
+            <div className="mdt-barra-nomina__fila">
+              <button type="button" onClick={onBack} className="mdt-boton mdt-boton--secundario mdt-boton--chico">← Volver</button>
+              <h1 className="mdt-cabmod__titulo" title={nombreFormal}>{nombreFormal}</h1>
+            </div>
+            <div className="mdt-barra-nomina__fila" style={{flexWrap:"wrap"}}>
+              <BadgeEstado estado={nom.estado}/>{aviso}
+            </div>
+            <div className="mdt-barra-nomina__fila mdt-barra-nomina__acciones">
+              {accionCircuito}
+              <MenuMas etiqueta="Más acciones de la nómina" testid="nomina-mas">
+                <div className="mdt-mas__dato">Semana {nom.semana} · {nom.año} · {nom.fecha}</div>
+                {selectorHermanas}
+                {accionesSec}
+              </MenuMas>
+            </div>
+          </header>
+        );
+        return (
+          <header className="no-print mdt-cabmod mdt-barra-nomina" data-testid="barra-nomina">
+            <div className="mdt-cabmod__id" style={{flexWrap:"wrap"}}>
+              <button type="button" onClick={onBack} className="mdt-boton mdt-boton--secundario mdt-boton--chico">← Volver</button>
+              <div style={{minWidth:0,flex:"1 1 200px"}}>
+                <div className="mdt-cabmod__ruta">Finanzas · Nóminas</div>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <h1 className="mdt-cabmod__titulo">{nombreFormal}</h1>
+                  {selectorHermanas}
+                </div>
+              </div>
+            </div>
+            <dl className="mdt-cabmod__contexto">
+              <div className="mdt-cabmod__dato"><dt>Semana</dt><dd>{nom.semana} · {nom.año}</dd></div>
+              <div className="mdt-cabmod__dato"><dt>Fecha</dt><dd>{nom.fecha}</dd></div>
+              <div className="mdt-cabmod__dato"><dt>Estado</dt><dd><BadgeEstado estado={nom.estado}/></dd></div>
+            </dl>
+            <div className="mdt-cabmod__acciones">{aviso}{accionCircuito}</div>
+            {/* Nueva nómina, documento y vista: fila propia. */}
+            <div className="mdt-barra-nomina__docs" aria-label="Documento y vista">{accionesSec}</div>
+          </header>
+        );
+      })()}
 
       {/* Banner nómina bloqueada */}
       {estadoBloqueado&&(

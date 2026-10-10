@@ -303,3 +303,19 @@ html[data-nav="compacta"] .mdt-dup-nav { display: none; }
   .mdt-barra-nomina__docs { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; -webkit-overflow-scrolling: touch; }
   .mdt-barra-nomina__docs > button { flex: 0 0 auto; }
 }
+
+/* «Más» (MenuMas): panel bajo el botón, alineado a la derecha, encima del contenido. */
+.mdt-mas { position: relative; }
+.mdt-mas__panel { position: absolute; right: 0; top: calc(100% + 4px); z-index: 60; min-width: 220px; max-width: calc(100vw - 32px);
+  display: flex; flex-direction: column; gap: var(--mdt-e-1); padding: var(--mdt-e-2);
+  background: var(--mdt-c-superficie); border: 1px solid var(--mdt-c-borde); border-radius: var(--mdt-r-3); box-shadow: 0 8px 24px rgba(15, 23, 42, .18); }
+.mdt-mas__panel > button { justify-content: flex-start; width: 100%; }
+.mdt-mas__dato { font-size: var(--mdt-t-rotulo); color: var(--mdt-c-texto-2); padding: 2px var(--mdt-e-2) var(--mdt-e-1); }
+
+/* Barra de Nóminas en teléfono: título en una línea, estado, y una fila con las acciones
+   del circuito + «Más» (el resto de las acciones). */
+.mdt-barra-nomina--compacta { display: flex; flex-direction: column; align-items: stretch; gap: var(--mdt-e-2); }
+.mdt-barra-nomina--compacta .mdt-barra-nomina__fila { display: flex; align-items: center; gap: var(--mdt-e-2); min-width: 0; }
+.mdt-barra-nomina--compacta .mdt-cabmod__titulo { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mdt-barra-nomina--compacta .mdt-barra-nomina__acciones > .mdt-boton { flex: 1 1 0; min-width: 0; white-space: normal; line-height: 1.15; padding: 4px 8px; }
+.mdt-barra-nomina--compacta .mdt-barra-nomina__acciones > .mdt-mas { flex: 0 0 auto; margin-left: auto; }
