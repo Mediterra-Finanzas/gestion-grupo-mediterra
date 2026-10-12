@@ -11126,7 +11126,7 @@ La orden conserva sus despachos, facturas y cuotas. Queda registrado quién la a
                   {(()=>{
                     const ro = reajusteOperativoConActivacion(r);
                     if(ro.estado===REAJUSTE_ACTIVADO_APLICANDO)
-                      return <span title="Reajuste activado. Las temporadas con factura o pago registrado no se recalculan."
+                      return <span title="Reajuste activado. Las temporadas con factura o pago registrado, o con proteccion conservada de un antecedente ya retirado, no se recalculan."
                         style={{fontSize:9,color:C.success,marginLeft:4,fontWeight:700}}>+{N(ro.pct)}%/año</span>;
                     if(ro.estado===REAJUSTE_APLICANDO)
                       return <span style={{fontSize:9,color:C.am,marginLeft:4}}>+{N(ro.pct)}%/año</span>;

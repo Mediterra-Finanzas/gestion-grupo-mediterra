@@ -1185,7 +1185,9 @@ export function reajusteOperativoConActivacion(ct, opciones) {
     llevan = f.cambian;
     aviso = f.cambian + " temporada(s) de esta pantalla llevan el reajuste" +
       (f.protegidas ? ", " + f.protegidas + " quedan en su valor base por " +
-        (f.protegidasConservadas ? "factura, pago o proteccion conservada" : "tener factura o pago registrado") : "") +
+        (f.protegidasConservadas
+          ? "factura, pago o proteccion conservada (" + f.protegidasConservadas + " por antecedentes ya retirados)"
+          : "tener factura o pago registrado") : "") +
       (f.pendientes ? ", y " + f.pendientes + " quedan pendientes porque su fecha no quedo sellada al activar" : "") +
       ". " + sellado;
   }
