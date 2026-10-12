@@ -1637,6 +1637,47 @@ describe("D-12 · el registro acumula con tope y por clase de antecedente", () =
     expect(ro.aviso).not.toMatch(/proteccion conservada/);
   });
 
+  test("la rama de 'algunas cambian' desglosa igual que la otra", () => {
+    const ro = reajusteOperativoConActivacion(
+      CONTRATO({ reajusteActivacion: Object.assign({}, ACTIVACION) }),
+      { filas: { cambian: 4, protegidas: 2, protegidasConservadas: 1, pendientes: 0 } });
+    expect(ro.aviso).toMatch(/2 quedan en su valor base por factura, pago o proteccion conservada \(1 por antecedentes ya retirados\)/);
+  });
+
+  // El tope conserva los ultimos y cuenta el resto, asi que los valores mas
+  // viejos dejan de constar; y en parcialidades el motivo lleva la cantidad del
+  // paso anterior al retiro, no la mayor que la fila tuvo. Las dos perdidas de
+  // detalle son por diseno y quedan medidas acá, no solo declaradas.
+  test("lo que el registro deja de contar, medido", () => {
+    // 3 parcialidades -> 1 -> 0: se registra la cantidad del paso anterior.
+    const dato = (n) => ({ parciales: Array.from({ length: n }, (_, i) => ({ id: "p" + i, nFact: "F" + i })) });
+    const tres = dato(3);
+    const uno = conProteccionConservada(tres, Object.assign({}, tres, dato(1)), "2026-10-09");
+    expect(uno.proteccion).toBeUndefined();                      // la clase sigue viva
+    const cero = conProteccionConservada(Object.assign({}, tres, dato(1)),
+      Object.assign({}, tres, dato(0)), "2026-10-10");
+    expect(cero.proteccion.motivos).toEqual(["1 parcialidad(es) con datos"]);  // no 3
+    expect(total(ACTIVA({ "2029/2030": cero }))).toBeCloseTo(647533.99, 2);
+  });
+
+  test("un registro reducido a solo el contador sigue protegiendo y se rotula bien", () => {
+    const fila = { nFact: "", proteccion: { motivos: ["7 retiros anteriores"], desde: "2026-10-09" } };
+    const a = antecedentesDeCobro(fila);
+    expect(a.hay).toBe(true);
+    expect(a.soloPorConservada).toBe(true);
+    expect(a.clases).toEqual({});                                // no es un antecedente vivo
+    expect(a.motivos[0]).toMatch(/^proteccion conservada: 7 retiros anteriores \(ultimo retiro el 2026-10-09\)$/);
+    expect(total(ACTIVA({ "2029/2030": fila }))).toBeCloseTo(647533.99, 2);
+  });
+
+  test("un numero de factura que imita al contador no infla el conteo", () => {
+    const fila = conProteccionConservada({ nFact: "3 retiros anteriores" }, { nFact: "" }, "2026-10-09");
+    expect(fila.proteccion.motivos).toEqual(["número de factura 3 retiros anteriores"]);
+    const otra = conProteccionConservada(Object.assign({}, fila, { nFact: "Z" }),
+      Object.assign({}, fila, { nFact: "" }), "2026-10-10");
+    expect(otra.proteccion.motivos.length).toBe(2);              // dos retiros, no cuatro
+  });
+
   test("el resumen de filas cuenta las conservadas aparte", () => {
     const { previsualizarActivacion } = require("./reajusteAplicado");
     const conservada = conProteccionConservada({ nFact: "999" }, { nFact: "" }, "2026-10-09");

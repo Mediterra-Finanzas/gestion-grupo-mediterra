@@ -623,9 +623,29 @@ el …)"*, que es lo que la fecha guardada significa. Guardar una fecha por moti
 se declara: para lo que el registro tiene que probar —que la fila tuvo antecedentes y cuándo fue el
 último retiro— alcanza con esto.
 
+**Lo que el registro deja de contar, medido.** Dos pérdidas de detalle, las dos por diseño:
+
+- Pasados cinco retiros, los valores más viejos dejan de constar y sólo se cuentan. Con 21
+  retiros, los primeros 17 figuran como *"17 retiros anteriores"*. Es la decisión frente a reabrir
+  R-1, y el registro deja de ser la lista completa de lo que la fila tuvo.
+- En parcialidades el motivo lleva la cantidad, y la que queda registrada es la del paso anterior
+  al retiro, no la mayor que la fila tuvo: 3 → 1 → 0 registra *"1 parcialidad(es) con datos"*. Es
+  el costo de no registrar un retiro en cada cambio de cantidad.
+
+Las dos están medidas en prueba, con el importe intacto (647.533,99), igual que el caso de un
+registro reducido a sólo el contador —sigue protegiendo y se rotula bien, y el contador no se
+confunde con un antecedente vivo— y el adversario de un número de factura que imita el texto del
+contador, que no infla el conteo.
+
+**Y los dos últimos textos.** El aviso desglosa ahora *"(M por antecedentes ya retirados)"* también
+en la rama "algunas temporadas llevan el reajuste", que es la más frecuente y antes informaba
+menos que la otra. Y el tooltip del `+N%/año` en el listado de contratos, que describía el criterio
+sin la protección conservada, ya la nombra.
+
 **Contrapruebas de estas tres**, cada una restaurada con parche inverso explícito y la suite verde
-después: quitar el tope, comparar por valor en vez de por clase, y que el aviso vuelva a atribuir
-factura → caen **5** pruebas en conjunto.
+después: quitar el tope (caen 3), comparar por valor en vez de por clase (2), y que el aviso vuelva
+a atribuir factura (1) → **6** en total. Una versión anterior de esta acta declaró 5, que era el
+resultado de revertirlas juntas; queda corregido, y así se reproduce.
 
 
 **Lo que no se amplió, por instrucción expresa:** cohortes y fecha de término. Sus efectos quedan
