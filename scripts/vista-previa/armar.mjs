@@ -2,10 +2,12 @@
    Arma la VISTA PREVIA de Créditos: el build real de la app + un Supabase
    simulado en el navegador (shim.js) + datos de ejemplo (semilla.js).
 
-     node scripts/vista-previa/armar.mjs [--build] [--out <carpeta>]
+     node scripts/vista-previa/armar.mjs [--build] [--out <carpeta>] [--reportes]
      node scripts/vista-previa/servir.mjs          → http://localhost:4180
 
    --build   ejecuta antes `react-scripts build` (si no existe build/ también).
+   --reportes  datos de Créditos → 📥 Reportes (src/reporteCreditos.datosPrueba.js: renovación,
+               pagos parciales, pago posterior al corte, PEN sin TC, JV, anulado) y TC fijo.
    Salida (por defecto scripts/vista-previa/dist, no se versiona):
      index.html     para abrir en local (diálogos y descargas Excel nativos)
      artifact.html  para publicar como Artifact (sin doctype; diálogos en la página,
@@ -18,6 +20,7 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { nuevoStore } from '../e2e/fake.mjs';
 import { vencimientosCredito } from '../../src/creditos.js';
+import { CREDITOS_PRUEBA, TC_PRUEBA } from '../../src/reporteCreditos.datosPrueba.js';
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const RAIZ = path.resolve(AQUI, '../..');
@@ -77,9 +80,11 @@ const creditos = [
 ];
 
 const base = nuevoStore();
+const REPORTES = args.includes('--reportes');
 const datos = {
   base: Object.fromEntries(Object.entries(base).map(([k, v]) => [k, v.value])),
-  creditos,
+  creditos: REPORTES ? CREDITOS_PRUEBA : creditos,
+  tcFijo: REPORTES ? TC_PRUEBA : null,
 };
 
 const semilla = `/* Datos SIMULADOS de la vista previa (generado por armar.mjs). */
@@ -109,6 +114,7 @@ window.__VP_SEMILLA = function () {
     'USD-CLP': [ { fecha: menos(6), valor: 948, fuente: 'simulado' }, { fecha: menos(2), valor: 955, fuente: 'manual' } ],
     'UF-CLP':  [ { fecha: menos(30), valor: 40012.55, fuente: 'simulado' }, { fecha: menos(1), valor: 40118.27, fuente: 'simulado' },
                  { fecha: '2026-10-09', valor: 40131.84, fuente: 'simulado' } ] } };
+  if (D.tcFijo) store.maestro_tc.value = D.tcFijo;
   // Nóminas de Osiris: semana en curso en borrador, sin vincular (vincular NO registra pago);
   // semana anterior aprobada, vinculada a la cuota 10-10 SIN pago ("Confirmar pago efectivo");
   // dos semanas atrás aprobada, con el abono de la cuota 10-07 ya registrado en Créditos.

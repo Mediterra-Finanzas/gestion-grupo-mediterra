@@ -48,6 +48,7 @@ import {
   MODELO_VERSION, normalizarIdentidades,
 } from './programas.js';
 import ProgramasPanel, { ResumenLado } from './ProgramasComerciales.jsx';
+import ReportesCreditos from './ReportesCreditos.jsx';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -9258,7 +9259,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   // Lista de empresas para el <select> del modal: filtrar por permisos
   const EMP_SELECT = ["Mediterra","Allegria Foods","Allegria Service","Frisku Foods","Osiris","Integrity Farms","Allpa Farms","Allpa Farms Perú"]
     .filter(e => esPermitida(e));
-  const [vistaCred,setVistaCred]=useState("creditos"); // "creditos" | "analisis" | "prepago" | "saldomes"
+  const [vistaCred,setVistaCred]=useState("creditos"); // "creditos" | "analisis" | "prepago" | "saldomes" | "reportes"
   const [busq,setBusq]=useState("");
   const [filtEmp,setFiltEmp]=useState("Todas");
   const [filtPagado,setFiltPagado]=useState("Vigentes"); // Todos | Vigentes | Con vencidos | Cerrados | Anulados
@@ -9510,7 +9511,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
       {/* Subpestañas de Créditos */}
       <div style={{display:"flex",gap:6}}>
-        {[["creditos","💳 Créditos"],["conciliacion","🔎 Conciliación"],["analisis","📊 Análisis CFO"],["prepago","🧮 Simular prepago"],["saldomes","📅 Saldo por Mes"]].map(([id,lbl])=>(
+        {[["creditos","💳 Créditos"],["conciliacion","🔎 Conciliación"],["analisis","📊 Análisis CFO"],["prepago","🧮 Simular prepago"],["saldomes","📅 Saldo por Mes"],["reportes","📥 Reportes"]].map(([id,lbl])=>(
           <button key={id} onClick={()=>setVistaCred(id)}
             className={`mdt-tab${vistaCred===id?" mdt-tab--active":""}`}
             style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${vistaCred===id?C.blue:C.border}`,
@@ -9523,6 +9524,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         <div style={{fontSize:11,background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"6px 12px"}}>
           ⚠ {tcEstado==="error"?"No se pudo leer":"Está vacío"} el histórico de tipo de cambio de Maestros: los créditos en otra moneda usan su TC declarado (hipótesis) o quedan sin convertir.
         </div>)}
+      {/* Reportes: solo lectura; mismos créditos visibles y las mismas empresas autorizadas, también en las descargas */}
+      {vistaCred==="reportes" && <ReportesCreditos creditos={creditosVisibles} empresasPermitidas={permitidasSet?[...permitidasSet]:null} tcData={tcData} tcEstado={tcEstado}/>}
       {vistaCred==="saldomes" && <SaldoDeudaPorMes creditos={creditosVisibles} empresas={empresas} tcData={tcData}/>}
       {vistaCred==="analisis" && <AnalisisCreditos creditos={creditosVisibles} empresas={empresas}/>}
       {vistaCred==="conciliacion" && <ConciliacionCreditos creditos={creditosVisibles} empresas={empresas} realData={realData}
