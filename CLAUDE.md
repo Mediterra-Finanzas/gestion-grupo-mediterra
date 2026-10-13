@@ -8,7 +8,10 @@ Aplicación web interna para la gestión financiera y operativa de **Grupo Medit
 - **Backend**: Supabase (Postgres + Auth + Storage)
 - **Hosting**: Vercel (deploy automático desde GitHub)
 - **Build**: Create React App (`react-scripts 5.0.1`) — NO Vite
-- **Sin tests activos** (existe `@testing-library/react` pero sin specs propios)
+- **Con pruebas propias** (Jest + `@testing-library/react` sobre `react-scripts test`): 108 archivos
+  `.test.js`/`.test.mjs` en `src/`, 28 de ellos en `src/osiris/`. La regla 10 de más abajo trae los
+  comandos exactos. La línea anterior de este archivo decía "sin tests activos" y quedó falsa hace
+  tiempo
 - **Sin linter activo** (archivos usan `/* eslint-disable */`); en build con `CI=true` los warnings escalan a error
 - **APIs externas integradas**: `mindicador.cl` (Banco Central Chile, TC del CLP) y `api.frankfurter.app` (Banco Central Europeo, cross-rates globales). Sin auth, CORS abierto.
 
