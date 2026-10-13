@@ -6,7 +6,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import HomeEjecutivo from "./ux/HomeEjecutivo";
 import { theme } from "./theme";
-import { EncabezadoModulo } from "./diseno/componentes.jsx";
+import { EncabezadoModulo, Accesos } from "./diseno/componentes.jsx";
 import { pedirTexto, useUltimo, huella, sigueIgual, avisarDesactualizado } from "./diseno/dialogos.jsx";
 import { estadoFirmasContrato } from "./osiris/estadoFirmas";
 import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
@@ -11681,6 +11681,10 @@ function ReportesOsiris({rpData=[],rcData=[],feData=[],fvData=[],ctData=[],obten
 // COMPONENTE PRINCIPAL — Hub Osiris mejorado
 // ══════════════════════════════════════════════════════════
 export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPermisos={},onBack,onLogout}) {
+  // App pasa `esAdmin` como FUNCIÓN (nombre) => bool. Usarla como booleano la volvía
+  // siempre verdadera: cualquier perfil, incluso consulta, podía reordenar el hub y
+  // escribir la fila osiris. Ordenar es solo del administrador, como declaraba el hub.
+  const soyAdmin = usuarioActual?.rol === "admin" || (typeof esAdmin === "function" ? !!esAdmin(usuarioActual?.nombre) : esAdmin === true);
   // ── Osiris tiene su propia persistencia (fila "osiris" en Supabase) ──
   const [osirisData, setOsirisData] = useState({});
   // Último valor, para revisar después de un diálogo de la app (ya no bloquea como window.prompt).
@@ -12202,84 +12206,50 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         {label:"Osiris Plant Management"},
       ]}/>
 
-      {/* Logo + título centrado */}
-      <div style={{textAlign:"center",marginBottom:30}}>
-        <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
-          <OsirisLogo height={60}/>
+      {/* Hub con el sistema común (src/diseno: Accesos + mdt-resumen). Mismos accesos,
+          permisos, contadores y orden guardado que antes; ordenar es una opción explícita
+          (solo admin), sin arrastre. El logo de Osiris queda en el encabezado y aquí. */}
+      <div style={{maxWidth:1120,margin:"0 auto",display:"flex",flexDirection:"column",gap:20}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <OsirisLogo height={40}/>
+          <span style={{color:C.muted,fontSize:13}}>Genética Diferenciada</span>
         </div>
-        <div style={{color:C.muted,fontSize:13}}>Genética Diferenciada</div>
-      </div>
-
-      {/* Hub cards — drag-and-drop */}
       {(()=>{
-        const CARD_DEFS = {
-          ingresos: {emoji:"💰",label:"Ingresos Osiris",desc:"Royalties, Fee Viveros, Total Pedidos y Resumen de cobros",grad:"#0f766e22",border:"#0f766e44",
-            onClick:()=>setSubApp("ingresos"),badges:()=><>{sinConfirmar>0&&<span style={{fontSize:10,background:C.warningBg,color:C.warning,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{sinConfirmar} por confirmar</span>}{alertasRC>0&&<span style={{fontSize:10,background:C.dangerBg,color:C.danger,padding:"3px 10px",borderRadius:20,fontWeight:700}}>⚠️ {alertasRC} alerta{alertasRC>1?"s":""}</span>}</>},
-          contratos: {emoji:"📜",label:"Contratos Exportadores-Productores",desc:"Gestión de contratos con productores-exportadores",grad:"#2563eb22",border:"#2563eb44",
-            onClick:()=>setSubApp("contratos"),badges:()=><span style={{fontSize:10,background:C.infoBg,color:C.primary,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{(ctData||[]).length} contratos</span>},
-          obtentores: {emoji:"🧬",label:"Contratos Obtentores",desc:"Obtentores, variedades, DHE, PBR, Maestro Especies",grad:"#7c3aed22",border:"#7c3aed44",
-            onClick:()=>{if(canVerObtentores)setSubApp("obtentores");},badges:()=>{
-              const arr=Array.isArray(osirisData?.obtentores)?osirisData.obtentores:[];
-              return <span style={{fontSize:10,background:C.purpleBg,color:C.purple,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{arr.length} contratos</span>;}},
-          viveros: {emoji:"🌱",label:"Contratos Viveros",desc:"Viveros, variedades autorizadas, OC Clientes, Cuotas",grad:"#16a34a22",border:"#16a34a44",
-            onClick:()=>{if(canVerViveros)setSubApp("viveros");},badges:()=>{
-              const arr=Array.isArray(osirisData?.viveros)?osirisData.viveros:[];
-              return <span style={{fontSize:10,background:C.successBg,color:C.success,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{arr.length} viveros</span>;}},
-          opTecnica: {emoji:"🔬",label:"Operación Técnica",desc:"Visitas, informes, equipo técnico, entregables",grad:"#0ea5e922",border:"#0ea5e944",
-            onClick:()=>setSubApp("opTecnica"),badges:()=>null},
-          reportes: {emoji:"📊",label:"Reportes / BI",desc:"Ingresos, cobranza, producción y pago a obtentores",grad:"#db277722",border:"#db277744",
-            onClick:()=>setSubApp("reportes"),badges:()=>null},
-          tareas: {emoji:"✅",label:"Seguimiento Tareas",desc:"Tareas operativas del equipo Osiris",grad:"#d9770622",border:"#d9770644",
-            onClick:()=>setSubApp("tareas"),badges:()=>null},
+        const n=(x)=>Array.isArray(x)?x.length:0;
+        const DEFS = {
+          ingresos: {icono:"dinero",titulo:"Ingresos Osiris",descripcion:"Royalties, fee viveros, total pedidos y resumen de cobros",
+            onAbrir:()=>setSubApp("ingresos"),
+            contadores:[sinConfirmar>0&&{texto:`${sinConfirmar} por confirmar`,tono:"aviso"},alertasRC>0&&{texto:`${alertasRC} alerta${alertasRC>1?"s":""}`,tono:"peligro"}].filter(Boolean)},
+          contratos: {icono:"contrato",titulo:"Contratos Exportadores-Productores",descripcion:"Contratos con productores-exportadores",
+            onAbrir:()=>setSubApp("contratos"),contadores:[{texto:`${(ctData||[]).length} contratos`}]},
+          obtentores: {icono:"genetica",titulo:"Contratos Obtentores",descripcion:"Obtentores, variedades, DHE, PBR y maestro de especies",
+            onAbrir:()=>setSubApp("obtentores"),deshabilitado:!canVerObtentores,motivo:"Sin acceso",
+            contadores:[{texto:`${n(osirisData?.obtentores)} contratos`}]},
+          viveros: {icono:"brote",titulo:"Contratos Viveros",descripcion:"Viveros, variedades autorizadas, OC clientes y cuotas",
+            onAbrir:()=>setSubApp("viveros"),deshabilitado:!canVerViveros,motivo:"Sin acceso",
+            contadores:[{texto:`${n(osirisData?.viveros)} viveros`}]},
+          opTecnica: {icono:"inspeccion",titulo:"Operación Técnica",descripcion:"Visitas, informes, equipo técnico y entregables",onAbrir:()=>setSubApp("opTecnica")},
+          reportes: {icono:"grafico",titulo:"Reportes / BI",descripcion:"Ingresos, cobranza, producción y pago a obtentores",onAbrir:()=>setSubApp("reportes")},
+          tareas: {icono:"tareas",titulo:"Seguimiento Tareas",descripcion:"Tareas operativas del equipo Osiris",onAbrir:()=>setSubApp("tareas")},
         };
         const HUB_DEFAULT=["ingresos","contratos","obtentores","viveros","opTecnica","reportes","tareas"];
         const order=(Array.isArray(osirisData?.hubCardsOrder)&&osirisData.hubCardsOrder.length===HUB_DEFAULT.length)?osirisData.hubCardsOrder:HUB_DEFAULT;
-        const handleDragStart=(e,id)=>{window._dragCard=id;window._didDrag=true;e.dataTransfer.effectAllowed="move";};
-        const handleDrop=(e,targetId)=>{
-          e.preventDefault();e.stopPropagation();const from=window._dragCard;if(!from||from===targetId){window._dragCard=null;return;}
-          const nw=[...order];const fi=nw.indexOf(from),ti=nw.indexOf(targetId);
-          if(fi===-1||ti===-1)return;nw.splice(fi,1);nw.splice(ti,0,from);
-          setOsirisData(prev=>({...(prev||{}),hubCardsOrder:nw}));window._dragCard=null;
-        };
-        const handleCardClick=(fn)=>{
-          if(window._didDrag){window._didDrag=false;return;}
-          fn();
-        };
-        return(
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16,maxWidth:700,margin:"0 auto 30px"}}>
-            {order.map(cid=>{const d=CARD_DEFS[cid];if(!d)return null;return(
-              <div key={cid} draggable={!!esAdmin} onDragStart={e=>{if(!esAdmin)return;handleDragStart(e,cid);}} onDragOver={e=>{if(!esAdmin)return;e.preventDefault();e.dataTransfer.dropEffect="move";}} onDrop={e=>{if(!esAdmin)return;handleDrop(e,cid);}} onDragEnd={()=>{setTimeout(()=>{window._didDrag=false;},100);window._dragCard=null;}} onClick={()=>handleCardClick(d.onClick)}
-                style={{background:`linear-gradient(135deg,#ffffff,${d.grad})`,borderRadius:16,padding:"24px 20px",border:`1px solid ${d.border}`,cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden",boxShadow:"0 1px 6px #0001"}}
-                onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
-                {esAdmin&&<div style={{position:"absolute",top:8,right:10,fontSize:10,color:C.muted,cursor:"grab"}} title="Arrastra para reordenar">⋮⋮</div>}
-                <div style={{fontSize:32,marginBottom:10}}>{d.emoji}</div>
-                <div style={{fontWeight:800,fontSize:16,color:C.text,marginBottom:4}}>{d.label}</div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:12}}>{d.desc}</div>
-                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{d.badges()}</div>
-                <div style={{position:"absolute",right:16,bottom:16,fontSize:20,color:d.border}}>→</div>
-              </div>);
-            })}
-          </div>);
+        const items=order.filter(id=>DEFS[id]).map(id=>({id,...DEFS[id]}));
+        return <Accesos items={items} titulo="Accesos" testid="hub-osiris"
+          onOrdenar={soyAdmin ? (ids)=>setOsirisData(prev=>({...(prev||{}),hubCardsOrder:ids})) : undefined}/>;
       })()}
 
-      {/* KPIs globales */}
-      <div style={{display:"flex",gap:12,flexWrap:"wrap",maxWidth:700,margin:"0 auto"}}>
+      {/* Resumen (mismas cifras de siempre) */}
+      <dl className="mdt-resumen" data-testid="hub-osiris-resumen" aria-label="Resumen">
         {[
-          ["💵 Por cobrar",     $$0(totPend),          C.warning],
-          ["📦 Pedidos",        tpData.length,         C.primary],
-          ["🌿 Royalty filas",  rpData.length,         C.success],
-          ["🌱 Fee Vivero",     fvData.filter(r=>!r.pagado).length+" pend.", C.danger],
-        ].map(([l,v,c])=>{
-          const s=String(v);
-          const fs = s.length>12 ? 15 : s.length>9 ? 17 : 20;
-          return (
-          <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,
-            borderRadius:10,padding:"12px 16px",flex:1,minWidth:140,boxShadow:C.shadow,overflow:"hidden",boxSizing:"border-box"}}>
-            <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:4}}>{l}</div>
-            <div title={s} style={{fontSize:fs,fontWeight:900,color:c,lineHeight:1.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v}</div>
-          </div>
-          );
-        })}
+          ["Por cobrar",    $$0(totPend)],
+          ["Pedidos",       tpData.length],
+          ["Royalty filas", rpData.length],
+          ["Fee vivero",    fvData.filter(r=>!r.pagado).length+" pend."],
+        ].map(([l,v])=>(
+          <div key={l}><dt>{l}</dt><dd title={String(v)}>{v}</dd></div>
+        ))}
+      </dl>
       </div>
     </div>
   );

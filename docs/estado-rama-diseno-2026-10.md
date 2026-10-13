@@ -1072,3 +1072,36 @@ En Finanzas se conservan los avisos de créditos de `main` (fecha estimada y fue
 - **Integración con la rama funcional:** el informe de Osiris en esta rama todavía tiene el
   respaldo por EmailJS, como `main`. La rama `claude/auditoria-funcional` lo quita. Al juntarlas
   hay que tomar esa versión.
+
+### Hub de Osiris rediseñado (13-10-2026) — pendiente de tu revisión visual
+
+- **Componente común** `Accesos` (`src/diseno/componentes.jsx`) con las clases `mdt-accesos`,
+  `mdt-acceso`, `mdt-contador` y `mdt-resumen` de `sistema.css`. Es para Osiris primero y para
+  los demás hubs solo cuando lo apruebes. No hay estilo exclusivo de Osiris.
+  - Computador: grilla de 3 columnas. Tablet: 2 columnas. Teléfono: lista de filas táctiles de
+    56 px o más.
+  - Cada tarjeta es un botón completo, con foco visible, hover y estado presionado.
+  - Iconos de línea iguales a los de la navegación. Sin degradados ni emojis grandes.
+- **Se conserva:**
+  - los 7 accesos, sus contadores (contratos, viveros, por confirmar, alertas), el resumen y el
+    orden guardado (`hubCardsOrder`);
+  - el logo de Osiris, en el encabezado y en el hub;
+  - el acceso a Obtentores y Viveros según permiso: sin permiso se muestra deshabilitado con
+    «Sin acceso», en vez de no hacer nada.
+- **Arrastre:** se quitó. Ordenar pasa a ser una opción explícita, «Ordenar accesos» con ↑ ↓,
+  **solo para el administrador**.
+- **Defecto encontrado (también en `main`):** `App.jsx` pasa `esAdmin` a Osiris como función, y
+  Osiris la usaba como booleano. El resultado era siempre verdadero, así que **cualquier perfil,
+  incluido el de consulta, podía arrastrar para reordenar y escribir la fila `osiris`**. Ahora el
+  orden se guarda solo si el rol es admin. `osiris-hub.mjs` lo prueba como control: en el build
+  anterior, el perfil consulta tenía 7 tarjetas arrastrables.
+- **Evidencia** (Chromium emulado, datos ficticios):
+  - `scripts/e2e/osiris-hub.mjs`: 39/39 en computador, tablet y teléfono.
+    - El bloque de accesos termina en 480 px en vez de 900 (computador), 621 en vez de 921
+      (tablet) y 633 en vez de 1.243 (teléfono).
+    - En teléfono se ven los 7 accesos enteros en la primera pantalla (antes 4).
+  - `osiris-encabezado.mjs`: 53/53.
+  - `ajustes-muestra` en Osiris: 21/21 (exportaciones y GIF sin cambios).
+  - jest de Osiris y diseño: 797 pasan.
+- **Reglas de negocio:** no cambian firmas ni royalties. Las cuatro decisiones de
+  `DECISIONES_FIRMAS` siguen solo documentadas.

@@ -245,3 +245,62 @@ export class LimiteError extends React.Component {
     );
   }
 }
+
+// ── Accesos de un hub ──────────────────────────────────────────────
+// Grilla compacta (computador y tablet) o lista táctil (teléfono), con las clases
+// mdt-accesos / mdt-acceso de sistema.css. Cada tarjeta es un <button>: el acceso
+// completo. `items`: [{ id, titulo, descripcion, icono, contadores:[{texto, tono}],
+// onAbrir, deshabilitado, motivo }]. No decide permisos ni cuenta nada: muestra lo que
+// el módulo le pasa. Si `onOrdenar` existe, ofrece «Ordenar accesos» con ↑ ↓ (sin arrastre).
+const ICONOS_ACCESO = {
+  dinero: <><circle cx="12" cy="12" r="9"/><path d="M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 1-3 2.3c0 3 6 1.6 6 4.6 0 1.3-1.3 2.4-3 2.4s-3-1.1-3-2.5M12 5.5v1.5M12 17v1.5"/></>,
+  contrato: <><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/></>,
+  genetica: <><path d="M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9s8 4 8 9"/><path d="M9 6h6M9 18h6"/></>,
+  brote: <><path d="M12 21v-9"/><path d="M12 12c0-4 3-6 7-6 0 4-3 6-7 6zM12 14c0-3-2-5-6-5 0 3 2 5 6 5z"/></>,
+  inspeccion: <><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></>,
+  grafico: <><path d="M4 20h16"/><path d="M7 16v-5M12 16V7M17 16v-8"/></>,
+  tareas: <><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></>,
+};
+export function IconoAcceso({ tipo, tam = 20 }) {
+  return <svg width={tam} height={tam} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {ICONOS_ACCESO[tipo] || <rect x="4" y="4" width="16" height="16" rx="3"/>}</svg>;
+}
+export function Accesos({ items, titulo = "Accesos", onOrdenar, testid = "accesos" }) {
+  const [ordenando, setOrdenando] = useState(false);
+  const mover = (i, d) => {
+    const j = i + d; if (j < 0 || j >= items.length || !onOrdenar) return;
+    const ids = items.map(x => x.id); [ids[i], ids[j]] = [ids[j], ids[i]]; onOrdenar(ids);
+  };
+  return (
+    <section aria-label={titulo} data-testid={testid}>
+      <div className="mdt-accesos-cab">
+        <h2 className="mdt-accesos-cab__titulo">{titulo}</h2>
+        {onOrdenar && <button type="button" className="mdt-boton mdt-boton--secundario mdt-boton--chico" aria-pressed={ordenando}
+          data-testid={`${testid}-ordenar`} onClick={() => setOrdenando(!ordenando)}>{ordenando ? "Listo" : "Ordenar accesos"}</button>}
+      </div>
+      <ul className="mdt-accesos">
+        {items.map((it, i) => (
+          <li key={it.id}>
+            <button type="button" className="mdt-acceso" data-testid={`${testid}-${it.id}`} aria-disabled={it.deshabilitado ? "true" : undefined}
+              title={it.deshabilitado ? it.motivo : undefined} onClick={() => { if (!it.deshabilitado && !ordenando) it.onAbrir(); }}>
+              <span className="mdt-acceso__icono"><IconoAcceso tipo={it.icono}/></span>
+              <span className="mdt-acceso__texto">
+                <span className="mdt-acceso__titulo">{it.titulo}</span>
+                {it.descripcion && <span className="mdt-acceso__desc" title={it.descripcion}>{it.descripcion}</span>}
+                {(it.contadores?.length > 0 || it.deshabilitado) && <span className="mdt-acceso__meta">
+                  {it.deshabilitado && <span className="mdt-contador">{it.motivo || "Sin acceso"}</span>}
+                  {(it.contadores || []).map((c, k) => <span key={k} className={cx("mdt-contador", c.tono && `mdt-contador--${c.tono}`)}>{c.texto}</span>)}
+                </span>}
+              </span>
+              <span className="mdt-acceso__ir" aria-hidden="true">›</span>
+            </button>
+            {ordenando && <span className="mdt-acceso__orden">
+              <button type="button" className="mdt-boton mdt-boton--secundario mdt-boton--chico" aria-label={`Subir ${it.titulo}`} disabled={i === 0} onClick={() => mover(i, -1)}>↑</button>
+              <button type="button" className="mdt-boton mdt-boton--secundario mdt-boton--chico" aria-label={`Bajar ${it.titulo}`} disabled={i === items.length - 1} onClick={() => mover(i, 1)}>↓</button>
+            </span>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}

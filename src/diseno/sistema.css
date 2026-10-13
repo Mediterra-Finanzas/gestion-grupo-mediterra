@@ -349,3 +349,54 @@ html[data-nav="compacta"] .mdt-dup-nav { display: none; }
 .mdt-circular { width: 28px; height: 28px; min-height: 0; padding: 0; border-radius: 50%; flex: 0 0 auto; }
 .mdt-circular--chico { width: 26px; height: 26px; }
 @media (pointer: coarse) { .mdt-circular, .mdt-circular--chico { width: var(--mdt-control); height: var(--mdt-control); } }
+
+/* ── Accesos de un hub (Osiris primero; luego los demás hubs) ─────
+   Computador y tablet: grilla compacta y alineada. Teléfono: lista de filas
+   táctiles (≥ 56 px). Toda la tarjeta es el acceso: foco visible, hover y
+   estado presionado. Ordenar es una opción explícita (botones ↑ ↓), sin arrastre. */
+.mdt-accesos-cab { display: flex; align-items: center; justify-content: space-between; gap: var(--mdt-e-3); margin-bottom: var(--mdt-e-3); flex-wrap: wrap; }
+.mdt-accesos-cab__titulo { font-size: var(--mdt-t-rotulo); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--mdt-c-texto-2); margin: 0; }
+.mdt-accesos { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--mdt-e-3); grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+@media (min-width: 1024px) { .mdt-accesos { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 600px) and (max-width: 1023px) { .mdt-accesos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.mdt-accesos > li { display: flex; min-width: 0; }
+.mdt-acceso {
+  flex: 1; min-width: 0; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: start; column-gap: var(--mdt-e-3);
+  padding: var(--mdt-e-3) var(--mdt-e-4); min-height: 72px; text-align: left; font: inherit; color: var(--mdt-c-texto); cursor: pointer;
+  background: var(--mdt-c-superficie); border: 1px solid var(--mdt-c-borde); border-radius: var(--mdt-r-3);
+  transition: border-color .12s, background-color .12s;
+}
+.mdt-acceso:hover { border-color: var(--mdt-c-borde-fuerte); }
+.mdt-acceso:focus-visible { outline: 2px solid var(--mdt-c-marca); outline-offset: 2px; }
+.mdt-acceso:active, .mdt-acceso[aria-pressed="true"] { background: var(--mdt-c-info-fondo); border-color: var(--mdt-c-marca); }
+.mdt-acceso[aria-disabled="true"] { cursor: not-allowed; background: var(--mdt-c-superficie-2); color: var(--mdt-c-texto-2); }
+.mdt-acceso[aria-disabled="true"]:hover { border-color: var(--mdt-c-borde); }
+.mdt-acceso__icono { width: 36px; height: 36px; border-radius: var(--mdt-r-2); background: var(--mdt-c-superficie-2); color: var(--mdt-c-marca);
+  display: inline-flex; align-items: center; justify-content: center; }
+.mdt-acceso__texto { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mdt-acceso__titulo { font-size: var(--mdt-t-cuerpo); font-weight: 700; line-height: 1.3; }
+.mdt-acceso__desc { font-size: var(--mdt-t-rotulo); color: var(--mdt-c-texto-2); line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.mdt-acceso__meta { display: flex; flex-wrap: wrap; gap: var(--mdt-e-1); margin-top: var(--mdt-e-2); }
+.mdt-acceso__ir { color: var(--mdt-c-texto-2); font-size: 18px; line-height: 36px; }
+.mdt-contador { font-size: var(--mdt-t-rotulo); font-weight: 600; color: var(--mdt-c-texto-2); background: var(--mdt-c-superficie-2);
+  border-radius: 999px; padding: 1px var(--mdt-e-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mdt-contador--aviso { color: var(--mdt-c-aviso); background: var(--mdt-c-aviso-fondo); }
+.mdt-contador--peligro { color: var(--mdt-c-peligro); background: var(--mdt-c-peligro-fondo); }
+.mdt-acceso__orden { display: flex; flex-direction: column; justify-content: center; gap: var(--mdt-e-1); margin-left: var(--mdt-e-2); }
+@media (max-width: 599px) {
+  .mdt-accesos { grid-template-columns: 1fr; gap: 0; background: var(--mdt-c-superficie); border: 1px solid var(--mdt-c-borde); border-radius: var(--mdt-r-3); overflow: hidden; }
+  .mdt-accesos > li + li { border-top: 1px solid var(--mdt-c-borde); }
+  .mdt-acceso { border: none; border-radius: 0; min-height: 56px; align-items: center; padding: var(--mdt-e-2) var(--mdt-e-4); }
+  .mdt-acceso:hover { border-color: transparent; }
+  .mdt-acceso:focus-visible { outline-offset: -2px; }
+  .mdt-acceso__meta { margin-top: var(--mdt-e-1); }
+  .mdt-acceso__ir { line-height: 1; }
+}
+/* Resumen de cifras del hub: discreto, alineado, sin colores de relleno. */
+.mdt-resumen { display: grid; gap: var(--mdt-e-3); grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 0; }
+.mdt-resumen > div { background: var(--mdt-c-superficie); border: 1px solid var(--mdt-c-borde); border-radius: var(--mdt-r-3); padding: var(--mdt-e-3) var(--mdt-e-4); min-width: 0; }
+.mdt-resumen dt { font-size: var(--mdt-t-rotulo); color: var(--mdt-c-texto-2); font-weight: 600; }
+.mdt-resumen dd { margin: 2px 0 0; font-size: var(--mdt-t-destacado); font-weight: 800; color: var(--mdt-c-texto); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 599px) { .mdt-resumen { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--mdt-e-2); } }
