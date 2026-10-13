@@ -382,7 +382,7 @@
       document.getElementById('vp-exp-csv').onclick = exportarDetalle;
       document.getElementById('vp-salir').onclick = salirRespaldo;
     } else {
-      b.innerHTML = '<strong>VISTA PREVIA · DATOS SIMULADOS</strong> · nada se lee ni se escribe en producción; no se envían correos.<br>' +
+      b.innerHTML = '<strong>VISTA PREVIA' + (window.__VP_NOMBRE ? ' ' + String(window.__VP_NOMBRE).toUpperCase() : '') + ' · DATOS SIMULADOS</strong> · nada se lee ni se escribe en producción; no se envían correos.<br>' +
         (window.__VP_INGRESO_HTML || 'Ingreso: <code>ahuerta@grupomediterra.cl</code> · PIN <code>482913</code> → Flujo de Caja → Créditos. ') +
         (window.__VP_DIALOGOS_EN_PAGINA ? 'Los motivos y confirmaciones se piden en un cuadro de esta página; las descargas piden tu confirmación. ' : '') +
         '<button id="vp-reset" style="' + BTN + '">Reiniciar datos</button>' +

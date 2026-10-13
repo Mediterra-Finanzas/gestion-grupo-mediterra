@@ -1037,3 +1037,38 @@ En Finanzas se conservan los avisos de créditos de `main` (fecha estimada y fue
 - Quedan 51 `confirm` y 76 `alert`.
 - El circuito de aprobación de contratos y anexos no tiene `Circuito`.
 - La vista previa no se actualizó: sigue siendo la v15.
+
+### Osiris, segunda entrega (13-10-2026)
+
+- **Quedan 0 `window.prompt` en Osiris.** Los tres que faltaban (retiro de un anexo con
+  respaldo, baja de una plantación y retiro del registro de reajuste) ahora usan `pedirTexto`.
+  Si el contrato cambia mientras se responde, la acción no se aplica y se avisa.
+  `src/osiris/dialogosContratos.test.js` cubre en cada uno aceptar, cancelar y dato cambiado,
+  más el panel. Pasan 12; las 11 de diálogo fallan sobre el código anterior.
+  Las pruebas de pantalla de desactivar de `pantallaReajuste.test.js` están omitidas en esta
+  versión (corren solo en la de recuperación). Por eso hacía falta una prueba nueva.
+- **Panel «Firmas y anexos»** en el detalle del contrato Exportador-Productor
+  (`src/osiris/estadoFirmas.js`). Muestra:
+  - las dos firmas registradas, del Licenciado y de Osiris;
+  - si hay documento adjunto;
+  - anexos activos, con ambas firmas, con firma pendiente, antiguos sin firmas registradas y
+    retirados.
+
+  Es solo lectura y no inventa un circuito. Decisiones pendientes (`DECISIONES_FIRMAS`):
+  1. ¿Un anexo activo con una sola firma cuenta para royalties?
+  2. ¿Quién puede marcar «Firmado OSIRIS»?
+  3. ¿Se exige el documento antes de marcar una firma?
+  4. ¿Se agrega un campo de estado a Exportador-Productor, o bastan firmas más vigencia?
+     Obtentores y Viveros ya tienen uno.
+- **Vista previa aislada propia:** https://claude.ai/artifact/HDxqFgRFCcJ8Ff2TMoQScn
+  (`armar.mjs --diseno --nombre Osiris`). Tiene título, barra y almacenamiento propios
+  (`mediterra_vista_previa_diseno_osiris_v1`). La v15 queda intacta.
+  `vista-previa-aislamiento.mjs` pasa 7/7, incluida la comprobación de versión.
+- **Evidencia** (local, Chromium emulado, datos ficticios):
+  - jest de Osiris: 782 pasan;
+  - `osiris-encabezado.mjs`: 53/53;
+  - `ajustes-muestra` en Osiris: 21/21. El PDF y el Excel son iguales al build anterior, los
+    logos mantienen su proporción y el GIF sigue completo y animado.
+- **Integración con la rama funcional:** el informe de Osiris en esta rama todavía tiene el
+  respaldo por EmailJS, como `main`. La rama `claude/auditoria-funcional` lo quita. Al juntarlas
+  hay que tomar esa versión.

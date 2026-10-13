@@ -28,6 +28,10 @@ const args = process.argv.slice(2);
 const OUT = path.resolve(args.includes('--out') ? args[args.indexOf('--out') + 1] : path.join(AQUI, 'dist'));
 const BUILD = path.join(RAIZ, 'build');
 const DISENO = args.includes('--diseno');
+// --nombre <texto>: identifica una vista previa aparte (título, barra y almacenamiento propios),
+// p. ej. --nombre Osiris. No cambia los datos ni la app; solo evita confundirla con otra.
+const NOMBRE = args.includes('--nombre') ? args[args.indexOf('--nombre') + 1] : '';
+const claveNombre = NOMBRE ? '_' + NOMBRE.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '') : '';
 
 if (args.includes('--build') || !fs.existsSync(path.join(BUILD, 'index.html'))) {
   console.log('Compilando la app (react-scripts build)…');
@@ -136,7 +140,8 @@ window.__VP_SEMILLA = function () {
 // Vista previa de DISEÑO: otra semilla, otra clave de almacenamiento y la lista de
 // ingresos de prueba en la barra de la vista previa (no es parte de la app).
 const semillaFinal = !DISENO ? semilla : `/* Datos FICTICIOS de la vista previa de diseño (generado por armar.mjs --diseno). */
-window.__VP_CLAVE = 'mediterra_vista_previa_diseno_v1';
+window.__VP_CLAVE = 'mediterra_vista_previa_diseno${claveNombre}_v1';
+window.__VP_NOMBRE = ${JSON.stringify(NOMBRE)};
 window.__VP_INGRESO_HTML = ${JSON.stringify('Perfiles de prueba (PIN <code>' + PIN + '</code>): ' + PERFILES.map(p => `${p.titulo} <code>${p.email}</code>`).join(' · ') + '. ')};
 window.__VP_DATOS_DISENO = ${JSON.stringify(Object.fromEntries(Object.entries(storeDiseno()).map(([k, v]) => [k, v.value])))};
 window.__VP_SEMILLA = function () {
@@ -166,7 +171,7 @@ const idx = fs.readFileSync(path.join(BUILD, 'index.html'), 'utf8');
 const js = /src="\/(static\/js\/main\.[^"]+\.js)"/.exec(idx)[1];
 const css = /href="\/(static\/css\/main\.[^"]+\.css)"/.exec(idx)[1];
 const fuentes = '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>';
-const cuerpo = (auto) => `<title>${DISENO ? 'Vista previa navegación' : 'Vista previa Créditos'}</title>
+const cuerpo = (auto) => `<title>${NOMBRE ? 'Vista previa ' + NOMBRE : DISENO ? 'Vista previa navegación' : 'Vista previa Créditos'}</title>
 ${fuentes}
 <link href="${css}" rel="stylesheet"/>
 <div id="root"></div>
