@@ -6494,7 +6494,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
           const o = aplicarTotalMes(efectivo, nuevoVal);
           if (!o) {
             const fechado = [0,1,2,3].reduce((a,si)=>a+(Number(efectivo[`_sem${si}`])||0),0);
-            setTimeout(()=>alert(`${lineLabel} · ${MESES_65[idx]}: el total (${$$(nuevoVal)}) es menor que lo ya repartido en semanas (${$$(fechado)}). Baja primero las semanas en la vista semanal; no se cambió nada.`),0);
+            setTimeout(()=>alert(`${lineLabel} · ${MESES_65[idx]}: el total (${$$(nuevoVal)}) no cubre lo ya repartido en semanas (${$$(fechado)}): lo sin fecha quedaría con el signo contrario. Baja primero las semanas en la vista semanal; no se cambió nada.`),0);
             return prev;
           }
           next[clave][idx] = o;

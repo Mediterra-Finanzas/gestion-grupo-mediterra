@@ -963,7 +963,9 @@ Reglas actuales (`totalMesOverride`, `semillaSemanal`, `aplicarEdicionSemana`,
   signo; solo el exceso cambia el total.
 - **Total del mes** (vista mensual o mes plegado) en una línea con reparto:
   `aplicarTotalMes` conserva las semanas fechadas y ajusta solo lo sin fecha
-  (puede quedar negativo si el total es menor que lo fechado: queda a la vista).
+  Si el total no cubre lo fechado (lo sin fecha quedaría con el signo contrario),
+  NO cambia nada y avisa: primero se bajan las semanas. Un `_sinFecha` de signo
+  contrario inflaba el KPI del Reporte Semanal.
 - **Sublíneas y conceptos agregados** no tienen `_sinFecha`: ahí las semanas
   reemplazan el mensual. Por eso, si el mes solo tiene valor mensual, la
   semana NO se edita (hay que dejar primero el mensual en 0, explícitamente).

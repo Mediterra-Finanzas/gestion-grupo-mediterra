@@ -138,6 +138,19 @@ describe('vista semanal · montos negativos y total del mes (hallazgos de la rev
     // meses negativos: misma regla con su signo
     expect(aplicarTotalMes({ _sem0: -400 }, -1000)).toEqual({ _sem0: -400, _sinFecha: -600 });
   });
+  // Control del SITIO DE LLAMADA (regla 10): la prueba de la función no ve la
+  // pantalla. Si handleEditProy no atiende el null, guarda null como override y
+  // el mes queda en 0 sin aviso. Se lee el código real de la pantalla.
+  // Punto ciego: una llamada por alias o desde otro handler no se ve aquí.
+  test('la edición mensual atiende el null de aplicarTotalMes sin guardar nada', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'FinanzasModule.jsx'), 'utf8');
+    const llamadas = src.split('\n').filter(x => /aplicarTotalMes\(/.test(x) && !/function aplicarTotalMes/.test(x));
+    expect(llamadas.length).toBe(1);
+    const i = src.indexOf('const o = aplicarTotalMes(efectivo, nuevoVal);');
+    expect(i).toBeGreaterThan(0);
+    const tramo = src.slice(i, src.indexOf('next[clave][idx] = o;', i));
+    expect(tramo).toMatch(/if \(!o\) \{[\s\S]*alert\([\s\S]*return prev;\s*\}/);
+  });
 });
 
 // El Reporte Semanal conserva su regla anterior (limitación declarada en
