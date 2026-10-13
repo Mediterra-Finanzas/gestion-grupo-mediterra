@@ -178,10 +178,30 @@ Reglas que no hay que romper:
 - **Vencido impago confirmado** (fecha < hoy, saldo por pagar) se arrastra al
   **mes y semana en curso** del flujo con aviso y su fecha original.
 - **Por conciliar**: cuota vencida ANTES de `control_desde` (fecha desde la que
-  el crédito se controla en la app; legacy no la tiene, un alta nueva la fija)
-  y sin pago registrado. NO entra a la deuda confirmada ni al flujo; se informa
-  aparte con su impacto potencial. Se concilia registrando el pago real o con
-  `confirmarImpaga` (exige respaldo; anulable con motivo en `c.conciliaciones`).
+  el crédito se controla en la app; un alta nueva la fija) y sin pago registrado.
+  NO entra a la deuda confirmada ni al flujo; se informa aparte con su impacto
+  potencial. Se concilia registrando el pago real o con `confirmarImpaga` (exige
+  respaldo; anulable con motivo en `c.conciliaciones`).
+- **Una cuota no sale del flujo por vencer** (regla del CFO, 13-10-2026). Antes,
+  un registro antiguo sin `control_desde` mandaba a "por conciliar" TODA cuota
+  vencida, así que una obligación pendiente desaparecía del flujo al día
+  siguiente de vencer. Ahora `controlDesde(c)` devuelve
+  `CONTROL_DESDE_REGISTROS_ANTIGUOS` (2026-10-13) cuando el registro no tiene
+  fecha: lo vencido antes sigue por conciliar (ninguna cifra histórica cambia) y
+  lo que vence desde ahí, impago, es vencida confirmada arrastrada al mes en
+  curso. No se escribe en el registro. Salir de los pagos futuros exige una
+  acción explícita: pago (parcial deja el saldo proyectado), renovación
+  (`renovable` + `renovaciones`, con su `tasa_anual`: sin ella el interés de la
+  renovación sale 0) o anulación del crédito.
+- **Fecha estimada de pago** (`c.fechas_estimadas[]`, `registrarFechaEstimada` /
+  `quitarFechaEstimada`, botón «📅 Fecha estimada» en el detalle): proyecta el
+  pendiente de UNA cuota en otra fecha (hoy o posterior) SIN tocar el
+  vencimiento contractual, que sigue mandando para "vencida", análisis y
+  conciliación. Exige motivo; reemplazar o quitar anula con motivo y deja
+  historial. No se admite en una cuota por conciliar (primero se concilia). Si
+  la fecha estimada pasa sin pago, vuelve al arrastre. `fechaProyeccion` es la
+  única regla de ubicación (flujo, servicio de deuda por mes, Excel). Pantalla
+  y Excel avisan las dos fechas. Prueba: `src/__tests__/creditosObligacionPendiente.test.js`.
 - **Fechas** ISO leídas como texto: `new Date("2027-01-01")` en Chile caía en
   diciembre.
 - **Pago Préstamos - Total** y **Renovaciones** tienen `_fuenteCreditos`: no se

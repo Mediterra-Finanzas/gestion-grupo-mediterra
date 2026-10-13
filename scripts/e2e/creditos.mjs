@@ -113,9 +113,16 @@ await foto(page, '03-pago-parcial');
 cred = leerFila(store, 'finanzas').creditos_data.find(c => c.acreedor === 'Banco E2E');
 const est = estadoCredito(cred, hoyISO());
 check('Pago guardado: capital 40.000 + interés 8.000', (cred.pagos || []).filter(p => !p.anulado).length === 1 && cred.pagos[0].capital === 40000 && cred.pagos[0].interes === 8000);
-// Alta hoy con desembolso pasado: la cuota 10-jul (antes del alta, sin pago) queda POR CONCILIAR.
-// Capital: 400.000 − 40.000 pagado = 360.000 = 260.000 confirmado + 100.000 por conciliar.
-check('Saldo capital confirmado 260.000 + por conciliar 100.000 = 360.000', Math.abs(est.saldoCapital - 260000) < 0.01 && Math.abs(est.porConciliarCapital - 100000) < 0.01,
+// Alta hoy con desembolso pasado: las cuotas sin pago con vencimiento ANTERIOR
+// al alta (hoy) quedan POR CONCILIAR. El esperado se arma desde el calendario
+// del contrato y la fecha de hoy (antes estaba fijo en "solo 10-jul" y la prueba
+// empezó a fallar sola cuando el 10-oct pasó a ser anterior al día de ejecución).
+// Capital: 400.000 − 40.000 pagado = 360.000 = confirmado + por conciliar.
+const hoyE2E = hoyISO();
+const sinPagoAntesDelAlta = ['2026-07-10', '2026-10-10', '2027-01-10'].filter(f => f < hoyE2E).length;
+const pcEsperado = 100000 * sinPagoAntesDelAlta;
+check(`Saldo capital confirmado ${360000 - pcEsperado} + por conciliar ${pcEsperado} = 360.000`,
+  Math.abs(est.saldoCapital - (360000 - pcEsperado)) < 0.01 && Math.abs(est.porConciliarCapital - pcEsperado) < 0.01,
   `${est.saldoCapital} + ${est.porConciliarCapital}`);
 const detalle = await page.locator('table').filter({ hasText: 'Pendiente' }).first().innerText();
 check('Detalle muestra 60,000.00 pendiente y "Vencida"', detalle.includes('60,000.00') && /Vencida/.test(detalle));
