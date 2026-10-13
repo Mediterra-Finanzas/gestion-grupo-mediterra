@@ -22,8 +22,9 @@ resuelven su fecha desde un campo editable del cobro, y para esas la activación
 **y** su respaldo. Una `fechaEst` sola es una estimación, no la fecha efectiva de emisión; y el
 respaldo de una emisión es su antecedente de facturación, que por la Regla 4 protege la fila y la
 saca del recálculo. Las dos condiciones se excluyen, así que `activar()` rechaza siempre esas dos
-reglas, diciendo temporada por temporada qué falta. Medido por fuerza bruta: **0 de 256**
-combinaciones de antecedentes producen una fecha sellable y **0 de 128** intentos son aceptados.
+reglas, diciendo temporada por temporada qué falta. Medido por fuerza bruta: de las **128** combinaciones posibles de los siete campos de antecedente,
+**ninguna** produce una fecha sellable, y de los **256** intentos de activar (128 × las dos reglas
+por fila) **ninguno** es aceptado.
 Las dos reglas deterministas (`inicioPeriodoServicio`, `finPeriodoServicio`) funcionan normalmente.
 Impacto sobre datos reales: **cero** — el snapshot no tiene ninguna activación ni ninguna regla
 declarada. Si el grupo necesita anclar a la emisión real, hace falta una fecha efectiva de emisión
@@ -38,7 +39,7 @@ cifra medida sobre el caso de 41,97 há × US$ 3.000 al 2 %:
 |---|---|
 | `rcCohortes` 41,97 → 50 há | 655.240,69 → **780.606,02** (+125.365,33) |
 | `fechaTermino` 2031-06-30 → 2033-06-30 (5 → 7 filas) | 655.240,69 → **936.050,61** (+280.809,92) |
-| `haCobrar` 41,97 → 30 há sobre una fila protegida | 1.072.974,92 → **1.037.064,92** (−35.910,00) |
+| `haCobrar` 41,97 → 30 há sobre una fila protegida | 647.533,99 → **611.623,99** (−35.910,00) |
 
 Las tres son datos operativos y quedan editables. `haCobrar` merece el subrayado: baja una fila
 protegida sin tocar la protección, porque es un override de hectáreas y la Regla 4 nunca lo cubrió.
@@ -561,7 +562,7 @@ autorizada. Las tres de arriba no se tocaron para no ampliar el alcance sin auto
 tercera es la que más conviene mirar, porque ahí sí se escribe un registro.
 
 **Dos límites que la revisión midió y conviene tener a mano**, los dos sin cambio entre commits:
-`haCobrar` baja una fila protegida (41,97 → 30 há: **1.072.974,92 → 1.037.064,92**, −35.910,00)
+`haCobrar` baja una fila protegida (41,97 → 30 há: **647.533,99 → 611.623,99**, −35.910,00)
 porque es un override de hectáreas y la Regla 4 nunca cubrió eso —la protección queda intacta—; y
 el patrón de escritura de `rcPagos` es el *last-write-wins* de siempre, así que dos ediciones de
 temporadas distintas sin re-render intermedio podrían pisarse. Ninguno lo introduce este paquete.
@@ -730,12 +731,23 @@ Lo que se comprueba contra producción es de **sólo lectura**.
 | Paso | Qué pasa | Cómo se certifica | Rollback de ese paso |
 |---|---|---|---|
 | **1** | Push de la **recuperación** y deployment | — | Redeploy del SHA anterior de `origin/main` |
-| **2** | **Certificación de la recuperación**, tres comprobaciones | (a) el marcador de build y el SHA del deployment coinciden con el identificador autorizado; (b) **lectura**: los importes de los contratos reales son los mismos que antes del deployment, comparados contra la medición registrada (57 filas de royalty comercial, 23 contratos, delta cero); (c) en el **entorno aislado** y sobre un contrato **sintético**: el motor calcula una activación sellada igual que el candidato y la creación de activaciones queda rechazada dentro de la acción | Igual que el paso 1 |
+| **2** | **Certificación de la recuperación**, tres comprobaciones | (a) el marcador de build y el SHA del deployment coinciden con el identificador autorizado; (b) **lectura**: los importes de los contratos reales son los mismos que antes del deployment, comparados contra la medición registrada (57 filas de royalty comercial, 23 contratos, delta cero); (c) en el **entorno aislado**: que la creación de activaciones queda rechazada dentro de la acción, y que el motor calcula igual que el candidato una activación **ya sellada**. Esto último exige un paso de preparación de datos, porque con la bandera en `false` la aplicación no puede producir una activación: se siembra en el entorno aislado un contrato **sintético** con su `reajusteActivacion` y su `sello` ya armados, igual que hacen las pruebas del motor. Sin esa siembra, el paso 2(c) no es ejecutable | Igual que el paso 1 |
 | **3** | Push del **candidato** y deployment | El mismo (a) y (b) del paso 2. Y en el entorno aislado, sobre contratos sintéticos: las cuatro guardas, el rechazo de las reglas por fila, y la protección conservada con guardado y recarga | Redeploy del deployment del paso 1, **ya certificado**: conserva el cálculo de lo que esté activado |
 | **4** | **Activar un contrato real**, uno por uno | Autorización propia para cada uno. Vista previa fila por fila y confirmación explícita, con la diferencia medida contra el importe actual | Desactivar, que es una operación económica con su propia vista previa, motivo y confirmación |
 
 El paso 3 no se habilita hasta que el 2 esté hecho y autorizado. El paso 4 no se habilita por esta
 autorización: necesita la suya.
+
+**Tres requisitos de la secuencia que no son evidentes en la tabla:**
+
+- El deployment de producción sale de `origin/main`, así que los pasos 1 y 3 son **dos merges
+  sucesivos** a `main` —primero la recuperación con la bandera en `false`, después el candidato con
+  `true`— y cada uno necesita su autorización de merge sobre su identificador exacto.
+- El deployment del paso 1 es el que se usa para volver atrás, así que su SHA no puede quedar sin
+  referencia: queda escrito en esta acta y la rama de recuperación no se borra después del paso 3.
+- La publicación queda sujeta a la **regla 10**: el candidato de publicación se revisa de forma
+  independiente antes de presentarse, y la evidencia que se adjunta es la del SHA final, no la de
+  un SHA anterior.
 
 ### Lo que hay que mirar al desplegar, y no es de Osiris
 
@@ -751,13 +763,24 @@ Tres cosas más que tocan a otros carriles:
 - **`CLAUDE.md` es el único archivo compartido que este paquete modifica** (la regla 10 de revisión
   independiente). Otros carriles también escriben ahí; la regla se agregó al final de la lista de
   reglas, sin tocar las nueve anteriores, para que un merge paralelo no choque.
-- **Vercel despliega solo desde `origin/main`.** Empujar una rama que monta `App.jsx` crea un
+- **El deployment de producción sale de `origin/main`, pero no es el único deployment.** Empujar una
+  rama que monta `App.jsx` crea un
   Preview que es la aplicación **en vivo contra producción**: si se quiere un deployment de prueba
   de la recuperación sin exponerlo, hay que crearlo con el paso de build ignorado y desplegar por
   SHA, no empujando la rama sin más.
-- La fila `osiris` de `calendario_data` es exclusiva de este módulo: ningún otro carril escribe
-  ahí, así que el paso 4 no interfiere con los demás. Lo que sigue abierto y es del grupo, no de
-  Osiris, es la clave anónima y el RLS pendiente sobre `calendario_data`.
+- **La fila `osiris` de `calendario_data` tiene un escritor externo, y hay que mirarlo antes del
+  paso 4.** Ningún otro carril de desarrollo escribe ahí, pero `src/App.jsx` sí: el camino de
+  migración de `main.osirisData` a la fila `osiris` la reescribe **completa**, con
+  `resolution=merge-duplicates` y sin lock optimista, y se dispara en cada carga en que `main`
+  traiga `osirisData`. Es **preexistente** —idéntico en `9d90ed2c`, en `origin/main` y en el
+  candidato, y ninguno de los 98 commits lo toca— y hoy no tiene efecto, porque la fila `osiris`
+  no contiene activaciones y la migración limpia `osirisData` de `main` después de copiarlo. Pero
+  después del paso 4 sí las contendría, y ese camino las sobrescribiría con lo que hubiera en
+  `main.osirisData`, sin versión ni confirmación. **Precondición del paso 4, de sólo lectura:**
+  comprobar que `main.osirisData` no existe en producción. Si existe, se resuelve antes de que
+  haya una sola activación real.
+- Lo que sigue abierto y es del grupo, no de Osiris, es la clave anónima y el RLS pendiente sobre
+  `calendario_data`.
 
 ## 5 · Impacto medido sobre la copia de los 23 contratos reales
 
