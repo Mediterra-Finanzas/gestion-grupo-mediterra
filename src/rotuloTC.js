@@ -11,6 +11,7 @@
 // la división daba US$ 21.011,05 en vez de 21.011,43.
 // Lo usan la pantalla de Créditos (FinanzasModule → valorTC) y los Reportes.
 // ═══════════════════════════════════════════════════════════════════
+import { numCL } from './formatoCL.js';
 export const CIFRAS_TC = 8;
 
 // Valor exacto del TC a partir de lo que traiga el objeto: factor (infoTC), pares UF o el tc guardado.
@@ -29,13 +30,12 @@ export function decimalesTC(x) {
   return k;
 }
 export const numeroTC = (x) => (x > 0 ? Number(x.toFixed(decimalesTC(x))) : null);
-// `locale`: la pantalla de Créditos formatea en en-US (como el resto de sus montos); los Reportes en es-CL.
-// El valor, los decimales, la unidad y el sentido de la división son los mismos en ambos.
-export const fmtTC = (x, locale = 'es-CL') => (x > 0 ? x.toLocaleString(locale, { minimumFractionDigits: decimalesTC(x), maximumFractionDigits: decimalesTC(x) }) : '—');
+// Formato chileno compartido con Créditos y Reportes (src/formatoCL.js).
+export const fmtTC = (x) => (x > 0 ? numCL(x, decimalesTC(x)) : '—');
 // «0,023796567 UF por 1 US$»
-export const rotuloTC = (x, moneda, locale = 'es-CL') => `${fmtTC(x, locale)} ${moneda || ''} por 1 US$`.replace(/\s+por/, ' por');
+export const rotuloTC = (x, moneda) => `${fmtTC(x)} ${moneda || ''} por 1 US$`.replace(/\s+por/, ' por');
 // UF: la identidad con los dos pares, en el sentido correcto (CLP/US$ ÷ CLP/UF = UF/US$).
-export function identidadUF(usdCLP, ufCLP, locale = 'es-CL') {
-  const f2 = (v) => Number(v).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export function identidadUF(usdCLP, ufCLP) {
+  const f2 = (v) => numCL(v, 2);
   return `${f2(usdCLP)} CLP por 1 US$ ÷ ${f2(ufCLP)} CLP por 1 UF`;
 }

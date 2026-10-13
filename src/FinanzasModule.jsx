@@ -50,6 +50,9 @@ import {
 import ProgramasPanel, { ResumenLado } from './ProgramasComerciales.jsx';
 import ReportesCreditos from './ReportesCreditos.jsx';
 import { tcExacto, rotuloTC, identidadUF } from './rotuloTC.js';
+import { numCL, montoCL, usdCL } from './formatoCL.js';
+import CeldaCapital from './CeldaCapital.jsx';
+import { NO_DETERMINABLE } from './capitalVisible.js';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -7824,14 +7827,18 @@ function Dashboard({empresas, empresasConOverrides, saldosBancos}) {
 // CRÉDITOS — piezas de interfaz (detalle, contrato, análisis, prepago).
 // La lógica vive en src/creditos.js; acá solo se muestra y se captura.
 // ═══════════════════════════════════════════════════════════════════
-const $c = (n, mon) => {
+// Formato visible de Créditos: chileno, función compartida con los Reportes (src/formatoCL.js).
+// «US$ 256.066,67» · «CLP 95.000.000» · «UF 500,0000». No cambia valores ni entradas.
+const $c = (n, mon) => montoCL(n, mon||"USD");
+// Formato anterior (en-US), solo para el vínculo de créditos dentro de Nóminas (fuera de este alcance).
+const $cNom = (n, mon) => {
   if(n==null||n==="") return "—";
   const v = Number(n)||0;
-  const d = mon==="UF" ? 4 : 2;   // la UF se expresa con 4 decimales
+  const d = mon==="UF" ? 4 : 2;
   return `${v<0?"-":""}${mon&&mon!=="USD"?mon+" ":"$"}${Math.abs(v).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d})}`;
 };
 // Número con decimales fijos (sin símbolo), para diferencias exactas y TC.
-const fmtN = (n, dec=2) => (n==null||n===""||isNaN(Number(n))) ? "—" : Number(n).toLocaleString("en-US",{minimumFractionDigits:dec,maximumFractionDigits:dec});
+const fmtN = numCL;
 const CR_INP = {width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"};
 const CR_TH = {padding:"7px 10px",fontWeight:700,fontSize:10,color:"rgba(255,255,255,0.9)",letterSpacing:"0.4px",textTransform:"uppercase",whiteSpace:"nowrap"};
 const CR_TD = {padding:"6px 10px",fontSize:11,borderBottom:`1px solid ${C.border}22`};
@@ -8250,7 +8257,7 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
           </div>
         )}
         <div style={{padding:"0 20px 10px",display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
-          <KPI label="Saldo capital" value={$c(e.saldoCapital,mon)} color={C.red}/>
+          <KPI label="Saldo capital" value={<CeldaCapital testid="cap-detalle" capital={e.saldoCapital} sinDesglose={e.sinDesglosePend} porConciliar={e.porConciliarTotal} fmt={v=>$c(v,mon)} grande/>} color={C.red}/>
           <KPI label="Intereses pendientes" value={$c(e.interesPend,mon)} color={C.orange}/>
           <KPI label="Otros cargos pendientes" value={$c(e.cargosPend,mon)} color={C.muted}/>
           <KPI label="Sin desglose" value={$c(e.sinDesglosePend,mon)} color={e.sinDesglosePend>0?C.yellow:C.muted}/>
@@ -8418,6 +8425,8 @@ function AnalisisCreditos({creditos, empresas}){
   // Cuotas sin desglosar (confirmadas, pendientes): cuántas y cuánto
   const sinDesgl = an.estados.flatMap(e=>e.f===null?[]:e.vencimientos.filter(v=>!v.porConciliar&&v.pendiente.sinDesglose>0).map(v=>v.pendiente.sinDesglose*e.f));
   const credSinDesgl = an.estados.filter(e=>e.sinDesglosePend>0).length;
+  // Créditos sin TC: su capital no entra a ninguna cifra en US$; se muestra aparte, en su moneda.
+  const sinTCAn = an.sinTC.map(e=>({empresa:e.c.empresa, acreedor:e.c.acreedor, moneda:e.c.moneda||"USD", monto:e.saldoCapital+e.sinDesglosePend})).filter(x=>x.monto>0.005);
   // 18 meses desde el mes en curso
   const meses = []; { let [y,m]=hoy.split("-").map(Number); for(let i=0;i<18;i++){ meses.push(`${y}-${String(m).padStart(2,"0")}`); m++; if(m>12){m=1;y++;} } }
   const mesLbl = (k)=>{ const [y,m]=k.split("-"); return `${MESES_ABR_SD[Number(m)-1]}-${y.slice(2)}`; };
@@ -8445,21 +8454,21 @@ function AnalisisCreditos({creditos, empresas}){
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:10}}>
-        <KPI label={`Saldo capital identificado (USD)${sHoy.estimado?" · ESTIMADO":""}${sHoy.incompleto?" · INCOMPLETO":""}`} value={$$(tot.cap)} color={C.red}/>
-        <KPI label="Cuotas sin desglosar" value={$$(tot.sd)} color={tot.sd>0?C.yellow:C.muted}/>
-        <KPI label="Vencido impago confirmado" value={$$(tot.venc)} color={tot.venc>0?C.red:C.green}/>
-        <KPI label="Por conciliar (fuera)" value={$$(tot.pc)} color={tot.pc>0?"#5b21b6":C.muted}/>
-        <KPI label="Servicio próx. 12 meses" value={$$(s12)} color={C.orange}/>
+        <KPI label={`Saldo capital identificado (USD)${sHoy.estimado?" · ESTIMADO":""}${sHoy.incompleto?" · INCOMPLETO":""}`} value={<CeldaCapital testid="cap-analisis-kpi" capital={tot.cap} sinDesglose={tot.sd} porConciliar={tot.pc} sinTC={sinTCAn} fmt={usdCL} grande/>} color={C.red}/>
+        <KPI label="Cuotas sin desglosar" value={usdCL(tot.sd)} color={tot.sd>0?C.yellow:C.muted}/>
+        <KPI label="Vencido impago confirmado" value={usdCL(tot.venc)} color={tot.venc>0?C.red:C.green}/>
+        <KPI label="Por conciliar (fuera)" value={usdCL(tot.pc)} color={tot.pc>0?"#5b21b6":C.muted}/>
+        <KPI label="Servicio próx. 12 meses" value={usdCL(s12)} color={C.orange}/>
         <KPI label="Tasa promedio ponderada" value={T.tasaPromedio==null?"—":`${T.tasaPromedio.toFixed(2)}%`} color={C.blue}/>
-        <KPI label="Costo anual (capital identificado)" value={$$(T.costoAnualEstimado)} color={C.orange}/>
+        <KPI label="Costo anual (capital identificado)" value={usdCL(T.costoAnualEstimado)} color={C.orange}/>
       </div>
       {tot.sd>0.5&&<div style={{background:`${C.yellow}14`,border:`1px solid ${C.yellow}55`,borderRadius:8,padding:"8px 12px",fontSize:11,lineHeight:1.6}}>
-        ⚠ <strong>Sin clasificar: {$$(tot.sd)}</strong> en {sinDesgl.length} cuota(s) de {credSinDesgl} crédito(s) no separan capital, intereses y cargos
+        ⚠ <strong>Sin clasificar: {usdCL(tot.sd)}</strong> en {sinDesgl.length} cuota(s) de {credSinDesgl} crédito(s) no separan capital, intereses y cargos
         ({(tot.sd/((tot.cap+tot.sd)||1)*100).toFixed(1)}% de la deuda confirmada). Están en el servicio de deuda pero NO en el saldo de capital identificado,
         y no se asume que sean capital. Mientras no se desglosen con respaldo, el saldo de capital y el costo financiero son parciales.
       </div>}
       {tot.pc>0.5&&<div style={{background:"#ede9fe",border:"1px solid #c4b5fd",borderRadius:8,padding:"8px 12px",fontSize:11}}>
-        🔎 {$$(tot.pc)} en cuotas históricas por conciliar quedan fuera de todas las cifras de esta vista (ver pestaña Conciliación).
+        🔎 {usdCL(tot.pc)} en cuotas históricas por conciliar quedan fuera de todas las cifras de esta vista (ver pestaña Conciliación).
       </div>}
       <AvisosValorizacion s={sHoy}/>
 
@@ -8469,9 +8478,9 @@ function AnalisisCreditos({creditos, empresas}){
           const g = {};
           an.estados.forEach(e=>{
             const mon = e.c.moneda||"USD";
-            const x = g[mon] || (g[mon] = {cap:0, sd:0, pend:0, pc:0, capUSD:0, sdUSD:0, pendUSD:0, sinTC:0, tcs:{}});
+            const x = g[mon] || (g[mon] = {cap:0, sd:0, pend:0, pc:0, capUSD:0, sdUSD:0, pendUSD:0, sinTC:0, capSinTC:0, tcs:{}});
             x.cap+=e.saldoCapital; x.sd+=e.sinDesglosePend; x.pend+=e.pendienteTotal; x.pc+=e.porConciliarTotal;
-            if(e.f===null){ x.sinTC+=e.pendienteTotal; return; }
+            if(e.f===null){ x.sinTC+=e.pendienteTotal; x.capSinTC+=e.saldoCapital+e.sinDesglosePend; return; }
             x.capUSD+=e.saldoCapital*e.f; x.sdUSD+=e.sinDesglosePend*e.f; x.pendUSD+=e.pendienteTotal*e.f;
             const t=e.c._tc; if(t&&mon!=="USD") x.tcs[`${t.tc}|${t.fecha||"s/f"}|${t.fuente}`]=t;
           });
@@ -8485,13 +8494,13 @@ function AnalisisCreditos({creditos, empresas}){
                 <tbody>{Object.entries(g).map(([mon,x])=>(
                   <tr key={mon}>
                     <td style={{...CR_TD,fontWeight:700}}>{mon}</td>
-                    <td style={{...CR_TD,textAlign:"right"}}>{$c(x.cap,mon)}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}><CeldaCapital capital={x.cap} sinDesglose={x.sd} porConciliar={x.pc} fmt={v=>$c(v,mon)} extras={false}/></td>
                     <td style={{...CR_TD,textAlign:"right",color:x.sd?C.yellow:C.muted2}}>{x.sd?$c(x.sd,mon):"—"}</td>
                     <td style={{...CR_TD,textAlign:"right"}}>{$c(x.pend,mon)}</td>
                     <td style={{...CR_TD,textAlign:"right",color:x.pc?"#5b21b6":C.muted2}}>{x.pc?$c(x.pc,mon):"—"}</td>
                     <td style={{...CR_TD,fontSize:10}}>{mon==="USD"?"—":Object.values(x.tcs).map(t=>`${valorTC(t)} · ${t.fecha?fmtDate(t.fecha):"sin fecha"} · ${t.fuente}${t.estimado?" · ESTIMADO":""}${t.desactualizado?` (⚠ ${t.antiguedadDias!=null?t.antiguedadDias+" días":"sin fecha"} de antigüedad)`:""}`).join(" | ")||"—"}</td>
-                    <td style={{...CR_TD,textAlign:"right"}}>{$$(x.capUSD)}</td>
-                    <td style={{...CR_TD,textAlign:"right"}}>{$$(x.pendUSD)}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}><CeldaCapital capital={x.capUSD} sinDesglose={x.sdUSD} sinTC={x.capSinTC>0.005?[{moneda:mon,monto:x.capSinTC}]:[]} fmt={usdCL}/></td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{usdCL(x.pendUSD)}</td>
                     <td style={{...CR_TD,textAlign:"right",color:x.sinTC?C.red:C.muted2,fontWeight:x.sinTC?700:400}}>{x.sinTC?$c(x.sinTC,mon):"—"}</td>
                   </tr>))}
                 </tbody>
@@ -8519,22 +8528,24 @@ function AnalisisCreditos({creditos, empresas}){
             return (
               <tr key={k}>
                 <td style={{...CR_TD,fontWeight:600}}>{e2?`${e2.emoji} `:""}{k}</td>
-                <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:C.red}}>{$$(x.saldoCapital)}</td>
-                <td style={{...CR_TD,textAlign:"right",color:x.sinDesglose?C.yellow:C.muted2}}>{x.sinDesglose?$$(x.sinDesglose):"—"}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:C.red}}><CeldaCapital capital={x.saldoCapital} sinDesglose={x.sinDesglose} porConciliar={x.porConciliar} fmt={usdCL} extras={false}/>{x.porConciliar>0.005&&<div style={{fontSize:9,color:"#5b21b6",fontWeight:600}}>por conciliar {usdCL(x.porConciliar)} · no sumado</div>}</td>
+                <td style={{...CR_TD,textAlign:"right",color:x.sinDesglose?C.yellow:C.muted2}}>{x.sinDesglose?usdCL(x.sinDesglose):"—"}</td>
                 <td style={{...CR_TD,textAlign:"right"}}>{((x.saldoCapital+x.sinDesglose)/baseConc*100).toFixed(1)}%</td>
-                <td style={{...CR_TD,textAlign:"right"}}>{$$(x.pendiente)}</td>
-                <td style={{...CR_TD,textAlign:"right",color:x.vencido?C.red:C.muted2}}>{x.vencido?$$(x.vencido):"—"}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{usdCL(x.pendiente)}</td>
+                <td style={{...CR_TD,textAlign:"right",color:x.vencido?C.red:C.muted2}}>{x.vencido?usdCL(x.vencido):"—"}</td>
                 <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{x.n}</td>
               </tr>
             );
           }),
           <tr style={{background:C.bg2}}>
             <td style={{...CR_TD,fontWeight:800}}>Total</td>
-            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(tot.cap)}</td>
-            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(tot.sd)}</td>
+            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}><CeldaCapital testid="cap-analisis-total" capital={tot.cap} sinDesglose={tot.sd} porConciliar={tot.pc} sinTC={sinTCAn} fmt={usdCL} extras={false}/>
+              {tot.pc>0.005&&<div style={{fontSize:9,color:"#5b21b6",fontWeight:600}}>por conciliar {usdCL(tot.pc)} · no sumado</div>}
+              {sinTCAn.map((z,i)=><div key={i} style={{fontSize:9,color:C.red,fontWeight:600}}>sin TC {z.empresa}: {montoCL(z.monto,z.moneda)} · no sumado</div>)}</td>
+            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{usdCL(tot.sd)}</td>
             <td style={{...CR_TD,textAlign:"right"}}>100%</td>
-            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(tot.pend)}</td>
-            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(tot.venc)}</td><td style={CR_TD}/>
+            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{usdCL(tot.pend)}</td>
+            <td style={{...CR_TD,textAlign:"right",fontWeight:800}}>{usdCL(tot.venc)}</td><td style={CR_TD}/>
           </tr>)}
         <div style={{fontSize:10,color:C.muted,marginTop:6}}>
           "Sin desglose" = cuotas de registros antiguos que no separan capital de intereses; se muestran aparte para no inflar ni subestimar el saldo de capital.
@@ -8548,13 +8559,13 @@ function AnalisisCreditos({creditos, empresas}){
           meses.map((k,i)=>{ const x=serv[k]||{}; return (
             <tr key={k} style={{background:i===0?`${C.yellow}10`:"transparent"}}>
               <td style={{...CR_TD,fontWeight:600}}>{mesLbl(k)}{i===0?" (en curso)":""}</td>
-              {["capital","interes","interesVariable","cargos","sinDesglose","total"].map(c=><td key={c} style={{...CR_TD,textAlign:"right",fontWeight:c==="total"?700:400,color:c==="interesVariable"&&x[c]?C.orange:undefined,fontStyle:c==="interesVariable"?"italic":"normal"}}>{x[c]?$$(x[c]):"—"}</td>)}
-              <td style={{...CR_TD,textAlign:"right",color:x.vencido?C.red:C.muted2}}>{x.vencido?$$(x.vencido):"—"}</td>
-              <td style={{...CR_TD,textAlign:"right",color:x.porConciliar?"#5b21b6":C.muted2}}>{x.porConciliar?$$(x.porConciliar):"—"}</td>
+              {["capital","interes","interesVariable","cargos","sinDesglose","total"].map(c=><td key={c} style={{...CR_TD,textAlign:"right",fontWeight:c==="total"?700:400,color:c==="interesVariable"&&x[c]?C.orange:undefined,fontStyle:c==="interesVariable"?"italic":"normal"}}>{x[c]?usdCL(x[c]):"—"}</td>)}
+              <td style={{...CR_TD,textAlign:"right",color:x.vencido?C.red:C.muted2}}>{x.vencido?usdCL(x.vencido):"—"}</td>
+              <td style={{...CR_TD,textAlign:"right",color:x.porConciliar?"#5b21b6":C.muted2}}>{x.porConciliar?usdCL(x.porConciliar):"—"}</td>
             </tr>);}),
           <tr style={{background:C.bg2}}>
             <td style={{...CR_TD,fontWeight:800}}>Total 18 meses</td>
-            {["capital","interes","interesVariable","cargos","sinDesglose","total","vencido","porConciliar"].map(c=><td key={c} style={{...CR_TD,textAlign:"right",fontWeight:800}}>{$$(meses.reduce((a,k)=>a+(serv[k]?.[c]||0),0))}</td>)}
+            {["capital","interes","interesVariable","cargos","sinDesglose","total","vencido","porConciliar"].map(c=><td key={c} style={{...CR_TD,textAlign:"right",fontWeight:800}}>{usdCL(meses.reduce((a,k)=>a+(serv[k]?.[c]||0),0))}</td>)}
           </tr>)}
         <div style={{fontSize:10,color:C.muted,marginTop:6}}>Las vencidas impagas confirmadas se muestran en el mes en curso, igual que en el Flujo de Caja. Incluye cuotas de renovaciones.
           El interés de tasa variable es una proyección con la referencia vigente supuesta constante (hipótesis cargada en cada crédito), no un monto contractual fijo.
@@ -8567,7 +8578,7 @@ function AnalisisCreditos({creditos, empresas}){
           {vencidos.length===0?<div style={{fontSize:11,color:C.green}}>Sin vencidos impagos.</div>:
             tabla(["Fecha","Empresa","Acreedor","Pendiente USD","Días"], vencidos.map(v=>(
               <tr key={v.key}><td style={CR_TD}>{fmtDate(v.fecha)}</td><td style={CR_TD}>{v.empresa}</td><td style={CR_TD}>{v.acreedor}</td>
-                <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:C.red}}>{$$(v.usd)}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:C.red}}>{usdCL(v.usd)}</td>
                 <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{Math.round((new Date(hoy)-new Date(v.fecha))/86400000)}</td></tr>)))}
         </Card>
         <Card>
@@ -8576,9 +8587,9 @@ function AnalisisCreditos({creditos, empresas}){
             tabla(["Fecha","Empresa","Acreedor","Capital","Int.+cargos","Total USD"], proximos.map(v=>{
               const f = v.usd/(v.pendienteTotal||1);
               return (<tr key={v.key}><td style={CR_TD}>{fmtDate(v.fecha)}</td><td style={CR_TD}>{v.empresa}</td><td style={CR_TD}>{v.acreedor}</td>
-                <td style={{...CR_TD,textAlign:"right"}}>{$$(v.pendiente.capital*f)}</td>
-                <td style={{...CR_TD,textAlign:"right"}}>{$$((v.pendiente.interes+v.pendiente.cargos)*f)}</td>
-                <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$$(v.usd)}</td></tr>);}))}
+                <td style={{...CR_TD,textAlign:"right"}}>{usdCL(v.pendiente.capital*f)}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{usdCL((v.pendiente.interes+v.pendiente.cargos)*f)}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{usdCL(v.usd)}</td></tr>);}))}
         </Card>
       </div>
 
@@ -8589,23 +8600,23 @@ function AnalisisCreditos({creditos, empresas}){
             tabla(["Vence","Empresa","Acreedor","Tipo","Pendiente USD"], porVencer.map(e=>(
               <tr key={e.uid}><td style={CR_TD}>{fmtDate(e.vencimientoFinal)}</td><td style={CR_TD}>{e.c.empresa}</td>
                 <td style={CR_TD}>{e.c.acreedor}{e.c.renovable?" 🔄":""}</td><td style={{...CR_TD,color:C.muted}}>{e.c.tipo_cr}</td>
-                <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{e.f===null?"sin TC":$$(e.pendienteTotal*e.f)}</td></tr>)))}
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{e.f===null?"sin TC":usdCL(e.pendienteTotal*e.f)}</td></tr>)))}
         </Card>
         <Card>
           <SectionTitle>Exposición a tasas y costo financiero</SectionTitle>
           {tabla(["","Saldo USD","%"],[
             ["Tasa fija",T.capFija],["Tasa variable",T.capVar],["Sin tasa registrada",T.capSinTasa]].map(([l,v])=>{
               const b=(T.capFija+T.capVar+T.capSinTasa)||1;
-              return <tr key={l}><td style={CR_TD}>{l}</td><td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$$(v)}</td><td style={{...CR_TD,textAlign:"right"}}>{(v/b*100).toFixed(1)}%</td></tr>;
+              return <tr key={l}><td style={CR_TD}>{l}</td><td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{usdCL(v)}</td><td style={{...CR_TD,textAlign:"right"}}>{(v/b*100).toFixed(1)}%</td></tr>;
             }))}
           <div style={{fontSize:11,color:C.text,marginTop:8,lineHeight:1.6}}>
-            Sensibilidad: +100 pb en la tasa de referencia = <strong>{$$(T.sensibilidad100pb)}</strong> más de interés al año ({$$(T.capVar)} × 1%).
+            Sensibilidad: +100 pb en la tasa de referencia = <strong>{usdCL(T.sensibilidad100pb)}</strong> más de interés al año ({usdCL(T.capVar)} × 1%).
             Los intereses de tasa variable son <strong>proyecciones</strong>: suponen la referencia constante en el valor cargado como hipótesis.
           </div>
           <div style={{fontSize:10,color:C.muted,marginTop:6,lineHeight:1.6}}>
             {T.sinDesgloseConTasa>0.5&&<div style={{color:C.orange,marginBottom:4}}>
-              El costo anual ({$$(T.costoAnualEstimado)}) considera solo capital identificado. Hay {$$(T.sinDesgloseConTasa)} en cuotas sin desglose con tasa
-              registrada: si todo eso fuera capital, el costo sería {$$(T.costoAnualSiSinDesgloseFueraCapital)} (cota superior; esas cuotas pueden incluir intereses).
+              El costo anual ({usdCL(T.costoAnualEstimado)}) considera solo capital identificado. Hay {usdCL(T.sinDesgloseConTasa)} en cuotas sin desglose con tasa
+              registrada: si todo eso fuera capital, el costo sería {usdCL(T.costoAnualSiSinDesgloseFueraCapital)} (cota superior; esas cuotas pueden incluir intereses).
             </div>}
             <strong>Hipótesis:</strong> costo anual = Σ saldo de capital × tasa nominal registrada. Tasa promedio y exposición ponderan por capital + "sin desglose". Tasa variable = referencia
             vigente cargada como hipótesis + margen, proyectada constante. Créditos de socio usan su tasa efectiva. No incluye comisiones ni seguros.
@@ -8772,9 +8783,9 @@ export function valorTC(t){
   if(!t) return "sin TC";
   const u = t.moneda==="UF" ? (t.ufCLP!=null ? t : (typeof t.porFecha==="function" ? t.porFecha(t.corte||t.fecha) : null)) : null;
   const x = tcExacto(u&&u.usdCLP&&u.ufCLP&&!(Number(t.factor)>0) ? {usdCLP:u.usdCLP, ufCLP:u.ufCLP} : t);
-  const base = rotuloTC(x, t.moneda||"", "en-US");
+  const base = rotuloTC(x, t.moneda||"");
   if(t.moneda==="UF" && u && u.ufCLP && u.usdCLP)
-    return `${base} = ${identidadUF(u.usdCLP, u.ufCLP, "en-US")} (UF del ${fmtDate(u.ufFecha)}, ${u.ufFuente}${u.usdFecha?`; US$ del ${fmtDate(u.usdFecha)}, ${u.usdFuente}`:""})`;
+    return `${base} = ${identidadUF(u.usdCLP, u.ufCLP)} (UF del ${fmtDate(u.ufFecha)}, ${u.ufFuente}${u.usdFecha?`; US$ del ${fmtDate(u.usdFecha)}, ${u.usdFuente}`:""})`;
   return base;
 }
 function textoTC(t){
@@ -8848,12 +8859,12 @@ function ConciliacionAcreedores({creditos, saldosInformados=[], onSaveSaldosInfo
               <tr>
                 <td style={CR_TD}>{f.empresa}</td><td style={CR_TD}>{f.acreedor}</td><td style={CR_TD}>{f.moneda}</td>
                 <td style={{...CR_TD,whiteSpace:"nowrap"}}>{fmtDate(f.corte)}</td>
-                <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(f.app.capital,f.moneda)}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700}}><CeldaCapital capital={f.app.capital} sinDesglose={f.app.sinClasificar} porConciliar={f.app.porConciliar} fmt={v=>$c(v,f.moneda)} extras={false}/></td>
                 <td style={{...CR_TD,textAlign:"right"}}>{f.informado?<span title={`Respaldo: ${f.informado.respaldo} · ${f.informado.usuario}`}>{$c(f.capitalInformado,f.moneda)}</span>:"—"}</td>
                 <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:f.diferenciaExacta==null?C.muted2:Math.abs(f.diferenciaExacta)<=f.tolerancia+1e-9?C.green:C.red}}
                   title={f.diferenciaExacta==null?"":`Diferencia sin redondear: ${f.diferenciaExacta}`}>{f.diferenciaExacta==null?"—":`${fmtN(f.diferenciaExacta,decimalesMoneda(f.moneda))} ${f.moneda}`}</td>
                 <td style={{...CR_TD,textAlign:"right",color:C.muted}}>{fmtN(f.tolerancia,decimalesMoneda(f.moneda))}</td>
-                <td style={{...CR_TD,textAlign:"right"}}>{f.capitalUSD==null?<span style={{color:C.red}}>sin TC al corte</span>:<>{$$(f.capitalUSD)}
+                <td style={{...CR_TD,textAlign:"right"}}>{f.capitalUSD==null?<span style={{color:C.red}}>sin TC al corte</span>:<><CeldaCapital capital={f.capitalUSD} sinDesglose={f.app.sinClasificar} porConciliar={f.app.porConciliar} fmt={usdCL} extras={false}/>
                   {f.moneda!=="USD"&&<div style={{fontSize:9,color:f.tcCorte?.estimado?C.red:C.muted,maxWidth:200}}>{textoTC(f.tcCorte)}</div>}</>}</td>
                 <td style={{...CR_TD,textAlign:"right"}}>{$c(f.app.interesVencido,f.moneda)}{f.informado?.intereses!=null&&<div style={{fontSize:9,color:C.muted}}>informado {$c(f.informado.intereses,f.moneda)}</div>}</td>
                 <td style={{...CR_TD,textAlign:"right"}}>{$c(f.app.cargosVencidos,f.moneda)}{f.informado?.cargos!=null&&<div style={{fontSize:9,color:C.muted}}>informado {$c(f.informado.cargos,f.moneda)}</div>}</td>
@@ -8956,9 +8967,9 @@ function EscenariosCajaCreditos({creditos, empresas, realData={}}){
       <SectionTitle>Dos escenarios de caja: confirmado vs incluyendo cuotas por conciliar</SectionTitle>
       <div style={{fontSize:11,color:C.text,marginBottom:8,lineHeight:1.6}}>
         El flujo confirmado no incluye las cuotas por conciliar. El escenario "incluyendo por conciliar" las paga en el mes en curso.
-        Diferencia en el saldo acumulado desde el mes en curso: <strong style={{color:C.red}}>{$$(tot.inc)}</strong>.
-        {tot.exc>0.5&&<> Se excluyen {$$(tot.exc)} vinculados explícitamente a un valor manual vigente.</>}
-        {provisional&&<div style={{color:C.red,fontWeight:700}}>ESCENARIO PROVISIONAL: {tot.sup>0.5?`${$$(tot.sup)} pueden superponerse con valores manuales cuya cobertura está pendiente de conciliación. `:""}{filas.some(f=>f.sinTC.length)?"Hay cuotas sin TC. ":""}No es un saldo definitivo.</div>}
+        Diferencia en el saldo acumulado desde el mes en curso: <strong style={{color:C.red}}>{usdCL(tot.inc)}</strong>.
+        {tot.exc>0.5&&<> Se excluyen {usdCL(tot.exc)} vinculados explícitamente a un valor manual vigente.</>}
+        {provisional&&<div style={{color:C.red,fontWeight:700}}>ESCENARIO PROVISIONAL: {tot.sup>0.5?`${usdCL(tot.sup)} pueden superponerse con valores manuales cuya cobertura está pendiente de conciliación. `:""}{filas.some(f=>f.sinTC.length)?"Hay cuotas sin TC. ":""}No es un saldo definitivo.</div>}
       </div>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
@@ -8970,9 +8981,9 @@ function EscenariosCajaCreditos({creditos, empresas, realData={}}){
               <tr key={f.emp}>
                 <td style={CR_TD}>{f.emp}</td>
                 <td style={{...CR_TD,textAlign:"right"}}>{f.incluidas.length}</td>
-                <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:C.red}}>{f.impacto?`−${$$(f.impacto)}`:"—"}</td>
-                <td style={{...CR_TD,textAlign:"right"}}>{f.excluidas.length?`${f.excluidas.length} · ${$$(f.excluidoUSD)}`:"—"}</td>
-                <td style={{...CR_TD,textAlign:"right",color:f.pendientesCobertura.length?C.red:C.muted2}}>{f.pendientesCobertura.length?`${f.pendientesCobertura.length} · ${$$(f.superposicionUSD)}`:"—"}</td>
+                <td style={{...CR_TD,textAlign:"right",fontWeight:700,color:C.red}}>{f.impacto?`−${usdCL(f.impacto)}`:"—"}</td>
+                <td style={{...CR_TD,textAlign:"right"}}>{f.excluidas.length?`${f.excluidas.length} · ${usdCL(f.excluidoUSD)}`:"—"}</td>
+                <td style={{...CR_TD,textAlign:"right",color:f.pendientesCobertura.length?C.red:C.muted2}}>{f.pendientesCobertura.length?`${f.pendientesCobertura.length} · ${usdCL(f.superposicionUSD)}`:"—"}</td>
                 <td style={{...CR_TD,textAlign:"right"}}>{f.sinTC.length?f.sinTC.map(c=>`${c.acreedor} ${$c(c._porConciliarOriginal,c.moneda)}`).join(" · "):"—"}</td>
                 <td style={CR_TD}>{f.provisional?<Pill def={{lbl:"Provisional",bg:"#fee2e2",fg:"#991b1b"}}/>:<Pill def={{lbl:"Completo",bg:"#dcfce7",fg:"#166534"}}/>}</td>
               </tr>
@@ -9089,9 +9100,9 @@ function ConciliacionCreditos({creditos, creditosTodos, empresas, realData={}, o
   async function resolverOv(r, decision){
     let nota = "";
     if(decision==="mantener"){
-      nota = window.prompt(`Mantener el valor manual ${$$(r.manual)} en ${r.label} ${r.mes} (${r.emp}) en vez de ${$$(r.creditos)} de Créditos.\nMotivo (p. ej. cuota no registrada todavía en Créditos):`);
+      nota = window.prompt(`Mantener el valor manual ${usdCL(r.manual)} en ${r.label} ${r.mes} (${r.emp}) en vez de ${usdCL(r.creditos)} de Créditos.\nMotivo (p. ej. cuota no registrada todavía en Créditos):`);
       if(nota===null) return;
-    } else if(!window.confirm(`${r.emp} · ${r.label} · ${r.mes}\nValor manual ${$$(r.manual)} → Créditos ${$$(r.creditos)} (diferencia ${$$(r.dif)}).\n\nSe retira el valor manual de ese mes; queda el registro de la decisión.`)) return;
+    } else if(!window.confirm(`${r.emp} · ${r.label} · ${r.mes}\nValor manual ${usdCL(r.manual)} → Créditos ${usdCL(r.creditos)} (diferencia ${usdCL(r.dif)}).\n\nSe retira el valor manual de ese mes; queda el registro de la decisión.`)) return;
     const res = await onConciliarOverride(r.emp, {cat:r.cat, label:r.label, idx:r.idx, decision, manual:r.manual, creditos:r.creditos, nota});
     if(!res?.ok) alert(`No se guardó: ${res?.motivo||"error"}`);
   }
@@ -9133,8 +9144,8 @@ function ConciliacionCreditos({creditos, creditosTodos, empresas, realData={}, o
         {filas.length===0?<div style={{fontSize:11,color:C.green}}>No hay cuotas por conciliar.</div>:(<>
           <div style={{fontSize:11,color:C.text,marginBottom:8,lineHeight:1.6}}>
             Vencieron antes de que el crédito se controlara en la app y no tienen pago registrado. <strong>No están en la deuda confirmada ni en el flujo.</strong>
-            Impacto potencial en caja: si todas se confirmaran impagas, el mes en curso tendría <strong style={{color:C.red}}>{$$(totUSD)}</strong> más de egreso
-            {Object.entries(porEmp).map(([e,x])=>` · ${e}: ${$$(x.usd)} (${x.n})${x.sinTC?` + ${x.sinTC} sin TC`:""}`).join("")}.
+            Impacto potencial en caja: si todas se confirmaran impagas, el mes en curso tendría <strong style={{color:C.red}}>{usdCL(totUSD)}</strong> más de egreso
+            {Object.entries(porEmp).map(([e,x])=>` · ${e}: ${usdCL(x.usd)} (${x.n})${x.sinTC?` + ${x.sinTC} sin TC`:""}`).join("")}.
           </div>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse"}}>
@@ -9152,7 +9163,7 @@ function ConciliacionCreditos({creditos, creditosTodos, empresas, realData={}, o
                     <td style={{...CR_TD,textAlign:"right"}}>{$c(v.pendiente.cargos,v.moneda)}</td>
                     <td style={{...CR_TD,textAlign:"right",color:v.pendiente.sinDesglose?C.yellow:C.muted2}}>{v.pendiente.sinDesglose?$c(v.pendiente.sinDesglose,v.moneda):"—"}</td>
                     <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$c(v.pendienteTotal,v.moneda)}</td>
-                    <td style={{...CR_TD,textAlign:"right"}}>{v.usd==null?"sin TC":$$(v.usd)}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{v.usd==null?"sin TC":usdCL(v.usd)}</td>
                     <td style={{...CR_TD,whiteSpace:"nowrap"}}>
                       <button onClick={()=>abrirDetalle(uidCredito(v.credito))} style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.blue}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700,marginRight:4}}>📅 Pagada</button>
                       {canEdit&&<button onClick={()=>confirmar(v)} style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.red}`,background:"transparent",color:C.red,cursor:"pointer",fontSize:10,fontWeight:700}}>Confirmar impaga</button>}
@@ -9170,7 +9181,7 @@ function ConciliacionCreditos({creditos, creditosTodos, empresas, realData={}, o
         {ovFilas.length===0?<div style={{fontSize:11,color:C.green}}>No quedan valores manuales sobre estas líneas.</div>:(<>
           <div style={{fontSize:11,color:C.text,marginBottom:8}}>
             {pendOv.length} mes(es) pendiente(s) de decisión. Mientras no se decida, <strong>el flujo sigue usando el valor manual</strong>.
-            Diferencia neta pendiente (manual − Créditos): <strong>{$$(pendOv.reduce((a,r)=>a+r.dif,0))}</strong>.
+            Diferencia neta pendiente (manual − Créditos): <strong>{usdCL(pendOv.reduce((a,r)=>a+r.dif,0))}</strong>.
           </div>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse"}}>
@@ -9181,9 +9192,9 @@ function ConciliacionCreditos({creditos, creditosTodos, empresas, realData={}, o
                 {ovFilas.map(r=>(
                   <tr key={`${r.emp}-${r.label}-${r.idx}`}>
                     <td style={CR_TD}>{r.emp}</td><td style={CR_TD}>{r.label}</td><td style={CR_TD}>{r.mes}</td>
-                    <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{$$(r.manual)}</td>
-                    <td style={{...CR_TD,textAlign:"right"}}>{$$(r.creditos)}</td>
-                    <td style={{...CR_TD,textAlign:"right",color:Math.abs(r.dif)>0.5?C.red:C.green,fontWeight:700}}>{Math.abs(r.dif)>0.5?$$(r.dif):"0"}</td>
+                    <td style={{...CR_TD,textAlign:"right",fontWeight:700}}>{usdCL(r.manual)}</td>
+                    <td style={{...CR_TD,textAlign:"right"}}>{usdCL(r.creditos)}</td>
+                    <td style={{...CR_TD,textAlign:"right",color:Math.abs(r.dif)>0.5?C.red:C.green,fontWeight:700}}>{Math.abs(r.dif)>0.5?usdCL(r.dif):"0"}</td>
                     <td style={{...CR_TD,fontSize:10}}>{r.decision?<span title={r.decision.nota}>Mantener (decidido por {r.decision.usuario}: {r.decision.nota})</span>:<span style={{color:C.orange,fontWeight:700}}>Pendiente</span>}</td>
                     <td style={{...CR_TD,fontSize:10}}>
                       {r.cobertura
@@ -9213,13 +9224,13 @@ function ConciliacionCreditos({creditos, creditosTodos, empresas, realData={}, o
           return (
             <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center"}}>
               <div style={{background:C.bg2,border:`1px solid ${C.blue}`,borderRadius:10,padding:16,width:600,maxWidth:"94vw",fontSize:11}}>
-                <div style={{fontWeight:800,fontSize:12,marginBottom:6}}>¿Qué cuotas por conciliar cubre el valor manual {$$(r.manual)} de {r.label} en {r.mes} ({r.emp})?</div>
+                <div style={{fontWeight:800,fontSize:12,marginBottom:6}}>¿Qué cuotas por conciliar cubre el valor manual {usdCL(r.manual)} de {r.label} en {r.mes} ({r.emp})?</div>
                 <div style={{color:C.muted,marginBottom:8}}>Marca solo las que ese valor manual incluye según su respaldo. Las marcadas se excluyen del escenario "incluyendo por conciliar"
                   (si no, se contarían dos veces). Sin marcar ninguna = el valor manual no cubre cuotas por conciliar.</div>
                 {cands.length===0?<div style={{color:C.muted}}>No hay cuotas por conciliar en esta empresa y línea.</div>:cands.map(v=>(
                   <label key={v.key} style={{display:"flex",gap:8,alignItems:"center",padding:"3px 0"}}>
                     <input type="checkbox" checked={cobForm.sel.has(v.key)} onChange={e=>setCobForm(p=>{const n=new Set(p.sel); e.target.checked?n.add(v.key):n.delete(v.key); return {...p,sel:n};})}/>
-                    {v.acreedor} · cuota {fmtDate(v.fecha)} · {$c(v.pendienteTotal,v.moneda)}{v.usd!=null&&v.moneda!=="USD"?` (${$$(v.usd)})`:""}
+                    {v.acreedor} · cuota {fmtDate(v.fecha)} · {$c(v.pendienteTotal,v.moneda)}{v.usd!=null&&v.moneda!=="USD"?` (${usdCL(v.usd)})`:""}
                   </label>))}
                 <CampoCr label="Respaldo / motivo (obligatorio)"><input value={cobForm.nota} onChange={e=>setCobForm(p=>({...p,nota:e.target.value}))} placeholder="Ej: planilla de Pago Préstamos oct-26 incluye cuota Banco Security 31-07" style={CR_INP}/></CampoCr>
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
@@ -9232,7 +9243,7 @@ function ConciliacionCreditos({creditos, creditosTodos, empresas, realData={}, o
         })()}
         {resueltos.filter(r=>r.decision==="creditos").length>0&&(
           <div style={{fontSize:10,color:C.muted,marginTop:8}}>
-            Ya conciliados (valor manual retirado): {resueltos.filter(r=>r.decision==="creditos").map(r=>`${r.emp} ${r.linea} ${r.mes}: ${$$(r.valorManual)}→${$$(r.valorCreditos)} (${r.usuario})`).join(" · ")}
+            Ya conciliados (valor manual retirado): {resueltos.filter(r=>r.decision==="creditos").map(r=>`${r.emp} ${r.linea} ${r.mes}: ${usdCL(r.valorManual)}→${usdCL(r.valorCreditos)} (${r.usuario})`).join(" · ")}
           </div>
         )}
       </Card>
@@ -9484,15 +9495,17 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   // descontados los pagos. Misma fuente que el flujo.
   const sHoyCred = saldosAlCorte(creditosVisibles, hoy, hoy);
   const deudaEmp={}; const sdEmp={};
-  Object.entries(sHoyCred.porEmpresa).forEach(([emp,x])=>{ if(x.capital>0.005||x.sinClasificar>0.005){ deudaEmp[emp]=x.capital; sdEmp[emp]=x.sinClasificar; } });
+  Object.entries(sHoyCred.porEmpresa).forEach(([emp,x])=>{ if(x.capital>0.005||x.sinClasificar>0.005||x.porConciliar>0.005){ deudaEmp[emp]=x.capital; sdEmp[emp]=x.sinClasificar; } });
+  // Empresas con créditos sin TC: se listan aunque no tengan capital en US$ (el importe va aparte, en su moneda).
+  const sinTCEmp = {}; (sHoyCred.sinTC||[]).forEach(z=>{ (sinTCEmp[z.empresa]=sinTCEmp[z.empresa]||[]).push({moneda:z.moneda, monto:z.capital+z.sinClasificar}); if(!(z.empresa in deudaEmp)){ deudaEmp[z.empresa]=0; sdEmp[z.empresa]=0; } });
   const kpi = creditosVisibles.reduce((a,c)=>{
     if(c.anulado) return a;
     const e=estadoDe(c), f=factorUSD(c);
-    if(f===null){ a.sinTC++; return a; }
+    if(f===null){ a.sinTC++; if(e.saldoCapital+e.sinDesglosePend>0.005) a.sinTCList.push({empresa:c.empresa, moneda:c.moneda||"USD", monto:e.saldoCapital+e.sinDesglosePend}); return a; }
     a.cap+=e.saldoCapital*f; a.sd+=e.sinDesglosePend*f; a.venc+=e.vencidoTotal*f; a.pc+=e.porConciliarTotal*f;
     if(e.pendienteTotal>0) a.vig++;
     return a;
-  },{cap:0,sd:0,venc:0,vig:0,sinTC:0,pc:0});
+  },{cap:0,sd:0,venc:0,vig:0,sinTC:0,pc:0,sinTCList:[]});
   // Próximos 8 trimestres calendario (desde el trimestre en curso): servicio y saldo al cierre.
   const trimestres = (()=>{
     const serv = servicioDeudaPorMes(creditosVisibles, hoy);
@@ -9544,19 +9557,19 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
 
       {vistaCred==="creditos" && (<>
       <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10}}>
-        <KPI label={`Saldo capital identificado (USD)${sHoyCred.estimado?" · ESTIMADO":""}${sHoyCred.incompleto?" · INCOMPLETO":""}`} value={$$(kpi.cap)} color={C.red}/>
-        <KPI label="Cuotas sin desglosar"     value={$$(kpi.sd)}  color={kpi.sd>0?C.yellow:C.muted}/>
-        <KPI label="Vencido impago confirmado" value={$$(kpi.venc)} color={kpi.venc>0?C.red:C.green}/>
-        <KPI label="Por conciliar (fuera del flujo)" value={$$(kpi.pc)} color={kpi.pc>0?"#5b21b6":C.muted}/>
-        <KPI label={`Servicio ${trimestres[0].lbl}`} value={$$(trimestres[0].tot)} color={C.orange}/>
+        <KPI label={`Saldo capital identificado (USD)${sHoyCred.estimado?" · ESTIMADO":""}${sHoyCred.incompleto?" · INCOMPLETO":""}`} value={<CeldaCapital testid="cap-creditos-kpi" capital={kpi.cap} sinDesglose={kpi.sd} porConciliar={kpi.pc} sinTC={kpi.sinTCList} fmt={usdCL} grande/>} color={C.red}/>
+        <KPI label="Cuotas sin desglosar"     value={usdCL(kpi.sd)}  color={kpi.sd>0?C.yellow:C.muted}/>
+        <KPI label="Vencido impago confirmado" value={usdCL(kpi.venc)} color={kpi.venc>0?C.red:C.green}/>
+        <KPI label="Por conciliar (fuera del flujo)" value={usdCL(kpi.pc)} color={kpi.pc>0?"#5b21b6":C.muted}/>
+        <KPI label={`Servicio ${trimestres[0].lbl}`} value={usdCL(trimestres[0].tot)} color={C.orange}/>
         <KPI label="Créditos con saldo"       value={`${kpi.vig}${kpi.sinTC?` (+${kpi.sinTC} sin TC)`:""}`} color={C.blue}/>
       </div>
       <AvisosValorizacion s={sHoyCred}/>
       {kpi.pc>0&&<div style={{fontSize:10.5,color:C.text,background:"#ede9fe",border:"1px solid #c4b5fd",borderRadius:8,padding:"6px 12px"}}>
-        {$$(kpi.pc)} en cuotas históricas vencidas sin pago registrado: no se incluyen como deuda confirmada ni en el flujo hasta conciliarlas (pestaña 🔎 Conciliación).
+        {usdCL(kpi.pc)} en cuotas históricas vencidas sin pago registrado: no se incluyen como deuda confirmada ni en el flujo hasta conciliarlas (pestaña 🔎 Conciliación).
       </div>}
       {kpi.sd>0&&<div style={{fontSize:10.5,color:C.text,background:`${C.yellow}14`,border:`1px solid ${C.yellow}55`,borderRadius:8,padding:"6px 12px"}}>
-        {$$(kpi.sd)} corresponde a cuotas de registros antiguos que no separan capital de intereses: no se suman al saldo de capital.
+        {usdCL(kpi.sd)} corresponde a cuotas de registros antiguos que no separan capital de intereses: no se suman al saldo de capital.
         Ábrelas con 📅 y usa "Desglosar cuota" para completar el saldo y el costo financiero.
       </div>}
       <Card>
@@ -9565,8 +9578,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
           <div key={n} style={{display:"flex",alignItems:"center",gap:10,marginBottom:7}}>
             <div style={{width:148,fontSize:11,color:C.text,flexShrink:0}}>{e.emoji} {n}</div>
             <div style={{flex:1,background:C.card2,borderRadius:4,height:12,overflow:"hidden"}}><div style={{width:`${(monto/maxD)*100}%`,height:"100%",background:C.red,borderRadius:4,opacity:0.6}}/></div>
-            <div style={{width:80,textAlign:"right",fontSize:11,fontWeight:700,color:C.red,flexShrink:0}}>{$$(monto)}</div>
-            <div style={{width:120,textAlign:"right",fontSize:10,color:sdEmp[n]>0.5?C.yellow:C.muted2,flexShrink:0}}>{sdEmp[n]>0.5?`+ ${$$(sdEmp[n])} sin clasif.`:""}</div>
+            <div style={{width:250,textAlign:"right",fontSize:11,fontWeight:700,color:C.red,flexShrink:0}}>
+              <CeldaCapital testid={`cap-deuda-${n}`} capital={monto} sinDesglose={sdEmp[n]||0} porConciliar={sHoyCred.porEmpresa[n]?.porConciliar||0} sinTC={sinTCEmp[n]||[]} fmt={usdCL}/></div>
           </div>
         );})}
       </Card>
@@ -9581,12 +9594,12 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
               {trimestres.map((q,i)=>(
                 <tr key={q.lbl} style={{borderBottom:`1px solid ${C.border}22`}}>
                   <td style={{padding:"7px 12px",fontWeight:600,color:C.text}}>{q.lbl}{i===0?" (en curso, incluye vencidos)":""}</td>
-                  <td style={{padding:"7px 12px",textAlign:"right"}}>{$$(q.cap)}</td>
-                  <td style={{padding:"7px 12px",textAlign:"right",color:C.orange}}>{$$(q.int)}</td>
-                  <td style={{padding:"7px 12px",textAlign:"right",color:q.sd?C.yellow:C.muted2}}>{q.sd?$$(q.sd):"—"}</td>
-                  <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow,fontWeight:700}}>{$$(q.tot)}</td>
-                  <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:C.red}}>{$$(q.saldoCap)}</td>
-                  <td style={{padding:"7px 12px",textAlign:"right",color:q.saldoSd?C.yellow:C.muted2}}>{q.saldoSd?$$(q.saldoSd):"—"}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right"}}>{usdCL(q.cap)}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",color:C.orange}}>{usdCL(q.int)}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",color:q.sd?C.yellow:C.muted2}}>{q.sd?usdCL(q.sd):"—"}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow,fontWeight:700}}>{usdCL(q.tot)}</td>
+                  <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:C.red}}><CeldaCapital capital={q.saldoCap} sinDesglose={q.saldoSd} fmt={usdCL} extras={false}/></td>
+                  <td style={{padding:"7px 12px",textAlign:"right",color:q.saldoSd?C.yellow:C.muted2}}>{q.saldoSd?usdCL(q.saldoSd):"—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -9641,10 +9654,10 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                     </td>
                     <td style={{padding:"7px 12px"}}><span style={{fontSize:9,padding:"2px 7px",borderRadius:20,background:C.card2,border:`1px solid ${C.border}`,color:C.muted}}>{c.tipo_cr}</span></td>
                     <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:cerrado?C.green:C.red}}>
-                      {mon!=="USD"&&<span style={{fontSize:9,color:C.muted,marginRight:3}}>{mon}</span>}{cerrado?<span>✓ {$$(c.monto)}</span>:$$(c.monto)}
+                      {cerrado?<span>✓ {$c(c.monto,mon)}</span>:$c(c.monto,mon)}
                     {c.renovable&&<span style={{fontSize:9,marginLeft:4,background:`${C.orange}22`,color:C.orange,borderRadius:10,padding:"1px 5px"}}>🔄 Renov.</span>}
                     </td>
-                    <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow}}>{c.tipo_credito==="contrato"||c.tipo_credito==="socio"?<span style={{color:C.muted,fontSize:10}}>calendario</span>:$$(c.cuota)}</td>
+                    <td style={{padding:"7px 12px",textAlign:"right",color:C.yellow}}>{c.tipo_credito==="contrato"||c.tipo_credito==="socio"?<span style={{color:C.muted,fontSize:10}}>calendario</span>:$c(c.cuota,mon)}</td>
                     <td style={{padding:"7px 12px",whiteSpace:"nowrap",color:C.muted}}>{(c.fecha_desembolso||c.f_inicio)?fmtDate(c.fecha_desembolso||c.f_inicio):"—"}</td>
                     <td style={{padding:"7px 12px",whiteSpace:"nowrap",color:vencProx?C.orange:C.muted}}>{fmtDate(fVenc)}{vencProx&&" ⚠️"}</td>
                     <td style={{padding:"7px 12px",textAlign:"right",color:C.muted}}>{c.tasa||"—"}{c.tasa_tipo==="variable"?" var.":""}</td>
@@ -9664,7 +9677,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                             <div style={{color:C.muted,fontSize:9}}>{c.meses_pago.join(",")}</div>
                           )}
                           {c.cuota_renovacion&&(
-                            <div style={{color:C.red,fontSize:9}}>{$$(Number(c.cuota_renovacion))}/cuota</div>
+                            <div style={{color:C.red,fontSize:9}}>{$c(Number(c.cuota_renovacion),mon)}/cuota</div>
                           )}
                         </div>
                       ) : <span style={{color:C.muted2}}>—</span>}
@@ -9716,8 +9729,10 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
             const filas = emps.map(emp=>{
               const saldos = sCie.map(x=>x.porEmpresa[emp]?.capital||0);
               const sds = sCie.map(x=>x.porEmpresa[emp]?.sinClasificar||0);
-              return {emp, actual:sHoy.porEmpresa[emp]?.capital||0, actualSd:sHoy.porEmpresa[emp]?.sinClasificar||0, saldos, sds};
-            }).filter(r=>r.actual>0.5||r.actualSd>0.5||r.saldos.some(x=>x>0.5)||r.sds.some(x=>x>0.5));
+              // Importes sin TC de esta empresa (no están en ninguna cifra en US$): sin ellos la celda diría «Saldado».
+              const stcDe = (x)=>(x.sinTC||[]).filter(z=>z.empresa===emp).map(z=>({moneda:z.moneda,monto:z.capital+z.sinClasificar})).filter(z=>z.monto>0.005);
+              return {emp, actual:sHoy.porEmpresa[emp]?.capital||0, actualSd:sHoy.porEmpresa[emp]?.sinClasificar||0, actualStc:stcDe(sHoy), saldos, sds, stcs:sCie.map(stcDe)};
+            }).filter(r=>r.actual>0.5||r.actualSd>0.5||r.actualStc.length||r.saldos.some(x=>x>0.5)||r.sds.some(x=>x>0.5)||r.stcs.some(x=>x.length));
             const th = {padding:"8px 14px",fontWeight:600,fontSize:10,color:C.muted,textAlign:"right",borderBottom:`1px solid ${C.border}`,textTransform:"uppercase",whiteSpace:"nowrap"};
             return (
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
@@ -9727,22 +9742,23 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                   {CIERRES.map(([t])=><th key={t} style={th}>{t}</th>)}
                 </tr></thead>
                 <tbody>
-                  {filas.map(({emp,actual,actualSd,saldos,sds})=>{
+                  {filas.map(({emp,actual,actualSd,actualStc,saldos,sds,stcs})=>{
                     const e = empresas[emp]||{emoji:"🏢",color:C.blue};
                     return (
                       <tr key={emp} style={{borderBottom:`1px solid ${C.border}22`}}>
                         <td style={{padding:"8px 14px",position:"sticky",left:0,background:C.card,zIndex:1,borderRight:`1px solid ${C.border}22`,fontWeight:700,color:e.color}}>{e.emoji} {emp}</td>
-                        <td style={{padding:"8px 14px",textAlign:"right",fontWeight:800,color:C.red}}>{$$(actual)}{actualSd>0.5&&<div style={{fontSize:9,color:C.yellow,fontWeight:400}}>+ {$$(actualSd)} sin clasif.</div>}</td>
+                        <td style={{padding:"8px 14px",textAlign:"right",fontWeight:800,color:C.red}}><CeldaCapital capital={actual} sinDesglose={actualSd} sinTC={actualStc} fmt={usdCL}/></td>
                         {saldos.map((saldo,i)=>{
                           const prev = i===0 ? actual : saldos[i-1];
                           return (
                             <td key={i} style={{padding:"8px 14px",textAlign:"right"}}>
-                              {saldo>0.5 ? (<div>
-                                <div style={{fontWeight:800,fontSize:12,color:saldo<actual*0.3?C.yellow:C.red}}>{$$(saldo)}</div>
-                                {prev-saldo>0.5&&<div style={{fontSize:9,color:C.green,marginTop:1}}>↓ {$$(prev-saldo)} amortizado</div>}
-                                {saldo-prev>0.5&&<div style={{fontSize:9,color:C.orange,marginTop:1}}>↑ {$$(saldo-prev)} nueva deuda</div>}
-                                {sds[i]>0.5&&<div style={{fontSize:9,color:C.yellow,marginTop:1}}>+ {$$(sds[i])} sin clasif.</div>}
-                              </div>) : sds[i]>0.5 ? <span style={{fontSize:10,color:C.yellow}}>{$$(sds[i])} sin clasif.</span> : <span style={{color:C.green,fontWeight:700,fontSize:12}}>✓ Saldado</span>}
+                              {stcs[i].length && saldo<=0.5 ? <CeldaCapital capital={0} sinDesglose={sds[i]} sinTC={stcs[i]} fmt={usdCL}/> : saldo>0.5 ? (<div>
+                                <div style={{fontWeight:800,fontSize:12,color:saldo<actual*0.3?C.yellow:C.red}}>{usdCL(saldo)}</div>
+                                {prev-saldo>0.5&&<div style={{fontSize:9,color:C.green,marginTop:1}}>↓ {usdCL(prev-saldo)} amortizado</div>}
+                                {saldo-prev>0.5&&<div style={{fontSize:9,color:C.orange,marginTop:1}}>↑ {usdCL(saldo-prev)} nueva deuda</div>}
+                                {sds[i]>0.5&&<div style={{fontSize:9,color:"#b45309",background:"#fef3c7",borderRadius:4,padding:"0 4px",fontWeight:600,marginTop:1}}>sin desglose {usdCL(sds[i])} · no sumado</div>}
+                                {stcs[i].map((z,j)=><div key={j} style={{fontSize:9,color:"#c0392b",background:"#fdecea",borderRadius:4,padding:"0 4px",fontWeight:600,marginTop:1}}>sin TC {montoCL(z.monto,z.moneda)} · no sumado</div>)}
+                              </div>) : sds[i]>0.5 ? <CeldaCapital capital={0} sinDesglose={sds[i]} fmt={usdCL}/> : <span style={{color:C.green,fontWeight:700,fontSize:12}}>✓ Saldado</span>}
                             </td>
                           );
                         })}
@@ -9752,8 +9768,11 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                 </tbody>
                 <tfoot><tr style={{background:C.bg2,borderTop:`2px solid ${C.border}`}}>
                   <td style={{padding:"8px 14px",fontWeight:800,color:C.text,position:"sticky",left:0,background:C.bg2,zIndex:1}}>TOTAL GRUPO</td>
-                  <td style={{padding:"8px 14px",textAlign:"right",fontWeight:800,color:C.red}}>{$$(sHoy.total.capital)}{sHoy.total.sinClasificar>0.5&&<div style={{fontSize:9,color:C.yellow,fontWeight:400}}>+ {$$(sHoy.total.sinClasificar)} sin clasif.</div>}</td>
-                  {sCie.map((x,i)=>{const t=x.total.capital;return <td key={i} style={{padding:"8px 14px",textAlign:"right",fontWeight:800,fontSize:12,color:t>0.5?C.red:C.green}}>{t>0.5?$$(t):"✓ Saldado"}{x.total.sinClasificar>0.5&&<div style={{fontSize:9,color:C.yellow,fontWeight:400}}>+ {$$(x.total.sinClasificar)} sin clasif.</div>}{x.incompleto&&<div style={{fontSize:9,color:C.red,fontWeight:400}}>incompleto (sin TC)</div>}</td>;})}
+                  <td style={{padding:"8px 14px",textAlign:"right",fontWeight:800,color:C.red}}><CeldaCapital capital={sHoy.total.capital} sinDesglose={sHoy.total.sinClasificar} sinTC={(sHoy.sinTC||[]).map(z=>({moneda:z.moneda,monto:z.capital+z.sinClasificar}))} fmt={usdCL}/></td>
+                  {sCie.map((x,i)=>{const t=x.total.capital, sd=x.total.sinClasificar, stc=(x.sinTC||[]).map(z=>({moneda:z.moneda,monto:z.capital+z.sinClasificar}));
+                    // «✓ Saldado» solo si de verdad no queda nada: ni capital, ni sin desglose, ni importes sin TC.
+                    const saldado = t<=0.5 && sd<=0.5 && !stc.some(z=>z.monto>0.005);
+                    return <td key={i} style={{padding:"8px 14px",textAlign:"right",fontWeight:800,fontSize:12,color:saldado?C.green:C.red}}>{saldado?"✓ Saldado":<CeldaCapital capital={t} sinDesglose={sd} sinTC={stc} fmt={usdCL}/>}</td>;})}
                 </tr></tfoot>
               </table>
             );
@@ -9801,7 +9820,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                           const col = ev.isIngreso?"#22c55e":venc?C.red:ev.isRen?C.orange:C.red;
                           return (
                             <React.Fragment key={ev.id}>
-                              <div title={ev.comp?`Capital ${$$(ev.comp.capital)} · Interés ${$$(ev.comp.interes)} · Cargos ${$$(ev.comp.cargos)}${ev.comp.sinDesglose?` · Sin desglose ${$$(ev.comp.sinDesglose)}`:""}`:""}
+                              <div title={ev.comp?`Capital ${usdCL(ev.comp.capital)} · Interés ${usdCL(ev.comp.interes)} · Cargos ${usdCL(ev.comp.cargos)}${ev.comp.sinDesglose?` · Sin desglose ${usdCL(ev.comp.sinDesglose)}`:""}`:""}
                                 style={{flexShrink:0,background:ev.isIngreso?"#22c55e22":venc?"#fee2e2":C.bg,borderRadius:8,
                                 padding:"6px 10px",border:`1px solid ${ev.isIngreso?"#22c55e":pag?"#22c55e44":venc?C.red:C.border}`,
                                 opacity:pag?0.45:1,minWidth:74,textAlign:"center"}}>
@@ -9809,8 +9828,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                                 {ev.isRen&&<div style={{fontSize:8,color:C.orange,fontWeight:700,marginBottom:1}}>🔄 RENOV.</div>}
                                 {venc&&<div style={{fontSize:8,color:C.red,fontWeight:700,marginBottom:1}}>VENCIDA</div>}
                                 <div style={{fontSize:10,fontWeight:700,color:C.yellow}}>{ev.label}</div>
-                                <div style={{fontSize:11,fontWeight:800,color:col}}>{$$(ev.monto)}</div>
-                                {ev.estado==="parcial"||(venc&&ev.pend<ev.monto)?<div style={{fontSize:8,color:C.blue}}>pend. {$$(ev.pend)}</div>:null}
+                                <div style={{fontSize:11,fontWeight:800,color:col}}>{usdCL(ev.monto)}</div>
+                                {ev.estado==="parcial"||(venc&&ev.pend<ev.monto)?<div style={{fontSize:8,color:C.blue}}>pend. {usdCL(ev.pend)}</div>:null}
                                 {pag&&<div style={{fontSize:8,color:"#22c55e"}}>✓</div>}
                               </div>
                               {ei<eventos.length-1&&<div style={{width:16,height:1,background:C.muted2,flexShrink:0}}/>}
@@ -9984,10 +10003,10 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                             <td style={{padding:"5px 10px",color:C.muted}}>{f.n}</td>
                             <td style={{padding:"5px 10px",color:C.text,whiteSpace:"nowrap"}}>{fmtDMY(f.fecha)}{f.capitaliza&&<span title="La cuota no cubre el interés: se capitaliza" style={{color:C.red,marginLeft:4}}>⚠</span>}</td>
                             <td style={{padding:"5px 10px",textAlign:"right",color:C.muted}}>{f.dias}</td>
-                            <td style={{padding:"5px 10px",textAlign:"right",color:C.orange}}>{$$(f.interes)}</td>
-                            <td style={{padding:"5px 10px",textAlign:"right",color:f.amortizacion<0?C.red:C.text,fontWeight:700}}>{$$(f.amortizacion)}</td>
-                            <td style={{padding:"5px 10px",textAlign:"right",color:C.text}}>{$$(f.cuota_total)}</td>
-                            <td style={{padding:"5px 10px",textAlign:"right",color:C.blue,fontWeight:700}}>{$$(f.saldo)}</td>
+                            <td style={{padding:"5px 10px",textAlign:"right",color:C.orange}}>{usdCL(f.interes)}</td>
+                            <td style={{padding:"5px 10px",textAlign:"right",color:f.amortizacion<0?C.red:C.text,fontWeight:700}}>{usdCL(f.amortizacion)}</td>
+                            <td style={{padding:"5px 10px",textAlign:"right",color:C.text}}>{usdCL(f.cuota_total)}</td>
+                            <td style={{padding:"5px 10px",textAlign:"right",color:C.blue,fontWeight:700}}>{usdCL(f.saldo)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -9998,11 +10017,11 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                 {/* Validación de cierre + total interés */}
                 {amort&&(
                   <div style={{display:"flex",gap:16,flexWrap:"wrap",marginTop:10,fontSize:11}}>
-                    <span style={{color:C.muted}}>Capital: <strong style={{color:C.text}}>{$$(amort.capital)}</strong></span>
-                    <span style={{color:C.muted}}>Σ Amortizaciones: <strong style={{color:C.text}}>{$$(amort.sumaAmortizaciones)}</strong></span>
-                    <span style={{color:C.muted}}>Saldo final: <strong style={{color:amort.cierra?C.green:C.red}}>{$$(amort.saldoFinal)}</strong></span>
+                    <span style={{color:C.muted}}>Capital: <strong style={{color:C.text}}>{usdCL(amort.capital)}</strong></span>
+                    <span style={{color:C.muted}}>Σ Amortizaciones: <strong style={{color:C.text}}>{usdCL(amort.sumaAmortizaciones)}</strong></span>
+                    <span style={{color:C.muted}}>Saldo final: <strong style={{color:amort.cierra?C.green:C.red}}>{usdCL(amort.saldoFinal)}</strong></span>
                     <span style={{fontWeight:800,color:amort.cierra?C.green:C.red}}>{amort.cierra?"✓ Cierra en cero":"✗ NO cierra (Σ amort ≠ capital)"}</span>
-                    <span style={{color:C.muted,marginLeft:"auto"}}>Interés total vida: <strong style={{color:C.orange}}>{$$(amort.totalInteres)}</strong></span>
+                    <span style={{color:C.muted,marginLeft:"auto"}}>Interés total vida: <strong style={{color:C.orange}}>{usdCL(amort.totalInteres)}</strong></span>
                   </div>
                 )}
               </div>
@@ -10129,9 +10148,9 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                               onChange={n=>updRenCuota(ri,ci,{anio:n})}
                               style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card2,color:C.text,fontSize:12,outline:"none"}}/>
                             <div style={{background:C.card2,borderRadius:6,padding:"5px 8px",border:`1px solid ${_esCap?C.blue:C.orange}`}}>
-                              <div style={{fontWeight:700,fontSize:12,color:_esCap?C.blue:C.orange}}>{$$(_montoCalc)}</div>
+                              <div style={{fontWeight:700,fontSize:12,color:_esCap?C.blue:C.orange}}>{usdCL(_montoCalc)}</div>
                               <div style={{fontSize:9,color:C.muted}}>
-                                {_esCap?`Cap: ${$$(Math.round(_amort))} + Int: ${$$(Math.round(_interes))}`:`Int: ${$$(Math.round(_interes))}`}
+                                {_esCap?`Cap: ${usdCL(Math.round(_amort))} + Int: ${usdCL(Math.round(_interes))}`:`Int: ${usdCL(Math.round(_interes))}`}
                               </div>
                             </div>
                             <button type="button" onClick={()=>delRenCuota(ri,ci)}
@@ -10152,7 +10171,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                         <div style={{display:"flex",alignItems:"flex-end",paddingBottom:4}}>
                           <div style={{fontSize:10,color:C.muted,fontStyle:"italic"}}>
                             {(ren.cuotas||[]).length>0&&(
-                              <>Total cuotas: <strong style={{color:C.green}}>{$$((()=>{const calc=calcCuotasRenovacion({...ren,tasa_anual:tasaEfectiva});return calc.reduce((s,c)=>s+(c.montoReal||0),0);})())}</strong></>
+                              <>Total cuotas: <strong style={{color:C.green}}>{usdCL((()=>{const calc=calcCuotasRenovacion({...ren,tasa_anual:tasaEfectiva});return calc.reduce((s,c)=>s+(c.montoReal||0),0);})())}</strong></>
                             )}
                           </div>
                         </div>
@@ -10247,17 +10266,19 @@ function SaldoDeudaPorMes({creditos=[], empresas={}, tcData}){
 
   const factor = moneda==="CLP" ? (tcCLP?tcCLP.tc:null) : 1;
   const sym = moneda==="CLP" ? "CLP" : "US$";
-  const fmtK = (usd)=>{ if(factor==null) return "—"; const v=usd*factor; return v ? `${sym} ${Math.round(v/1000).toLocaleString("es-CL")} K` : "—"; };
+  // Miles, formato chileno. Un 0 calculado se muestra como 0 (no como «—»).
+  const fmtK = (usd)=>{ if(factor==null) return "—"; const v=usd*factor; return `${sym} ${numCL(Math.round(v/1000),0)} K`; };
 
   function exportarExcel(){
     if(factor==null){ alert("No hay TC USD-CLP en Maestros; no se puede exportar en CLP."); return; }
     const head=["Corte"]; emps.forEach(e=>{ head.push(`${e} · capital`, `${e} · sin clasificar`); });
     head.push("Total capital identificado","Total sin clasificar","Por conciliar (fuera)","Incompleto (sin TC)","Estimado","TC desactualizado","UF hipótesis");
-    const aoa=[[`Saldo de deuda al corte · ${moneda}${moneda==="CLP"?` · TC ${tcCLP.tc} CLP/US$ del ${tcCLP.fecha} (${tcCLP.fuente})`:""}`],head];
+    const aoa=[[`Saldo de deuda al corte · ${moneda}${moneda==="CLP"?` · TC ${valorTC(tcCLP)} del ${tcCLP.fecha} (${tcCLP.fuente})`:""}`],head];
     cortes.forEach((k,i)=>{
       const x=saldos[i]; const row=[k.endISO];
-      emps.forEach(e=>{ const p=x.porEmpresa[e]||{capital:0,sinClasificar:0}; row.push(Math.round(p.capital*factor*100)/100, Math.round(p.sinClasificar*factor*100)/100); });
-      row.push(Math.round(x.total.capital*factor*100)/100, Math.round(x.total.sinClasificar*factor*100)/100, k.hoy?Math.round(x.total.porConciliar*factor*100)/100:"",
+      const capXls = (cap, sd)=> (Math.abs(cap)<=0.005 && sd>0.005) ? NO_DETERMINABLE : Math.round(cap*factor*100)/100;
+      emps.forEach(e=>{ const p=x.porEmpresa[e]||{capital:0,sinClasificar:0}; row.push(capXls(p.capital,p.sinClasificar), Math.round(p.sinClasificar*factor*100)/100); });
+      row.push(capXls(x.total.capital,x.total.sinClasificar), Math.round(x.total.sinClasificar*factor*100)/100, k.hoy?Math.round(x.total.porConciliar*factor*100)/100:"",
         x.incompleto?x.sinTC.map(z=>`${z.acreedor} ${z.moneda} ${z.capital+z.sinClasificar}`).join("; "):"", x.estimado?"sí":"", x.desactualizado?"sí":"", x.ufHipotesis?"sí":"");
       aoa.push(row);
     });
@@ -10286,7 +10307,7 @@ function SaldoDeudaPorMes({creditos=[], empresas={}, tcData}){
           ))}
         </div>
         {moneda==="CLP"&&<div style={{fontSize:10,color:tcCLP?.desactualizado||tcCLP?.estimado?C.red:C.muted}}>
-          {tcCLP?`TC ${fmtN(tcCLP.tc,2)} CLP/US$ · ${tcCLP.fecha?fmtDate(tcCLP.fecha):"sin fecha"} · ${tcCLP.fuente}${tcCLP.desactualizado?` · ⚠ ${tcCLP.antiguedadDias} días de antigüedad`:""}`
+          {tcCLP?`TC ${valorTC(tcCLP)} · ${tcCLP.fecha?fmtDate(tcCLP.fecha):"sin fecha"} · ${tcCLP.fuente}${tcCLP.desactualizado?` · ⚠ ${tcCLP.antiguedadDias} días de antigüedad`:""}`
             :"⚠ Sin TC USD-CLP en Maestros: no se puede mostrar en CLP."}</div>}
         <button onClick={exportarExcel}
           style={{padding:"6px 14px",borderRadius:8,background:C.green,border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>
@@ -10316,11 +10337,11 @@ function SaldoDeudaPorMes({creditos=[], empresas={}, tcData}){
                   const sube = prev!=null && p.capital>prev+0.005;
                   return (
                     <td key={emp} style={{padding:"7px 14px",textAlign:"right",color:p.capital?C.text:C.muted2,fontWeight:p.capital?600:400,background:sube?`${C.yellow}22`:"transparent"}}>
-                      {fmtK(p.capital)}{sube&&<span title="Saldo subió respecto del corte anterior" style={{color:C.yellow,marginLeft:3}}>▲</span>}
-                      {p.sinClasificar>0.005&&<div style={{fontSize:9,color:C.yellow}}>+ {fmtK(p.sinClasificar)} sin clasif.</div>}
+                      <CeldaCapital capital={p.capital} sinDesglose={p.sinClasificar} sinTC={(x.sinTC||[]).filter(z=>z.empresa===emp).map(z=>({moneda:z.moneda,monto:z.capital+z.sinClasificar}))} fmt={fmtK}/>{sube&&<span title="Saldo subió respecto del corte anterior" style={{color:C.yellow,marginLeft:3}}>▲</span>}
                     </td>);
                 })}
-                <td style={{padding:"7px 14px",textAlign:"right",fontWeight:800,color:x.total.capital?C.red:C.green}}>{x.total.capital?fmtK(x.total.capital):"✓"}</td>
+                <td style={{padding:"7px 14px",textAlign:"right",fontWeight:800,color:x.total.capital||x.total.sinClasificar?C.red:C.green}}>{x.total.capital>0.005||x.total.sinClasificar>0.005||x.incompleto
+                  ?<CeldaCapital capital={x.total.capital} sinDesglose={x.total.sinClasificar} porConciliar={k.hoy?x.total.porConciliar:0} sinTC={(x.sinTC||[]).map(z=>({moneda:z.moneda,monto:z.capital+z.sinClasificar}))} fmt={fmtK} extras={false}/>:"✓"}</td>
                 <td style={{padding:"7px 14px",textAlign:"right",color:x.total.sinClasificar?C.yellow:C.muted2}}>{x.total.sinClasificar?fmtK(x.total.sinClasificar):"—"}</td>
                 <td style={{padding:"7px 14px",textAlign:"right",color:k.hoy&&x.total.porConciliar?"#5b21b6":C.muted2}}>{k.hoy&&x.total.porConciliar?fmtK(x.total.porConciliar):"—"}</td>
                 <td style={{padding:"7px 14px",fontSize:9,color:C.red}}>{[x.incompleto&&"incompleto (sin TC)",x.estimado&&"estimado",x.desactualizado&&"TC desactualizado",x.ufHipotesis&&"UF hipótesis"].filter(Boolean).join(" · ")}</td>
@@ -16209,7 +16230,7 @@ function ResolverPagosVinculados({vinculos, contexto, onPagoCredito, onCancel, o
         </div>
         {vinculos.map(v=>(
           <div key={v.pago.id} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
-            <div style={{fontWeight:700}}>🏦 {v.cred.acreedor} · cuota {fmtDate(v.it.creditoVinculo.fecha)} · pago {fmtDate(v.pago.fecha)} · {$c(totalPago(v.pago),v.cred.moneda)}</div>
+            <div style={{fontWeight:700}}>🏦 {v.cred.acreedor} · cuota {fmtDate(v.it.creditoVinculo.fecha)} · pago {fmtDate(v.pago.fecha)} · {$cNom(totalPago(v.pago),v.cred.moneda)}</div>
             <div style={{color:C.muted}}>Línea: {v.it.proveedor||"—"} · {v.it.concepto||""}</div>
             <div style={{display:"flex",gap:14,marginTop:4}}>
               <label><input type="radio" name={`d-${v.pago.id}`} checked={dec[v.pago.id]==="conservar"} onChange={()=>setDec(p=>({...p,[v.pago.id]:"conservar"}))}/> Conservar el pago</label>
@@ -16258,7 +16279,7 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
   async function confirmarPago(){
     const tot = ["capital","interes","cargos","sinDesglose"].reduce((a,k)=>a+(Number(f[k])||0),0);
     if(!(tot>0)){ alert("Indica el monto pagado."); return; }
-    if(tot - venc.pendienteTotal > 0.005 && !window.confirm(`El pago (${$c(tot,cred.moneda)}) supera lo pendiente del vencimiento (${$c(venc.pendienteTotal,cred.moneda)}). ¿Registrar igual? El exceso quedará informado.`)) return;
+    if(tot - venc.pendienteTotal > 0.005 && !window.confirm(`El pago (${$cNom(tot,cred.moneda)}) supera lo pendiente del vencimiento (${$cNom(venc.pendienteTotal,cred.moneda)}). ¿Registrar igual? El exceso quedará informado.`)) return;
     setEnviando(true);
     const r = await onPagoCredito("registrar", {uid:vin.uid, pago:{vencKey:vin.vencKey, fecha:f.fecha, capital:f.capital, interes:f.interes, cargos:f.cargos, sinDesglose:f.sinDesglose,
       nota:f.nota, origen:{tipo:"nomina", clave, nominaId, itemId:it.id, nombreNomina}}});
@@ -16267,7 +16288,7 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
     setModo(null);
   }
   async function anular(){
-    const motivo = window.prompt(`Anular el pago registrado en Créditos desde esta línea (${fmtDate(pago.fecha)} · ${$c(totalPago(pago),cred.moneda)}).\nQueda en el historial como anulado y la cuota vuelve a quedar pendiente. Motivo:`);
+    const motivo = window.prompt(`Anular el pago registrado en Créditos desde esta línea (${fmtDate(pago.fecha)} · ${$cNom(totalPago(pago),cred.moneda)}).\nQueda en el historial como anulado y la cuota vuelve a quedar pendiente. Motivo:`);
     if(motivo===null) return;
     const r = await onPagoCredito("anular", {uid:vin.uid, pagoId:pago.id, motivo, clave});
     if(!r?.ok) alert(`No se anuló: ${r?.motivo||"error"}`);
@@ -16278,9 +16299,9 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
       {vin&&(
         <div>
           <div style={{fontWeight:700,color:C.blue}}>🏦 {vin.acreedor}</div>
-          <div style={{color:C.muted}}>cuota {fmtDate(vin.fecha)}{venc?` · pend. ${$c(venc.pendienteTotal,cred?.moneda)}`:" · ⚠ ya no existe"}</div>
+          <div style={{color:C.muted}}>cuota {fmtDate(vin.fecha)}{venc?` · pend. ${$cNom(venc.pendienteTotal,cred?.moneda)}`:" · ⚠ ya no existe"}</div>
           {pago
-            ? <div style={{color:C.green,fontWeight:700}}>✓ Pago registrado {fmtDate(pago.fecha)} {$c(totalPago(pago),cred.moneda)}</div>
+            ? <div style={{color:C.green,fontWeight:700}}>✓ Pago registrado {fmtDate(pago.fecha)} {$cNom(totalPago(pago),cred.moneda)}</div>
             : <div style={{color:C.orange}}>Pago no registrado{estadoNomina!=="aprobada"?" (se confirma con la nómina aprobada)":""}</div>}
           <div style={{display:"flex",gap:4,marginTop:2,flexWrap:"wrap"}}>
             {!pago&&canEdit&&<button onClick={()=>onVincular(it.id,null)} style={btn(C.muted)}>Desvincular</button>}
@@ -16297,7 +16318,7 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
           <div style={{fontWeight:700,marginBottom:6}}>Vincular a vencimiento de crédito ({empresa})</div>
           <select value={sel} onChange={e=>setSel(e.target.value)} style={{...CR_INP,fontSize:11}}>
             <option value="">— elegir vencimiento pendiente —</option>
-            {opciones.map(o=><option key={o.key} value={o.key}>{o.c.acreedor} · {fmtDate(o.v.fecha)} · {$c(o.v.pendienteTotal,o.c.moneda||"USD")}{o.v.porConciliar?" · por conciliar":o.v.vencida?" · vencida":""}</option>)}
+            {opciones.map(o=><option key={o.key} value={o.key}>{o.c.acreedor} · {fmtDate(o.v.fecha)} · {$cNom(o.v.pendienteTotal,o.c.moneda||"USD")}{o.v.porConciliar?" · por conciliar":o.v.vencida?" · vencida":""}</option>)}
           </select>
           {opciones.length===0&&<div style={{color:C.muted,marginTop:4}}>No hay vencimientos pendientes de créditos de {empresa}.</div>}
           <div style={{color:C.muted,marginTop:6}}>Vincular no registra ningún pago.</div>
@@ -16312,7 +16333,7 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
         <div style={{position:"fixed",inset:0,background:"rgba(16,24,40,0.45)",zIndex:450,display:"flex",alignItems:"center",justifyContent:"center"}}>
         <div style={{background:C.bg2,border:`1px solid ${C.green}`,borderRadius:10,padding:14,width:420,maxWidth:"94vw",boxShadow:"0 12px 32px rgba(0,0,0,0.3)",fontSize:11}}>
           <div style={{fontWeight:700,marginBottom:4}}>Confirmar pago efectivo · {vin.acreedor} cuota {fmtDate(vin.fecha)}</div>
-          <div style={{color:C.muted,marginBottom:6}}>Pendiente {$c(venc.pendienteTotal,cred.moneda)} · línea {linea.mon} {linea.monto.toLocaleString("en-US")}
+          <div style={{color:C.muted,marginBottom:6}}>Pendiente {$cNom(venc.pendienteTotal,cred.moneda)} · línea {linea.mon} {linea.monto.toLocaleString("en-US")}
             {linea.mon!==(cred.moneda||"USD")&&<span style={{color:C.red}}> · moneda distinta: ingresa el monto en {cred.moneda||"USD"}</span>}</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
             <CampoCr label="Fecha efectiva del pago"><input type="date" value={f.fecha} onChange={e=>setF(p=>({...p,fecha:e.target.value}))} style={CR_INP}/></CampoCr>
@@ -16321,7 +16342,7 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
             ))}
             <CampoCr label="Nota"><input value={f.nota} onChange={e=>setF(p=>({...p,nota:e.target.value}))} style={CR_INP}/></CampoCr>
           </div>
-          <div style={{color:C.muted,marginTop:6}}>Total {$c(["capital","interes","cargos","sinDesglose"].reduce((a,k)=>a+(Number(f[k])||0),0),cred.moneda)}. Un pago parcial deja pendiente la diferencia.</div>
+          <div style={{color:C.muted,marginTop:6}}>Total {$cNom(["capital","interes","cargos","sinDesglose"].reduce((a,k)=>a+(Number(f[k])||0),0),cred.moneda)}. Un pago parcial deja pendiente la diferencia.</div>
           <div style={{display:"flex",gap:6,justifyContent:"flex-end",marginTop:8}}>
             <button onClick={()=>setModo(null)} style={btn(C.muted)}>Cancelar</button>
             <button disabled={enviando} onClick={confirmarPago} style={btn(C.green)}>{enviando?"Guardando…":"Registrar en Créditos"}</button>

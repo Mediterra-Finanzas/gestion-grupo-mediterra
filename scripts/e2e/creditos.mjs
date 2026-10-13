@@ -45,7 +45,7 @@ check('Ya no aparece la cifra fija "Deuda Total Q1-2026"', await page.getByText(
 // ── 0. Conciliar valores manuales antiguos ───────────────────────────────
 await subTab(page, /Conciliación/);
 const txt0 = await page.locator('body').innerText();
-check('Conciliación muestra los 2 valores manuales pendientes (12,345 y 5,555)', txt0.includes('$12,345') && txt0.includes('$5,555') && /2 mes\(es\) pendiente/.test(txt0));
+check('Conciliación muestra los 2 valores manuales pendientes (12.345 y 5.555)', txt0.includes('US$ 12.345') && txt0.includes('US$ 5.555') && /2 mes\(es\) pendiente/.test(txt0));
 const filaOct = page.locator('tr', { hasText: 'Oct-26' }).filter({ hasText: 'Pago Préstamos' }).first();
 await filaOct.getByRole('button', { name: 'Usar Créditos' }).click();
 await page.waitForTimeout(1500);
@@ -81,8 +81,8 @@ await ponerNumero(page, 'N° de meses', '1');
 await page.waitForTimeout(300);
 await foto(page, '02-alta-vista-previa');
 const previa = await page.locator('table').filter({ hasText: 'Saldo capital' }).last().innerText();
-check('Vista previa: intereses 8,000.00 / 6,066.67 / 4,088.89 / 2,044.44',
-  ['8,000.00', '6,066.67', '4,088.89', '2,044.44'].every(x => previa.includes(x)));
+check('Vista previa: intereses 8.000,00 / 6.066,67 / 4.088,89 / 2.044,44',
+  ['8.000,00', '6.066,67', '4.088,89', '2.044,44'].every(x => previa.includes(x)));
 await page.getByRole('button', { name: /💾 Guardar/ }).click();
 await page.waitForTimeout(1500);
 let cred = (leerFila(store, 'finanzas').creditos_data || []).find(c => c.acreedor === 'Banco E2E');
@@ -125,7 +125,7 @@ check(`Saldo capital confirmado ${360000 - pcEsperado} + por conciliar ${pcEsper
   Math.abs(est.saldoCapital - (360000 - pcEsperado)) < 0.01 && Math.abs(est.porConciliarCapital - pcEsperado) < 0.01,
   `${est.saldoCapital} + ${est.porConciliarCapital}`);
 const detalle = await page.locator('table').filter({ hasText: 'Pendiente' }).first().innerText();
-check('Detalle muestra 60,000.00 pendiente y "Vencida"', detalle.includes('60,000.00') && /Vencida/.test(detalle));
+check('Detalle muestra 60.000,00 pendiente y "Vencida"', detalle.includes('60.000,00') && /Vencida/.test(detalle));
 await page.getByRole('button', { name: '×' }).first().click();
 await page.waitForTimeout(400);
 
@@ -182,7 +182,7 @@ await foto(page, '06-prepago');
 const txt = await page.locator('body').innerText();
 // saldo futuro (después del 20-oct): Q4 100.000 ; devengado 100.000 × 8% × 10/360 (10-oct→20-oct) = 222,22
 // comisión 1 mes: 100.000 × 8%/12 = 666,67 ; vencidos impagos a regularizar: Q1 60.000 + Q2 106.066,67 + Q3 104.088,89
-check('Prepago: devengado 222.22 y comisión 666.67 en pantalla', txt.includes('222.22') && txt.includes('666.67'));
+check('Prepago: devengado 222,22 y comisión 666,67 en pantalla', txt.includes('222,22') && txt.includes('666,67'));
 await page.getByRole('button', { name: /Aplicar prepago/ }).click();
 await page.waitForTimeout(1500);
 cred = leerFila(store, 'finanzas').creditos_data.find(c => c.acreedor === 'Banco E2E');

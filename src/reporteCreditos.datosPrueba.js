@@ -71,3 +71,9 @@ export const CREDITOS_PRUEBA = [
     monto: 10000, fecha_desembolso: '2026-02-01', vencimiento_final: '2026-08-01', modalidad: 'bullet_total', tasa_tipo: 'fija', tasa_anual: 8, base: 'act360',
     control_desde: '2026-02-01', anulado: true, motivoAnulacion: 'mal ingresado' },
 ];
+
+// Crédito CERRADO (todas sus cuotas pagadas con registro): capital 0 calculado y confirmado.
+// Solo para la vista previa y las pruebas de vistas: no cambia ningún total.
+const Z0 = { uid: 'Z', n: 50, tipo_credito: 'contrato', empresa: 'Integrity Farms', acreedor: 'Banco Cerrado Demo', moneda: 'USD', tipo_cr: 'Capital de trabajo',
+  monto: 50000, fecha_desembolso: '2026-01-05', vencimiento_final: '2026-07-05', modalidad: 'bullet_total', tasa_tipo: 'fija', tasa_anual: 6, base: 'act360', control_desde: '2026-01-05' };
+export const CREDITO_CERRADO_PRUEBA = pagarHasta(Z0, '2026-07-05');

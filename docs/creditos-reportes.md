@@ -117,6 +117,26 @@ Allegria Service (CLP + renovación), Frisku (PEN sin TC → INCOMPLETO) y vací
    el encabezado de Excel y PDF. Cada subtotal dice si es «cartera al corte» (todo el crédito) o
    «solo filas del rango».
 
+## Vistas de Créditos: capital no determinable y formato chileno (3.ª ronda)
+
+Solo presentación; `creditos.js` y los cálculos no cambian.
+
+- `src/capitalVisible.js` (regla) + `src/CeldaCapital.jsx` (pantalla): sin capital identificado y con
+  cuotas sin desglose → «No determinable: sin desglose»; capital conocido con sin desglose, por
+  conciliar o sin TC → «… (parcial)» y esos importes aparte, destacados y rotulados «no sumado»;
+  nada de eso → el número, y un 0 ahí es un 0 real. Mismo texto que los Reportes.
+- Dónde: Créditos (KPI de capital, Deuda por empresa, Saldo capital al cierre del trimestre, Saldo
+  por empresa al cierre de temporada), detalle del crédito (Saldo capital), Análisis CFO (KPI, tabla por
+  moneda, concentración y su total), Conciliación con el acreedor (capital app y en US$), Saldo por Mes
+  (celdas, total y Excel: el capital desconocido se escribe como texto, nunca 0).
+- «✓ Saldado» solo si no queda capital, sin desglose ni importes sin TC (antes una empresa con un
+  crédito en PEN sin TC aparecía saldada).
+- `src/formatoCL.js`: formato chileno único (1.234.567,89; CLP 0 decimales, UF 4, resto 2; US$ para
+  dólares) en todas las vistas de Créditos y en los Reportes. No toca valores guardados ni campos de
+  entrada. El vínculo de créditos dentro de Nóminas conserva el formato anterior (fuera de alcance).
+- Pruebas: `src/__tests__/capitalVisible.test.js`, `scripts/e2e/creditos-capital-vistas.mjs` (28) y las
+  expectativas de formato de `creditos.mjs` y `vista-previa-creditos.mjs`.
+
 ## Decisiones pendientes
 
 1. Descarga con perfil «ver»: se mantiene por ahora (decisión del 13-10-2026), sin facultad nueva.

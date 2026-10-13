@@ -6,7 +6,7 @@ import { infoTC, valorizarCreditos } from '../creditos';
 import { construirReporte, tablasReporte } from '../reporteCreditos';
 import { CREDITOS_PRUEBA, CORTE_PRUEBA, TC_PRUEBA } from '../reporteCreditos.datosPrueba';
 
-const sinSep = (s) => s.replace(/[.,]/g, '');   // la pantalla formatea en-US y el reporte es-CL: mismos dígitos
+const sinSep = (s) => s;   // pantalla y reporte usan el mismo formato chileno
 const t = tablasReporte(construirReporte(CREDITOS_PRUEBA, {}, { corte: CORTE_PRUEBA, tcData: TC_PRUEBA }));
 const uf = infoTC({ moneda: 'UF' }, TC_PRUEBA, CORTE_PRUEBA);
 
@@ -22,7 +22,7 @@ describe('rótulo del TC', () => {
   });
   test('UF en la pantalla de Créditos: valor, unidad y división en el sentido correcto', () => {
     const txt = valorTC(uf);
-    expect(txt).toBe('0.023796567 UF por 1 US$ = 955.00 CLP por 1 US$ ÷ 40,131.84 CLP por 1 UF (UF del 09/10/2026, mindicador; US$ del 10/10/2026, manual)');
+    expect(txt).toBe('0,023796567 UF por 1 US$ = 955,00 CLP por 1 US$ ÷ 40.131,84 CLP por 1 UF (UF del 09/10/2026, mindicador; US$ del 10/10/2026, manual)');
     expect(txt).not.toMatch(/UF [\d,.]+ CLP .*\/ US\$/);       // el rótulo anterior escribía la división invertida
   });
   test('pantalla de Créditos y Reportes muestran el MISMO TC (UF, CLP y EUR declarado)', () => {

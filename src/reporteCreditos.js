@@ -23,6 +23,8 @@
 // ═══════════════════════════════════════════════════════════════════
 import { estadoCredito, pagosVigentes, totalPago, infoTC, esAnulado, uidCredito, hoyISO, isoValida, ufPorFecha } from './creditos.js';
 import { fmtTC, numeroTC, rotuloTC, identidadUF } from './rotuloTC.js';
+import { numCL, decimalesVista } from './formatoCL.js';
+import { NO_DETERMINABLE as ND_COMPARTIDO } from './capitalVisible.js';
 
 export const EMPRESAS_LINEA = ['Mediterra', 'Allegria Foods', 'Allegria Service', 'Frisku Foods', 'Osiris', 'Integrity Farms'];
 export const EMPRESAS_JV = ['Allpa Farms', 'Allpa Farms Perú'];
@@ -45,7 +47,7 @@ export const CAUSAS = {
   pagado_sin_registro: 'cuotas marcadas pagadas sin registro de pago',
   datos_faltantes: 'contrato con datos faltantes (sin calendario)',
 };
-export const NO_DETERMINABLE = 'No determinable: sin desglose';
+export const NO_DETERMINABLE = ND_COMPARTIDO;   // mismo texto en las vistas de Créditos (src/capitalVisible.js)
 export const TIPOS_PAGO = { pago: 'Pago', prepago: 'Prepago', refinanciamiento: 'Refinanciamiento', extincion: 'Extinción (sin caja)' };
 
 const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : 0);
@@ -215,8 +217,8 @@ const rotuloIncompleto = (causas) => {
   return ks.some(k => !SOLO_ESTIMACION.has(k)) ? ' (INCOMPLETO: ver advertencias)' : ' (TC ESTIMADO: ver advertencias)';
 };
 
-const fmtN = (x, dec) => Number(x).toLocaleString('es-CL', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-const decMon = (m) => (m === 'UF' ? 4 : m === 'CLP' ? 0 : 2);
+const fmtN = numCL;   // formato chileno compartido (src/formatoCL.js)
+const decMon = decimalesVista;
 
 // Texto de los filtros, IGUAL en pantalla, Excel y PDF (una sola fuente).
 export const COMO_LEER = 'La fecha de corte determina los SALDOS (capital, sin desglose, intereses, vencido, por conciliar, pagado) de toda la cartera filtrada. '
@@ -454,8 +456,7 @@ export function formatoCelda(valor, col, moneda) {
   if (col.tipo === 'fecha') return fmtF(valor);
   if (col.tipo === 'entero') return String(valor);
   if (col.tipo === 'monto' || col.tipo === 'usd') {
-    const dec = col.tipo === 'usd' ? 2 : (moneda === 'UF' ? 4 : moneda === 'CLP' ? 0 : 2);
-    return Number(valor).toLocaleString('es-CL', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+    return numCL(valor, col.tipo === 'usd' ? 2 : decimalesVista(moneda));
   }
   return String(valor);
 }

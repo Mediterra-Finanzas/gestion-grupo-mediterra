@@ -20,7 +20,7 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { nuevoStore } from '../e2e/fake.mjs';
 import { vencimientosCredito } from '../../src/creditos.js';
-import { CREDITOS_PRUEBA, TC_PRUEBA } from '../../src/reporteCreditos.datosPrueba.js';
+import { CREDITOS_PRUEBA, TC_PRUEBA, CREDITO_CERRADO_PRUEBA } from '../../src/reporteCreditos.datosPrueba.js';
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const RAIZ = path.resolve(AQUI, '../..');
@@ -83,7 +83,7 @@ const base = nuevoStore();
 const REPORTES = args.includes('--reportes');
 const datos = {
   base: Object.fromEntries(Object.entries(base).map(([k, v]) => [k, v.value])),
-  creditos: REPORTES ? CREDITOS_PRUEBA : creditos,
+  creditos: REPORTES ? [...CREDITOS_PRUEBA, CREDITO_CERRADO_PRUEBA] : creditos,
   tcFijo: REPORTES ? TC_PRUEBA : null,
 };
 
