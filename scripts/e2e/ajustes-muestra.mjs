@@ -33,7 +33,7 @@ let ok = 0, fallos = 0;
 const check = (n, c, x = '') => { c ? ok++ : fallos++; console.log(`${c ? '✓' : '✗ FALLA'}  ${n}${x ? '  — ' + x : ''}`); };
 // SECCIONES=exportaciones,especies,nominas (por defecto todas) · EXPORTS=semanal,osiris,po (por defecto todas)
 const SECC = (process.env.SECCIONES || 'exportaciones,especies,nominas,franja').split(',');
-const EXP = (process.env.EXPORTS || 'osiris,semanal,po').split(',');
+const EXP = (process.env.EXPORTS || 'osiris,semanal,po,nomina,consolidado').split(',');
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
 
 // Datos ficticios para el PDF de PO (Frisku): un cliente y una nota de cobro.
@@ -98,6 +98,20 @@ async function exportar(url, dir) {
   await irModulo(p, 'finanzas');
   await p.locator('main').getByRole('button', { name: /Reporte Semanal/ }).first().click(); await p.waitForTimeout(2500);
   out.semanalPdf = await descargar(p, () => p.getByRole('button', { name: /Generar PDF/ }).click(), `${dir}/reporte-semanal.pdf`);
+  }
+  if (EXP.includes('consolidado')) {
+    await irModulo(p, 'finanzas');
+    await p.locator('main').getByRole('button', { name: /Flujo Empresas/ }).first().click(); await p.waitForTimeout(2000);
+    await p.locator('main').getByRole('button', { name: /Waterfall/ }).first().click(); await p.waitForTimeout(1500);
+    out.consolidadoXlsx = await descargar(p, () => p.locator('main').getByRole('button', { name: '📥 Exportar Excel' }).last().click(), `${dir}/flujo-consolidado.xlsx`);
+  }
+  if (EXP.includes('nomina')) {
+    await irModulo(p, 'finanzas');
+    await p.locator('main').getByRole('button', { name: /Nóminas/ }).first().click(); await p.waitForTimeout(1500);
+    const sel = p.locator('main select').filter({ has: p.locator('option[value="40"]') });
+    if (await sel.count()) { await sel.first().selectOption('40'); await p.waitForTimeout(800); }
+    await p.locator('tr', { hasText: 'Osiris' }).filter({ hasText: /V°B°|Revisi/i }).first().getByRole('button', { name: /Editar|Ver/ }).first().click(); await p.waitForTimeout(2000);
+    out.nominaXlsx = await descargar(p, () => p.getByTestId('barra-nomina').getByRole('button', { name: 'Exportar Excel' }).click(), `${dir}/nomina-osiris.xlsx`);
   }
   if (EXP.includes('po')) {
   // Frisku → Liquidaciones → PO → Ver → PDF
@@ -181,6 +195,50 @@ if (ahora.semanalPdf) {
     `ancho ${sec.length ? anchoMM(sec[0]).toFixed(1) : '?'} mm`);
   const portada = imgs.find(i => i.pag === 1);
   check('semanalPdf: logo de la portada con aire antes del texto (12 + ancho ≤ 49 mm)', portada && 12 + anchoMM(portada) <= 49, portada && `ancho ${anchoMM(portada).toFixed(1)} mm`);
+}
+// Logo de la empresa que corresponde (13-10).
+{
+  const { tamanoImagen } = await import('../../src/diseno/logoExport.js');
+  const dimPub = (f) => tamanoImagen(new Uint8Array(fs.readFileSync(path.join('public', f))));
+  const LOGO = { 'Mediterra Holding': 'med.png', 'Allegria Foods': 'allegria-logo.jpg', 'Allegria Service': 'allegria-service-logo.png',
+    'Frisku Foods': 'frisku.png', 'Osiris Plant Management': 'osiris-logo.jpg', 'Integrity Farms': 'integrity-logo.png',
+    'Allpa Farms Chile': 'allpa-chile-logo.png', 'Allpa Farms Perú': 'allpa-peru-logo.png' };
+  if (ahora.semanalPdf) {
+    const n = paginas(ahora.semanalPdf); const imgs = imagenes(ahora.semanalPdf); const med = dimPub('med.png');
+    const res = [];
+    for (let pg = 1; pg <= n; pg++) {
+      const t = sh('pdftotext', ['-f', String(pg), '-l', String(pg), ahora.semanalPdf, '-']);
+      const m = /^\s*\d+\.\s+(.+?)\s*$/m.exec(t.split('\n').slice(0, 12).join('\n'));
+      const emp = m && LOGO[m[1].trim()] ? m[1].trim() : null;
+      const esperado = emp ? dimPub(LOGO[emp]) : med;
+      const del = imgs.filter(i => i.pag === pg);
+      res.push({ pg, emp: emp || '(grupo)', ok: del.some(i => i.ancho === esperado.ancho && i.alto === esperado.alto) });
+    }
+    const porEmpresa = res.filter(r => r.emp !== '(grupo)');
+    check('semanalPdf: cada página de empresa lleva el logo de ESA empresa', porEmpresa.length >= 6 && porEmpresa.every(r => r.ok),
+      porEmpresa.map(r => `p${r.pg} ${r.emp} ${r.ok ? '✓' : '✗'}`).join(' · '));
+    // Las páginas que agrega sola la tabla al continuar (sin encabezado) no llevan logo: ya era así.
+    const sinEncabezado = res.filter(r => !imgs.some(i => i.pag === r.pg)).map(r => r.pg);
+    check('semanalPdf: las páginas del grupo CON encabezado llevan el logo de Mediterra', res.filter(r => r.emp === '(grupo)' && !sinEncabezado.includes(r.pg)).every(r => r.ok));
+    console.log(`   observación: páginas de continuación de tabla sin encabezado ni logo (previo): ${sinEncabezado.join(', ') || 'ninguna'}`);
+    check('semanalPdf: logos de empresa sin deformar (resolución x = y)', imgs.filter(i => i.xppi && i.yppi).every(i => Math.abs(i.xppi - i.yppi) <= Math.max(1, 0.01 * i.yppi)));
+  }
+  for (const [k, archivo, nombre] of [['nominaXlsx', 'osiris-logo.jpg', 'nómina Osiris'], ['consolidadoXlsx', 'med.png', 'consolidado del grupo']]) {
+    if (!ahora[k]) continue;
+    const JSZip = require(JSZIP.replace(/dist\/jszip\.min\.js$/, ''));
+    const z = await JSZip.loadAsync(fs.readFileSync(ahora[k]));
+    const media = Object.keys(z.files).find(f => /^xl\/media\/logo_empresa\./.test(f));
+    const iguales = media && Buffer.from(await z.file(media).async('uint8array')).equals(fs.readFileSync(path.join('public', archivo)));
+    const dib = media ? await z.file('xl/drawings/drawing1.xml').async('string') : '';
+    const m = /<xdr:ext cx="(\d+)" cy="(\d+)"/.exec(dib); const d = dimPub(archivo);
+    check(`${k}: lleva el logo de ${nombre} (${archivo}), sin deformar`, iguales && m && Math.abs(m[1] / m[2] - d.ancho / d.alto) < 0.01, media || 'sin logo');
+    // Se abre en LibreOffice y la imagen aparece en el resultado
+    const dirPdf = path.join(OUT, `lo-${k}`); fs.mkdirSync(dirPdf, { recursive: true });
+    try { sh('soffice', ['--headless', '--convert-to', 'pdf', '--outdir', dirPdf, ahora[k]]); } catch (e) {}
+    const pdf = fs.readdirSync(dirPdf).find(f => f.endsWith('.pdf'));
+    check(`${k}: LibreOffice lo abre y muestra el logo`, !!pdf && imagenes(path.join(dirPdf, pdf)).length >= 1, pdf || 'no se convirtió');
+    if (pdf) sh('pdftoppm', ['-png', '-r', '60', '-f', '1', '-l', '1', path.join(dirPdf, pdf), `${OUT}/vista-${k}`]);
+  }
 }
 // Renderiza la primera página de cada PDF para revisarla a ojo.
 for (const k of PDFS) sh('pdftoppm', ['-png', '-r', '70', '-f', '1', '-l', '2', ahora[k], `${OUT}/vista-${k}`]);

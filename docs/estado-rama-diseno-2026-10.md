@@ -710,6 +710,33 @@ lectura, actualización fallida conserva cifras y avisa, primera lectura fallida
 1.773/1.773 en UTC y en hora de Chile (nuevas: `cacheConsulta` 4; `compensacionConcurrencia`
 reescrita, 6). No probado en Safari, Firefox ni dispositivos reales.
 
+## 6j. Logo de la empresa que corresponde en las exportaciones (13-10)
+
+Tabla única en `src/diseno/logoExport.js` (`rutaLogoEmpresa`, acepta los dos nombres que usa la
+app: «Mediterra»/«Mediterra Holding», «Osiris»/«Osiris Plant Management», «Allpa Farms»/«Allpa
+Farms Chile»…), y `agregarLogoHoja` para los Excel armados a mano: el logo va en las filas de
+título, con su proporción, a la derecha del texto del título y dentro de la primera pantalla.
+
+| Exportación | Logo |
+|---|---|
+| Reporte Semanal PDF | **Cambiado**: cada página de empresa lleva el logo de esa empresa; portada y páginas del grupo, Mediterra. El formato (PNG/JPEG) se toma de la imagen |
+| Excel de la nómina | **Nuevo**: logo de la empresa de la nómina |
+| Excel consolidado (Waterfall) | **Nuevo**: Mediterra |
+| Excel de Auditoría | **Nuevo**: Mediterra (no ejercitado en navegador: sin eventos en los datos de prueba) |
+| Rendiciones PDF/Excel, Expediente PDF de nómina | Ya traían el logo de su empresa (sin cambio) |
+| Osiris PDF/Excel · PO y reportes de Frisku | Ya traían el de su empresa (sin cambio) |
+| Flujo por empresa y consolidado (`flujoExportExcel.js`), Créditos (conciliación, saldo de deuda), Contabilidad, EEFF, ANF | **Sin logo, pendiente**: se generan con SheetJS (`XLSX.writeFile`), que no inserta imágenes. Agregarlo exige post-procesar el archivo o reservar filas arriba, y el Excel del flujo tiene fórmulas verificadas con recálculo real: va como cambio aparte |
+
+Observación previa, sin tocar: en el Reporte Semanal la página que la tabla de compromisos agrega
+sola al continuar (p. 3 con los datos de prueba) no tiene encabezado ni logo. Corregirlo cambia la
+paginación.
+
+Pruebas (build congelado `main.9d503aec.js` sin el cambio de Auditoría, verificado después con
+`CI=true`; Chromium emulado, datos ficticios): `logoEmpresaExport.test.js` (5) y
+`ajustes-muestra.mjs` con `EXPORTS=semanal,nomina,consolidado` 12/12 (páginas 7 a 13 con el logo de
+su empresa por tamaño de imagen; Excel con el logo correcto byte a byte, sin deformar, y abiertos
+en LibreOffice con el logo visible); jest 1.778/1.778 en UTC y en hora de Chile.
+
 ## 7. Archivos
 
 Nuevos: `src/diseno/{tokens.js,useClaseVentana.js,resumenInicio.js,Navegacion.jsx,Inicio.jsx}`,

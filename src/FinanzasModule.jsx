@@ -2,7 +2,7 @@
 import { useFuenteGrafico, EncabezadoModulo, Circuito, MenuMas } from "./diseno/componentes.jsx";
 import { useClaseVentana } from "./diseno/useClaseVentana";
 import { pasosNomina } from "./diseno/circuito.js";
-import { medidasLogoPDF } from "./diseno/logoExport.js";
+import { medidasLogoPDF, formatoDataUrl, rutaLogoEmpresa, cargarBytesLogo, agregarLogoHoja } from "./diseno/logoExport.js";
 import { pedirTexto, elegirOpcion, useUltimo, huella, sigueIgual, avisarDesactualizado } from "./diseno/dialogos.jsx";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -5938,6 +5938,11 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
     zip.file("xl/_rels/workbook.xml.rels", wbRels);
     zip.file("xl/worksheets/sheet1.xml", sheetXml);
     zip.file("xl/styles.xml", stylesXml);
+    // Consolidado del grupo: logo de Mediterra arriba a la derecha.
+    try {
+      const izq = 24 + Math.max("Flujo de Caja Consolidado — Grupo Mediterra".length*10, `${temporada.label} · Exportado ${new Date().toLocaleDateString("es-CL")}`.length*6.5);
+      const b = await cargarBytesLogo(rutaLogoEmpresa("Mediterra")); if(b) await agregarLogoHoja(zip, { bytes:b, colWidths, altoPt:50, minIzquierdaPx:izq });
+    } catch(e) { /* sin logo */ }
 
     const blob = await zip.generateAsync({type:"blob"});
     const url = URL.createObjectURL(blob);
@@ -12073,6 +12078,24 @@ async function reporte_loadJsPDF() {
 
 // Cargar el logo Mediterra como base64 (desde /med.png)
 let _reporteLogoBase64 = null;
+// Logo de una empresa como data URL (páginas por empresa del Reporte Semanal).
+const _reporteLogosEmpresa = {};
+async function reporte_loadLogoEmpresa(nombre) {
+  const ruta = rutaLogoEmpresa(nombre);
+  if(!ruta) return null;
+  if(_reporteLogosEmpresa[ruta] !== undefined) return _reporteLogosEmpresa[ruta];
+  try {
+    const res = await fetch(ruta);
+    if(!res.ok) return (_reporteLogosEmpresa[ruta] = null);
+    const blob = await res.blob();
+    return (_reporteLogosEmpresa[ruta] = await new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    }));
+  } catch(e) { return (_reporteLogosEmpresa[ruta] = null); }
+}
 async function reporte_loadLogo() {
   if(_reporteLogoBase64) return _reporteLogoBase64;
   try {
@@ -12131,7 +12154,7 @@ function _pdfAddHeader(doc, semana, fechaStr, isFirst, logo) {
       // Proporción real (antes 30×22 / 18×13 mm: el logo salía ≈ 23 % más angosto). El ancho
       // máximo deja aire antes del texto (x = 50 en la portada, x = 32 en las demás).
       const m = medidasLogoPDF(doc, logo, isFirst ? 34 : 18, isFirst ? 22 : 13);
-      doc.addImage(logo, "PNG", 12, (isFirst ? 8 : 5) + ((isFirst ? 22 : 13) - m.h) / 2, m.w, m.h);
+      doc.addImage(logo, formatoDataUrl(logo), 12, (isFirst ? 8 : 5) + ((isFirst ? 22 : 13) - m.h) / 2, m.w, m.h);
     } catch(e) {}
   }
   // Texto del header
@@ -12785,11 +12808,13 @@ async function reporte_generarPDF(opts) {
     const emp = empresasData[i];
 
     // Siempre saltar a nueva página PORTRAIT para cada empresa (compacto: 1 página por empresa)
+    // Las páginas de una empresa llevan SU logo; las del grupo, el de Mediterra.
+    const logoEmp = (await reporte_loadLogoEmpresa(emp.nombre)) || logo;
     doc.addPage("a4", "portrait");
-    _pdfAddHeader(doc, semana, fechaStr, false, logo);
+    _pdfAddHeader(doc, semana, fechaStr, false, logoEmp);
     yPos = 28;
 
-    _renderEmpresaEnPDF(doc, emp, i + 1, yPos, semana, fechaStr, logo);
+    _renderEmpresaEnPDF(doc, emp, i + 1, yPos, semana, fechaStr, logoEmp);
     yPos = doc.lastAutoTable ? doc.lastAutoTable.finalY + 6 : yPos + 200;
   }
 
@@ -17628,6 +17653,12 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     zip.file("xl/_rels/workbook.xml.rels",wbRels);
     zip.file("xl/worksheets/sheet1.xml",sheetXml);
     zip.file("xl/styles.xml",stylesXml);
+    // Logo de la empresa de la nómina, arriba a la derecha (filas de título).
+    try {
+      // Ancho estimado del texto de las filas de título (16 pt y 10 pt), para no taparlo.
+      const izq = 24 + Math.max(String(nombreFormal).length*10, `Fecha: ${nom.fecha||"—"} · T.C: ${nom.tc||"—"} · Estado: ${estadoLabel}`.length*6.5+80, aprobadores.length*6.5);
+      const b = await cargarBytesLogo(rutaLogoEmpresa(nom.empresa)); if(b) await agregarLogoHoja(zip, { bytes:b, colWidths, altoPt:56, minIzquierdaPx:izq });
+    } catch(e) { /* sin logo */ }
 
     const blob=await zip.generateAsync({type:"blob"});
     const url=URL.createObjectURL(blob);
@@ -20354,6 +20385,11 @@ async function exportAuditoriaExcel(eventos, filtrosInfo) {
   zip.file("xl/worksheets/sheet1.xml", sheetXml);
   zip.file("xl/worksheets/_rels/sheet1.xml.rels", sheetRels);
   zip.file("xl/styles.xml", stylesXml);
+  // Registro del grupo: logo de Mediterra en las filas de título, a la derecha del texto.
+  try {
+    const izq = 24 + Math.max("🔍 Registro de Auditoría — Grupo Mediterra".length*10, (`Exportado: ${new Date().toLocaleString("es-CL")}${filtrosInfo?` · ${filtrosInfo}`:""}`).length*6.5);
+    const b = await cargarBytesLogo(rutaLogoEmpresa("Mediterra")); if(b) await agregarLogoHoja(zip, { bytes:b, colWidths, altoPt:50, minIzquierdaPx:izq });
+  } catch(e) { /* sin logo */ }
   zip.file("xl/tables/table1.xml", tableXml);
 
   const blob = await zip.generateAsync({type:"blob", mimeType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
