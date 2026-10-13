@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { esAdministrador } from "./permisos/esAdministrador";
 import { theme } from "./theme";
 import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
 import AvisoPersistencia from "./AvisoPersistencia.jsx";
@@ -2211,6 +2212,9 @@ function PlaceholderModule({icon,title,desc}) {
 }
 
 export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, tabPermisos={}, onBack, onLogout}) {
+  // Reordenar el hub es solo del administrador. `esAdmin` llega como función desde App:
+  // usarla como booleano la volvía siempre verdadera (ver src/permisos/esAdministrador.js).
+  const soyAdmin = esAdministrador(usuarioActual, esAdmin);
   const [subApp, setSubApp] = useState(null);
   const [liqTab, setLiqTab] = useState("cliente");
   const [showMaestro, setShowMaestro] = useState(false);
@@ -2440,6 +2444,7 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
         const handleDragStart = (e,id) => { window._dragCardA=id; window._didDragA=true; e.dataTransfer.effectAllowed="move"; };
         const handleDrop = (e,targetId) => {
           e.preventDefault(); e.stopPropagation();
+          if(!soyAdmin){ window._dragCardA=null; return; }   // la acción también lo exige, no solo el arrastre
           const from = window._dragCardA; if(!from||from===targetId){window._dragCardA=null;return;}
           const nw=[...order]; const fi=nw.indexOf(from), ti=nw.indexOf(targetId);
           if(fi===-1||ti===-1)return; nw.splice(fi,1); nw.splice(ti,0,from);
@@ -2452,17 +2457,17 @@ export default function AllegriaModule({usuarioActual, esAdmin, esSoloConsulta, 
               const sa = SUBAPPS.find(s=>s.id===sid);
               if(!sa) return null;
               return (
-                <div key={sa.id} draggable={!!esAdmin}
-                  onDragStart={e=>{if(!esAdmin)return;handleDragStart(e,sa.id);}}
-                  onDragOver={e=>{if(!esAdmin)return;e.preventDefault();e.dataTransfer.dropEffect="move";}}
-                  onDrop={e=>{if(!esAdmin)return;handleDrop(e,sa.id);}}
+                <div key={sa.id} draggable={soyAdmin}
+                  onDragStart={e=>{if(!soyAdmin)return;handleDragStart(e,sa.id);}}
+                  onDragOver={e=>{if(!soyAdmin)return;e.preventDefault();e.dataTransfer.dropEffect="move";}}
+                  onDrop={e=>{if(!soyAdmin)return;handleDrop(e,sa.id);}}
                   onDragEnd={()=>{setTimeout(()=>{window._didDragA=false;},100);window._dragCardA=null;}}
                   onClick={()=>handleClick(sa.id)}
                   style={{background:`linear-gradient(135deg,${C.card},${sa.color}22)`,borderRadius:16,padding:"24px 20px",
                     border:`1px solid ${sa.color}44`,cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden"}}
                   onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"}
                   onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
-                  {esAdmin&&<div style={{position:"absolute",top:8,right:10,fontSize:10,color:"#475569",cursor:"grab"}} title="Arrastra para reordenar">⋮⋮</div>}
+                  {soyAdmin&&<div style={{position:"absolute",top:8,right:10,fontSize:10,color:"#475569",cursor:"grab"}} title="Arrastra para reordenar">⋮⋮</div>}
                   <div style={{fontSize:32,marginBottom:10}}>{sa.icon}</div>
                   <div style={{fontWeight:800,fontSize:16,color:C.text,marginBottom:4}}>{sa.label}</div>
                   <div style={{fontSize:11,color:C.muted,marginBottom:12}}>{sa.desc}</div>
