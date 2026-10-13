@@ -721,64 +721,89 @@ importes solo puede venir del código.
 ## 4 · Secuencia de publicación y certificación
 
 Ninguno de estos pasos está autorizado todavía. El orden no es una preferencia: sin un deployment
-de recuperación compatible y **certificado**, cualquier rollback del candidato sería una pérdida
-económica silenciosa, porque volver a `9d90ed2` devuelve a la base las activaciones que existan.
+de recuperación compatible y **certificado**, volver atrás desde el candidato dejaría al motor sin
+saber leer las activaciones que existan, y eso es pérdida económica silenciosa.
 
-**Regla de certificación, innegociable:** se certifica con **datos sintéticos aislados**. Ningún
-contrato real se activa para probar, ni en producción ni en ningún entorno conectado a producción.
-Lo que se comprueba contra producción es de **sólo lectura**.
+La secuencia son **dos publicaciones**, no una, y la segunda se construye **sobre la primera**,
+porque el primer merge cambia `main`.
 
-| Paso | Qué pasa | Cómo se certifica | Rollback de ese paso |
-|---|---|---|---|
-| **1** | Push de la **recuperación** y deployment | — | Redeploy del SHA anterior de `origin/main` |
-| **2** | **Certificación de la recuperación**, tres comprobaciones | (a) el marcador de build y el SHA del deployment coinciden con el identificador autorizado; (b) **lectura**: los importes de los contratos reales son los mismos que antes del deployment, comparados contra la medición registrada (57 filas de royalty comercial, 23 contratos, delta cero); (c) en el **entorno aislado**: que la creación de activaciones queda rechazada dentro de la acción, y que el motor calcula igual que el candidato una activación **ya sellada**. Esto último exige un paso de preparación de datos, porque con la bandera en `false` la aplicación no puede producir una activación: se siembra en el entorno aislado un contrato **sintético** con su `reajusteActivacion` y su `sello` ya armados, igual que hacen las pruebas del motor. Sin esa siembra, el paso 2(c) no es ejecutable | Igual que el paso 1 |
-| **3** | Push del **candidato** y deployment | El mismo (a) y (b) del paso 2. Y en el entorno aislado, sobre contratos sintéticos: las cuatro guardas, el rechazo de las reglas por fila, y la protección conservada con guardado y recarga | Redeploy del deployment del paso 1, **ya certificado**: conserva el cálculo de lo que esté activado |
-| **4** | **Activar un contrato real**, uno por uno | Autorización propia para cada uno. Vista previa fila por fila y confirmación explícita, con la diferencia medida contra el importe actual | Desactivar, que es una operación económica con su propia vista previa, motivo y confirmación |
+| | Paso 1 · recuperación compatible | Paso 2 · candidato |
+|---|---|---|
+| **Identificador** | `f3fd527662620eefa4f32d66e6b4369479eacf86` | `248f4c15b3b638892eb48da88c5d72582ed5383d` |
+| **Rama** | `osiris/recuperacion-compatible` | `osiris/publicacion-paso2` |
+| **Base** | `c9c579206bcb613bdc5aad61d01480ee01f5760a` (`origin/main`) | el resultado del paso 1 |
+| **Forma del merge** | fast-forward: el resultado de `main` **es** ese SHA | un commit sobre ese `main` |
+| **Diff** | 15 archivos, +8.047 / −37 | **una línea de producto** (la bandera) + el gateo de un bloque de prueba |
+| **Qué habilita** | nada nuevo: el motor sabe leer activaciones selladas, pero no se puede crear ninguna | se pueden crear activaciones |
+| **Volver atrás** | redeploy del deployment productivo anterior | redeploy del deployment del paso 1, ya certificado |
 
-El paso 3 no se habilita hasta que el 2 esté hecho y autorizado. El paso 4 no se habilita por esta
-autorización: necesita la suya.
+El paso 2 es de una línea **porque** el paso 1 ya publicó todo lo demás. El código de producto del
+paso 2 es byte a byte idéntico al del paso 1 salvo esa línea, y al del candidato que se revisó de
+forma independiente: los mismos blobs de `OsirisModule.jsx`, `reajusteAplicado.js` y
+`condicionesConfigurables.js`. Por eso la evidencia del candidato revisado vale para el paso 2 sin
+repetirla.
 
-**Tres requisitos de la secuencia que no son evidentes en la tabla:**
+### Certificación del paso 1, antes de habilitar el paso 2
 
-- El deployment de producción sale de `origin/main`, así que los pasos 1 y 3 son **dos merges
-  sucesivos** a `main` —primero la recuperación con la bandera en `false`, después el candidato con
-  `true`— y cada uno necesita su autorización de merge sobre su identificador exacto.
-- El deployment del paso 1 es el que se usa para volver atrás, así que su SHA no puede quedar sin
-  referencia: queda escrito en esta acta y la rama de recuperación no se borra después del paso 3.
-- La publicación queda sujeta a la **regla 10**: el candidato de publicación se revisa de forma
-  independiente antes de presentarse, y la evidencia que se adjunta es la del SHA final, no la de
-  un SHA anterior.
+**Con casos sintéticos aislados y lectura de producción. Ningún contrato real se activa para
+probar.**
+
+1. **El SHA servido.** El marcador de build de la cabecera de Finanzas y el deployment de
+   Production tienen que coincidir con el identificador autorizado del paso 1.
+2. **Lectura de producción.** Los importes de los contratos reales, iguales a la medición
+   registrada en la sección 5: 23 contratos, 57 filas de royalty comercial, delta cero. Es una
+   consulta, no una escritura.
+3. **En el entorno aislado, sobre contratos sintéticos.** Que la creación de activaciones queda
+   rechazada dentro de la acción, y que el motor calcula igual que el candidato una activación
+   **ya sellada**. Lo segundo exige un paso de preparación de datos: con la bandera en `false` la
+   aplicación no puede producir una activación, así que se siembra en el entorno aislado un
+   contrato sintético con su `reajusteActivacion` y su `sello` ya armados, igual que hacen las
+   pruebas del motor. Sin esa siembra, esta comprobación no es ejecutable.
+
+Las tres pruebas de compatibilidad de `versionRecuperacion.test.js` —importes idénticos,
+activación conservada, ida y vuelta sin pérdida— corren en **las dos** versiones, así que siguen
+midiendo después del paso 2. Sólo el cuarto bloque, el que mide que la recuperación no deja crear,
+queda sensible a la versión.
+
+### Las activaciones reales no son parte de esta publicación
+
+Quedan fuera y necesitan su propia autorización, contrato por contrato, con vista previa fila por
+fila y confirmación de la diferencia medida contra el importe actual.
+
+**Y desactivar no es volver atrás.** Son dos cosas distintas y conviene no mezclarlas: volver atrás
+es redesplegar un deployment anterior, que no toca los datos; **desactivar es una operación
+económica** sobre un contrato, que cambia sus importes, pide motivo y confirmación, y deja
+historial. Una no sustituye a la otra.
+
+**Condición pendiente antes de poner en uso las activaciones reales.** La fila `osiris` de
+`calendario_data` tiene un escritor antiguo: `src/App.jsx` la reescribe **completa** en el camino
+de migración de `main.osirisData`, con `resolution=merge-duplicates` y sin lock optimista, en cada
+carga en que `main` traiga `osirisData`. Es preexistente —idéntico en la base, en `origin/main` y
+en el candidato, y ninguno de los commits de los otros carriles lo toca— y hoy está dormido:
+`main.osirisData` **no existe** en producción, comprobado por lectura, y la migración limpia esa
+clave después de copiarla. Pero si volviera a existir —por una sesión vieja, o por una restauración
+de respaldo— sobrescribiría las activaciones con lo que hubiera ahí, sin versión ni confirmación.
+Queda registrado como condición: antes de la primera activación real se comprueba por lectura que
+`main.osirisData` sigue sin existir, y si existe se resuelve antes.
 
 ### Lo que hay que mirar al desplegar, y no es de Osiris
 
 `origin/main` avanzó **98 commits** desde la base en que se construyó este paquete, todos de otros
 carriles: Finanzas, Nóminas, Créditos, Saldos y Tareas. El paquete se integró sobre esa base y el
-solape de archivos es **cero** — ninguno de los 13 archivos que toca Osiris fue tocado por esos 98
-commits, y el merge no tuvo conflictos. Pero el deployment es uno solo: publicar el candidato
-**publica también** lo que esos carriles dejaron en `origin/main`. La ventana de despliegue se
-acuerda con quien tenga verificaciones pendientes ahí, no se decide desde este carril.
+solape de archivos es **cero** —ninguno de los 13 archivos que toca Osiris fue tocado por esos 98
+commits, y el merge no tuvo conflictos—. Los 98 **ya están desplegados**: Production sirve
+`c9c5792`, que los contiene a todos.
 
 Tres cosas más que tocan a otros carriles:
 
 - **`CLAUDE.md` es el único archivo compartido que este paquete modifica** (la regla 10 de revisión
-  independiente). Otros carriles también escriben ahí; la regla se agregó al final de la lista de
-  reglas, sin tocar las nueve anteriores, para que un merge paralelo no choque.
+  independiente, y la corrección de la línea que decía "sin tests activos"). Otros carriles también
+  escriben ahí; la regla se agregó al final de la lista, sin tocar las nueve anteriores, para que un
+  merge paralelo no choque.
 - **El deployment de producción sale de `origin/main`, pero no es el único deployment.** Empujar una
-  rama que monta `App.jsx` crea un
-  Preview que es la aplicación **en vivo contra producción**: si se quiere un deployment de prueba
-  de la recuperación sin exponerlo, hay que crearlo con el paso de build ignorado y desplegar por
-  SHA, no empujando la rama sin más.
-- **La fila `osiris` de `calendario_data` tiene un escritor externo, y hay que mirarlo antes del
-  paso 4.** Ningún otro carril de desarrollo escribe ahí, pero `src/App.jsx` sí: el camino de
-  migración de `main.osirisData` a la fila `osiris` la reescribe **completa**, con
-  `resolution=merge-duplicates` y sin lock optimista, y se dispara en cada carga en que `main`
-  traiga `osirisData`. Es **preexistente** —idéntico en `9d90ed2c`, en `origin/main` y en el
-  candidato, y ninguno de los 98 commits lo toca— y hoy no tiene efecto, porque la fila `osiris`
-  no contiene activaciones y la migración limpia `osirisData` de `main` después de copiarlo. Pero
-  después del paso 4 sí las contendría, y ese camino las sobrescribiría con lo que hubiera en
-  `main.osirisData`, sin versión ni confirmación. **Precondición del paso 4, de sólo lectura:**
-  comprobar que `main.osirisData` no existe en producción. Si existe, se resuelve antes de que
-  haya una sola activación real.
+  rama que monta `App.jsx` crea un Preview que es la aplicación **en vivo contra producción**: si se
+  quiere un deployment de prueba sin exponerlo, hay que crearlo con el paso de build ignorado y
+  desplegar por SHA, no empujando la rama sin más.
 - Lo que sigue abierto y es del grupo, no de Osiris, es la clave anónima y el RLS pendiente sobre
   `calendario_data`.
 
