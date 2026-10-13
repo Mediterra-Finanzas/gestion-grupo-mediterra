@@ -137,6 +137,12 @@ describe('ciruelas: datos faltantes', () => {
     const a2 = avisoFrutaSinVolumen(conDef, 'Cerezas', SK);
     expect(a2).toMatch(/Se proyectan: [^.]*liquidación definitiva del cliente/);
     expect(a2).toMatch(/NO se proyectan: materiales, servicios, estimaciones por US\$\/kg, saldo del productor/);
+    // definitiva SIN mes: la app no la proyecta y el aviso lo dice (revisión de ee4c403)
+    const sinMes = { ...conDef, mes_liquidacion: '' };
+    expect(calcAllegria({ [SK]: { cerezas: sinMes } }).ing.cerezas.reduce((x, v) => x + v, 0)).toBe(80000);
+    const a3 = avisoFrutaSinVolumen(sinMes, 'Cerezas', SK);
+    expect(a3).toMatch(/NO se proyectan: [^.]*liquidación definitiva del cliente \(falta el mes de liquidación\)/);
+    expect(a3).not.toMatch(/Se proyectan: [^.]*liquidación definitiva del cliente/);
   });
 
   test('calendario de materiales que no suma 100%', () => {

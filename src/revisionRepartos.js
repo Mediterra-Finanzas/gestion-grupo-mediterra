@@ -36,8 +36,10 @@ export function analizarRepartosSemanales(finanzasReal, baseDe = () => null, mes
           semanas: sem, suma, baseCalculada: base, tipo, motivo,
           antes: suma, despues: despues === null ? null : r2(despues), quitar, accion,
         });
-        if (cargadas.length && noCero.length === 0) {
-          fila("mes_en_cero", "Todas las semanas cargadas valen 0: el mes quedó en 0 (posible clic sin escribir, defecto c9c5792).",
+        // Sin ninguna semana con valor (incluido un objeto sin claves de semana)
+        // el mes vale 0 en la app (totalMesOverride), igual que en el SQL.
+        if (noCero.length === 0) {
+          fila("mes_en_cero", "Ninguna semana con valor: el mes quedó en 0 (posible clic sin escribir, defecto c9c5792).",
             "todo el reparto", base, base === null
               ? "Quitar el reparto devuelve el mes al valor mensual o calculado (no se puede calcular aquí)."
               : "Quitar el reparto devuelve el mes al valor calculado.");

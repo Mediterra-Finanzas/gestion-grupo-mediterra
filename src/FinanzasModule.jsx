@@ -728,11 +728,15 @@ export function avisoFrutaSinVolumen(p, fruta, sk) {
   const falta = [kg === 0 ? "kilos" : null, fob === 0 ? "FOB US$/kg" : null].filter(Boolean).join(" y ");
   const defCli = !!(p.liq_definitiva_cliente && Number(p.liq_definitiva_cliente.total));
   const defProd = !!(p.liq_definitiva_productor && Number(p.liq_definitiva_productor.total));
+  // La liquidación se proyecta solo con definitiva Y un mes válido.
+  const mesCli = mIdx(p.mes_liquidacion) >= 0, mesProd = mIdx(p.mes_saldo_productor) >= 0;
   const si = ["programas por contraparte", "saldos a favor"];
   const no = ["materiales", "servicios"];
   (kg !== 0 ? si : no).push("estimaciones por US$/kg" + (kg !== 0 ? " (sobre los kilos cargados)" : ""));
-  (defCli ? si : no).push(defCli ? "liquidación definitiva del cliente" : "liquidación del cliente (sin definitiva, su base es 0)");
-  (defProd ? si : no).push(defProd ? "liquidación definitiva del productor" : "saldo del productor (sin definitiva, su base es 0)");
+  if (defCli && mesCli) si.push("liquidación definitiva del cliente");
+  else no.push(defCli ? "liquidación definitiva del cliente (falta el mes de liquidación)" : "liquidación del cliente (sin definitiva, su base es 0)");
+  if (defProd && mesProd) si.push("liquidación definitiva del productor");
+  else no.push(defProd ? "liquidación definitiva del productor (falta el mes de saldo)" : "saldo del productor (sin definitiva, su base es 0)");
   return `ℹ ${fruta} ${sk}: faltan ${falta}. Se proyectan: ${si.join(", ")}. NO se proyectan: ${no.join(", ")}.`;
 }
 export function avisosCerezas(paramsAllegria) {

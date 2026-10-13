@@ -46,6 +46,10 @@ describe('repartos semanales sospechosos (sintético)', () => {
     expect(g.map(x => `${x.tipo} ${x.antes} ${x.despues}`)).toEqual(['ambigua_s1_s4 3700 null']);
     expect(g[0].accion).toMatch(/quitar S1 deja 1000; quitar S4 deja 2700/);
   });
+  test('objeto sin claves de semana: mes en 0, igual que el SQL', () => {
+    const g = analizarRepartosSemanales({ E: { _proyOverrides: { 'egr_fijo::Arriendo Oficina': { 6: {}, 7: { _sinFecha: 500 } } } } }, baseDe, MESES_65);
+    expect(g.map(x => `${x.mes} ${x.tipo} ${x.antes} ${x.despues}`)).toEqual(['Oct-26 mes_en_cero 0 2700', 'Nov-26 mes_en_cero 0 2700']);
+  });
   test('una sola semana o valor numérico: no se lista', () => {
     expect(de('egr_fijo::Arriendo Oficina', 7)).toBeUndefined();
     expect(de('egr_var::Seguros Exportación', 7)).toBeUndefined();
