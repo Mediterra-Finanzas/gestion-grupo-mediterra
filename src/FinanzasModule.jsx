@@ -213,7 +213,10 @@ export function avisoProvisional(ambiguos) {
 // en ese caso hay que avisarlo antes de seguir usando esta identidad.
 // Avisos que deben viajar al Excel: imputación provisional de los valores
 // manuales antiguos sin categoría asignada + claves duplicadas si las hubiera.
-export function avisosDeEmpresa(realData, empresas, nombre) {
+// Con `creditos` (lista valorizada) agrega los avisos de Créditos que muestra la
+// pantalla del flujo; `empresasBase` es el objeto SIN overrides (para comparar
+// cada valor manual con el calendario de Créditos).
+export function avisosDeEmpresa(realData, empresas, nombre, { creditos, empresasBase } = {}) {
   const emp = empresas?.[nombre];
   if (!emp) return [];
   const ov = realData?.[nombre]?._proyOverrides || {};
@@ -223,6 +226,10 @@ export function avisosDeEmpresa(realData, empresas, nombre) {
   if (a) avisos.push(a);
   const dup = clavesDuplicadas(emp);
   if (dup.length) avisos.push(`⚠ ${dup.length} línea(s) comparten nombre dentro de una misma categoría: sus valores manuales pueden mezclarse.`);
+  if (Array.isArray(creditos)) {
+    const base = empresasBase?.[nombre] || emp;
+    avisos.push(...textosAvisosCreditos(avisosCreditosEmpresa(base, nombre, creditos, ov, res)));
+  }
   return avisos;
 }
 
@@ -803,6 +810,55 @@ export function flujoCredEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const k = `${empresa}|${hoy}`;
   if (!m.has(k)) m.set(k, flujoCreditosEmpresa(empresa, lista, { hoy, ubicar: ubicarFechaFlujo, nMeses: MESES_65.length }));
   return m.get(k);
+}
+// Avisos de Créditos de una empresa: una sola fuente para la pantalla del flujo
+// y para el Excel (antes el archivo no los llevaba). `emp` es la empresa SIN
+// overrides aplicados: `creditos` de cada valor manual es el calendario.
+export function avisosCreditosEmpresa(emp, empNombre, creditos, proyOverrides, resoluciones) {
+  const fc = flujoCredEmpresa(empNombre, creditos);
+  const ovIgnorados = [];
+  (emp?.sections || []).forEach(sec => (sec.lines || []).forEach(l => {
+    if (!l._fuenteCreditos) return;
+    const ov = overridesDeLinea(proyOverrides || {}, emp, sec.cat, l.label, resoluciones) || {};
+    Object.entries(ov).forEach(([i, v]) => {
+      const idx = Number(i); if (isNaN(idx) || !MESES_65[idx]) return;
+      const val = typeof v === "object" && v !== null ? Object.values(v).reduce((a, x) => a + (Number(x) || 0), 0) : (Number(v) || 0);
+      ovIgnorados.push({ linea: l.label, mes: MESES_65[idx], manual: val, creditos: l.proy[idx] || 0 });
+    });
+  }));
+  // TC de proyección: avisa estimado (TC declarado) y antigüedad > 7 días, con fecha y fuente.
+  const tcAvisos = (fc.valorizacion || []).filter(v => v.estimado || v.desactualizado || v.porFecha);
+  return { arrastrados: fc.arrastrados, porConciliar: fc.porConciliar, sinTC: fc.sinTC, ovIgnorados, tcAvisos };
+}
+// Los mismos avisos en texto, para el subtítulo y el pie del Excel.
+export function textosAvisosCreditos(av) {
+  if (!av) return [];
+  const out = [];
+  const lista = (xs) => xs.slice(0, 8).map(v => `${v.acreedor} ${fmtDate(v.fecha)} ${$$(v.usd)}`).join(" · ") + (xs.length > 8 ? ` · y ${xs.length - 8} más` : "");
+  const suma = (xs) => xs.reduce((a, v) => a + (v.usd || 0), 0);
+  if (av.arrastrados.length) out.push(`⚠ Créditos: ${av.arrastrados.length} cuota(s) vencida(s) impaga(s) confirmada(s) por ${$$(suma(av.arrastrados))} se proyectan en el mes en curso (fecha contractual original): ${lista(av.arrastrados)}.`);
+  if (av.porConciliar.length) out.push(`🔎 Créditos: ${av.porConciliar.length} cuota(s) histórica(s) por conciliar por ${$$(suma(av.porConciliar))} NO están incluidas en el flujo (vencieron sin pago registrado en la app, lo que no prueba que sigan impagas): ${lista(av.porConciliar)}.`);
+  if (av.sinTC.length) out.push(`⚠ Créditos: ${av.sinTC.length} crédito(s) en otra moneda sin tipo de cambio NO entran al flujo (${[...new Set(av.sinTC.map(c => c.moneda))].join("/")}): ${av.sinTC.map(c => c.acreedor).join(", ")}. El servicio de deuda del flujo está incompleto.`);
+  if (av.tcAvisos.length) out.push(`⚠ Créditos: tipo de cambio de la proyección: ${av.tcAvisos.map(v => `${v.acreedor}: ${valorTC(v)} · ${v.fecha ? fmtDate(v.fecha) : "sin fecha"} · ${v.fuente}`
+    + (v.estimado ? " · ESTIMADO (TC declarado en el crédito)" : "") + (v.desactualizado ? ` · ${v.antiguedadDias != null ? v.antiguedadDias + " días" : "sin fecha"} de antigüedad` : "")
+    + (v.porFecha ? " · UF futura = última publicada (hipótesis)" : "")).join(" · ")}.`);
+  if (av.ovIgnorados.length) out.push(`ℹ Créditos: ${av.ovIgnorados.length} valor(es) manual(es) antiguo(s) en Pago Préstamos / Renovaciones siguen aplicándose en lugar del calendario de Créditos: ${av.ovIgnorados.map(o => `${o.linea} ${o.mes}: manual ${$$(o.manual)} → Créditos ${$$(o.creditos)}`).join(" · ")}.`);
+  return out;
+}
+// Al editar UNA semana de un mes que todavía no tiene valores semanales, las
+// otras semanas deben partir de lo que la pantalla mostraba (getProySemana):
+// el valor manual mensual en la última semana, o el calculado en la primera
+// (o repartido por semana si la línea lo trae). Sin esto, el mes pasaba a valer
+// solo la semana editada y lo demás se perdía, sin aviso.
+export function semillaSemanal(efectivo, base, semProyMes) {
+  if (typeof efectivo === "number") return { _sem3: efectivo };
+  if (efectivo !== null && typeof efectivo === "object") return { ...efectivo };
+  if (Array.isArray(semProyMes)) {
+    const o = {};
+    semProyMes.forEach((v, s) => { if (s < 4 && Number(v)) o[`_sem${s}`] = Number(v); });
+    return o;
+  }
+  return base ? { _sem0: base } : {};
 }
 // Escenario "incluyendo cuotas potencialmente impagas" (por conciliar).
 // Caerían en el mes en curso. Si ese mes tiene un VALOR MANUAL vigente en la
@@ -4357,9 +4413,12 @@ function RealLineInput({label,value,onChange}) {
 // ═══════════════════════════════════════════════════════════════════
 // CELDA EDITABLE INLINE — click para editar valor proyectado
 // ═══════════════════════════════════════════════════════════════════
-function CeldaEditable({val, onSave, color, canEdit, real=null}) {
+export function CeldaEditable({val, onSave, color, canEdit, real=null}) {
   const [editing, setEditing] = useState(false);
   const [tmp, setTmp] = useState("");
+  // Texto con que se abrió la celda: entrar y salir sin escribir NO es un cambio
+  // (antes guardaba 0 en una semana vacía y el mes perdía su valor).
+  const inicialRef = useRef("");
 
   // Evaluar expresión matemática segura: soporta +, -, *, / y paréntesis
   // Maneja correctamente formatos: 1.500.000 / 1,500,000 / 1500000 / 1500.50
@@ -4414,6 +4473,7 @@ function CeldaEditable({val, onSave, color, canEdit, real=null}) {
   }
 
   function commitValue() {
+    if(String(tmp).trim() === inicialRef.current.trim()) { setEditing(false); return; }
     const resultado = evalExpr(tmp);
     onSave(resultado);
     setEditing(false);
@@ -4455,7 +4515,7 @@ function CeldaEditable({val, onSave, color, canEdit, real=null}) {
 
   return (
     <span
-      onClick={()=>{setTmp(String(val||""));setEditing(true);}}
+      onClick={()=>{inicialRef.current=String(val||"");setTmp(inicialRef.current);setEditing(true);}}
       title="Click para editar · Soporta sumas: ej. 5000+3000"
       style={{color:val!==0?color:C.muted2,fontWeight:val!==0?600:400,fontSize:9,
         cursor:"pointer",borderBottom:`1px dashed ${C.border2}`,paddingBottom:1}}>
@@ -4649,7 +4709,7 @@ function useLetraFlujo(){
   return [letraGrande,cambiarLetra];
 }
 
-function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={},escenarioNombre=null,paramsPart={},onSaveParamsPart=null}) {
+function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={},escenarioNombre=null,paramsPart={},onSaveParamsPart=null,creditosData=null}) {
   const empNames=Object.keys(empresas);
   const [letraGrande,cambiarLetra]=useLetraFlujo();
   // Consolidación proporcional de Allpa (opción por empresa): se puede incluir
@@ -5109,7 +5169,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
               try{
                 const avisosPorEmp={};
                 empNamesConsolidado.forEach(n=>{
-                  const av=avisosDeEmpresa(realData, empresasConOverrides, n);
+                  const av=avisosDeEmpresa(realData, empresasConOverrides, n, {creditos:creditosData, empresasBase:empresas});
                   if(avisosSaldoIncompleto[n]) av.push(avisosSaldoIncompleto[n]);
                   if(av.length) avisosPorEmp[n]=av;
                 });
@@ -6309,22 +6369,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   // cuotas históricas por conciliar (fuera del flujo), créditos sin TC y
   // valores manuales antiguos en Pago Préstamos / Renovaciones que siguen
   // aplicando hasta conciliarse.
-  const avisoCreditos = useMemo(()=>{
-    const fc = flujoCredEmpresa(empNombre, creditosData);
-    const ovIgnorados = [];
-    emp.sections.forEach(sec=>sec.lines.forEach(l=>{
-      if(!l._fuenteCreditos) return;
-      const ov = overridesDeLinea(proyOverrides, emp, sec.cat, l.label, resoluciones) || {};
-      Object.entries(ov).forEach(([i,v])=>{
-        const idx=Number(i); if(isNaN(idx)||!MESES_65[idx]) return;
-        const val = typeof v==="object"&&v!==null ? Object.values(v).reduce((a,x)=>a+(Number(x)||0),0) : (Number(v)||0);
-        ovIgnorados.push({linea:l.label, mes:MESES_65[idx], manual:val, creditos:l.proy[idx]||0});
-      });
-    }));
-    // TC de proyección: avisa estimado (TC declarado) y antigüedad > 7 días, con fecha y fuente.
-    const tcAvisos = (fc.valorizacion||[]).filter(v=>v.estimado||v.desactualizado||v.porFecha);
-    return { arrastrados: fc.arrastrados, porConciliar: fc.porConciliar, sinTC: fc.sinTC, ovIgnorados, tcAvisos };
-  },[empNombre, creditosData, emp, proyOverrides, resoluciones]);
+  const avisoCreditos = useMemo(()=>avisosCreditosEmpresa(emp, empNombre, creditosData, proyOverrides, resoluciones),
+    [empNombre, creditosData, emp, proyOverrides, resoluciones]);
 
   // Asignar UN mes de un override ambiguo a una categoría concreta.
   const resolver = useCallback(async (amb, mes, cat) => {
@@ -6381,8 +6427,13 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
         if(typeof current === "object" && current !== null) {
           next[clave][idx] = { ...current, [`_sem${semIdx}`]: nuevoVal };
         } else {
-          // Si había un número (override mensual antiguo) o nada, crear objeto
-          next[clave][idx] = { [`_sem${semIdx}`]: nuevoVal };
+          // Sin valores semanales todavía: las demás semanas parten de lo que
+          // la pantalla mostraba (valor manual mensual o calculado), no de 0.
+          const efectivo = overridesDeLinea(prev, emp, cat, lineLabel, resoluciones)?.[idx];
+          const sec = emp.sections.find(x=>x.cat===cat);
+          const l = sec && sec.lines.find(x=>x.label===lineLabel);
+          const semilla = semillaSemanal(efectivo, l ? (l.proy[idx]||0) : 0, l?._semProy?.[idx]);
+          next[clave][idx] = { ...semilla, [`_sem${semIdx}`]: nuevoVal };
         }
       } else {
         // Override mensual directo (vista mensual)
@@ -6397,7 +6448,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       if(onSaveProy) onSaveProy(empNombre, cat, lineLabel, idx, next[clave][idx]);
       return next;
     });
-  },[empNombre, onSaveProy]);
+  },[empNombre, onSaveProy, emp, resoluciones]);
 
   // Cargar overrides desde realData cuando cambia la empresa
   useEffect(()=>{
@@ -15601,7 +15652,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                     const mesX=`${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][hoyX.getMonth()]}-${String(hoyX.getFullYear()).slice(2)}`;
                     const notasSaldo=notasSaldoInicial(saldosBancos, empTab, {hoy:hoyX, mesLabel:mesX, fallback:empresas[empTab]?.saldo_ini});
                     const avisoSaldo=saldosBancos?avisoSaldoIncompleto(saldoBancoEmpresaUSD(saldosBancos,empTab)):null;
-                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}, avisos:[...avisosDeEmpresa(realData, empresasConOverridesMain, empTab), ...(avisoSaldo?[avisoSaldo]:[])], notasSaldo, logo});
+                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}, avisos:[...avisosDeEmpresa(realData, empresasConOverridesMain, empTab, {creditos:creditosVal, empresasBase:empresas}), ...(avisoSaldo?[avisoSaldo]:[])], notasSaldo, logo});
                     setEmpExportMsg("✓ "+f);
                   }catch(e){ console.error(e); setEmpExportMsg("✗ Error al exportar"); }
                   setTimeout(()=>setEmpExportMsg(null),5000);
@@ -15682,6 +15733,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           {/* Consolidado */}
           {empTab==="_consolidado"&&accesoCompletoEmpresas&&(
             <Consolidado empresas={empresas} saldosBancos={saldosBancos} realData={realData} addedLinesGlobal={addedLinesGlobal} subLinesGlobal={subLines}
+              creditosData={creditosVal}
               paramsPart={paramsPart} onSaveParamsPart={puedoEdit("flujo")?handleSaveParamsPart:null}
               escenarioNombre={escActivo ? (escenarios.find(e=>e.id===escActivo)?.name || "Escenario") : null}/>
           )}

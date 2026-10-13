@@ -8,7 +8,10 @@ Aplicación web interna para la gestión financiera y operativa de **Grupo Medit
 - **Backend**: Supabase (Postgres + Auth + Storage)
 - **Hosting**: Vercel (deploy automático desde GitHub)
 - **Build**: Create React App (`react-scripts 5.0.1`) — NO Vite
-- **Sin tests activos** (existe `@testing-library/react` pero sin specs propios)
+- **Con pruebas propias** (Jest + `@testing-library/react` sobre `react-scripts test`): 108 archivos
+  `.test.js`/`.test.mjs` en `src/`, 28 de ellos en `src/osiris/`. La regla 10 de más abajo trae los
+  comandos exactos. La línea anterior de este archivo decía "sin tests activos" y quedó falsa hace
+  tiempo
 - **Sin linter activo** (archivos usan `/* eslint-disable */`); en build con `CI=true` los warnings escalan a error
 - **APIs externas integradas**: `mindicador.cl` (Banco Central Chile, TC del CLP) y `api.frankfurter.app` (Banco Central Europeo, cross-rates globales). Sin auth, CORS abierto.
 
@@ -867,6 +870,35 @@ Pendiente de decisión: `subLines` también se guarda por etiqueta
 hay un test que falla si eso cambia; si alguna vez ocurre, hay que darle la
 misma identidad por categoría.
 
+#### Vista semanal: entrar y salir de una celda no es un cambio (oct-2026)
+
+En c9c5792, hacer clic en una semana vacía («—») del flujo y salir guardaba 0
+en esa semana; como el mes suma solo las semanas guardadas, **el mes completo
+quedaba en 0** aunque tuviera valor calculado o manual, sin aviso. Y escribir un
+valor en UNA semana descartaba lo que las otras mostraban (2.700 calculado + 1.000
+escrito daba 1.000). Dos correcciones:
+
+- `CeldaEditable` no llama `onSave` si el texto no cambió (clic y salir, o
+  reescribir lo mismo). Un 0 escrito explícitamente sí se guarda.
+- `handleEditProy`, al crear el objeto semanal de un mes que no lo tenía, parte
+  de `semillaSemanal(efectivo, base, _semProy)`: lo que la pantalla mostraba
+  (valor manual mensual en la última semana, calculado en la primera, o el
+  reparto semanal propio de la línea). La regla mensual-vs-semanal no cambia.
+
+Fijado con `src/__tests__/semanalYAvisosCreditos.test.js` y
+`scripts/e2e/semanal-sin-perdida.mjs` (falla en c9c5792: guarda `{_sem2:0}` y el
+mes pasa de 2.700 a 0).
+
+#### Avisos de Créditos también en el Excel (oct-2026)
+
+`avisosCreditosEmpresa` es la única fuente de los avisos de Créditos del flujo
+(vencidas arrastradas, por conciliar, sin TC, TC estimado/antiguo, valores
+manuales antiguos en Pago Préstamos) y `textosAvisosCreditos` los pasa a texto.
+`avisosDeEmpresa(..., {creditos, empresasBase})` los agrega al subtítulo y al pie
+del Excel individual y del consolidado (`Consolidado` recibe `creditosData`).
+Antes el archivo no decía que un crédito sin TC no entraba al flujo. Prueba:
+`scripts/e2e/avisos-creditos-excel.mjs`.
+
 #### Bug histórico arreglado (no volver a romper)
 
 El subtotal de categoría debe **incluir** las sublines de líneas con "Préstamos" en el nombre. Antes se excluían y generaba descuadre con el Flujo Neto. La exclusión `!l.label.includes("Préstamos")` fue removida del cálculo de subtotales — no volverla a poner.
@@ -977,6 +1009,152 @@ git push origin main
 7. **Commits frecuentes y descriptivos** — facilita rollback si algo se rompe
 8. **No agregar dependencias npm** sin avisar (mantener bundle pequeño)
 9. **Patrón de persistencia anti-borrado (OBLIGATORIO para todo módulo nuevo)**: la función de carga DEBE propagar el error de red (lanzar excepción), NUNCA devolver defaults/`{}`/`null` en `catch`. El componente marca `cargaOkRef.current = true` solo tras una carga exitosa, y TODO guardado/auto-save se bloquea si `cargaOkRef` es false. Sin esto, un parpadeo de conexión deja el estado vacío y el auto-save lo escribe encima en Supabase (borró toda la fila `main` el 2026-06-16). El backup diario es genérico, así que un `id` nuevo queda respaldado solo.
+
+10. **Revisión independiente antes de presentar un candidato para publicación (OBLIGATORIO)**
+
+    Ningún candidato se presenta al CFO sin que **otro agente** haya revisado el **diff completo
+    contra la base exacta**, no el resumen de quien lo escribió. El revisor **no aprueba ni
+    publica**: entrega hallazgos. Quien escribió el código no revisa su propio trabajo.
+
+    **Qué cubre la revisión**, según lo que el cambio toque. No todos los ejes aplican siempre:
+
+    | Eje | Qué busca |
+    |---|---|
+    | Preservación | Datos históricos y cambios concurrentes que el cambio pudiera pisar |
+    | Permisos | Que el permiso se compruebe en la **acción que escribe**, no solo en un control deshabilitado. Un `disabled` deja el handler conectado |
+    | Cálculo | Aritmética, fechas, unidades y reglas económicas **sin supuestos**: bordes, redondeo, compuesto vs simple |
+    | Separación | Registrar, confirmar y aplicar son tres cosas. Confirmar no puede aplicar nada por sí solo |
+    | Aislamiento | Que nada del candidato apunte a producción ni la toque |
+    | Recuperación | Que volver atrás conserve datos **e importes**. Un rollback no puede borrar en silencio un efecto económico aplicado |
+
+    **La evidencia se ata al commit exacto**: SHA del candidato, base, pruebas ejecutadas, pruebas
+    omitidas, fallas y hallazgos del revisor. Si el código cambia después de la revisión, se repite
+    **solo lo afectado**. No se declara probado lo que se omitió, y **el bundle de evidencia final
+    tiene que ser el del candidato final**, no uno anterior.
+
+    **Proporcionalidad.** Un cambio de texto no dispara una auditoría completa. El revisor no
+    propone mejoras opcionales ni refactors: solo defectos y riesgos reales del cambio.
+
+    **Aislamiento de las pruebas.** La configuración de prueba (apuntar la app a un backend local,
+    por ejemplo) se prepara en una **copia desechable** del commit exacto, nunca en el worktree del
+    candidato. No se usa `git checkout -- src/` ni ningún reemplazo masivo para retirarla: se
+    descarta la copia. El trabajo de los otros carriles no se toca.
+
+    **El revisor trabaja sobre un commit congelado, en su propia copia.** Worktree o copia
+    independiente, nunca el worktree del candidato. **El revisor no restaura archivos del
+    candidato**, y las contrapruebas que modifican código se ejecutan únicamente en esa copia
+    desechable, que después se descarta.
+
+    No es una formalidad: pasó. Un revisor capturó el hash de un archivo al empezar, trabajó sobre
+    el worktree del candidato y, al cerrar, lo restauró a ese hash. En el medio se había corregido
+    un defecto en ese mismo archivo, y la restauración **lo deshizo en silencio**. Se detectó
+    porque dos pruebas volvieron a fallar con los valores exactos del defecto; si esas pruebas no
+    hubieran existido, el arreglo habría desaparecido sin dejar rastro.
+
+    De ahí se sigue el resto: la revisión se pide sobre un **SHA identificado**, el informe dice
+    cuál fue, y **cualquier cambio posterior a ese SHA obliga a comprobar lo afectado** antes de
+    dar por válido el veredicto.
+
+    **Referencias no definidas.** El build NO las detecta: los módulos grandes empiezan con
+    `/* eslint-disable */`, que apaga `no-undef`. El control es correr **`no-undef` de verdad**
+    sobre el archivo tocado, con un linter en memoria y `noInlineConfig` para que ese
+    `/* eslint-disable */` no lo apague. No se cambia la configuración de lint del proyecto ni se
+    agregan dependencias: eslint ya viene con el build. **Comparar cadenas no sirve** —se probó y
+    dejaba pasar los imports con alias y las constantes—; si alguien escribe esa versión, la
+    primera prueba que hay que escribir es la que retira un import y comprueba que el control
+    falle. **Un control sin contraprueba no es un control.**
+
+    **Escapes en texto JSX.** `\uXXXX` dentro de una cadena o un template literal se decodifica;
+    en **texto JSX** no, se imprime literal. Es un defecto que ya se coló dos veces, siempre al
+    reescribir un bloque con un script. Se controla con una regla que mira los nodos de texto.
+
+    **Reproducir la forma de los argumentos que pasa la pantalla.** Esta es la que más caro
+    salió: las pruebas llamaban a la función con una fixture prolija y la pantalla le pasaba un
+    spread del registro anterior, con campos viejos adentro. Tres defectos salieron de ahí, dos
+    de ellos en el mecanismo de control recién instalado. Una prueba que no arma los argumentos
+    como los arma la pantalla **no está probando la pantalla**.
+
+    **Una previa que puede devolver cero es una previa peligrosa.** Si la función que calcula el
+    impacto corta cuando algo no está activo todavía, y la pantalla la llama justo antes de
+    activar, el diálogo de confirmación muestra cero. Hay que probar el valor **en el momento en
+    que el usuario decide**, no después.
+
+    **Reescribir un bloque entero es, por sí mismo, una fuente de defectos.** Cuando una
+    corrección reescribe un bloque en vez de tocar líneas puntuales, la re-revisión cubre el
+    bloque completo, no solo lo que la corrección pretendía arreglar.
+
+    **Controlar el sitio de llamada, no una réplica de él.** Una prueba que *reconstruye* lo que
+    la pantalla hace no controla la pantalla: si alguien cambia la pantalla, la réplica sigue
+    verde. Pasó: el arreglo de la reactivación se repuso en el código y la suite no se movió.
+    Cuando el defecto está en **cómo llama** la pantalla, el control tiene que leer el sitio de
+    llamada real.
+
+    **Una prueba de la función no es una prueba de la pantalla.** Dos veces seguidas pasó lo
+    mismo: se revirtió el arreglo en la pantalla y la suite siguió verde, porque las pruebas
+    ejercitaban la función corregida y no el sitio que la llama. Cuando el defecto está en la
+    pantalla, lo único que lo controla es leer el código de la pantalla.
+
+    **Un control tiene puntos ciegos y hay que escribirlos.** Una regla que compara el nombre de
+    una función no ve una llamada por alias; una que mira un objeto literal no ve un spread
+    pasado por variable. Eso no invalida el control, pero sí invalida presentarlo como garantía.
+    Los puntos ciegos conocidos van escritos al lado del control.
+
+    **Lo que falta no se muestra como cero.** Un porcentaje sin definir que llega al motor como 0
+    produce un cálculo "definitivo" de cero, que es indistinguible de una decisión. Si un campo
+    convierte lo ausente en cero, hay que impedir al menos que ese cero se confirme o se active.
+
+    **Un aviso que afirma algo sobre los importes es parte del cálculo.** Si una función nueva
+    cambia lo que el sistema hace, hay que buscar todos los textos que describen el
+    comportamiento viejo. Pasó: después de activar el reajuste, la pantalla seguía diciendo
+    "estos montos no llevan reajuste" encima del importe ya reajustado. Ninguna prueba lo vio,
+    porque el motor estaba bien; lo vio abrir la pantalla después de activar.
+
+    **Rutas reales de pantalla y de motor.** Las pruebas de modelo no alcanzan. Un cambio que
+    toque el cálculo tiene que probarse **por las rutas que usan los datos reales**: si el motor
+    tiene dos caminos, se prueban los dos. Y la capa de pantalla se verifica en navegador aislado
+    sobre el **bundle del candidato final**, porque ahí es donde caen los defectos que ninguna
+    prueba de modelo ve.
+
+    **Si el revisor no está disponible, se declara.** No se presenta como revisado lo que no lo fue.
+
+    **Cómo se ejecuta.** Los controles automáticos viven en el repositorio, no en una nota. Hoy
+    están en `src/osiris/integracionReajuste.test.js` (cuatro reglas de análisis estático, cada
+    una con su contraprueba) y en `src/osiris/pantallaReajuste.test.js` (render real de la
+    pantalla). Se corren así, **siempre** con `testMatch` explícito y excluyendo `build/`:
+
+    ```bash
+    # Área completa
+    MSYS_NO_PATHCONV=1 CI=true npx react-scripts test --watchAll=false \
+      --testMatch "**/src/osiris/*.test.js" \
+      --testPathIgnorePatterns "/node_modules/" "/build/"
+
+    # Repositorio completo
+    MSYS_NO_PATHCONV=1 CI=true npx react-scripts test --watchAll=false \
+      --testMatch "**/src/**/*.test.js" \
+      --testPathIgnorePatterns "/node_modules/" "/build/"
+
+    # Las que necesitan la copia de datos reales (si no, se saltean enteras)
+    MSYS_NO_PATHCONV=1 CI=true OSIRIS_SNAPSHOT=<ruta>/snapshot-osiris.json \
+      npx react-scripts test --watchAll=false \
+      --testMatch "**/src/osiris/impacto*.test.js" \
+      --testPathIgnorePatterns "/node_modules/" "/build/"
+    ```
+
+    Dos cosas que no son opcionales en esos comandos. **`--testPathIgnorePatterns` con `build/`**:
+    sin él jest recorre el directorio de build y la corrida pasa de segundos a media hora.
+    **`MSYS_NO_PATHCONV=1` y el `testMatch` explícito**: en un worktree, el `testMatch` por
+    defecto se resuelve con separadores mezclados y no encuentra ninguna prueba — devuelve
+    "0 matches" y parece que todo está bien.
+
+    **Cómo se comprueba que el control sirve.** Reponiendo el defecto. Se modifica una copia del
+    archivo, se corre la prueba, se verifica que **falla**, y se restaura comprobando el hash.
+    Para restaurar en este repositorio hay que usar `git -c core.autocrlf=false checkout -- <archivo>`:
+    con `core.autocrlf=true`, un `checkout` normal reescribe el archivo con CRLF y deja el árbol
+    sucio sin que `git diff` muestre nada.
+
+    **Al informar resultados**, las tres cifras van separadas: pasadas, **omitidas** y falladas.
+    Las omitidas se clasifican por su motivo, y una falla solo se declara preexistente
+    comprobándola contra la **base exacta** del candidato, no contra una base anterior.
 
 ## Skills útiles disponibles
 
