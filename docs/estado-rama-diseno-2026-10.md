@@ -1105,3 +1105,24 @@ En Finanzas se conservan los avisos de créditos de `main` (fecha estimada y fue
   - jest de Osiris y diseño: 797 pasan.
 - **Reglas de negocio:** no cambian firmas ni royalties. Las cuatro decisiones de
   `DECISIONES_FIRMAS` siguen solo documentadas.
+
+### Autorización de «ordenar accesos» separada del diseño (13-10-2026)
+
+- **Diseño:** el commit visual conserva la autorización de antes. La corrección vive en su propia
+  rama, `claude/osiris-permiso-orden` (80511ce, desde `main` 778a397), y entra aquí por merge.
+- **Usos revisados en Osiris:** `esAdmin` solo se usaba en el arrastre del hub (`draggable`,
+  `onDragStart`, `onDragOver`, `onDrop` y el asa ⋮⋮). `esSoloConsulta` llega a Osiris pero no se
+  usa. Los demás permisos de Osiris salen de `tabPermisos` y del rol, no de esas funciones.
+- **Otros módulos (sin cambios):**
+  - **Allegria tiene el mismo defecto** en su hub (`draggable={!!esAdmin}`): cualquier perfil
+    reordena y escribe la fila `allegria`. Pendiente de tu decisión.
+  - Frisku ya llama la función.
+  - Finanzas calcula el rol por su cuenta.
+- **Pruebas:**
+  - `permisoAdmin.test.js`: 4 pruebas.
+  - `osiris-permiso-orden.mjs`: 9/9 sobre `main` corregido. El admin puede ordenar; editor y
+    consulta no ven el arrastre, y forzar la acción no cambia el orden ni escribe. Con `CONTROL=1`
+    sobre `main` sin corregir, los tres pueden: ese es el defecto.
+  - `osiris-hub.mjs`: 40/40 en el diseño integrado. Editor y consulta no ven «Ordenar accesos».
+- **Vista previa:** la versión 2, la que estás revisando, ya tenía este comportamiento. No se
+  republicó.

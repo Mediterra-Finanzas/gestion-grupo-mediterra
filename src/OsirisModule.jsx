@@ -9,6 +9,7 @@ import { theme } from "./theme";
 import { EncabezadoModulo, Accesos } from "./diseno/componentes.jsx";
 import { pedirTexto, useUltimo, huella, sigueIgual, avisarDesactualizado } from "./diseno/dialogos.jsx";
 import { estadoFirmasContrato } from "./osiris/estadoFirmas";
+import { esAdministrador } from "./osiris/permisoAdmin";
 import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
 import { ubicacionMenuEstado, anclaVisible, ANCHO_MENU_ESTADO } from "./osiris/menuEstado";
 import { catalogoFenologicoCombinado, estadoFenologicoVigente, laboresDeEstado } from "./osiris/fenologia";
@@ -11681,6 +11682,9 @@ function ReportesOsiris({rpData=[],rcData=[],feData=[],fvData=[],ctData=[],obten
 // COMPONENTE PRINCIPAL — Hub Osiris mejorado
 // ══════════════════════════════════════════════════════════
 export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPermisos={},onBack,onLogout}) {
+  // Reordenar el hub es solo del administrador. `esAdmin` llega como función desde App:
+  // usarla como booleano la volvía siempre verdadera (ver src/osiris/permisoAdmin.js).
+  const soyAdmin = esAdministrador(usuarioActual, esAdmin);
   // ── Osiris tiene su propia persistencia (fila "osiris" en Supabase) ──
   const [osirisData, setOsirisData] = useState({});
   // Último valor, para revisar después de un diálogo de la app (ya no bloquea como window.prompt).
@@ -12232,7 +12236,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         const order=(Array.isArray(osirisData?.hubCardsOrder)&&osirisData.hubCardsOrder.length===HUB_DEFAULT.length)?osirisData.hubCardsOrder:HUB_DEFAULT;
         const items=order.filter(id=>DEFS[id]).map(id=>({id,...DEFS[id]}));
         return <Accesos items={items} titulo="Accesos" testid="hub-osiris"
-          onOrdenar={esAdmin ? (ids)=>setOsirisData(prev=>({...(prev||{}),hubCardsOrder:ids})) : undefined}/>;
+          onOrdenar={soyAdmin ? (ids)=>{ if(!soyAdmin) return; setOsirisData(prev=>({...(prev||{}),hubCardsOrder:ids})); } : undefined}/>;
       })()}
 
       {/* Resumen (mismas cifras de siempre) */}

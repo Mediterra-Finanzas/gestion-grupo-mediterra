@@ -128,6 +128,12 @@ for (const [tam, dim] of Object.entries(TAM)) {
   check('consulta · ve los mismos 7 accesos', await s.p.locator('[data-testid="hub-osiris"] button.mdt-acceso').count() === 7);
   await s.ctx.close();
 }
+// Con la autorización integrada (claude/osiris-permiso-orden): solo el admin ve «Ordenar accesos».
+for (const [email, perfil] of [['cmachuca@grupomediterra.cl', 'editor con Osiris'], ['socia.consulta@ejemplo.cl', 'consulta']]) {
+  const s = await sesion(process.env.APP_URL, TAM.computador, email);
+  check(`${perfil} (denegado) · sin «Ordenar accesos» ni botones ↑ ↓`, await s.p.getByTestId('hub-osiris-ordenar').count() === 0 && await s.p.getByRole('button', { name: /^(Subir|Bajar) / }).count() === 0);
+  await s.ctx.close();
+}
 await browser.close();
 console.log('\nFin del bloque de accesos (px desde arriba) y accesos enteros en la primera pantalla:');
 filas.forEach(f => console.log(`  ${f.tam.padEnd(10)} fin ${f.altoAntes} → ${f.altoDesp} px · accesos a la vista ${f.visAntes} → ${f.visDesp} de 7`));
