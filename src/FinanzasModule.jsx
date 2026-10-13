@@ -6280,7 +6280,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     if(lockFrom !== null && idx >= lockFrom) return base;
     if(ovIdx === undefined) return base;
     if(typeof ovIdx === "number") return ovIdx;
-    // ovIdx es objeto con semanas: semanas ingresadas + lo que queda sin fecha
+    // ovIdx es objeto con semanas: manda la suma de las semanas cargadas (regla acordada)
     if(typeof ovIdx === "object" && ovIdx !== null) return totalMesOverride(ovIdx);
     return base;
   },[proyOverrides, emp, resoluciones]);
@@ -7751,8 +7751,9 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
             {(Math.abs(d.ing)>=0.005||Math.abs(d.egr)>=0.005||Math.abs(atrasadoMesCorte)>=0.005)&&<>{MESES_65[mesIdxInicioSaldo]}: </>}
             {(Math.abs(d.ing)>=0.005||Math.abs(d.egr)>=0.005)&&<>ingresos {$$(d.ing)} y egresos {$$(d.egr)} no tienen semana
             (valores mensuales sin reparto): no se ubican en ninguna semana y entran al cierre del mes (columna Σ), igual que en la vista mensual y el Excel.
-            Para fecharlos en una línea del flujo, escribe el importe en su semana: se toma de lo sin fecha, sin duplicar el mes
-            (en sublíneas y conceptos agregados, primero deja el mensual en 0: ahí las semanas reemplazan el mensual). </>}
+            Para fecharlos, escribe el importe en su semana. Con semanas cargadas manda su suma: si el mes tenía valor mensual,
+            al cargar la primera semana el mes pasa a ser la suma de semanas (la app pide confirmarlo con el antes y el después)
+            y la diferencia no queda pendiente; en sublíneas y conceptos agregados, primero deja el mensual en 0. </>}
             {Math.abs(atrasadoMesCorte)>=0.005&&<>Lo fechado en semanas ya pasadas del mes ({$$(atrasadoMesCorte)} neto) no se da por pagado ni cobrado: se suma en la semana en curso. </>}
             {hayFuturos&&<div>Meses siguientes con importes sin fecha (entran en el cierre de cada mes): {futuros.slice(0,6).map(x=>`${x.m} ingresos ${$$(x.ing)} / egresos ${$$(x.egr)}`).join(" · ")}{futuros.length>6?` · y ${futuros.length-6} más`:""}.</div>}
           </div>
@@ -11491,7 +11492,7 @@ function reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, sa
     if(lockFrom !== null && idx >= lockFrom) return base;
     if(ov === undefined) return base;
     if(typeof ov === "number") return ov;
-    if(typeof ov === "object" && ov !== null) return totalMesOverride(ov);   // semanas + sin fecha
+    if(typeof ov === "object" && ov !== null) return totalMesOverride(ov);   // suma de semanas (regla acordada)
     return base;
   }
 
@@ -11589,7 +11590,7 @@ function reporte_calcDetalleMensual(empNombre, realData, empresas, saldosBancos,
     if(lockFrom !== null && idx >= lockFrom) return base;
     if(ov === undefined) return base;
     if(typeof ov === "number") return ov;
-    if(typeof ov === "object" && ov !== null) return totalMesOverride(ov);   // semanas + sin fecha
+    if(typeof ov === "object" && ov !== null) return totalMesOverride(ov);   // suma de semanas (regla acordada)
     return base;
   }
 
@@ -11769,7 +11770,7 @@ function reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal
     if(lockFrom !== null && idx >= lockFrom) return base;
     if(ov === undefined) return base;
     if(typeof ov === "number") return ov;
-    if(typeof ov === "object" && ov !== null) return totalMesOverride(ov);   // semanas + sin fecha
+    if(typeof ov === "object" && ov !== null) return totalMesOverride(ov);   // suma de semanas (regla acordada)
     return base;
   }
 

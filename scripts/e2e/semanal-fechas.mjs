@@ -130,6 +130,7 @@ const arrOfi = await v('Arriendo Oficina', 'Σ Oct-26');
 check('Arriendo Oficina (calculado): Σ con todo sin fecha', arrOfi > 0 && (await sinFechaLinea('Arriendo Oficina')) === arrOfi, `${arrOfi}`);
 const t0 = await page.locator('body').innerText();
 check('aviso de saldo semanal incompleto por fechas', /Saldo semanal incompleto por fechas\.\s*Oct-26:/.test(t0) && /Meses siguientes con importes sin fecha/.test(t0));
+check('el aviso describe la regla acordada (no promete «tomar de lo sin fecha»)', /manda su suma/.test(t0) && !/se toma de lo sin fecha/.test(t0));
 
 console.log('\n=== B · semana pasada: atrasado, no pagado ===');
 check('fila «atrasado» en S42 = −2.600 (Arriendo Camionetas fechado en S40)', cerca(await v('· atrasado (semanas anteriores, pendiente)', 'S42'), -2600), await celda('· atrasado (semanas anteriores, pendiente)', 'S42'));
