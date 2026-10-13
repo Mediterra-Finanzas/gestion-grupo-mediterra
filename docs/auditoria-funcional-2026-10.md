@@ -1,5 +1,30 @@
 # Auditoría funcional — pérdida de datos y exposición (13-10-2026)
 
+> **Actualización (13-10, segunda tanda).** Rama `claude/auditoria-funcional`, sin desplegar.
+>
+> - **E1 corregido en la rama:** `/api/send-email` exige una sesión verificada en el servidor y
+>   solo acepta acciones permitidas. `api/send-email.test.mjs` pasa 37/37 con correo simulado.
+>   El control sobre `main` envía a un destinatario externo con `Allow-Origin: *`.
+> - **E2:** `files.zip` salió del árbol, `*.zip` quedó en `.gitignore` y una prueba lo vigila. El
+>   historial **no** se reescribió. Deben cambiar su PIN (todos eran PIN antiguos de 4 dígitos):
+>   Milagros Becerra, Carol Machuca, Michelle Garcia, Pablo Duran y Angelo Huerta.
+> - **P2 cerrado:** la auditoría escribe de forma atómica, con versión y reintento. Probado con
+>   escrituras simultáneas: 8 × 5 envíos sin pérdidas ni duplicados, y 12/12 en el navegador
+>   (en `main`, 3/12).
+> - **P1 cerrado de punta a punta** (descargar → restaurar → reabrir → editar → guardar), con
+>   formatos validados y credenciales vigentes conservadas. En `main`, después de restaurar nadie
+>   puede volver a ingresar.
+> - **E4/E5:** propuesta de transición en `docs/propuesta-transicion-emailjs-urls.md`, sin ejecutar.
+>
+> **Variables nuevas para desplegar el correo** (no configuradas): `CORREO_SESSION_SECRET`,
+> `CORREO_RATELIMIT_SECRET`, `CORREO_ORIGENES`. El limitador usa la función
+> `frisku_sp_rl_consumir` de Supabase, que ya usa SharePoint Frisku.
+>
+> **Pendiente:** si la cookie de correo (12 h) vence durante una sesión restaurada sin PIN, las
+> notificaciones devuelven 401 y no se envían hasta el siguiente ingreso. Conviene que la app
+> lo avise.
+
+
 **Base:** `main` ee229d4, que avanzó 86 commits desde c9c5792.
 
 **Rama:** `claude/auditoria-funcional`, separada de diseño. Sin merge, migraciones ni despliegue.
