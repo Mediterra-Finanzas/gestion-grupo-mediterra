@@ -1,5 +1,19 @@
 # Auditoría funcional — pérdida de datos y exposición (13-10-2026)
 
+> **Cuarta tanda (13-10).** Sin desplegar.
+> - **Defecto corregido en la identidad de envío.** Contra la función real del limitador, la
+>   versión anterior habría respondido 503 en cada envío (tipo no admitido) y, con bloqueo 0, no
+>   deduplicaba. La prueba contra Postgres 16 local da 8/8, con un control que reproduce los dos
+>   defectos (`scripts/seguridad/correo-limitador-pg.mjs`).
+> - **Fallo confirmado frente a resultado incierto.** La app ya no da por enviado un «ya
+>   procesado». Los casos no cubiertos están en `docs/plan-transicion-correo.md` §5.
+> - **Plan único de transición del correo:** `docs/plan-transicion-correo.md`, con los
+>   identificadores de EmailJS y sin claves.
+> - **Supervisores y responsables de Tareas** se tratan como asignaciones sensibles: se conservan
+>   los de hoy y las diferencias se muestran **antes** de escribir.
+> - **Recuperación de accesos ante pérdida total:** `docs/recuperacion-administrativa-accesos.md`
+>   (propuesta, no implementada).
+
 > **Tercera tanda (13-10).** Rama `claude/auditoria-funcional`, con `main` 778a397 integrado
 > (commit de integración aeb6dbf). Todo lo de esta tanda se probó sobre esa base. **No desplegado.**
 >

@@ -31,7 +31,7 @@ const leer = (st, id) => { const v = st[id]?.value; return typeof v === 'string'
 
 const st = nuevoStore();
 st.main.value = { ...st.main.value, estados: { m3: { estadoResp: 'verde', estadoSup: 'verde', aprobado: true } },
-  comentarios: { m3: 'comentario restaurable (ficticio)' }, tareasExtra: [{ id: 'x1', nombre: 'Tarea extra ficticia', responsable: 'Carol Machuca', supervisor: '', categoria: 'Finanzas', frecuencia: 'Mensual', diaLimite: 10, diaLimiteSem: null, dependeDe: null }] };
+  comentarios: { m3: 'comentario restaurable (ficticio)' }, supervisores: { m3: 'Angelo Huerta' }, tareasExtra: [{ id: 'x1', nombre: 'Tarea extra ficticia', responsable: 'Carol Machuca', supervisor: '', categoria: 'Finanzas', frecuencia: 'Mensual', diaLimite: 10, diaLimiteSem: null, dependeDe: null }] };
 st.finanzas.value = JSON.stringify(st.finanzas.value);        // fila que en el servidor está como TEXTO
 
 async function abrir() {
@@ -65,7 +65,7 @@ await s.ctx.close();
 // 2. Cambios posteriores al respaldo
 st.pins.value = { ...st.pins.value, 'Angelo Huerta_h': CRED_NUEVA };                      // cambio de PIN
 st.pins.updated_at = new Date().toISOString();
-st.main.value = { ...st.main.value, estados: {}, comentarios: {}, tareasExtra: [] };         // daño
+st.main.value = { ...st.main.value, estados: {}, comentarios: {}, tareasExtra: [], supervisores: { m3: 'Carol Machuca' } };   // daño + cambio de supervisor
 st.main.updated_at = new Date().toISOString();
 // Cambio de ACCESO posterior al respaldo: Carol queda desactivada y con perfil consulta.
 const usuariosHoy = leer(st, 'usuarios');
@@ -78,6 +78,7 @@ check('2. con el PIN vigente se puede entrar antes de restaurar', await ingresar
 const [fc] = await Promise.all([s.p.waitForEvent('filechooser', { timeout: 15000 }), s.p.getByRole('button', { name: /📤 Restaurar/ }).first().click()]);
 await fc.setFiles(archivo); await s.p.waitForTimeout(6000);
 const msg = s.avisos.filter(a => /^alert/.test(a)).pop() || '';
+check('3a. ANTES de escribir, la app muestra los accesos y asignaciones que no aplicará', s.avisos.some(a => /^confirm: ANTES DE RESTAURAR/.test(a) && /Asignaciones de Tareas que NO se cambiarán/.test(a) && /Carol Machuca/.test(a)));
 check('3. la app informa la restauración', /Respaldo restaurado|RESTAURACIÓN PARCIAL/.test(msg), msg.slice(0, 160).replace(/\n/g, ' '));
 await s.ctx.close();
 
@@ -93,6 +94,7 @@ check('4. reabrir: el PIN VIGENTE sigue sirviendo (no se revirtió la credencial
 const m = leer(st, 'main');
 check('5. Tareas restauradas (estados, comentarios, tarea extra)', m?.estados?.m3?.estadoResp === 'verde' && m?.comentarios?.m3 === 'comentario restaurable (ficticio)' && (m?.tareasExtra || []).some(t => t.id === 'x1'));
 const carolTras = (leer(st, 'usuarios') || []).find(u => u.nombre === 'Carol Machuca');
+check('5f. el supervisor de Tareas asignado después del respaldo se conserva', m?.supervisores?.m3 === 'Carol Machuca', JSON.stringify(m?.supervisores || {}));
 check('5c. el respaldo NO reactiva a la persona desactivada después ni le devuelve el perfil', !!carolHoy && !!carolTras && carolTras.desactivado === true && carolTras.rol === 'consulta');
 check('5d. main.usuarios (espejo) tampoco trae a Carol activa', !(m?.usuarios || []).some(u => u.nombre === 'Carol Machuca' && !u.desactivado));
 check('5e. el aviso lista la diferencia de acceso no aplicada, sin credenciales', /Diferencias de acceso NO aplicadas/.test(msg) && /Carol Machuca/.test(msg) && !/"hash"|salt/.test(msg));

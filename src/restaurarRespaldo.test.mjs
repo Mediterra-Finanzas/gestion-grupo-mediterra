@@ -1,5 +1,5 @@
 // node src/restaurarRespaldo.test.mjs — restauración con respuestas comprobadas.
-import { restaurarFilas, mensajeRestauracion, motivoFallo, validarRespaldo, prepararRestauracion } from './restaurarRespaldo.js';
+import { restaurarFilas, mensajeRestauracion, motivoFallo, validarRespaldo, prepararRestauracion, resumenPrevioRestauracion } from './restaurarRespaldo.js';
 
 let fallos = 0;
 const ok = (n, c, x = '') => { console.log(`${c ? 'OK ' : 'FALLA'} ${n}${x ? ' — ' + x : ''}`); if (!c) fallos++; };
@@ -111,6 +111,37 @@ ok('5. motivos: sello, legado, permiso', /sello/.test(motivoFallo(400, 'MEDITERR
   const escritas = [];
   await restaurarFilas(bk, async (id) => { escritas.push(id); return resp(201); });
   ok('14. sin estado actual (ruta antigua) tampoco se escriben accesos', !escritas.includes('usuarios') && !escritas.includes('pins') && !escritas.includes('permisos_facultades'));
+}
+
+// ── Asignaciones de Tareas: se conservan las de hoy y se muestran antes de escribir ──
+{
+  const MAIN_RESP = { estados: { m3: { estadoResp: 'verde' } },
+    supervisores: { m3: 'Angelo Huerta', m14: 'Angelo Huerta' },
+    tareasOverrides: { m3: { diaLimite: 5, responsable: 'Pablo Duran' } },
+    tareasConfig: { m3: { diaLimite: 5, responsable: 'Pablo Duran' } },
+    tareasExtra: [{ id: 'x1', nombre: 'Extra uno', responsable: 'Carol Machuca', supervisor: 'Angelo Huerta' },
+                  { id: 'x2', nombre: 'Extra borrada', responsable: 'Pablo Duran', supervisor: 'Carol Machuca' }] };
+  const MAIN_HOY = { estados: {},
+    supervisores: { m3: 'Carol Machuca', m14: 'Angelo Huerta' },
+    tareasOverrides: { m3: { diaLimite: 7, responsable: 'Michelle Garcia' }, m15: { supervisor: 'Carol Machuca' } },
+    tareasConfig: { m3: { diaLimite: 7, responsable: 'Michelle Garcia' } },
+    tareasExtra: [{ id: 'x1', nombre: 'Extra uno', responsable: 'Michelle Garcia', supervisor: 'Angelo Huerta' },
+                  { id: 'x3', nombre: 'Extra nueva', responsable: 'Carol Machuca', supervisor: 'Angelo Huerta' }] };
+  const bk = { version: 'Mediterra Hub Backup v1', tablas: { main: { data: MAIN_RESP } } };
+  const plan = prepararRestauracion(bk, { main: { value: MAIN_HOY } });
+  const m = plan.filas.find((f) => f.id === 'main').value;
+  ok('15. se restauran los datos de Tareas (estados, plazo del override)', m.estados.m3.estadoResp === 'verde' && m.tareasOverrides.m3.diaLimite === 5);
+  ok('15b. supervisores: se conservan los de hoy', m.supervisores.m3 === 'Carol Machuca');
+  ok('15c. responsable en overrides y config: el de hoy', m.tareasOverrides.m3.responsable === 'Michelle Garcia' && m.tareasConfig.m3.responsable === 'Michelle Garcia');
+  ok('15d. una asignación de hoy que el respaldo no trae se conserva', m.tareasOverrides.m15 && m.tareasOverrides.m15.supervisor === 'Carol Machuca');
+  ok('15e. tarea extra existente: responsable de hoy', m.tareasExtra.find((t) => t.id === 'x1').responsable === 'Michelle Garcia');
+  const txt = plan.asignaciones.join('\n');
+  ok('16. diferencias listadas: supervisor, responsable, tarea que vuelve y tarea que se quita', /Tarea m3: supervisor hoy «Carol Machuca», en el respaldo «Angelo Huerta»/.test(txt)
+    && /Tarea m3: responsable hoy «Michelle Garcia», en el respaldo «Pablo Duran»/.test(txt)
+    && /Tarea extra x2 .*hoy no existe; vuelve con responsable «Pablo Duran»/.test(txt) && /Tarea extra x3 .*la restauración la quita/.test(txt));
+  const previo = resumenPrevioRestauracion(plan);
+  ok('16b. el resumen previo (lo que se muestra ANTES de escribir) lo dice', /Asignaciones de Tareas que NO se cambiarán/.test(previo) && /se revisa y aplica por separado/.test(previo));
+  ok('16c. sin diferencias no hay resumen previo', resumenPrevioRestauracion(prepararRestauracion(bk, { main: { value: MAIN_RESP } })) === '');
 }
 
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');

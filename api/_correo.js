@@ -41,7 +41,13 @@ const LIMITES = {
 };
 const TOPES = { asunto: 200, mensaje: 8000, destNotif: 25, destInforme: 10 };
 // Una identidad de envío se usa UNA vez en 24 h: reintentar el mismo envío no lo duplica.
-const IDEM = { tipo: "idem", max: 1, ventanaMs: 24 * 3600e3, bloqueoMs: 0 };
+// Se guarda con el limitador de Supabase (tabla frisku_sp_ratelimit, RPC frisku_sp_rl_consumir):
+// una fila por identidad, con clave HMAC opaca. Dos exigencias de esa función real:
+//   · `tipo` solo admite 'ip' o 'identidad' (con otro valor la RPC rechaza: 503 en cada envío);
+//   · con bloqueo 0, el segundo uso vuelve a quedar PERMITIDO (el bloqueo vence en el acto).
+//     El bloqueo de 24 h es lo que hace que la identidad no se pueda volver a usar.
+// Guarda que la identidad se USÓ, no el resultado del envío (ver docs/plan-transicion-correo.md).
+const IDEM = { tipo: "identidad", max: 1, ventanaMs: 24 * 3600e3, bloqueoMs: 24 * 3600e3 };
 const ID_ENVIO = /^[A-Za-z0-9._-]{8,80}$/;
 
 const norm = (e) => String(e == null ? "" : e).trim().toLowerCase();
@@ -137,13 +143,15 @@ function crearCorreo(deps) {
   async function unaVez(clave, res, duplicado) {
     let r;
     try { r = await limitador.golpe(`idem:${clave}`, IDEM, ahora()); }
-    catch (e) { responder(res, 503, { error: "no_disponible" }); return false; }
+    // No se sabe si la identidad quedó registrada; lo seguro es que NO se envió. El siguiente
+    // intento va con otra identidad para no recibir un «ya procesado» de algo que no salió.
+    catch (e) { responder(res, 503, { error: "no_disponible", reintento: "nuevo" }); return false; }
     if (!r || r.permitido !== true) { responder(res, duplicado.status, duplicado.body); return false; }
     return true;
   }
-  async function enviar(cuenta, para, asunto, texto, html) {
+  async function enviar(cuenta, para, asunto, texto, html, ref) {
     const r = await transporte.enviar({ cuenta, para, asunto: sinSaltos(asunto).slice(0, TOPES.asunto), texto, html });
-    log({ evento: "correo_enviado", cuenta, n: para.length });
+    log({ evento: "correo_enviado", cuenta, n: para.length, ref });           // ref: para conciliar un resultado incierto
     return r;
   }
 
@@ -161,6 +169,7 @@ function crearCorreo(deps) {
     let filas, consumido = false;
     const idEnvio = typeof body.idEnvio === "string" ? body.idEnvio : "";
     const YA = { status: 200, body: { success: true, duplicado: true } };
+    const ref = String(idEnvio || body.ejecucionId || "").slice(0, 12);
     const cargar = async () => { if (!filas) filas = await leerFilas(); return filas; };
 
     try {
@@ -191,7 +200,7 @@ function crearCorreo(deps) {
         if (valido) {
           if (!(await unaVez(`codigo:${norm(u.email)}:${idEnvio}`, res, { status: 202, body: { aceptado: true } }))) return;
           consumido = true;
-          const p = PLANTILLAS.codigo_provisorio(u, String(body.codigo)); await enviar("mediterra", [u.email], p.asunto, p.texto);
+          const p = PLANTILLAS.codigo_provisorio(u, String(body.codigo)); await enviar("mediterra", [u.email], p.asunto, p.texto, undefined, ref);
         }
         return responder(res, 202, { aceptado: true });                // misma respuesta siempre
       }
@@ -216,7 +225,7 @@ function crearCorreo(deps) {
         if (para.some((e) => !esEmail(e) || !internos.has(norm(e)))) return responder(res, 403, { error: "destinatario_no_permitido" });
         if (!body.asunto || body.html) return responder(res, 400, { error: "contenido" });
         if (!(await unaVez(idem, res, YA))) return; consumido = true;
-        await enviar("mediterra", para, body.asunto, textoPlano(body.mensaje, TOPES.mensaje));
+        await enviar("mediterra", para, body.asunto, textoPlano(body.mensaje, TOPES.mensaje), undefined, ref);
         return responder(res, 200, { success: true });
       }
       if (accion === "bienvenida") {
@@ -224,7 +233,7 @@ function crearCorreo(deps) {
         if (!esEmail(body.email) || !/^\d{4,6}$/.test(String(body.pin || ""))) return responder(res, 400, { error: "contenido" });
         if (!(await unaVez(idem, res, YA))) return; consumido = true;
         const p = PLANTILLAS.bienvenida({ nombre: body.nombre, email: String(body.email).trim(), pin: String(body.pin), rol: body.rol || "" });
-        await enviar("mediterra", [String(body.email).trim()], p.asunto, p.texto);
+        await enviar("mediterra", [String(body.email).trim()], p.asunto, p.texto, undefined, ref);
         return responder(res, 200, { success: true });
       }
       if (accion === "informe_osiris") {
@@ -233,7 +242,7 @@ function crearCorreo(deps) {
         if (!para.length || para.length > TOPES.destInforme || para.some((e) => !esEmail(e))) return responder(res, 400, { error: "destinatarios" });
         if (!body.asunto || body.html) return responder(res, 400, { error: "contenido" });
         if (!(await unaVez(idem, res, YA))) return; consumido = true;
-        await enviar("osiris", para, body.asunto, textoPlano(body.mensaje, 20000));
+        await enviar("osiris", para, body.asunto, textoPlano(body.mensaje, 20000), undefined, ref);
         return responder(res, 200, { success: true });
       }
       if (accion === "reporte_diario") {
@@ -244,14 +253,14 @@ function crearCorreo(deps) {
         const para = (ej.destinatarios_snapshot || []).map((d) => d && d.email).filter(esEmail);
         if (!para.length) return responder(res, 400, { error: "destinatarios" });
         // Una ejecución se envía una vez, aunque la respuesta se pierda y se reintente.
-        if (!(await unaVez(`reporte:${ej.id || body.ejecucionId}${body.intento ? "#" + String(body.intento).slice(0, 4) : ""}`, res, { status: 409, body: { error: "ya_enviado" } }))) return; consumido = true;
+        if (!(await unaVez(`reporte:${ej.id || body.ejecucionId}${body.intento ? "#" + String(body.intento).slice(0, 4) : ""}`, res, YA))) return; consumido = true;
         const { asunto, html, texto } = deps.armarReporte(ej);          // misma plantilla que el cron
-        const r = await enviar("allegria", para, asunto, texto, html);
+        const r = await enviar("allegria", para, asunto, texto, html, ref);
         return responder(res, 200, { success: true, method: "smtp", messageId: r && r.messageId });
       }
       return responder(res, 400, { error: "accion_no_permitida" });
     } catch (e) {
-      log({ evento: "correo_error", accion, motivo: String((e && e.message) || e).slice(0, 80) });
+      log({ evento: "correo_error", accion, ref, consumido, motivo: String((e && e.message) || e).slice(0, 80) });
       // genérico: sin detalles del SMTP. Si la identidad ya se consumió, este intento NO salió
       // y el reintento debe llevar otra (si no, se informaría «ya procesado» sin haber salido).
       return responder(res, 502, consumido ? { error: "no_enviado", reintento: "nuevo" } : { error: "no_enviado" });

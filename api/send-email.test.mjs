@@ -39,7 +39,22 @@ function entorno({ secret = SECRET, limiteRoto = false, smtpFalla = false } = {}
   e.handler = crearCorreo({
     leerFilas: async () => ({ usuarios: e.usuarios, pins: e.pins }),
     transporte: { async enviar(m) { if (e.smtpFalla) throw new Error('535 5.7.3 Authentication unsuccessful [detalle interno del SMTP]'); enviados.push(m); return { messageId: `<sim-${enviados.length}>` }; } },
-    limitador: { async golpe(clave, regla) { if (limiteRoto) throw new Error('rpc caída'); const c = (cuentas.get(clave) || 0) + 1; cuentas.set(clave, c); return { permitido: c <= regla.max }; } },
+    // Réplica de frisku_sp_rl_consumir (api/sql/frisku_sp_ratelimit.sql): tipo estricto, ventana y
+    // bloqueo con la MISMA aritmética. La versión contra Postgres real está en
+    // scripts/seguridad/correo-limitador-pg.mjs.
+    limitador: { async golpe(clave, regla, ahoraMs) {
+      if (limiteRoto) throw new Error('rpc caída');
+      const tipo = regla.tipo || 'identidad';
+      if (!['ip', 'identidad'].includes(tipo)) throw new Error('frisku_sp_rl_consumir: parametros invalidos');
+      const now = ahoraMs, vent = Math.max(1, Math.ceil(regla.ventanaMs / 1000)) * 1000, bloq = Math.max(0, Math.ceil((regla.bloqueoMs || 0) / 1000)) * 1000;
+      const f = cuentas.get(clave) || { contador: 0, inicio: now, bloqueo: null };
+      if (f.bloqueo && f.bloqueo > now) return { permitido: false };
+      let c, ini, b;
+      if (f.inicio < now - vent) { c = 1; ini = now; b = null; } else { c = f.contador + 1; ini = f.inicio; b = f.bloqueo; }
+      if (c > regla.max) b = now + bloq;
+      cuentas.set(clave, { contador: c, inicio: ini, bloqueo: b });
+      return { permitido: !(b && b > now) };
+    } },
     leerEjecucion: async ({ empresaId, ejecucionId }) => (empresaId === 'emp1' && ejecucionId === 'ej1' ? EJ : ejecucionId === 'ej-enviado' ? { ...EJ, estado: 'enviado' } : null),
     armarReporte: require('./_reporteDiarioEmail.js').emailDesdeSnapshot,
     cfg: { secret, origenes: [ORIGEN] }, ahora: () => e.reloj,
@@ -215,7 +230,9 @@ async function sesion(env, email, pin) { const r = await pedir(env, { accion: 's
   const { cookie: cO } = await sesion(e, 'operador@ejemplo.test', '333444');
   const d1 = await pedir(e, { accion: 'reporte_diario', empresaId: 'emp1', ejecucionId: 'ej1' }, { cookie: cO });
   const d2 = await pedir(e, { accion: 'reporte_diario', empresaId: 'emp1', ejecucionId: 'ej1' }, { cookie: cO });
-  ok('I7. reporte diario reintentado (la ejecución aún figura pendiente) → un solo envío, el segundo 409', d1.statusCode === 200 && d2.statusCode === 409 && e.enviados.length === 7);
+  ok('I7. reporte diario reintentado (la ejecución aún figura pendiente) → un solo envío; el segundo, «ya procesado»', d1.statusCode === 200 && d2.cuerpo.duplicado === true && e.enviados.length === 7);
+  const { IDEM } = require('./_correo.js');
+  ok('I8. la regla de identidad cumple la función real: tipo admitido y bloqueo > 0 (si no, el segundo uso quedaría permitido)', ['ip', 'identidad'].includes(IDEM.tipo) && IDEM.bloqueoMs > 0 && IDEM.ventanaMs <= 86400e3);
 }
 // ── Límite de intentos, fallas y errores ──
 {

@@ -20,7 +20,7 @@ import { crearResolucionConflicto } from "./persistencia/conflictoFila.js";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
 import { credencialPreservada } from "./data/credencialPreservada";
-import { restaurarFilas, mensajeRestauracion, validarRespaldo } from './restaurarRespaldo.js';
+import { restaurarFilas, mensajeRestauracion, validarRespaldo, prepararRestauracion, resumenPrevioRestauracion } from './restaurarRespaldo.js';
 import { enviarAccion, abrirSesionCorreo, cerrarSesionCorreo } from "./emailHelper";
 import CorreosPendientes from "./CorreosPendientes";
 // ═══════════════════════════════════════════════════════════════════
@@ -1598,6 +1598,10 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
                   const filasAct = await resAct.json();
                   if(!Array.isArray(filasAct)) throw new Error("respuesta inesperada al leer el estado actual; no se restauró nada");
                   const actuales = Object.fromEntries(filasAct.map(f=>[f.id,{value:f.value,updated_at:f.updated_at}]));
+                  // Antes de escribir: accesos y asignaciones de Tareas que NO se aplicarán (se
+                  // conservan los vigentes). Si la persona no acepta, no se escribe nada.
+                  const previo = resumenPrevioRestauracion(prepararRestauracion(backup, actuales));
+                  if(previo && !window.confirm(`ANTES DE RESTAURAR\n\n${previo}\n\n¿Restaurar los datos del respaldo con estas condiciones?`)) { alert("Restauración cancelada. No se escribió nada."); return; }
                   // Cada fila se comprueba: se informa cuáles quedaron y cuáles no
                   // (src/restaurarRespaldo.js). Nunca "exitoso" ante un resultado parcial.
                   const r = await restaurarFilas(backup, (id, value) => fetch(`${SUPA_URL}/rest/v1/calendario_data`,{

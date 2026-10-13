@@ -6,11 +6,13 @@
 // Si la sesión de correo venció o se revocó (12 h, PIN cambiado, código provisorio,
 // persona desactivada), se renueva con el PIN sin salir de la app.
 import React, { useEffect, useState } from "react";
-import { suscribirCorreos, reintentarCorreo, reintentarTodos, descartarCorreo, abrirSesionCorreo, emailSesionCorreo, REINTENTABLE } from "./emailHelper";
+import { suscribirCorreos, reintentarCorreo, reintentarTodos, descartarCorreo, reenviarIgual, abrirSesionCorreo, emailSesionCorreo, REINTENTABLE } from "./emailHelper";
 
 const TEXTO = {
-  red: "Sin conexión con el servidor de correo. Si llegó a salir, el reintento no lo repite.",
-  servidor: "El servidor de correo falló y este envío no salió.",
+  red: "Resultado incierto: no hubo respuesta. Reintentar es seguro: si ya había salido, no se repite.",
+  gateway: "Resultado incierto: el servidor no alcanzó a responder. Reintentar es seguro: si ya había salido, no se repite.",
+  procesado: "Resultado incierto: el servidor ya había recibido este envío y no lo repite, pero no puede confirmar si salió. Verifica con el destinatario.",
+  servidor: "No salió: el servidor de correo informó una falla.",
   no_configurado: "El correo no está configurado en el servidor.",
   sin_sesion: "Tu sesión de correo venció o se cerró (12 h, cambio de PIN o código provisorio).",
   limite: "Demasiados envíos seguidos. Espera unos minutos y reintenta.",
@@ -43,7 +45,7 @@ export default function CorreosPendientes({ email: emailProp }) {
   return (
     <div role="status" aria-live="polite" data-testid="correos-pendientes" style={caja}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#fffbeb", borderRadius: "10px 10px 0 0" }}>
-        <strong style={{ flex: 1 }}>⚠ {lista.length} correo{lista.length > 1 ? "s" : ""} sin enviar</strong>
+        <strong style={{ flex: 1 }}>⚠ {lista.length} correo{lista.length > 1 ? "s" : ""} sin confirmar</strong>
         {lista.some((e) => REINTENTABLE[e.estado] && e.estado !== "sin_sesion") &&
           <button style={btn} disabled={enCurso} onClick={() => reintentarTodos()} data-testid="correos-reintentar-todos">Reintentar todos</button>}
         <button style={btn} aria-expanded={abierto} onClick={() => setAbierto(!abierto)}>{abierto ? "Ocultar" : "Ver"}</button>
@@ -52,11 +54,13 @@ export default function CorreosPendientes({ email: emailProp }) {
         {lista.map((e) => (
           <div key={e.id} data-testid="correo-pendiente" style={{ borderTop: "1px solid #f3f4f6", padding: "6px 0" }}>
             <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={e.descripcion}>{e.descripcion}</div>
-            <div style={{ color: "#6b7280", margin: "2px 0 4px" }}>{e.enCurso ? "Enviando…" : TEXTO[e.estado] || e.error}</div>
+            <div style={{ color: e.incierto ? "#92400e" : "#6b7280", margin: "2px 0 4px" }}>{e.enCurso ? "Enviando…" : TEXTO[e.estado] || e.error}
+              {e.ref && <span style={{ display: "block", color: "#9ca3af", fontSize: 11 }}>Referencia {e.ref}</span>}</div>
             <div style={{ display: "flex", gap: 6 }}>
               {REINTENTABLE[e.estado] && e.estado !== "sin_sesion" &&
                 <button style={btn} disabled={e.enCurso} onClick={() => reintentarCorreo(e.id)}>Reintentar</button>}
-              <button style={btn} disabled={e.enCurso} onClick={() => descartarCorreo(e.id)}>Descartar</button>
+              {e.estado === "procesado" && <button style={btn} disabled={e.enCurso} onClick={() => reenviarIgual(e.id)} data-testid="correo-reenviar-igual">Reenviar igual (puede duplicar)</button>}
+              <button style={btn} disabled={e.enCurso} onClick={() => descartarCorreo(e.id)}>{e.estado === "procesado" ? "Ya llegó: quitar" : "Descartar"}</button>
             </div>
           </div>
         ))}

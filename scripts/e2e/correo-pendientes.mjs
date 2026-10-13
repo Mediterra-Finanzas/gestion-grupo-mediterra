@@ -3,7 +3,8 @@
    correo SIMULADO con identidad de envío (igual que api/_correo.js): nada sale.
      APP_URL=http://127.0.0.1:4173 OUT_DIR=/tmp/cp node scripts/e2e/correo-pendientes.mjs
    1. 5xx  → el panel lo muestra; NINGUNA petición a EmailJS.
-   2. red  → reintento con la MISMA identidad; el servidor ya lo había enviado → un solo correo.
+   2. red  → reintento con la MISMA identidad; el servidor ya lo había enviado → un solo correo y
+      el resultado queda INCIERTO («ya recibido»), no «enviado».
    3. 502 «no salió» → el reintento lleva otra identidad y sale una vez.
    4. 401 (sesión vencida) → renovar con el PIN desde el panel y reintentar → sale una vez.
    5. Salir descarta los pendientes. */
@@ -47,18 +48,21 @@ const reintentar = async () => { await panel.getByRole('button', { name: 'Reinte
 // 1. 5xx
 guion = ['503'];
 await notificar('Prueba 5xx'); await p.waitForTimeout(500);
-check('1. 5xx: el panel muestra «1 correo sin enviar» con su descripción', await panel.count() === 1 && /1 correo sin enviar/.test(await panel.innerText()) && /Prueba 5xx/.test(await panel.innerText()));
+check('1. 5xx: el panel muestra «1 correo sin confirmar» con su descripción', await panel.count() === 1 && /1 correo sin confirmar/.test(await panel.innerText()) && /Prueba 5xx/.test(await panel.innerText()));
 await p.screenshot({ path: `${OUT}/panel-5xx.png` });
 check('1b. 5xx: ninguna petición a EmailJS', emailjs.length === 0);
 // 2. red tras enviar (el servidor lo mandó, la respuesta se perdió)
 guion = ['red-tras-enviar'];
 await reintentar();
-check('2. falla de red: sigue a la vista', /Sin conexión/.test(await panel.innerText()));
+check('2. falla de red: sigue a la vista como resultado incierto', /Resultado incierto: no hubo respuesta/.test(await panel.innerText()));
 await reintentar();
 const ids = pedidos.filter(x => x.asunto === 'Prueba 5xx').map(x => x.idEnvio);
 check('2b. los tres intentos llevan la MISMA identidad', ids.length === 3 && new Set(ids).size === 1, ids.join(' · '));
 check('2c. un solo correo enviado aunque se reintentó', nEnv('Prueba 5xx') === 1);
-check('2d. el panel desaparece al confirmar el servidor', await panel.count() === 0);
+check('2d. el reintento queda como RESULTADO INCIERTO («ya recibido»), no como enviado', /Resultado incierto: el servidor ya había recibido/.test(await panel.innerText()) && await p.getByTestId('correo-reenviar-igual').count() === 1);
+await p.screenshot({ path: `${OUT}/panel-incierto.png` });
+await panel.getByRole('button', { name: 'Ya llegó: quitar' }).click(); await p.waitForTimeout(400);
+check('2e. «Ya llegó: quitar» lo saca sin enviar otra vez', await panel.count() === 0 && nEnv('Prueba 5xx') === 1);
 // 3. 502 con identidad consumida
 guion = ['502-consumido'];
 await notificar('Prueba 502'); await p.waitForTimeout(500);

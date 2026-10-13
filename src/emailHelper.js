@@ -43,22 +43,37 @@ const nuevoId = () => {
   return `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 };
 
-// Qué le pasó a un intento. «enviado» incluye «ya procesado por el servidor».
+// Qué le pasó a un intento. Se distingue lo CONFIRMADO de lo INCIERTO:
+//   enviado      el servidor confirmó el envío (200 sin «duplicado»).
+//   Fallo confirmado (no salió; el reintento es seguro):
+//     rechazado (400/403/404/409, reintentar no cambia nada) · sin_sesion (401) · limite (429)
+//     servidor (502/503 con respuesta del servidor de correo) · no_configurado (503)
+//   Incierto (pudo haber salido):
+//     red        sin respuesta (falla de red o la conexión se cortó)
+//     gateway    5xx sin respuesta del servidor de correo (p. ej. tiempo agotado en Vercel)
+//     procesado  el servidor ya había recibido ESE envío: no se repite, pero no guarda si salió
+// En los dos primeros inciertos, reintentar con la MISMA identidad es seguro: si había llegado,
+// el servidor responde «procesado» en vez de enviar otra vez. «procesado» no se reintenta solo:
+// la persona decide quitarlo (llegó) o reenviarlo a sabiendas de que puede duplicar.
 export function clasificarRespuesta(r) {
-  const err = r && r.data && r.data.error;
+  const d = (r && r.data) || {};
+  const err = d.error;
+  if (r && r.ok && d.duplicado) return "procesado";
   if (r && r.ok) return "enviado";
-  if (r && r.status === 409 && err === "ya_enviado") return "enviado";
+  if (r && r.status === 409 && err === "ya_enviado") return "enviado";      // la ejecución figura enviada
   if (!r || r.status === 0) return "red";
   if (r.status === 401) return "sin_sesion";
   if (r.status === 429) return "limite";
   if (r.status === 503 && err === "no_configurado") return "no_configurado";
-  if (r.status >= 500) return "servidor";
-  return "rechazado";                                   // 400/403/404/409: reintentar no sirve
+  if (r.status >= 500) return err ? "servidor" : "gateway";
+  return "rechazado";
 }
-export const REINTENTABLE = { red: true, sin_sesion: true, limite: true, servidor: true, no_configurado: true, rechazado: false };
+export const INCIERTO = { red: true, gateway: true, procesado: true };
+export const REINTENTABLE = { red: true, gateway: true, sin_sesion: true, limite: true, servidor: true, no_configurado: true, rechazado: false, procesado: false };
 
 async function intentar(envio) {
   const idEnvio = envio.intento ? `${envio.id}.${envio.intento}` : envio.id;
+  envio.ref = idEnvio.slice(0, 12);
   envio.enCurso = true; avisar();
   const r = await correoServidor(envio.accion, { ...envio.datos, idEnvio, intento: envio.intento || undefined });
   envio.enCurso = false;
@@ -66,14 +81,14 @@ async function intentar(envio) {
   if (estado === "enviado") {
     pendientes = pendientes.filter((p) => p.id !== envio.id); avisar();
     try { envio.alEnviar && envio.alEnviar(r); } catch (e) {}
-    return { success: true, method: "smtp", duplicado: !!(r.data && r.data.duplicado), data: r.data };
+    return { success: true, method: "smtp", data: r.data };
   }
   if (r.data && r.data.reintento === "nuevo") envio.intento = (envio.intento || 0) + 1;   // ese intento no salió
-  Object.assign(envio, { estado, status: r.status, error: (r.data && r.data.error) || (r.red ? "red" : `HTTP ${r.status}`), ts: Date.now() });
+  Object.assign(envio, { estado, incierto: !!INCIERTO[estado], status: r.status, error: (r.data && r.data.error) || (r.red ? "red" : `HTTP ${r.status}`), ts: Date.now() });
   if (!pendientes.some((p) => p.id === envio.id)) pendientes = [...pendientes, envio];
   avisar();
-  console.warn("[Email] no enviado:", envio.descripcion, estado, envio.error);
-  return { success: false, estado, error: envio.error };
+  console.warn("[Email] no confirmado:", envio.descripcion, estado, envio.ref);
+  return { success: false, estado, incierto: envio.incierto, error: envio.error };
 }
 
 // enviarAccion("notificacion", {para, asunto, mensaje}, {descripcion, alEnviar})
@@ -90,12 +105,19 @@ export async function reintentarTodos() {
   for (const e of lista) await intentar(e);              // en orden: no dispara ráfagas
 }
 export function descartarCorreo(id) { pendientes = pendientes.filter((p) => p.id !== id); avisar(); }
+// Resultado incierto («procesado»): reenviar con OTRA identidad, a sabiendas de que puede llegar dos veces.
+export function reenviarIgual(id) {
+  const e = pendientes.find((p) => p.id === id);
+  if (!e || e.enCurso || e.estado !== "procesado") return Promise.resolve({ success: false });
+  e.intento = (e.intento || 0) + 1;
+  return intentar(e);
+}
 // Solo para pruebas.
 export function _reiniciarCorreos() { pendientes = []; avisar(); }
 
 export async function enviarReporteDiario({ empresaId, ejecucionId }) {
   const r = await enviarAccion("reporte_diario", { empresaId, ejecucionId }, { descripcion: `Reporte diario ${ejecucionId}` });
-  return r.success ? { success: true, method: "smtp", messageId: r.data && r.data.messageId } : { success: false, error: r.error };
+  return r.success ? { success: true, method: "smtp", messageId: r.data && r.data.messageId } : { success: false, error: r.error, incierto: r.incierto };
 }
 
 /**

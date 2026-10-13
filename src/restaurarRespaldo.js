@@ -101,11 +101,73 @@ function diferenciasAprobadores(r, h) {
   return claves.length ? [`${claves.length} asignación(es) de aprobador distintas: ${claves.slice(0, 10).join(", ")}${claves.length > 10 ? "…" : ""} (se conservan las de hoy)`] : [];
 }
 
+// ── Asignaciones de Tareas (responsable, supervisor, co-responsables) ──
+// Son asignaciones sensibles: deciden quién marca y quién aprueba. Un respaldo restaura las
+// TAREAS (estados, comentarios, configuración), pero no cambia por su cuenta a quién están
+// asignadas hoy: en `main.supervisores`, `main.tareasOverrides`, `main.tareasConfig` y
+// `main.tareasExtra` se conservan las asignaciones vigentes y las diferencias se muestran
+// ANTES de escribir. Una tarea que hoy no existe vuelve con las del respaldo, y se informa.
+export const CAMPOS_ASIGNACION = ["responsable", "supervisor", "coResponsables"];
+const fmtAsig = (v) => Array.isArray(v) ? (v.length ? v.join(", ") : "—") : (v == null || v === "" ? "—" : String(v));
+export function conservarAsignacionesTareas(dato, actual) {
+  const out = { ...dato }, dif = [];
+  const hoy = actual && typeof actual === "object" ? actual : null;
+  if (!hoy) return { dato: out, diferencias: [] };      // sin estado de hoy: no hay asignación vigente que cambiar
+  // supervisores: { idTarea: nombre }
+  if (dato.supervisores || hoy.supervisores) {
+    const R = dato.supervisores || {}, H = hoy.supervisores || {};
+    Object.keys({ ...R, ...H }).forEach((id) => { if ((R[id] || "") !== (H[id] || "")) dif.push(`Tarea ${id}: supervisor hoy «${fmtAsig(H[id])}», en el respaldo «${fmtAsig(R[id])}» (se conserva el de hoy)`); });
+    if (hoy.supervisores) out.supervisores = hoy.supervisores; else delete out.supervisores;
+  }
+  // Mapas por tarea con campos de asignación.
+  ["tareasOverrides", "tareasConfig"].forEach((mapa) => {
+    const R = dato[mapa], H = hoy[mapa] || {};
+    if (!R || typeof R !== "object") return;
+    const nuevo = {};
+    Object.keys({ ...R, ...H }).forEach((id) => {
+      const r = R[id], h = H[id];
+      if (r === undefined) {                               // hoy tiene asignaciones que el respaldo no trae: se conservan
+        const solo = {}; CAMPOS_ASIGNACION.forEach((c) => { if (h && c in h) solo[c] = h[c]; });
+        if (Object.keys(solo).length) { nuevo[id] = solo; dif.push(`Tarea ${id}: asignación de hoy que el respaldo no trae (se conserva)`); }
+        return;
+      }
+      const e = { ...r };
+      CAMPOS_ASIGNACION.forEach((c) => {
+        const vh = h ? h[c] : undefined, vr = r[c];
+        if (JSON.stringify(vh ?? null) === JSON.stringify(vr ?? null)) return;
+        dif.push(`Tarea ${id}: ${c} hoy «${fmtAsig(vh)}», en el respaldo «${fmtAsig(vr)}» (se conserva el de hoy)`);
+        if (vh === undefined) delete e[c]; else e[c] = vh;
+      });
+      nuevo[id] = e;
+    });
+    out[mapa] = nuevo;
+  });
+  // Tareas extra: por id.
+  if (Array.isArray(dato.tareasExtra)) {
+    const H = new Map((Array.isArray(hoy.tareasExtra) ? hoy.tareasExtra : []).filter((t) => t && t.id).map((t) => [t.id, t]));
+    out.tareasExtra = dato.tareasExtra.map((t) => {
+      if (!t || !t.id) return t;
+      const h = H.get(t.id);
+      if (!h) { dif.push(`Tarea extra ${t.id} («${t.nombre || ""}»): hoy no existe; vuelve con responsable «${fmtAsig(t.responsable)}» y supervisor «${fmtAsig(t.supervisor)}» del respaldo (revisar)`); return t; }
+      const e = { ...t };
+      CAMPOS_ASIGNACION.forEach((c) => {
+        if (JSON.stringify(h[c] ?? null) === JSON.stringify(t[c] ?? null)) return;
+        dif.push(`Tarea extra ${t.id}: ${c} hoy «${fmtAsig(h[c])}», en el respaldo «${fmtAsig(t[c])}» (se conserva el de hoy)`);
+        if (h[c] === undefined) delete e[c]; else e[c] = h[c];
+      });
+      return e;
+    });
+    const ids = new Set(dato.tareasExtra.map((t) => t && t.id));
+    H.forEach((h, id) => { if (!ids.has(id)) dif.push(`Tarea extra ${id} («${h.nombre || ""}»): existe hoy y el respaldo no la trae (la restauración la quita)`); });
+  }
+  return { dato: out, diferencias: dif };
+}
+
 // actuales: { [id]: { value, updated_at } } tal como están HOY en el servidor.
 export function prepararRestauracion(backup, actuales) {
   const v = validarRespaldo(backup);
   if (!v.ok) return { ok: false, errores: v.errores, filas: [] };
-  const filas = [], notas = [], accesos = [];
+  const filas = [], notas = [], accesos = [], asignaciones = [];
   const hoy = (id) => (actuales[id] ? parsear(actuales[id].value) : undefined);
   for (const [id, tabla] of Object.entries(backup.tablas)) {
     let dato = parsear(tabla.data);
@@ -130,13 +192,31 @@ export function prepararRestauracion(backup, actuales) {
         if (dif.length) accesos.push({ id: `${id}.${campo}`, que: CAMPOS_ACCESO[id][campo], diferencias: dif });
       }
     }
+    if (id === "main" && dato && typeof dato === "object" && !Array.isArray(dato)) {
+      const r = conservarAsignacionesTareas(dato, hoy("main"));
+      dato = r.dato;
+      if (r.diferencias.length) asignaciones.push(...r.diferencias);
+    }
     // Misma codificación que la fila tiene hoy. Si no existe, como objeto (jsonb).
     const comoTexto = actual ? typeof actual.value === "string" : typeof tabla.data === "string" && typeof dato === "string";
     const value = comoTexto ? (typeof dato === "string" ? dato : JSON.stringify(dato)) : dato;
     filas.push({ id, value, codificacion: comoTexto ? "texto" : "objeto" });
   }
   if (accesos.length) notas.push(`Accesos: se conservaron los vigentes (${accesos.map((a) => a.id).join(", ")}). Un cambio de acceso se revisa por separado.`);
-  return { ok: true, errores: [], filas, notas, accesos };
+  if (asignaciones.length) notas.push(`Tareas: se conservaron las asignaciones vigentes (responsables y supervisores); ${asignaciones.length} diferencia(s) con el respaldo.`);
+  return { ok: true, errores: [], filas, notas, accesos, asignaciones };
+}
+
+// Texto para mostrar ANTES de escribir: qué no se aplicará y por qué. Vacío si no hay nada.
+export function resumenPrevioRestauracion(plan, max = 20) {
+  if (!plan || !plan.ok) return "";
+  const acc = (plan.accesos || []).flatMap((a) => a.diferencias.map((d) => `${a.que}: ${d}`));
+  const asig = plan.asignaciones || [];
+  if (!acc.length && !asig.length) return "";
+  const lista = (xs) => xs.slice(0, max).map((x) => `  • ${x}`).join("\n") + (xs.length > max ? `\n  … y ${xs.length - max} más` : "");
+  return (acc.length ? `Accesos que NO se aplicarán (se conservan los de hoy):\n${lista(acc)}\n\n` : "")
+    + (asig.length ? `Asignaciones de Tareas que NO se cambiarán (se conservan las de hoy):\n${lista(asig)}\n\n` : "")
+    + "Cualquier cambio de acceso o de responsable se revisa y aplica por separado.";
 }
 
 // `actuales` (recomendado): el estado de hoy en el servidor. Sin él se conserva el
@@ -161,7 +241,7 @@ export async function restaurarFilas(backup, escribir, { actuales } = {}) {
     const status = res ? res.status : 0;
     fallidas.push({ id, status, motivo: motivoFallo(status, texto), detalle: texto.slice(0, 200) });
   }
-  return { total: tablas.length, restauradas, fallidas, notas: plan.notas || [], accesos: plan.accesos || [] };
+  return { total: tablas.length, restauradas, fallidas, notas: plan.notas || [], accesos: plan.accesos || [], asignaciones: plan.asignaciones || [] };
 }
 
 export function mensajeRestauracion(r, fechaRespaldo) {
@@ -169,7 +249,8 @@ export function mensajeRestauracion(r, fechaRespaldo) {
   if (r.invalido) return `❌ Archivo de respaldo NO aceptado. No se escribió nada.\n\n${lista(r.errores || [], 10)}`;
   const conDif = (r.accesos || []).filter((a) => a.diferencias.length);
   const notas = ((r.notas && r.notas.length) ? `\n\n${r.notas.join("\n")}` : "")
-    + (conDif.length ? `\n\nDiferencias de acceso NO aplicadas (revisar por separado):\n${lista(conDif.flatMap((a) => a.diferencias.map((d) => `${a.que}: ${d}`)))}` : "");
+    + (conDif.length ? `\n\nDiferencias de acceso NO aplicadas (revisar por separado):\n${lista(conDif.flatMap((a) => a.diferencias.map((d) => `${a.que}: ${d}`)))}` : "")
+    + ((r.asignaciones || []).length ? `\n\nAsignaciones de Tareas NO cambiadas (revisar por separado):\n${lista(r.asignaciones)}` : "");
   if (!r.fallidas.length) {
     return `✅ Respaldo restaurado: ${r.restauradas.length} de ${r.total} filas.\nFecha del respaldo: ${fechaRespaldo}${notas}\n\nLa página se recargará ahora.`;
   }

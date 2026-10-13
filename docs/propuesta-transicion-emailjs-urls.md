@@ -10,6 +10,8 @@ Cada fase necesita tu autorización.
 
 ## 1. EmailJS
 
+> **Superado por `docs/plan-transicion-correo.md`**, que es el plan único del correo. Esta sección queda como antecedente.
+
 **Situación actual.**
 
 - Las claves de EmailJS (`service_ahuerta`, `template_notif_tarea`, la plantilla de códigos, clave
