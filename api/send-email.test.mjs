@@ -38,7 +38,7 @@ function entorno({ secret = SECRET, limiteRoto = false, smtpFalla = false } = {}
   const e = { enviados, pins: { ...pins }, usuarios: usuarios.map(u => ({ ...u })), reloj: AHORA, smtpFalla };
   e.handler = crearCorreo({
     leerFilas: async () => ({ usuarios: e.usuarios, pins: e.pins }),
-    transporte: { async enviar(m) { if (e.smtpFalla) throw new Error('535 5.7.3 Authentication unsuccessful [detalle interno del SMTP]'); enviados.push(m); return { messageId: `<sim-${enviados.length}>` }; } },
+    transporte: { async enviar(m) { if (e.smtpError) throw e.smtpError(); if (e.smtpFalla) throw Object.assign(new Error('535 5.7.3 Authentication unsuccessful [detalle interno del SMTP]'), { code: 'EAUTH', responseCode: 535, command: 'AUTH PLAIN' }); enviados.push(m); return { messageId: `<sim-${enviados.length}>` }; } },
     // Réplica de frisku_sp_rl_consumir (api/sql/frisku_sp_ratelimit.sql): tipo estricto, ventana y
     // bloqueo con la MISMA aritmética. La versión contra Postgres real está en
     // scripts/seguridad/correo-limitador-pg.mjs.
@@ -233,6 +233,31 @@ async function sesion(env, email, pin) { const r = await pedir(env, { accion: 's
   ok('I7. reporte diario reintentado (la ejecución aún figura pendiente) → un solo envío; el segundo, «ya procesado»', d1.statusCode === 200 && d2.cuerpo.duplicado === true && e.enviados.length === 7);
   const { IDEM } = require('./_correo.js');
   ok('I8. la regla de identidad cumple la función real: tipo admitido y bloqueo > 0 (si no, el segundo uso quedaría permitido)', ['ip', 'identidad'].includes(IDEM.tipo) && IDEM.bloqueoMs > 0 && IDEM.ventanaMs <= 86400e3);
+}
+// ── «No salió» solo con evidencia; si el envío empezó y no hay respuesta: resultado incierto ──
+{
+  const e = entorno();
+  const { cookie } = await sesion(e, 'ahuerta@grupomediterra.cl', '482913');
+  const env = (id) => pedir(e, { accion: 'notificacion', para: ['mgarcia@grupomediterra.cl'], asunto: 'x', mensaje: 'y', idEnvio: id }, { cookie });
+  const err = (msg, props) => () => Object.assign(new Error(msg), props);
+  const casos = [
+    ['C1. autenticación SMTP rechazada (antes de DATA) → no salió', err('auth', { code: 'EAUTH', responseCode: 535, command: 'AUTH PLAIN' }), 'no_enviado'],
+    ['C2. no se pudo conectar → no salió', err('conn', { code: 'ECONNECTION', command: 'CONN' }), 'no_enviado'],
+    ['C3. destinatario rechazado (RCPT TO) → no salió', err('rcpt', { code: 'EENVELOPE', responseCode: 550, command: 'RCPT TO' }), 'no_enviado'],
+    ['C4. el servidor SMTP rechazó el mensaje al final de DATA (550) → no salió', err('rech', { code: 'EMESSAGE', responseCode: 550, command: 'DATA' }), 'no_enviado'],
+    ['C5. conexión cortada durante DATA, sin respuesta → resultado incierto', err('sock', { code: 'ESOCKET', command: 'DATA' }), 'resultado_incierto'],
+    ['C6. tiempo agotado sin orden conocida → resultado incierto', err('timeout', { code: 'ETIMEDOUT' }), 'resultado_incierto'],
+    ['C7. error sin datos del SMTP → resultado incierto (no se afirma que no salió)', err('raro', {}), 'resultado_incierto'],
+  ];
+  let i = 0;
+  for (const [nombre, f, esperado] of casos) {
+    e.smtpError = f;
+    const r = await env(`caso-smtp-${++i}-xx`);
+    ok(nombre, r.statusCode === 502 && r.cuerpo.error === esperado && (esperado === 'no_enviado' ? r.cuerpo.reintento === 'nuevo' : r.cuerpo.reintento === undefined), JSON.stringify(r.cuerpo));
+  }
+  e.smtpError = null;
+  const otra = await env('caso-smtp-5-xx');
+  ok('C8. tras un resultado incierto, reintentar con la MISMA identidad no reenvía («ya procesado»)', otra.cuerpo.duplicado === true && e.enviados.length === 0);
 }
 // ── Límite de intentos, fallas y errores ──
 {

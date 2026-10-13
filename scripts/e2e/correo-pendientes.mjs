@@ -28,6 +28,7 @@ await ctx.route('**/api/send-email', async (r) => {
   if (paso === 'red-tras-enviar') { if (!usados.has(b.idEnvio)) { usados.add(b.idEnvio); enviados.push(b); } return r.abort('failed'); }
   if (paso === '503') return r.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"no_disponible"}' });
   if (paso === '401') return r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"sin_sesion"}' });
+  if (paso === 'smtp-incierto') { usados.add(b.idEnvio); enviados.push(b); return r.fulfill({ status: 502, contentType: 'application/json', body: '{"error":"resultado_incierto"}' }); }
   if (paso === '502-consumido') { usados.add(b.idEnvio); return r.fulfill({ status: 502, contentType: 'application/json', body: '{"error":"no_enviado","reintento":"nuevo"}' }); }
   if (usados.has(b.idEnvio)) return r.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true,"duplicado":true}' });
   usados.add(b.idEnvio); enviados.push(b);
@@ -69,6 +70,20 @@ await notificar('Prueba 502'); await p.waitForTimeout(500);
 await reintentar();
 const ids3 = pedidos.filter(x => x.asunto === 'Prueba 502').map(x => x.idEnvio);
 check('3. 502 «no salió»: el reintento lleva otra identidad (id.1) y sale una vez', ids3.length === 2 && ids3[1] === `${ids3[0]}.1` && nEnv('Prueba 502') === 1, ids3.join(' · '));
+// 3b. El envío empezó y se perdió la respuesta del proveedor (SMTP aceptó): resultado incierto
+guion = ['smtp-incierto'];
+await notificar('Prueba incierto'); await p.waitForTimeout(500);
+check('3b. envío iniciado sin confirmación → «Resultado incierto», no «No salió»', /Resultado incierto: el envío empezó/.test(await panel.innerText()) && !/No salió/.test(await panel.innerText()));
+check('3c. no se ofrece «Reintentar» (la identidad ya se usó)', await panel.getByRole('button', { name: 'Reintentar', exact: true }).count() === 0);
+const nAntes = pedidos.filter(x => x.asunto === 'Prueba incierto').length;
+await panel.getByTestId('correo-reenviar-igual').click(); await p.waitForTimeout(300);
+check('3d. «Reenviar…» pide confirmar el posible duplicado y no envía todavía', await p.getByTestId('correo-confirmar-reenvio').count() === 1 && /dos veces/.test(await p.getByTestId('correo-confirmar-reenvio').innerText()) && pedidos.filter(x => x.asunto === 'Prueba incierto').length === nAntes);
+await p.screenshot({ path: `${OUT}/panel-confirmar-reenvio.png` });
+await panel.getByRole('button', { name: 'No reenviar' }).click(); await p.waitForTimeout(300);
+check('3e. «No reenviar» no envía nada', pedidos.filter(x => x.asunto === 'Prueba incierto').length === nAntes && await panel.count() === 1);
+await panel.getByTestId('correo-reenviar-igual').click(); await p.getByTestId('correo-confirmar-si').click(); await p.waitForTimeout(800);
+const ids3b = pedidos.filter(x => x.asunto === 'Prueba incierto').map(x => x.idEnvio);
+check('3f. con confirmación explícita se reenvía una vez, con otra identidad', ids3b.length === 2 && ids3b[1] === `${ids3b[0]}.1` && await panel.count() === 0, ids3b.join(' · '));
 // 4. 401 → renovar con el PIN
 guion = ['401'];
 await notificar('Prueba 401'); await p.waitForTimeout(500);

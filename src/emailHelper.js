@@ -43,18 +43,23 @@ const nuevoId = () => {
   return `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 };
 
-// Qué le pasó a un intento. Se distingue lo CONFIRMADO de lo INCIERTO:
+// Qué le pasó a un intento. «No salió» SOLO con evidencia de rechazo o de que el envío no se
+// inició; si se inició y no se puede confirmar, es RESULTADO INCIERTO.
 //   enviado      el servidor confirmó el envío (200 sin «duplicado»).
-//   Fallo confirmado (no salió; el reintento es seguro):
-//     rechazado (400/403/404/409, reintentar no cambia nada) · sin_sesion (401) · limite (429)
-//     servidor (502/503 con respuesta del servidor de correo) · no_configurado (503)
-//   Incierto (pudo haber salido):
-//     red        sin respuesta (falla de red o la conexión se cortó)
+//   Fallo confirmado (no salió):
+//     rechazado      4xx: el servidor rechazó la petición antes de enviar (autorización, contenido)
+//     sin_sesion     401 · limite 429 · no_configurado 503
+//     servidor       502/503 en que el servidor de correo afirma que no salió: el SMTP rechazó
+//                    (conexión, autenticación, destinatario o el mensaje) o el envío no empezó
+//   Resultado incierto (pudo haber salido):
+//     red        sin respuesta: la conexión se perdió y no se sabe hasta dónde llegó
 //     gateway    5xx sin respuesta del servidor de correo (p. ej. tiempo agotado en Vercel)
-//     procesado  el servidor ya había recibido ESE envío: no se repite, pero no guarda si salió
-// En los dos primeros inciertos, reintentar con la MISMA identidad es seguro: si había llegado,
-// el servidor responde «procesado» en vez de enviar otra vez. «procesado» no se reintenta solo:
-// la persona decide quitarlo (llegó) o reenviarlo a sabiendas de que puede duplicar.
+//     incierto   el servidor de correo informa que el envío empezó y no pudo confirmarlo
+//     procesado  el servidor ya había recibido ESE envío: no lo repite, pero no guarda si salió
+// En «red» y «gateway» reintentar con la MISMA identidad es seguro: si había llegado, el servidor
+// responde «procesado» en vez de enviar otra vez. «incierto» y «procesado» no se reintentan solos:
+// la persona decide quitarlo (llegó) o reenviarlo con confirmación explícita del posible duplicado.
+const NO_SALIO = { no_enviado: true, no_disponible: true };
 export function clasificarRespuesta(r) {
   const d = (r && r.data) || {};
   const err = d.error;
@@ -65,11 +70,13 @@ export function clasificarRespuesta(r) {
   if (r.status === 401) return "sin_sesion";
   if (r.status === 429) return "limite";
   if (r.status === 503 && err === "no_configurado") return "no_configurado";
-  if (r.status >= 500) return err ? "servidor" : "gateway";
+  if (r.status >= 500) return err === "resultado_incierto" ? "incierto" : NO_SALIO[err] ? "servidor" : "gateway";
   return "rechazado";
 }
-export const INCIERTO = { red: true, gateway: true, procesado: true };
-export const REINTENTABLE = { red: true, gateway: true, sin_sesion: true, limite: true, servidor: true, no_configurado: true, rechazado: false, procesado: false };
+export const INCIERTO = { red: true, gateway: true, incierto: true, procesado: true };
+// Reintentar = misma identidad (no duplica). No se ofrece donde la identidad ya se usó y el
+// resultado es incierto: ahí el servidor solo respondería «procesado».
+export const REINTENTABLE = { red: true, gateway: true, sin_sesion: true, limite: true, servidor: true, no_configurado: true, rechazado: false, procesado: false, incierto: false };
 
 async function intentar(envio) {
   const idEnvio = envio.intento ? `${envio.id}.${envio.intento}` : envio.id;
@@ -105,10 +112,12 @@ export async function reintentarTodos() {
   for (const e of lista) await intentar(e);              // en orden: no dispara ráfagas
 }
 export function descartarCorreo(id) { pendientes = pendientes.filter((p) => p.id !== id); avisar(); }
-// Resultado incierto («procesado»): reenviar con OTRA identidad, a sabiendas de que puede llegar dos veces.
-export function reenviarIgual(id) {
+// Resultado incierto: reenviar con OTRA identidad. Puede llegar dos veces, así que exige que quien
+// llama declare la confirmación explícita de la persona (`{ confirmado: true }`); sin ella no envía.
+export function reenviarIgual(id, { confirmado = false } = {}) {
   const e = pendientes.find((p) => p.id === id);
-  if (!e || e.enCurso || e.estado !== "procesado") return Promise.resolve({ success: false });
+  if (!confirmado) return Promise.resolve({ success: false, motivo: "sin_confirmacion" });
+  if (!e || e.enCurso || !(e.estado === "procesado" || e.estado === "incierto")) return Promise.resolve({ success: false });
   e.intento = (e.intento || 0) + 1;
   return intentar(e);
 }

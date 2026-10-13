@@ -80,6 +80,21 @@ function usuarioPorEmail(usuarios, email) {
 // hay un código provisorio emitido (que inhabilita el PIN anterior, igual que el login),
 // la sesión deja de valer en el siguiente envío. No revela nada del hash (HMAC con secreto).
 const huellaCred = (cred, secret) => crypto.createHmac("sha256", secret).update(`${cred.salt}:${cred.hash}`).digest("hex").slice(0, 32);
+// ¿El error del SMTP prueba que el mensaje no salió? Si ocurrió antes de DATA:
+// conexión, TLS, autenticación o el rechazo de remitente/destinatarios (nodemailer informa
+// `code` y la orden SMTP en curso en `command`). Cualquier otro error —un corte o un tiempo
+// agotado durante DATA, o una respuesta inesperada después de enviar el contenido— puede
+// haber llegado al proveedor: se informa como RESULTADO INCIERTO, nunca como «no salió».
+const CODIGOS_PREVIOS = new Set(["EAUTH", "ECONNECTION", "EDNS", "ETLS", "EENVELOPE", "ENOAUTH"]);
+const ORDEN_PREVIA = /^(CONN|EHLO|HELO|LHLO|STARTTLS|AUTH|MAIL FROM|RCPT TO)\b/i;
+// También es evidencia una RESPUESTA de rechazo del servidor SMTP (4xx/5xx, `responseCode`), aunque
+// llegue al final de DATA: la respuesta a ese punto es la decisión de aceptar o no el mensaje.
+// Un corte sin respuesta no tiene código y queda incierto.
+function envioNoIniciado(e) {
+  if (!e) return false;
+  if (Number.isInteger(e.responseCode) && e.responseCode >= 400 && e.responseCode < 600) return true;
+  return CODIGOS_PREVIOS.has(e.code) || (typeof e.command === "string" && ORDEN_PREVIA.test(e.command));
+}
 const tieneModulo = (u, mod) => !!u && (u.rol === "admin" || (Array.isArray(u.modulos) && u.modulos.includes(mod)));
 
 // ── Sesión firmada (HMAC con secreto del servidor) ──
@@ -150,7 +165,9 @@ function crearCorreo(deps) {
     return true;
   }
   async function enviar(cuenta, para, asunto, texto, html, ref) {
-    const r = await transporte.enviar({ cuenta, para, asunto: sinSaltos(asunto).slice(0, TOPES.asunto), texto, html });
+    let r;
+    try { r = await transporte.enviar({ cuenta, para, asunto: sinSaltos(asunto).slice(0, TOPES.asunto), texto, html }); }
+    catch (e) { if (e && typeof e === "object") e.__envio = envioNoIniciado(e) ? "no_iniciado" : "incierto"; throw e; }
     log({ evento: "correo_enviado", cuenta, n: para.length, ref });           // ref: para conciliar un resultado incierto
     return r;
   }
@@ -260,12 +277,17 @@ function crearCorreo(deps) {
       }
       return responder(res, 400, { error: "accion_no_permitida" });
     } catch (e) {
-      log({ evento: "correo_error", accion, ref, consumido, motivo: String((e && e.message) || e).slice(0, 80) });
-      // genérico: sin detalles del SMTP. Si la identidad ya se consumió, este intento NO salió
-      // y el reintento debe llevar otra (si no, se informaría «ya procesado» sin haber salido).
+      const fase = (e && e.__envio) || "previo";                    // previo: falló antes de llamar al SMTP
+      log({ evento: "correo_error", accion, ref, consumido, fase, motivo: String((e && e.message) || e).slice(0, 80) });
+      // Genérico: sin detalles del SMTP.
+      //  · incierto: el envío empezó y no se sabe si el proveedor lo aceptó. La identidad ya se
+      //    usó: un reintento con ella recibe «ya procesado» y no reenvía.
+      //  · no iniciado (o fallo previo con la identidad consumida): no salió; el siguiente
+      //    intento va con otra identidad para no recibir un «ya procesado» de algo que no salió.
+      if (fase === "incierto") return responder(res, 502, { error: "resultado_incierto" });
       return responder(res, 502, consumido ? { error: "no_enviado", reintento: "nuevo" } : { error: "no_enviado" });
     }
   };
 }
 
-module.exports = { crearCorreo, verificarHash, verificarToken, firmar, huellaCred, COOKIE, COOKIE_PATH, LIMITES, TOPES, CAP, IDEM };
+module.exports = { crearCorreo, envioNoIniciado, verificarHash, verificarToken, firmar, huellaCred, COOKIE, COOKIE_PATH, LIMITES, TOPES, CAP, IDEM };

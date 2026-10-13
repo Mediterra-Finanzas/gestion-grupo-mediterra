@@ -52,7 +52,11 @@ test("«procesado»: reenviar a sabiendas usa OTRA identidad; quitar lo saca sin
   await notif();
   await H.reintentarCorreo(H.correosPendientes()[0].id);
   const [p] = H.correosPendientes();
-  const r = await H.reenviarIgual(p.id);
+  const sin = await H.reenviarIgual(p.id);                   // sin confirmación explícita: no envía
+  expect(sin.success).toBe(false);
+  expect(sin.motivo).toBe("sin_confirmacion");
+  expect(llamadas).toHaveLength(2);
+  const r = await H.reenviarIgual(p.id, { confirmado: true });
   expect(r.success).toBe(true);
   expect(llamadas[2].body.idEnvio).toBe(`${llamadas[0].body.idEnvio}.1`);
   respuestas = ["red", resp(200, { success: true, duplicado: true })];
@@ -61,6 +65,37 @@ test("«procesado»: reenviar a sabiendas usa OTRA identidad; quitar lo saca sin
   H.descartarCorreo(H.correosPendientes()[0].id);
   expect(H.correosPendientes()).toHaveLength(0);
   expect(llamadas.length).toBe(n);
+});
+
+test("«No salió» solo con evidencia; envío iniciado sin confirmación = resultado incierto", async () => {
+  const casos = [
+    [resp(502, { error: "no_enviado", reintento: "nuevo" }), "servidor", false],   // el SMTP rechazó o no empezó
+    [resp(503, { error: "no_disponible" }), "servidor", false],                   // se detuvo antes de enviar
+    [resp(403, { error: "destinatario_no_permitido" }), "rechazado", false],
+    [resp(502, { error: "resultado_incierto" }), "incierto", true],               // empezó y se perdió la respuesta
+    [resp(502, { error: "algo_desconocido" }), "gateway", true],                  // sin evidencia: incierto
+    [resp(504, {}), "gateway", true],
+    ["red", "red", true],
+  ];
+  for (const [rta, estado, incierto] of casos) {
+    H._reiniciarCorreos(); respuestas = [rta];
+    await notif();
+    const [p] = H.correosPendientes();
+    expect([p.estado, p.incierto]).toEqual([estado, incierto]);
+  }
+  expect(H.REINTENTABLE.incierto).toBe(false);                // la identidad ya se usó: solo «procesado»
+});
+
+test("resultado incierto del SMTP: reenviar exige confirmación y usa otra identidad", async () => {
+  respuestas = [resp(502, { error: "resultado_incierto" }), resp(200, { success: true })];
+  await notif();
+  const [p] = H.correosPendientes();
+  expect((await H.reintentarCorreo(p.id)).success).toBe(false);   // no hay «reintentar» que duplique
+  expect((await H.reenviarIgual(p.id)).motivo).toBe("sin_confirmacion");
+  expect(llamadas).toHaveLength(1);
+  const r = await H.reenviarIgual(p.id, { confirmado: true });
+  expect(r.success).toBe(true);
+  expect(llamadas[1].body.idEnvio).toBe(`${llamadas[0].body.idEnvio}.1`);
 });
 
 test("5xx sin respuesta del servidor de correo (tiempo agotado): incierto; con respuesta: fallo confirmado", async () => {

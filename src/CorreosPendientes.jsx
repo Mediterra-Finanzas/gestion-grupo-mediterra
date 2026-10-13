@@ -12,6 +12,7 @@ const TEXTO = {
   red: "Resultado incierto: no hubo respuesta. Reintentar es seguro: si ya había salido, no se repite.",
   gateway: "Resultado incierto: el servidor no alcanzó a responder. Reintentar es seguro: si ya había salido, no se repite.",
   procesado: "Resultado incierto: el servidor ya había recibido este envío y no lo repite, pero no puede confirmar si salió. Verifica con el destinatario.",
+  incierto: "Resultado incierto: el envío empezó y se perdió la respuesta del proveedor. Pudo haber llegado. Verifica con el destinatario.",
   servidor: "No salió: el servidor de correo informó una falla.",
   no_configurado: "El correo no está configurado en el servidor.",
   sin_sesion: "Tu sesión de correo venció o se cerró (12 h, cambio de PIN o código provisorio).",
@@ -24,6 +25,7 @@ export default function CorreosPendientes({ email: emailProp }) {
   const [abierto, setAbierto] = useState(true);
   const [pin, setPin] = useState("");
   const [msgPin, setMsgPin] = useState("");
+  const [confirmando, setConfirmando] = useState(null);   // id del envío cuyo reenvío se está confirmando
   useEffect(() => suscribirCorreos(setLista), []);
   if (!lista.length) return null;
   const email = emailProp || emailSesionCorreo();
@@ -59,9 +61,18 @@ export default function CorreosPendientes({ email: emailProp }) {
             <div style={{ display: "flex", gap: 6 }}>
               {REINTENTABLE[e.estado] && e.estado !== "sin_sesion" &&
                 <button style={btn} disabled={e.enCurso} onClick={() => reintentarCorreo(e.id)}>Reintentar</button>}
-              {e.estado === "procesado" && <button style={btn} disabled={e.enCurso} onClick={() => reenviarIgual(e.id)} data-testid="correo-reenviar-igual">Reenviar igual (puede duplicar)</button>}
-              <button style={btn} disabled={e.enCurso} onClick={() => descartarCorreo(e.id)}>{e.estado === "procesado" ? "Ya llegó: quitar" : "Descartar"}</button>
+              {(e.estado === "procesado" || e.estado === "incierto") && confirmando !== e.id &&
+                <button style={btn} disabled={e.enCurso} onClick={() => setConfirmando(e.id)} data-testid="correo-reenviar-igual">Reenviar…</button>}
+              {confirmando !== e.id && <button style={btn} disabled={e.enCurso} onClick={() => descartarCorreo(e.id)}>{e.incierto && !REINTENTABLE[e.estado] ? "Ya llegó: quitar" : "Descartar"}</button>}
             </div>
+            {confirmando === e.id && <div role="alertdialog" aria-label="Confirmar reenvío" data-testid="correo-confirmar-reenvio"
+              style={{ marginTop: 6, padding: 8, border: "1px solid #f59e0b", borderRadius: 6, background: "#fffbeb" }}>
+              <div style={{ marginBottom: 6 }}>Este correo pudo haber llegado. Si lo reenvías, el destinatario puede recibirlo <strong>dos veces</strong>.</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button style={btn} data-testid="correo-confirmar-si" onClick={() => { setConfirmando(null); reenviarIgual(e.id, { confirmado: true }); }}>Sí, reenviar aunque pueda duplicarse</button>
+                <button style={btn} onClick={() => setConfirmando(null)}>No reenviar</button>
+              </div>
+            </div>}
           </div>
         ))}
         {sinSesion && <form onSubmit={renovar} style={{ borderTop: "1px solid #f3f4f6", paddingTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
