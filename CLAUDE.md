@@ -870,6 +870,35 @@ Pendiente de decisión: `subLines` también se guarda por etiqueta
 hay un test que falla si eso cambia; si alguna vez ocurre, hay que darle la
 misma identidad por categoría.
 
+#### Vista semanal: entrar y salir de una celda no es un cambio (oct-2026)
+
+En c9c5792, hacer clic en una semana vacía («—») del flujo y salir guardaba 0
+en esa semana; como el mes suma solo las semanas guardadas, **el mes completo
+quedaba en 0** aunque tuviera valor calculado o manual, sin aviso. Y escribir un
+valor en UNA semana descartaba lo que las otras mostraban (2.700 calculado + 1.000
+escrito daba 1.000). Dos correcciones:
+
+- `CeldaEditable` no llama `onSave` si el texto no cambió (clic y salir, o
+  reescribir lo mismo). Un 0 escrito explícitamente sí se guarda.
+- `handleEditProy`, al crear el objeto semanal de un mes que no lo tenía, parte
+  de `semillaSemanal(efectivo, base, _semProy)`: lo que la pantalla mostraba
+  (valor manual mensual en la última semana, calculado en la primera, o el
+  reparto semanal propio de la línea). La regla mensual-vs-semanal no cambia.
+
+Fijado con `src/__tests__/semanalYAvisosCreditos.test.js` y
+`scripts/e2e/semanal-sin-perdida.mjs` (falla en c9c5792: guarda `{_sem2:0}` y el
+mes pasa de 2.700 a 0).
+
+#### Avisos de Créditos también en el Excel (oct-2026)
+
+`avisosCreditosEmpresa` es la única fuente de los avisos de Créditos del flujo
+(vencidas arrastradas, por conciliar, sin TC, TC estimado/antiguo, valores
+manuales antiguos en Pago Préstamos) y `textosAvisosCreditos` los pasa a texto.
+`avisosDeEmpresa(..., {creditos, empresasBase})` los agrega al subtítulo y al pie
+del Excel individual y del consolidado (`Consolidado` recibe `creditosData`).
+Antes el archivo no decía que un crédito sin TC no entraba al flujo. Prueba:
+`scripts/e2e/avisos-creditos-excel.mjs`.
+
 #### Bug histórico arreglado (no volver a romper)
 
 El subtotal de categoría debe **incluir** las sublines de líneas con "Préstamos" en el nombre. Antes se excluían y generaba descuadre con el Flujo Neto. La exclusión `!l.label.includes("Préstamos")` fue removida del cálculo de subtotales — no volverla a poner.
