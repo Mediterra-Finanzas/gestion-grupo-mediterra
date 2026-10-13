@@ -552,9 +552,73 @@ export function registrarPagoIdempotente(c, pago, usuario = '') {
 
 // ── Conciliación de cuotas históricas ────────────────────────────────
 // c.control_desde: fecha desde la cual el crédito se controla en la app (se
-// fija al darlo de alta). Registros anteriores no lo tienen: todas sus
-// cuotas vencidas sin pago quedan por conciliar.
-export function controlDesde(c) { return c && isoValida(c.control_desde) ? c.control_desde : null; }
+// fija al darlo de alta). Los registros anteriores no la tienen. Antes, para
+// ellos TODA cuota vencida sin pago quedaba "por conciliar" y salía del flujo
+// al vencer: una obligación pendiente desaparecía sin ninguna acción. Regla
+// (CFO, 13-10-2026): una cuota no sale del flujo por vencer. Para esos
+// registros el control rige desde CONTROL_DESDE_REGISTROS_ANTIGUOS: lo que
+// venció ANTES sigue por conciliar (como hasta ahora, sin cambiar ninguna
+// cifra), y lo que vence desde esa fecha, impago, es vencida confirmada y se
+// arrastra al mes en curso. No se escribe en el registro: es la lectura del
+// mismo campo cuando falta.
+export const CONTROL_DESDE_REGISTROS_ANTIGUOS = '2026-10-13';
+export function controlDesde(c) {
+  if (!c) return null;
+  return isoValida(c.control_desde) ? c.control_desde : CONTROL_DESDE_REGISTROS_ANTIGUOS;
+}
+export const controlDesdePorRegla = (c) => !!c && !isoValida(c.control_desde);
+
+// ── Fecha estimada de pago de una cuota ──────────────────────────────
+// Proyecta el pago pendiente de UNA cuota en otra fecha SIN tocar el
+// vencimiento contractual (que sigue mandando para "vencida", el análisis y
+// la conciliación). No paga, no renueva ni cancela nada.
+// c.fechas_estimadas: [{ id, vencKey, fecha, motivo, usuario, ts,
+//                        anulada?, motivoAnulacion?, anuladaPor?, anuladaTs? }]
+// Nunca se borra: reemplazarla o quitarla la anula con motivo.
+export const fechasEstimadasVigentes = (c) => (c && Array.isArray(c.fechas_estimadas) ? c.fechas_estimadas : []).filter(x => x && !x.anulada);
+export function fechaEstimadaVigente(c, vencKey) {
+  const xs = fechasEstimadasVigentes(c).filter(x => x.vencKey === vencKey);
+  return xs.length ? xs[xs.length - 1] : null;
+}
+export function registrarFechaEstimada(c, vencKey, fecha, motivo, usuario = '', hoy = hoyISO()) {
+  if (!isoValida(fecha)) throw new Error('La fecha estimada de pago debe ser una fecha válida (AAAA-MM-DD).');
+  if (fecha < hoy) throw new Error('La fecha estimada de pago no puede ser anterior a hoy.');
+  if (!motivo || !String(motivo).trim()) throw new Error('Indica el motivo de la fecha estimada (quién la informó y cuándo).');
+  const v = aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.find(x => x.key === vencKey);
+  if (!v) throw new Error('Vencimiento no encontrado.');
+  if (!(v.pendienteTotal > 0)) throw new Error('La cuota no tiene saldo pendiente.');
+  if (v.porConciliar) throw new Error('Primero concilia la cuota: registra el pago si se pagó, o confírmala impaga con su respaldo.');
+  const ts = new Date().toISOString();
+  const previa = fechaEstimadaVigente(c, vencKey);
+  const lista = (c.fechas_estimadas || []).map(x => x === previa
+    ? { ...x, anulada: true, motivoAnulacion: `reemplazada por ${fecha}`, anuladaPor: usuario, anuladaTs: ts } : x);
+  const nueva = { id: `fe-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, vencKey, fecha,
+    motivo: String(motivo).trim(), usuario, ts };
+  return { ...c, fechas_estimadas: [...lista, nueva],
+    historial: [...(c.historial || []), { ts, usuario, accion: 'fecha estimada',
+      detalle: `${vencKey}: pago estimado ${fecha} (vencimiento contractual ${v.fecha}) · ${nueva.motivo}` }] };
+}
+export function quitarFechaEstimada(c, vencKey, motivo, usuario = '') {
+  const previa = fechaEstimadaVigente(c, vencKey);
+  if (!previa) throw new Error('La cuota no tiene fecha estimada vigente.');
+  if (!motivo || !String(motivo).trim()) throw new Error('Quitar la fecha estimada requiere motivo.');
+  const ts = new Date().toISOString();
+  return { ...c,
+    fechas_estimadas: c.fechas_estimadas.map(x => x === previa
+      ? { ...x, anulada: true, motivoAnulacion: String(motivo).trim(), anuladaPor: usuario, anuladaTs: ts } : x),
+    historial: [...(c.historial || []), { ts, usuario, accion: 'fecha estimada quitada',
+      detalle: `${vencKey}: vuelve al vencimiento contractual · ${String(motivo).trim()}` }] };
+}
+// Dónde se proyecta el pendiente de una cuota (NO por conciliar):
+//   'estimada'  → fecha estimada vigente, hoy o posterior;
+//   'arrastre'  → vencida (contractual < hoy) sin estimada vigente futura: hoy;
+//   'contractual' → su vencimiento.
+export function fechaProyeccion(c, v, hoy = hoyISO()) {
+  const est = fechaEstimadaVigente(c, v.key);
+  if (est && est.fecha >= hoy) return { fecha: est.fecha, tipo: 'estimada', estimada: est };
+  if (v.fecha < hoy) return { fecha: hoy, tipo: 'arrastre', estimadaVencida: est || null };
+  return { fecha: v.fecha, tipo: 'contractual' };
+}
 export const conciliacionesVigentes = (c) => (c && Array.isArray(c.conciliaciones) ? c.conciliaciones : []).filter(x => x && !x.anulado);
 export function confirmarImpaga(c, vencKey, nota, usuario = '') {
   if (!vencimientosCredito(c).some(v => v.key === vencKey)) throw new Error('Vencimiento no encontrado.');
@@ -737,7 +801,7 @@ export function flujoCreditosEmpresa(empresa, creditos, opts = {}) {
   const bloque = () => ({ total: Z(), capital: Z(), interes: Z(), cargos: Z(), sinDesglose: Z(), sem: {}, porAcreedor: {},
     semComp: { capital: {}, interes: {}, cargos: {}, sinDesglose: {} } });
   const out = { prestamos: bloque(), renovaciones: bloque(), ingresos: { total: Z(), porAcreedor: {} },
-    arrastrados: [], porConciliar: [], sinTC: [], antesHorizonte: [], valorizacion: [] };
+    arrastrados: [], porConciliar: [], sinTC: [], antesHorizonte: [], valorizacion: [], estimados: [], fueraHorizonte: [] };
   const hoyPos = ubicar ? ubicar(hoy) : { idx: -1, semIdx: 0 };
   (creditos || []).filter(c => c && c.empresa === empresa && !esAnulado(c)).forEach(c => {
     const f = factorUSD(c);
@@ -751,9 +815,20 @@ export function flujoCreditosEmpresa(empresa, creditos, opts = {}) {
       const f = factorVencimiento(c, v.fecha < hoy ? hoy : v.fecha);
       // Por conciliar: NO entra al flujo; se informa con su impacto potencial.
       if (v.porConciliar) { out.porConciliar.push({ ...v, usd: r2(v.pendienteTotal * f) }); return; }
+      const fp = fechaProyeccion(c, v, hoy);
       let pos = ubicar ? ubicar(v.fecha) : { idx: -1, semIdx: 0 };
-      // Impago con fecha pasada: se arrastra al mes/semana en curso (no se pierde).
-      if (v.fecha < hoy && hoyPos.idx >= 0) { pos = hoyPos; out.arrastrados.push({ ...v, usd: r2(v.pendienteTotal * f) }); }
+      if (fp.tipo === 'estimada') {
+        // Fecha estimada de pago: se proyecta ahí; el vencimiento contractual se conserva.
+        pos = ubicar ? ubicar(fp.fecha) : { idx: -1, semIdx: 0 };
+        const reg = { ...v, acreedor: c.acreedor, usd: r2(v.pendienteTotal * f), fechaEstimada: fp.fecha,
+          motivoEstimada: fp.estimada.motivo, vencidaContractual: v.fecha < hoy };
+        out.estimados.push(reg);
+        if (pos.idx < 0) { out.fueraHorizonte.push(reg); return; }
+      } else if (fp.tipo === 'arrastre' && hoyPos.idx >= 0) {
+        // Impago con fecha pasada: se arrastra al mes/semana en curso (no se pierde).
+        pos = hoyPos;
+        out.arrastrados.push({ ...v, usd: r2(v.pendienteTotal * f), ...(fp.estimadaVencida ? { fechaEstimadaVencida: fp.estimadaVencida.fecha } : {}) });
+      }
       if (pos.idx < 0) { if (v.fecha < hoy) out.antesHorizonte.push(v); return; }
       const b = v.origen === 'renovacion' ? out.renovaciones : out.prestamos;
       const add = (arr, x) => { arr[pos.idx] += x; };
@@ -846,7 +921,10 @@ export function servicioDeudaPorMes(creditos, hoy = hoyISO(), { arrastrar = true
     aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.forEach(v => {
       if (!(v.pendienteTotal > 0)) return;
       const f = factorVencimiento(c, v.fecha < hoy ? hoy : v.fecha);
-      const k = (arrastrar && v.fecha < hoy) ? hoy.slice(0, 7) : v.fecha.slice(0, 7);
+      // Misma ubicación que el flujo: fecha estimada vigente o arrastre al mes en curso.
+      const fp = v.porConciliar ? null : fechaProyeccion(c, v, hoy);
+      const k = (fp && fp.tipo === 'estimada') ? fp.fecha.slice(0, 7)
+        : (arrastrar && v.fecha < hoy) ? hoy.slice(0, 7) : v.fecha.slice(0, 7);
       const x = out[k] || (out[k] = { capital: 0, interes: 0, cargos: 0, sinDesglose: 0, total: 0, vencido: 0, porConciliar: 0, interesVariable: 0 });
       // Por conciliar: columna aparte, fuera del total (impacto potencial).
       if (v.porConciliar) { x.porConciliar += v.pendienteTotal * f; return; }

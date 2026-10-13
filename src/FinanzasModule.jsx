@@ -18,6 +18,7 @@ import {
   valorizarCreditos, sinValorizacion, infoTC, conciliacionAcreedores, claveAcreedor, anotarPago,
   movimientosCapitalAlCorte, saldosAlCorte, TOLERANCIAS_DEFAULT, toleranciaDe, TC_ANTIGUEDAD_AVISO_DIAS, decimalesMoneda,
   TIPOS_ACREEDOR, TIPOS_CREDITO, MONEDAS as MONEDAS_CREDITO, MODALIDADES, BASES,
+  registrarFechaEstimada, quitarFechaEstimada, fechaEstimadaVigente, controlDesde, controlDesdePorRegla,
 } from './creditos.js';
 import * as XLSX from 'xlsx-js-style'; // SheetJS (fork con estilos) — ya instalado
 import { uploadDocNomina, urlFirmadaNomina, dbLoadGeneric } from './friskuHelpers';
@@ -823,7 +824,8 @@ export function avisosCreditosEmpresa(emp, empNombre, creditos, proyOverrides, r
   }));
   // TC de proyección: avisa estimado (TC declarado) y antigüedad > 7 días, con fecha y fuente.
   const tcAvisos = (fc.valorizacion || []).filter(v => v.estimado || v.desactualizado || v.porFecha);
-  return { arrastrados: fc.arrastrados, porConciliar: fc.porConciliar, sinTC: fc.sinTC, ovIgnorados, tcAvisos };
+  return { arrastrados: fc.arrastrados, porConciliar: fc.porConciliar, sinTC: fc.sinTC, ovIgnorados, tcAvisos,
+    estimados: fc.estimados || [], fueraHorizonte: fc.fueraHorizonte || [] };
 }
 // Los mismos avisos en texto, para el subtítulo y el pie del Excel.
 export function textosAvisosCreditos(av) {
@@ -831,7 +833,9 @@ export function textosAvisosCreditos(av) {
   const out = [];
   const lista = (xs) => xs.slice(0, 8).map(v => `${v.acreedor} ${fmtDate(v.fecha)} ${$$(v.usd)}`).join(" · ") + (xs.length > 8 ? ` · y ${xs.length - 8} más` : "");
   const suma = (xs) => xs.reduce((a, v) => a + (v.usd || 0), 0);
-  if (av.arrastrados.length) out.push(`⚠ Créditos: ${av.arrastrados.length} cuota(s) vencida(s) impaga(s) confirmada(s) por ${$$(suma(av.arrastrados))} se proyectan en el mes en curso (fecha contractual original): ${lista(av.arrastrados)}.`);
+  if (av.arrastrados.length) out.push(`⚠ Créditos: ${av.arrastrados.length} cuota(s) vencida(s) impaga(s) confirmada(s) por ${$$(suma(av.arrastrados))} se proyectan en el mes en curso (fecha contractual original; sin fecha estimada de pago): ${lista(av.arrastrados)}.`);
+  if ((av.estimados || []).length) out.push(`📅 Créditos: ${av.estimados.length} cuota(s) proyectada(s) en su FECHA ESTIMADA de pago por ${$$(suma(av.estimados))}; el vencimiento contractual se conserva: ${av.estimados.map(v => `${v.acreedor} vence ${fmtDate(v.fecha)}${v.vencidaContractual ? " (VENCIDA)" : ""} → estimada ${fmtDate(v.fechaEstimada)} ${$$(v.usd)} · ${v.motivoEstimada}`).join(" · ")}.`);
+  if ((av.fueraHorizonte || []).length) out.push(`⚠ Créditos: ${av.fueraHorizonte.length} cuota(s) con fecha estimada después del horizonte del flujo por ${$$(suma(av.fueraHorizonte))}: NO están en la caja proyectada.`);
   if (av.porConciliar.length) out.push(`🔎 Créditos: ${av.porConciliar.length} cuota(s) histórica(s) por conciliar por ${$$(suma(av.porConciliar))} NO están incluidas en el flujo (vencieron sin pago registrado en la app, lo que no prueba que sigan impagas): ${lista(av.porConciliar)}.`);
   if (av.sinTC.length) out.push(`⚠ Créditos: ${av.sinTC.length} crédito(s) en otra moneda sin tipo de cambio NO entran al flujo (${[...new Set(av.sinTC.map(c => c.moneda))].join("/")}): ${av.sinTC.map(c => c.acreedor).join(", ")}. El servicio de deuda del flujo está incompleto.`);
   if (av.tcAvisos.length) out.push(`⚠ Créditos: tipo de cambio de la proyección: ${av.tcAvisos.map(v => `${v.acreedor}: ${valorTC(v)} · ${v.fecha ? fmtDate(v.fecha) : "sin fecha"} · ${v.fuente}`
@@ -7558,14 +7562,23 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       )}
 
       {/* ── Créditos: vencidos arrastrados, sin TC, manuales que no aplican ── */}
-      {(avisoCreditos.arrastrados.length>0||avisoCreditos.porConciliar.length>0||avisoCreditos.sinTC.length>0||avisoCreditos.ovIgnorados.length>0||avisoCreditos.tcAvisos.length>0)&&(
+      {(avisoCreditos.arrastrados.length>0||avisoCreditos.porConciliar.length>0||avisoCreditos.sinTC.length>0||avisoCreditos.ovIgnorados.length>0||avisoCreditos.tcAvisos.length>0||avisoCreditos.estimados.length>0)&&(
         <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,borderRadius:10,padding:"10px 14px",fontSize:11,color:C.text,lineHeight:1.6}}>
           {avisoCreditos.arrastrados.length>0&&(<div>
             <strong>⚠ {avisoCreditos.arrastrados.length} cuota(s) vencida(s) impaga(s) confirmada(s): {$$(avisoCreditos.arrastrados.reduce((a,v)=>a+v.usd,0))}</strong> se
-            proyectan en el mes y semana en curso; se muestra su fecha contractual original. Si ya se pagaron, regístralo en Créditos → Pagos.
+            proyectan en el mes y semana en curso; se muestra su fecha contractual original. Si ya se pagaron, regístralo en Créditos → Pagos;
+            si se pagarán más adelante, define la fecha estimada de pago en el detalle del crédito (el vencimiento contractual se conserva).
             <div style={{color:C.muted,fontSize:10}}>
               {avisoCreditos.arrastrados.slice(0,8).map(v=>`${v.acreedor} ${fmtDate(v.fecha)} ${$$(v.usd)}`).join(" · ")}
               {avisoCreditos.arrastrados.length>8?` · y ${avisoCreditos.arrastrados.length-8} más`:""}
+            </div>
+          </div>)}
+          {avisoCreditos.estimados.length>0&&(<div style={{marginTop:4}} data-testid="aviso-fecha-estimada">
+            <strong>📅 {avisoCreditos.estimados.length} cuota(s) proyectada(s) en su fecha estimada de pago: {$$(avisoCreditos.estimados.reduce((a,v)=>a+v.usd,0))}</strong>.
+            El vencimiento contractual se conserva{avisoCreditos.estimados.some(v=>v.vencidaContractual)?" y la cuota sigue VENCIDA":""}.
+            {avisoCreditos.fueraHorizonte.length>0&&<strong style={{color:C.red}}> {$$(avisoCreditos.fueraHorizonte.reduce((a,v)=>a+v.usd,0))} tienen fecha estimada después del horizonte: NO están en la caja proyectada.</strong>}
+            <div style={{color:C.muted,fontSize:10}}>
+              {avisoCreditos.estimados.map(v=>`${v.acreedor} vence ${fmtDate(v.fecha)}${v.vencidaContractual?" (vencida)":""} → estimada ${fmtDate(v.fechaEstimada)} ${$$(v.usd)} · ${v.motivoEstimada}`).join(" · ")}
             </div>
           </div>)}
           {avisoCreditos.porConciliar.length>0&&(<div style={{marginTop:4}}>
@@ -8171,6 +8184,20 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
     if(nota===null) return;
     try { await onSave(confirmarImpaga(credito, v.key, nota, usuario)); } catch(err){ alert(err.message); }
   }
+  // Fecha estimada de pago: proyecta el pendiente en otra fecha SIN tocar el
+  // vencimiento contractual. No paga ni renueva nada (src/creditos.js).
+  async function fijarEstimada(v){
+    const fecha = window.prompt(`Fecha estimada de pago de la cuota que vence el ${fmtDate(v.fecha)} (pendiente ${$c(v.pendienteTotal,mon)}).\nEl vencimiento contractual NO cambia. Formato AAAA-MM-DD:`, fechaEstimadaVigente(credito, v.key)?.fecha || "");
+    if(fecha===null) return;
+    const motivo = window.prompt("Motivo (quién informó la fecha y cuándo; obligatorio):");
+    if(motivo===null) return;
+    try { await onSave(registrarFechaEstimada(credito, v.key, fecha.trim(), motivo, usuario)); } catch(err){ alert(err.message); }
+  }
+  async function quitarEstimada(v){
+    const motivo = window.prompt(`Quitar la fecha estimada de la cuota del ${fmtDate(v.fecha)}. Vuelve a su vencimiento contractual (o al mes en curso si ya venció). Motivo:`);
+    if(motivo===null) return;
+    try { await onSave(quitarFechaEstimada(credito, v.key, motivo, usuario)); } catch(err){ alert(err.message); }
+  }
   async function anularConc(x){
     const motivo = window.prompt(`Anular la confirmación de impaga (${x.vencKey}). La cuota vuelve a "por conciliar". Motivo:`);
     if(motivo===null) return;
@@ -8199,6 +8226,8 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
     ["Base", BASES[credito.base]||(credito.tipo_credito==="socio"?"Efectiva anual, Actual/365":"sin dato")],
     ["Modalidad", MODALIDADES[credito.modalidad]||(credito.tipo_credito==="socio"?"Crédito de socio (cuotas definidas)":"Registro por vencimiento")],
     ["Garantías", credito.garantias||"—"],
+    ["Control en la app desde", controlDesdePorRegla(credito)
+      ? `${fmtDate(controlDesde(credito))} (registro anterior: por regla, lo vencido antes queda por conciliar)` : fmtDate(controlDesde(credito))],
     ["Prepago", credito.prepago_comision_tipo?({ninguna:"sin comisión",pct:`${credito.prepago_comision_valor}% s/capital`,meses_interes:`${credito.prepago_comision_valor} mes(es) de interés`,monto:$c(credito.prepago_comision_valor,mon)}[credito.prepago_comision_tipo]||"—")+(credito.prepago_notas?` · ${credito.prepago_notas}`:""):"sin información"],
   ];
   return (
@@ -8263,7 +8292,10 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
             <tbody>
               {e.vencimientos.map(v=>(
                 <tr key={v.key} style={{background:v.estado==="vencida"?"#fee2e211":v.estado==="pagada"?`${C.green}08`:"transparent"}}>
-                  <td style={{...CR_TD,whiteSpace:"nowrap"}}>{fmtDate(v.fecha)}{v.estimado&&<span title="Interés estimado tras prepago sobre calendario manual" style={{color:C.orange}}> ≈</span>}{v.tasaVariable&&v.pendiente.interes>0&&<span title="Interés proyectado con la tasa de referencia supuesta constante" style={{color:C.orange,fontSize:9}}> proy.</span>}</td>
+                  <td style={{...CR_TD,whiteSpace:"nowrap"}}>{fmtDate(v.fecha)}{v.estimado&&<span title="Interés estimado tras prepago sobre calendario manual" style={{color:C.orange}}> ≈</span>}{v.tasaVariable&&v.pendiente.interes>0&&<span title="Interés proyectado con la tasa de referencia supuesta constante" style={{color:C.orange,fontSize:9}}> proy.</span>}
+                    {(()=>{ const fe=fechaEstimadaVigente(credito,v.key); return fe&&v.pendienteTotal>0&&!v.porConciliar
+                      ? <div data-testid="fecha-estimada" style={{fontSize:9,color:fe.fecha<hoy?C.red:C.blue}} title={`${fe.motivo} · ${fe.usuario||""} ${fe.ts?fe.ts.slice(0,10):""}`}>
+                          pago estimado {fmtDate(fe.fecha)}{fe.fecha<hoy?" (ya pasó: se arrastra a hoy)":""}</div> : null; })()}</td>
                   <td style={{...CR_TD,color:C.muted}}>{v.origen==="renovacion"?`Renov. ${v.renovacion+1}`:"Cuota"}</td>
                   <td style={{...CR_TD,textAlign:"right"}}>{$c(v.capital,mon)}</td>
                   <td style={{...CR_TD,textAlign:"right",color:C.orange}}>{$c(v.interes,mon)}</td>
@@ -8276,7 +8308,11 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
                   {canEdit&&<td style={{...CR_TD,whiteSpace:"nowrap"}}>{v.pendienteTotal>0&&<button onClick={()=>abrirPago(v)}
                     style={{padding:"3px 10px",borderRadius:6,border:`1px solid ${C.green}`,background:"transparent",color:C.green,cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>💵 Pagar</button>}
                     {v.porConciliar&&<button onClick={()=>confirmarImp(v)}
-                    style={{marginLeft:4,padding:"3px 8px",borderRadius:6,border:`1px solid ${C.red}`,background:"transparent",color:C.red,cursor:"pointer",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>Confirmar impaga</button>}</td>}
+                    style={{marginLeft:4,padding:"3px 8px",borderRadius:6,border:`1px solid ${C.red}`,background:"transparent",color:C.red,cursor:"pointer",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>Confirmar impaga</button>}
+                    {v.pendienteTotal>0&&!v.porConciliar&&<button onClick={()=>fijarEstimada(v)}
+                    style={{marginLeft:4,padding:"3px 8px",borderRadius:6,border:`1px solid ${C.blue}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>📅 Fecha estimada</button>}
+                    {v.pendienteTotal>0&&!v.porConciliar&&fechaEstimadaVigente(credito,v.key)&&<button onClick={()=>quitarEstimada(v)}
+                    style={{marginLeft:4,padding:"3px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:10,whiteSpace:"nowrap"}}>Quitar estimada</button>}</td>}
                 </tr>
               ))}
             </tbody>

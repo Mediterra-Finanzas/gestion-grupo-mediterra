@@ -17,6 +17,21 @@ import { MESES, mIdx } from '../horizonte.js';
 
 const MES_A = 'Nov-26', MES_LIQ = 'Mar-27';
 
+// ── Reloj controlado ──────────────────────────────────────────────
+// aplicarCompensacion y el contrato de persistencia sellan con la hora
+// actual. Con el reloj real, si las dos sesiones caían en el MISMO
+// milisegundo armaban exactamente el mismo valor y el resultado de B
+// dependía del azar del reloj. Acá cada paso ocurre en un instante fijado.
+const RealDate = Date;
+let ahoraMs = null;
+class RelojControlado extends RealDate {
+  constructor(...a) { if (a.length) super(...a); else super(ahoraMs ?? RealDate.now()); }
+  static now() { return ahoraMs ?? RealDate.now(); }
+}
+const fijarReloj = (iso) => { ahoraMs = RealDate.parse(iso); };
+beforeEach(() => { global.Date = RelojControlado; ahoraMs = null; });
+afterEach(() => { global.Date = RealDate; ahoraMs = null; });
+
 // ── PostgREST en memoria: GET + PATCH condicionado ────────────────
 function servidorFalso(valorInicial) {
   const fila = { id: 'finanzas', value: JSON.stringify(valorInicial), updated_at: '2026-10-01T00:00:00.000Z' };
@@ -137,11 +152,14 @@ describe('conflicto entre sesiones', () => {
     };
 
     // Sesión A aplica y guarda: confirmado
+    fijarReloj('2026-10-13T12:00:00.000Z');
     const resA = await sesionA.saveConfirmed('finanzas', aplicar(cargaA.value));
     expect(resA.ok).toBe(true);
     expect(construirAvisoDesde('finanzas', resA, 'el Flujo de Caja')).toBeNull();
 
-    // Sesión B aplica sobre su copia VIEJA y guarda: rechazado, no se pisa
+    // Sesión B aplica sobre su copia VIEJA un segundo después y guarda:
+    // rechazado, no se pisa
+    fijarReloj('2026-10-13T12:00:01.000Z');
     const resB = await sesionB.saveConfirmed('finanzas', aplicar(cargaB.value));
     expect(resB.ok).toBe(false);
     expect(resB.motivo).toBe(MOTIVOS.CONFLICTO);
@@ -166,6 +184,46 @@ describe('conflicto entre sesiones', () => {
     // y el total del lado baja 10.000 respecto del bruto (sin compensar)
     const costoAntes = calcAllegria(frutaDeParams(blobInicial())).cost.cerezas;
     expect(Math.round(costoAntes.reduce((a, b) => a + b, 0) - costo.reduce((a, b) => a + b, 0))).toBe(10000);
+  });
+});
+
+describe('conflicto entre sesiones · mismo instante (la causa de la prueba inestable)', () => {
+  test('si B arma EXACTAMENTE lo que ya guardó A, no hay segunda escritura ni doble descuento', async () => {
+    const srv = servidorFalso(blobInicial());
+    const sesionA = crearPersistencia({ fetch: srv.fetchImpl, logger: { info(){}, warn(){}, error(){} } });
+    const sesionB = crearPersistencia({ fetch: srv.fetchImpl, logger: { info(){}, warn(){}, error(){} } });
+    const cargaA = await sesionA.load('finanzas');
+    const cargaB = await sesionB.load('finanzas');
+    const aplicar = (blob) => {
+      const f = frutaDe(blob);
+      const d = destinosCompensacion(resumenProductor(blob), { excluirProgramaId: 'pP' })
+        .find(x => x.programaId === 'pQ');
+      const res = aplicarCompensacion(f.saldos_favor[0], 'apC', { saldoDestino: d.absorbe, usuario: 'qa' });
+      const copia = JSON.parse(JSON.stringify(blob));
+      frutaDe(copia).saldos_favor = [res.saldo];
+      return copia;
+    };
+    // Las dos operaciones en el MISMO milisegundo y con el mismo usuario.
+    fijarReloj('2026-10-13T12:00:00.000Z');
+    const valorA = aplicar(cargaA.value);
+    const valorB = aplicar(cargaB.value);
+    expect(JSON.stringify(valorB)).toBe(JSON.stringify(valorA));
+    const resA = await sesionA.saveConfirmed('finanzas', valorA);
+    expect(resA.ok).toBe(true);
+    const patchesAntes = srv.peticiones.filter(x => x.startsWith('PATCH')).length;
+    const resB = await sesionB.saveConfirmed('finanzas', valorB);
+    // Resultado DETERMINISTA: el servidor ya tiene ese mismo valor.
+    const patchesB = srv.peticiones.filter(x => x.startsWith('PATCH')).length - patchesAntes;
+    const saldoSrv = resumenSaldo(frutaDe(srv.leer()).saldos_favor[0]);
+    expect(saldoSrv.aplicaciones.length).toBe(1);
+    expect(Math.round(saldoSrv.resuelto)).toBe(10000);
+    // Lo que el contrato devuelve en este caso queda fijado (no al azar del reloj).
+    // B intenta UN PATCH condicionado, el servidor lo rechaza (otra versión) y el
+    // contrato comprueba que lo vigente ya es exactamente su valor: lo confirma
+    // sin escribir encima. Esto es lo que antes ocurría "a veces".
+    expect(patchesB).toBe(1);
+    expect(resB.ok).toBe(true);
+    expect(JSON.stringify(srv.leer())).toBe(JSON.stringify(valorA));
   });
 });
 
