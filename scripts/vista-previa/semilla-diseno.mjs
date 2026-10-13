@@ -50,6 +50,7 @@ export const PERFILES = [
 ];
 
 const iso = (d) => d.toISOString();
+const leerJSON = (f) => (f ? (typeof f.value === 'string' ? JSON.parse(f.value) : f.value) : null);
 const hace = (dias) => iso(new Date(Date.now() - dias * 86400000));
 
 export function storeDiseno(hoy = new Date()) {
@@ -85,7 +86,6 @@ export function storeDiseno(hoy = new Date()) {
     r(7, 'Michelle Garcia', 'mgarcia@grupomediterra.cl', 'aprobada', { revisadoEn: hace(2), revisadoPor: 'Angelo Huerta' }),
   ] };
   st.rendiciones_config = { updated_at: hace(0.3), value: { valorKm: 0, aprobadores: {} } };
-  st.maestro_tc = { updated_at: hace(0.3), value: {} };
   // Nóminas ficticias de Osiris en tres estados, para recorrer aprobación y devolución.
   // NOMR está con V°B° (aprobada1): es la que el CFO puede devolver (en «revision» devuelven Carol o Michelle).
   const hoyISO = iso(hoy).slice(0, 10);
@@ -102,6 +102,27 @@ export function storeDiseno(hoy = new Date()) {
     { id: 'esp-gif', nombre: 'Cerezo', color: '#c0392b', imagen: GIF_PRUEBA, observaciones: 'GIF de prueba (ficticio)' },
     { id: 'esp-emoji', nombre: 'Arándano', color: '#3b5bdb', imagen: '', observaciones: 'Sin imagen: usa el emoji' },
   ] } };
+  // Franja ejecutiva (inicio del CFO): saldos y créditos FICTICIOS con el modelo vigente
+  // de src/creditos.js. Una cuenta en EUR sin TC guardado (la caja sale INCOMPLETA),
+  // un crédito vencido, uno en CLP valorizado con maestro_tc y uno de Allpa Chile
+  // (fuera del perímetro: se informa aparte, no suma).
+  const dia = (n) => iso(new Date(hoy.getTime() + n * 86400000)).slice(0, 10);
+  const bancos = leerJSON(st.finanzas_bancos) || { saldos: {} };
+  Object.assign(bancos.saldos, {
+    'Mediterra||Banco Ficticio A||usd': { monto: 85000, fecha: dia(-3), moneda: 'usd' },
+    'Osiris||Banco Ficticio B||clp': { monto: 47500000, usd: 50000, fecha: dia(-2), moneda: 'clp' },
+    'Integrity Farms||Banco Ficticio A||usd': { monto: 22000, fecha: dia(-5), moneda: 'usd' },
+    'Allegria Service||Banco Ficticio C||usd': { monto: 31000, fecha: dia(-1), moneda: 'usd' },
+    'Frisku Foods||Banco Ficticio D||eur': { monto: 12000, fecha: dia(-4), moneda: 'eur' },
+  });
+  st.finanzas_bancos = { ...(st.finanzas_bancos || {}), value: JSON.stringify(bancos), updated_at: st.finanzas_bancos?.updated_at || hace(0.3) };
+  const cr = (uid, empresa, moneda, monto, venc) => ({ uid, n: uid, tipo_credito: 'contrato', empresa, acreedor: `Banco ficticio ${uid}`, moneda, monto,
+    fecha_desembolso: dia(-200), vencimiento_final: venc, modalidad: 'bullet_total', tasa_tipo: 'fija', tasa_anual: 0, base: 'act360' });
+  const finRow = leerJSON(st.finanzas) || {};
+  finRow.creditos_data = [cr('F1', 'Mediterra', 'USD', 1000000, dia(170)), cr('F2', 'Allegria Foods', 'USD', 400000, dia(-20)),
+    cr('F3', 'Osiris', 'CLP', 190000000, dia(260)), cr('F4', 'Allpa Farms', 'USD', 300000, dia(200))];
+  st.finanzas.value = typeof st.finanzas.value === 'string' ? JSON.stringify(finRow) : finRow;
+  st.maestro_tc = { updated_at: hace(0.3), value: { 'USD-CLP': [{ fecha: dia(-2), valor: 950, fuente: 'manual' }] } };
   st.nominas_v2_done = { value: JSON.stringify({ migrado: true }), updated_at: hace(0.3) };
   st.nominas_osiris = { updated_at: hace(0.3), value: JSON.stringify({ nominas: [nom('NOMP', 3, 'preparada', 41), nom('NOMR', 2, 'aprobada1', 40), nom('NOMA', 1, 'aprobada', 39)] }) };
   return st;

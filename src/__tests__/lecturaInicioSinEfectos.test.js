@@ -1,25 +1,19 @@
 /* eslint-disable */
 // ═══════════════════════════════════════════════════════════════════════════════
-// FRANJA EJECUTIVA DEL INICIO — prueba de LECTURA SIN EFECTOS DE GUARDADO.
+// INICIO · LECTURA DE CONSULTA (src/diseno/lecturaConsulta.js) — sin efectos sobre
+// el guardado de ningún módulo.
 //
-// Es la prueba que exige la propuesta (homogeneidad-y-plan.md §5) ANTES de leer
-// `finanzas`, `finanzas_bancos` o `maestro_tc` desde el inicio. No hay todavía
-// código de producción: el lector de abajo vive en la prueba y fija el contrato.
+// Se prueba con las instancias REALES que usan los módulos: el contrato compartido
+// `persist` (Finanzas: finanzas, finanzas_bancos) y el registro de friskuHelpers
+// (Rendiciones y maestro_tc vía dbLoadGeneric). El fetch global apunta a un
+// PostgREST en memoria: ninguna petición sale.
 //
-//   1. CONTROL: leer como lo hacen hoy dbLoad / dbLoadBancos de FinanzasModule
-//      (fetch + persist.registrarCarga) desde el inicio, con Finanzas en
-//      conflicto pendiente, BORRA el conflicto y la marca de cambios: el
-//      siguiente auto-save pisa el guardado de la otra sesión.
-//   2. LECTOR PROPUESTO: solo GET, no toca el contrato. El estado de guardado de
-//      todas las filas queda idéntico, el conflicto sigue bloqueando y no sale
-//      ninguna escritura.
-//   3. Una lectura fallida se informa como error (nunca como cero ni vacío).
-// Todo contra un PostgREST en memoria (fetch inyectado); ninguna petición sale.
+//   CONTROL  · las cargas de los módulos (registrarCarga, dbLoadGeneric) SÍ cambian
+//              ese estado: borran el conflicto pendiente / reemplazan versión y base.
+//   LECTOR   · después de consultar rendiciones, nóminas, finanzas, bancos y TC, el
+//              estado de guardado de todas esas filas es idéntico, el conflicto de
+//              Finanzas sigue bloqueando y no salió ninguna escritura.
 // ═══════════════════════════════════════════════════════════════════════════════
-import { crearPersistencia, MOTIVOS } from "../persistencia/persistContract.js";
-
-const URL_FALSA = "https://falso.test";
-const silencio = { info() {}, warn() {}, error() {} };
 
 // ── PostgREST en memoria ──────────────────────────────────────────────────────
 // La versión (`updated_at`) la asigna el SERVIDOR (v1, v2, v3…), como en Postgres:
@@ -75,82 +69,109 @@ function servidorFalso(filasIniciales = {}) {
   return { filas, fetchImpl, peticiones, cuenta, escrituras, leer, estado };
 }
 
-const sesion = (srv) => crearPersistencia({ fetch: srv.fetchImpl, supaUrl: URL_FALSA, supaKey: "k-falsa", logger: silencio });
 
-// Lo que hacen hoy dbLoad("finanzas") / dbLoadBancos(): leer y REGISTRAR la carga.
-async function cargaActual(srv, persist, id) {
-  const r = await srv.fetchImpl(`${URL_FALSA}/rest/v1/calendario_data?id=eq.${id}&select=value,updated_at`);
-  const d = await r.json(); const raw = d?.[0]?.value;
-  const v = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
-  persist.registrarCarga(id, v, d?.[0]?.updated_at || null, typeof raw === "string");
-  return v;
-}
-// Lector propuesto para el inicio: solo lectura, sin contrato de guardado.
-async function leerSoloLectura(fetchImpl, id) {
-  const r = await fetchImpl(`${URL_FALSA}/rest/v1/calendario_data?id=eq.${id}&select=value,updated_at`);
-  if (!r.ok) throw new Error(`lectura ${id} HTTP ${r.status}`);
-  const d = await r.json(); const raw = d?.[0]?.value;
-  return { existe: !!d?.length, valor: raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null, version: d?.[0]?.updated_at || null };
-}
+let srv;
+global.fetch = (...a) => srv.fetchImpl(...a);
+const { persist, MOTIVOS } = require("../persistencia/instancia.js");
+const { dbLoadGeneric, _estadoPersistencia } = require("../friskuHelpers");
+const { crearLectorConsulta, lectorConsulta } = require("../diseno/lecturaConsulta.js");
 
 const BLOB = { creditos_data: [{ n: 1, empresa: "Osiris", monto: 1000 }], params_emp: { saldo: 0 } };
-const BANCOS = { saldos: { Osiris: [{ banco: "Banco ficticio", monto: 500, moneda: "USD", fecha: "2026-10-01" }] } };
 const con = (n) => ({ ...BLOB, params_emp: { saldo: n } });
+const NOM = (id, empresa, estado) => ({ id, empresa, estado, semana: 40, items: [] });
+const FILAS_NOM = [{ empresa: "Osiris", fila: "nominas_osiris" }, { empresa: "Mediterra", fila: "nominas_mediterra" }];
+const IDS = ["finanzas", "finanzas_bancos", "maestro_tc", "rendiciones", "nominas_osiris", "nominas_mediterra"];
 
-// Deja a la sesión 2 en conflicto pendiente sobre `finanzas`: otra sesión guardó primero.
-async function escenarioConflicto() {
-  const srv = servidorFalso({ finanzas: { value: JSON.stringify(BLOB), updated_at: "v0" },
-    finanzas_bancos: { value: JSON.stringify(BANCOS), updated_at: "b0" } });
-  const s1 = sesion(srv), s2 = sesion(srv);
-  await s1.load("finanzas"); await s2.load("finanzas"); await s2.load("finanzas_bancos");
-  expect((await s1.saveConfirmed("finanzas", con(1000), {})).ok).toBe(true);
-  const r = await s2.saveConfirmed("finanzas", con(7777), {});
-  expect(r.motivo).toBe(MOTIVOS.CONFLICTO);
-  expect(s2.estado("finanzas").conflictoPendiente).toBe(true);
-  return { srv, s2 };
+function filasIniciales() {
+  return {
+    finanzas: { value: JSON.stringify(BLOB), updated_at: "v0" },
+    finanzas_bancos: { value: JSON.stringify({ saldos: { Osiris: [{ monto: 500, moneda: "USD" }] } }), updated_at: "b0" },
+    maestro_tc: { value: JSON.stringify({ "USD-CLP": [{ fecha: "2026-10-01", valor: 950, fuente: "manual" }] }), updated_at: "t0" },
+    rendiciones: { value: JSON.stringify([{ id: "r1", estado: "enviada" }]), updated_at: "r0" },
+    nominas_v2_done: { value: JSON.stringify({ migrado: true }), updated_at: "n0" },
+    nominas_osiris: { value: JSON.stringify({ nominas: [NOM("A", "Osiris", "aprobada1")] }), updated_at: "o0" },
+    nominas_mediterra: { value: JSON.stringify({ nominas: [NOM("B", "Mediterra", "revision")] }), updated_at: "m0" },
+  };
 }
-const huella = (p, ids) => JSON.stringify(ids.map(id => { const e = p.estado(id); return [id, e.version, e.base, e.dirty, e.conflictoPendiente, e.sucio, e.cargaOk]; }));
+// Finanzas en conflicto pendiente (otra sesión guardó primero) y Rendiciones ya
+// cargada por su módulo, como en la app real antes de volver al inicio.
+async function escenario() {
+  srv = servidorFalso(filasIniciales());
+  persist.reset && persist.reset();
+  await persist.load("finanzas"); await persist.load("finanzas_bancos");
+  await dbLoadGeneric("rendiciones"); await dbLoadGeneric("maestro_tc");
+  srv.filas.finanzas = { value: JSON.stringify(con(1000)), updated_at: "v1" };   // la otra sesión
+  const r = await persist.saveConfirmed("finanzas", con(7777), {});
+  expect(r.motivo).toBe(MOTIVOS.CONFLICTO);
+  expect(persist.conflictoPendiente("finanzas")).toBeTruthy();
+}
+const huella = () => JSON.stringify(IDS.map(id => {
+  const e = persist.estado(id) || {};
+  return [id, e.version, e.base, e.dirty, e.sucio, e.conflictoPendiente, e.cargaOk, _estadoPersistencia(id)];
+}));
 
-describe("franja ejecutiva: leer desde el inicio no puede tocar el guardado de Finanzas", () => {
-  test("CONTROL: la carga actual (con registrarCarga) borra el conflicto y deja pisar el guardado ajeno", async () => {
-    const { srv, s2 } = await escenarioConflicto();
-    await cargaActual(srv, s2, "finanzas");                       // el inicio leyendo «como hoy»
-    expect(s2.estado("finanzas").conflictoPendiente).toBe(false); // ← el conflicto desapareció
-    const r = await s2.saveConfirmed("finanzas", con(7777), {});  // el auto-save de Finanzas
-    expect(r.ok).toBe(true);
-    expect(srv.leer("finanzas").params_emp.saldo).toBe(7777);     // ← se perdió el 1000 de la otra sesión
+describe("inicio: el lector de consulta no toca el guardado de ningún módulo", () => {
+  test("CONTROL: cargar como los módulos borra el conflicto de Finanzas y cambia el registro de Rendiciones", async () => {
+    await escenario();
+    const antesRend = JSON.stringify(_estadoPersistencia("rendiciones"));
+    srv.filas.rendiciones = { value: JSON.stringify([]), updated_at: "r1" };
+    await dbLoadGeneric("rendiciones");
+    expect(JSON.stringify(_estadoPersistencia("rendiciones"))).not.toBe(antesRend);
+    const r = await srv.fetchImpl("https://x/rest/v1/calendario_data?id=eq.finanzas&select=value,updated_at");
+    const d = await r.json();
+    persist.registrarCarga("finanzas", JSON.parse(d[0].value), d[0].updated_at, true);   // lo que hace dbLoad
+    expect(persist.conflictoPendiente("finanzas")).toBeFalsy();                            // ← se perdió el bloqueo
   });
 
-  test("lector propuesto: estado de guardado idéntico, conflicto intacto y cero escrituras", async () => {
-    const { srv, s2 } = await escenarioConflicto();
-    const ids = ["finanzas", "finanzas_bancos", "maestro_tc"];
-    const antes = huella(s2, ids);
-    const escriturasAntes = srv.escrituras().length;
-    const fin = await leerSoloLectura(srv.fetchImpl, "finanzas");
-    const ban = await leerSoloLectura(srv.fetchImpl, "finanzas_bancos");
-    const tc = await leerSoloLectura(srv.fetchImpl, "maestro_tc");
-    expect(fin.valor.params_emp.saldo).toBe(1000);                 // lee lo vigente del servidor
+  test("consultar todo lo del inicio deja idéntico el estado de guardado y el conflicto sigue bloqueando", async () => {
+    await escenario();
+    const antes = huella();
+    const escr = srv.escrituras().length;
+    const lect = crearLectorConsulta({ fetchImpl: (...a) => srv.fetchImpl(...a), url: "https://falso.test" });
+    const rend = await lect.rendiciones();
+    const nom = await lect.nominas(FILAS_NOM);
+    const fin = await lect.fila("finanzas"); const ban = await lect.fila("finanzas_bancos"); const tc = await lect.fila("maestro_tc");
+    expect(rend).toEqual([{ id: "r1", estado: "enviada" }]);
+    expect(nom.nominas.map(n => n.id).sort()).toEqual(["A", "B"]);
+    expect(nom.filas.nominas_osiris.estado).toBe("ok");
+    expect(fin.valor.params_emp.saldo).toBe(1000);
     expect(ban.valor.saldos.Osiris[0].monto).toBe(500);
-    expect(tc.existe).toBe(false);                                 // fila ausente ≠ cero: se informa
-    expect(huella(s2, ids)).toBe(antes);                           // nada del contrato cambió
-    expect(srv.escrituras().length).toBe(escriturasAntes);         // ninguna escritura
-    const r = await s2.saveConfirmed("finanzas", con(7777), {});   // Finanzas sigue bloqueado
+    expect(tc.valor["USD-CLP"][0].valor).toBe(950);
+    expect(huella()).toBe(antes);                                    // nada del contrato ni del registro cambió
+    expect(srv.escrituras().length).toBe(escr);                      // ninguna escritura
+    expect(srv.peticiones.slice(-8).every(p => p.metodo === "GET")).toBe(true);
+    const r = await persist.saveConfirmed("finanzas", con(7777), {});   // Finanzas sigue bloqueado
     expect(r.ok).toBe(false);
     expect(r.motivo).toBe(MOTIVOS.CONFLICTO_PENDIENTE);
     expect(srv.leer("finanzas").params_emp.saldo).toBe(1000);
   });
 
-  test("una lectura fallida se informa como error, no como cifra", async () => {
-    const srv = servidorFalso({});
-    srv.estado.modo = "lanza_todo";
-    await expect(leerSoloLectura(srv.fetchImpl, "finanzas")).rejects.toThrow();
-    const http = { fetchImpl: async () => ({ ok: false, status: 503, json: async () => ({}) }) };
-    await expect(leerSoloLectura(http.fetchImpl, "finanzas_bancos")).rejects.toThrow(/HTTP 503/);
+  test("la instancia por defecto usa el fetch global y tampoco registra nada", async () => {
+    await escenario();
+    const antes = huella();
+    await lectorConsulta.rendiciones();
+    await lectorConsulta.nominas(FILAS_NOM);
+    expect(huella()).toBe(antes);
   });
 
-  test("las peticiones solo van al servidor falso", async () => {
-    const { srv } = await escenarioConflicto();
-    await leerSoloLectura(srv.fetchImpl, "finanzas");
-    expect([...new Set(srv.peticiones.map(p => p.host))]).toEqual(["falso.test"]);
+  test("errores: HTTP o red lanzan; una fila de nóminas que falla queda en «error» y las demás se leen", async () => {
+    srv = servidorFalso(filasIniciales());
+    const http = crearLectorConsulta({ fetchImpl: async () => ({ ok: false, status: 503, json: async () => ({}) }) });
+    await expect(http.rendiciones()).rejects.toThrow(/HTTP 503/);
+    srv.estado.modo = "lanza_todo";
+    await expect(lectorConsulta.fila("finanzas")).rejects.toThrow();
+    srv.estado.modo = null;
+    srv.filas.nominas_mediterra = { value: JSON.stringify({ otra: 1 }), updated_at: "m1" };
+    const nom = await lectorConsulta.nominas(FILAS_NOM);
+    expect(nom.filas.nominas_mediterra.estado).toBe("error");
+    expect(nom.nominas.map(n => n.id)).toEqual(["A"]);
+  });
+
+  test("sin migración v2 lee la fila heredada y filtra por empresa", async () => {
+    const f = filasIniciales(); delete f.nominas_v2_done;
+    f.nominas = { value: JSON.stringify({ nominas: [NOM("X", "Osiris", "revision"), NOM("Y", "Frisku Foods", "revision")] }), updated_at: "l0" };
+    srv = servidorFalso(f);
+    const nom = await lectorConsulta.nominas(FILAS_NOM, ["Osiris"]);
+    expect(nom).toEqual({ nominas: [NOM("X", "Osiris", "revision")], filas: {}, legado: true });
   });
 });

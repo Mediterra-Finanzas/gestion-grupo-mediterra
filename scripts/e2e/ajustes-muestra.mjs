@@ -32,7 +32,7 @@ fs.mkdirSync(OUT, { recursive: true });
 let ok = 0, fallos = 0;
 const check = (n, c, x = '') => { c ? ok++ : fallos++; console.log(`${c ? '✓' : '✗ FALLA'}  ${n}${x ? '  — ' + x : ''}`); };
 // SECCIONES=exportaciones,especies,nominas (por defecto todas) · EXPORTS=semanal,osiris,po (por defecto todas)
-const SECC = (process.env.SECCIONES || 'exportaciones,especies,nominas').split(',');
+const SECC = (process.env.SECCIONES || 'exportaciones,especies,nominas,franja').split(',');
 const EXP = (process.env.EXPORTS || 'osiris,semanal,po').split(',');
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
 
@@ -242,12 +242,13 @@ if (SECC.includes('nominas')) for (const [tam, cfg] of Object.entries({ computad
       ['← Volver', ...DOCS, 'Editar', '+ Nueva Nómina'].every(x => n.includes(x)) && tieneCircuito, n.join(' | '));
   } else {
     // A la vista: volver, aprobar, devolver y «Más». Nada más.
-    check('teléfono · CFO: a la vista solo Volver, Aprobar, Devolver y «Más»', tieneCircuito && n.includes('← Volver')
-      && n.some(x => /^Más/.test(x)) && !DOCS.some(x => n.includes(x)) && !n.includes('+ Nueva Nómina'), n.join(' | '));
+    check('teléfono · CFO: a la vista solo Volver, Aprobar, Devolver y «Opciones de nómina»', tieneCircuito && n.includes('← Volver')
+      && n.some(x => /^Opciones de nómina/.test(x)) && !DOCS.some(x => n.includes(x)) && !n.includes('+ Nueva Nómina'), n.join(' | '));
     const alto = (await b.boundingBox()).height;
     check('teléfono · barra compacta (≤ 160 px; antes 271)', alto <= 160, `alto ${alto.toFixed(0)} px`);
     const mas = p.getByTestId('nomina-mas-boton');
-    check('teléfono · «Más» cerrado anuncia aria-expanded=false', (await mas.getAttribute('aria-expanded')) === 'false');
+    check('teléfono · el botón se llama «Opciones de nómina» (distinto del «Más» de la navegación)', /^Opciones de nómina/.test((await mas.innerText()).trim()) && (await mas.getAttribute('aria-label')) === 'Opciones de nómina');
+    check('teléfono · «Opciones de nómina» cerrado anuncia aria-expanded=false', (await mas.getAttribute('aria-expanded')) === 'false');
     await mas.click(); await p.waitForTimeout(300);
     const panel = p.getByTestId('nomina-mas');
     const np = await nombres(panel);
@@ -286,7 +287,7 @@ if (SECC.includes('nominas')) for (const [tam, cfg] of Object.entries({ computad
   const bm = await abrirNOMR(m.page);
   let nm = await nombres(bm);
   if (tel) {
-    check('teléfono · Nóminas en «ver»: a la vista solo Volver y «Más»', !nm.some(x => /Aprobar|Devolver/.test(x)) && nm.length === 2, nm.join(' | '));
+    check('teléfono · Nóminas en «ver»: a la vista solo Volver y «Opciones de nómina»', !nm.some(x => /Aprobar|Devolver/.test(x)) && nm.length === 2, nm.join(' | '));
     await m.page.getByTestId('nomina-mas-boton').click(); await m.page.waitForTimeout(300);
     nm = await nombres(m.page.getByTestId('nomina-mas'));
   }
@@ -295,6 +296,85 @@ if (SECC.includes('nominas')) for (const [tam, cfg] of Object.entries({ computad
   check(`${tam} · Nóminas en «ver»: muestra a quién se espera`, /Esperando aprobación del CFO/.test(await bm.innerText()));
   await m.page.screenshot({ path: `${OUT}/${tam}-nomina-solo-ver${tel ? '-mas' : ''}.png` });
   await m.ctx.close();
+}
+
+// ── 4. Franja ejecutiva del inicio ───────────────────────────────────
+if (SECC.includes('franja')) {
+  const { cajaEjecutiva, deudaEjecutiva } = await import('../../src/diseno/resumenEjecutivo.js');
+  const PER = ['Mediterra', 'Allegria Foods', 'Allegria Service', 'Frisku Foods', 'Osiris', 'Integrity Farms'];
+  const FUERA = ['Allpa Farms', 'Allpa Farms Perú', 'Frisku Foods Perú'];
+  const usdTxt = (x) => `US$ ${Math.round(x).toLocaleString('es-CL')}`;
+  const cifra = async (p, id) => (await p.getByTestId(id).locator('[data-cifra]').innerText()).replace(/\s+/g, ' ').trim();
+  for (const [tam, cfg] of Object.entries({ computador: [1440, 900, false], telefono: [390, 844, true] })) {
+    const st = storeDiseno();
+    const v = (f) => (typeof f.value === 'string' ? JSON.parse(f.value) : f.value);
+    const hoyISO = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+    const caja = cajaEjecutiva(v(st.finanzas_bancos).saldos, PER, { ahora: new Date() });
+    const deuda = deudaEjecutiva(v(st.finanzas).creditos_data, v(st.maestro_tc), PER, FUERA, { corte: hoyISO });
+    const s = await sesion(process.env.APP_URL, cfg, 'ahuerta@grupomediterra.cl', st);
+    const p = s.page;
+    const fr = p.getByTestId('franja-ejecutiva');
+    check(`${tam} · CFO: franja visible con moneda y perímetro`, (await fr.count()) === 1
+      && /US\$ · 6 sociedades consolidadas/.test(await p.getByTestId('franja-contexto').innerText())
+      && /fuera del perímetro, sin sumar: Allpa Farms, Allpa Farms Perú, Frisku Foods Perú/.test(await p.getByTestId('franja-contexto').innerText()));
+    check(`${tam} · caja = la de saldoBancoEmpresaUSD (${usdTxt(caja.total)})`, (await cifra(p, 'ejec-caja')) === usdTxt(caja.total), await cifra(p, 'ejec-caja'));
+    check(`${tam} · caja INCOMPLETA y nombra la cuenta sin TC`, (await p.getByTestId('ejec-caja-incompleto').count()) === 1
+      && /Frisku Foods · Banco Ficticio D EUR/.test(await p.getByTestId('ejec-caja-sintc').innerText()));
+    check(`${tam} · caja: fechas de los saldos a la vista`, /con fecha \d{2}-\d{2}-\d{4}/.test(await p.getByTestId('ejec-caja-corte').innerText()));
+    check(`${tam} · deuda = la de analisisCartera valorizada (${usdTxt(deuda.capital)})`, (await cifra(p, 'ejec-deuda')) === usdTxt(deuda.capital), await cifra(p, 'ejec-deuda'));
+    const txtDeuda = await p.getByTestId('ejec-deuda').innerText();
+    // La cuota vencida sin pago registrado queda POR CONCILIAR en el modelo vigente (no se da por impaga sin confirmar).
+    check(`${tam} · deuda: corte de hoy, TC de Maestros, por conciliar (aparte) y fuera del perímetro a la vista`,
+      txtDeuda.includes(`Al ${hoyISO.split('-').reverse().join('-')}`) && /TC de Maestros/.test(txtDeuda) && txtDeuda.includes(`Por conciliar, no incluido: ${usdTxt(deuda.porConciliar)} (1 cuota)`) && deuda.porConciliar === 400000
+      && txtDeuda.includes(`Fuera del perímetro, no suma: ${usdTxt(300000)} (Allpa Farms)`), txtDeuda.replace(/\s+/g, ' ').slice(0, 220));
+    check(`${tam} · deuda completa (el crédito en CLP tiene TC): sin INCOMPLETO`, (await p.getByTestId('ejec-deuda-incompleto').count()) === 0 && !deuda.incompleto);
+    check(`${tam} · sin mínimo proyectado ni cifra fija del Dashboard`, !/[Mm]ínimo|8\.355\.763/.test(await fr.innerText()));
+    check(`${tam} · franja sin desborde`, (await desborde(p)) <= 1);
+    await fr.screenshot({ path: `${OUT}/${tam}-franja-ejecutiva.png` });
+    await p.screenshot({ path: `${OUT}/${tam}-inicio-cfo-franja.png` });
+    if (tam === 'computador') {
+      await p.getByTestId('ejec-deuda').getByRole('button', { name: 'Créditos ›' }).click(); await p.waitForTimeout(3500);
+      check('computador · «Créditos ›» abre Finanzas en Créditos', /Créditos/.test(await p.locator('main').innerText()) && (await p.getByTestId('franja-ejecutiva').count()) === 0);
+    }
+    check(`${tam} · franja: sin errores ni diálogos del navegador`, !s.errores.length && !s.nativos.length, [...s.errores, ...s.nativos].join(' | '));
+    await s.ctx.close();
+  }
+  // Permisos: Carol (Dashboard sin acceso) no ve la franja; la socia (consulta, ve Dashboard/Bancos/Créditos) sí.
+  for (const [email, ve, quien] of [['cmachuca@grupomediterra.cl', false, 'Analista (Dashboard sin acceso)'], ['socia.consulta@ejemplo.cl', true, 'Socia consulta (ve Dashboard, Bancos y Créditos)']]) {
+    const s = await sesion(process.env.APP_URL, [1440, 900, false], email, storeDiseno());
+    check(`${quien}: ${ve ? 've' : 'no ve'} la franja`, (await s.page.getByTestId('franja-ejecutiva').count()) === (ve ? 1 : 0));
+    await s.ctx.close();
+  }
+  // Error de lectura: bancos no se leen → caja «no disponible» con Reintentar; la deuda sigue.
+  {
+    const st = storeDiseno();
+    const s = await sesion(process.env.APP_URL, [1440, 900, false], 'ahuerta@grupomediterra.cl', st);
+    await s.ctx.route(/id=eq\.finanzas_bancos/, r => r.request().method() === 'GET' ? r.fulfill({ status: 503, body: '{}' }) : r.fallback());
+    await s.page.getByTestId('nav-modulo-finanzas').click(); await s.page.waitForTimeout(2500);
+    await s.page.getByTestId('nav-inicio').click(); await s.page.waitForTimeout(2500);
+    check('error: caja «no disponible» con Reintentar (nunca cero); deuda con su cifra', (await s.page.getByTestId('ejec-caja-error').count()) === 1
+      && (await s.page.getByTestId('ejec-caja').locator('[data-cifra]').count()) === 0 && (await s.page.getByTestId('ejec-deuda').locator('[data-cifra]').count()) === 1);
+    await s.page.getByTestId('franja-ejecutiva').screenshot({ path: `${OUT}/franja-error-caja.png` });
+    await s.ctx.close();
+  }
+  // Sin tipo de cambio: maestro_tc vacío → el crédito en CLP no suma, se nombra y la deuda dice INCOMPLETO.
+  {
+    const st = storeDiseno(); st.maestro_tc = { updated_at: new Date().toISOString(), value: {} };
+    const s = await sesion(process.env.APP_URL, [1440, 900, false], 'ahuerta@grupomediterra.cl', st);
+    check('sin TC: deuda INCOMPLETA y nombra el crédito en CLP', (await s.page.getByTestId('ejec-deuda-incompleto').count()) === 1
+      && /Osiris · Banco ficticio F3 CLP/.test(await s.page.getByTestId('ejec-deuda-sintc').innerText()));
+    await s.page.getByTestId('franja-ejecutiva').screenshot({ path: `${OUT}/franja-sin-tc.png` });
+    await s.ctx.close();
+  }
+  // Sin créditos guardados: no se muestra la lista por defecto del código como deuda.
+  {
+    const st = storeDiseno(); const f = (typeof st.finanzas.value === 'string' ? JSON.parse(st.finanzas.value) : st.finanzas.value); f.creditos_data = [];
+    st.finanzas.value = typeof st.finanzas.value === 'string' ? JSON.stringify(f) : f;
+    const s = await sesion(process.env.APP_URL, [1440, 900, false], 'ahuerta@grupomediterra.cl', st);
+    check('sin créditos guardados: lo dice y no muestra cifra', (await s.page.getByTestId('ejec-deuda-sindatos').count()) === 1
+      && (await s.page.getByTestId('ejec-deuda').locator('[data-cifra]').count()) === 0);
+    await s.ctx.close();
+  }
 }
 
 await browser.close();

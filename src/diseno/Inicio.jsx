@@ -141,6 +141,86 @@ function Avisos({ avisos }) {
   );
 }
 
+// ── Franja ejecutiva: caja y deuda del grupo ──────────────────────────
+// Cifras de las fuentes únicas (resumenEjecutivo.js). Siempre a la vista: moneda,
+// perímetro y fecha de corte. Lo que falta se nombra y el total dice INCOMPLETO;
+// una lectura fallida dice «no disponible», nunca cero. Sin mínimo proyectado.
+const usd = (x) => `US$ ${Math.round(Number(x) || 0).toLocaleString("es-CL")}`;
+const fechaCorta = (iso) => { if (!iso) return ""; const [y, m, d] = String(iso).slice(0, 10).split("-"); return `${d}-${m}-${y}`; };
+function BloqueEjecutivo({ testid, titulo, estado, onReintentar, onAbrir, abrir, children, valor, incompleto }) {
+  return (
+    <div data-testid={testid} style={{ ...tarjeta, padding: `${ESP.m}px ${ESP.l}px`, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: ESP.s, alignItems: "baseline" }}>
+        <span style={{ fontSize: TXT.chico, fontWeight: 700, color: COL.texto2 }}>{titulo}</span>
+        {estado === "ok" && onAbrir && <button onClick={onAbrir} style={{ border: "none", background: "none", color: COL.info, fontSize: TXT.chico, fontWeight: 600, cursor: "pointer", minHeight: 32, padding: 0 }}>{abrir}</button>}
+      </div>
+      {estado === "cargando" && <div data-testid={`${testid}-cargando`} style={{ fontSize: TXT.chico, color: COL.texto2 }}>Leyendo…</div>}
+      {estado === "error" && (
+        <div data-testid={`${testid}-error`} style={{ fontSize: TXT.chico, color: COL.aviso, display: "flex", gap: ESP.s, alignItems: "center", flexWrap: "wrap" }}>
+          <span>No se pudo leer; la cifra no está disponible.</span>
+          {onReintentar && <button onClick={onReintentar} style={{ minHeight: 32, padding: `0 ${ESP.m}px`, borderRadius: 8, border: `1px solid ${COL.borde}`, background: COL.superficie, color: COL.texto, fontSize: TXT.chico, fontWeight: 600, cursor: "pointer" }}>Reintentar</button>}
+        </div>
+      )}
+      {estado === "ok" && <>
+        <div style={{ display: "flex", alignItems: "baseline", gap: ESP.s, flexWrap: "wrap" }}>
+          <span data-cifra style={{ fontSize: 26, fontWeight: 800, color: COL.texto, fontVariantNumeric: "tabular-nums" }}>{valor}</span>
+          {incompleto && <span data-testid={`${testid}-incompleto`} style={{ fontSize: TXT.rotulo, fontWeight: 800, color: COL.aviso, letterSpacing: .5 }}>INCOMPLETO</span>}
+        </div>
+        {children}
+      </>}
+      {estado !== "ok" && estado !== "cargando" && estado !== "error" && children}
+    </div>
+  );
+}
+const Linea = ({ children, tono, testid }) => <div data-testid={testid} style={{ fontSize: TXT.chico, color: tono || COL.texto2, overflowWrap: "anywhere" }}>{children}</div>;
+
+function FranjaEjecutiva({ ejecutiva, onAbrirModulo, compacta }) {
+  if (!ejecutiva) return null;
+  const { caja, deuda, perimetro = [], fuera = [], reintentar } = ejecutiva;
+  const corte = deuda?.corte || (caja ? new Date().toISOString().slice(0, 10) : "");
+  return (
+    <section data-testid="franja-ejecutiva" aria-label="Posición del grupo">
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: `${ESP.xs}px ${ESP.m}px`, marginBottom: ESP.s }}>
+        <Rotulo>Posición del grupo</Rotulo>
+        <span data-testid="franja-contexto" style={{ fontSize: TXT.chico, color: COL.texto2 }}>
+          US$ · {perimetro.length} sociedades consolidadas línea a línea ({perimetro.join(", ")}) · fuera del perímetro, sin sumar: {fuera.join(", ")}
+        </span>
+      </div>
+      <div style={{ display: "grid", gap: compacta ? ESP.s : ESP.m, gridTemplateColumns: compacta ? "1fr" : "repeat(auto-fit, minmax(300px, 1fr))" }}>
+        {caja && (
+          <BloqueEjecutivo testid="ejec-caja" titulo="Caja en bancos" estado={caja.estado} onReintentar={reintentar}
+            onAbrir={() => onAbrirModulo("finanzas", "bancos")} abrir="Saldos Bancos ›" valor={usd(caja.total)} incompleto={caja.incompleto}>
+            {caja.estado === "ok" && <>
+              <Linea testid="ejec-caja-corte">{caja.fechaDesde
+                ? `Último saldo de cada cuenta, con fecha ${fechaCorta(caja.fechaDesde)}${caja.fechaHasta !== caja.fechaDesde ? ` a ${fechaCorta(caja.fechaHasta)}` : ""} (cada cuenta tiene su fecha)`
+                : "Sin saldos vigentes registrados"}</Linea>
+              {caja.sinTC.length > 0 && <Linea testid="ejec-caja-sintc" tono={COL.aviso}>
+                {caja.sinTC.length} cuenta{caja.sinTC.length > 1 ? "s" : ""} sin tipo de cambio guardado no suma{caja.sinTC.length > 1 ? "n" : ""}: {caja.sinTC.map(c => `${c.empresa} · ${c.banco} ${c.moneda}`).join("; ")}</Linea>}
+              {caja.sinSaldo.length > 0 && <Linea testid="ejec-caja-sinsaldo" tono={COL.aviso}>Sin saldo vigente: {caja.sinSaldo.join(", ")}</Linea>}
+            </>}
+          </BloqueEjecutivo>
+        )}
+        {deuda && (
+          <BloqueEjecutivo testid="ejec-deuda" titulo="Capital pendiente de créditos" estado={deuda.estado} onReintentar={reintentar}
+            onAbrir={() => onAbrirModulo("finanzas", "creditos")} abrir="Créditos ›" valor={usd(deuda.capital)} incompleto={deuda.incompleto}>
+            {deuda.estado === "sin_datos" && <Linea testid="ejec-deuda-sindatos" tono={COL.aviso}>No hay créditos guardados en Finanzas: no se muestra una cifra.</Linea>}
+            {deuda.estado === "ok" && <>
+              <Linea testid="ejec-deuda-corte">Al {fechaCorta(deuda.corte)} · TC de Maestros a esa fecha · capital, sin intereses</Linea>
+              {deuda.sinDesglose > 0 && <Linea>Además, cuotas sin desglose (pueden incluir intereses): {usd(deuda.sinDesglose)}</Linea>}
+              {deuda.vencido > 0 && <Linea tono={COL.peligro}>Vencido impago (incluido): {usd(deuda.vencido)}</Linea>}
+              {deuda.porConciliar > 0 && <Linea testid="ejec-deuda-porconciliar" tono={COL.aviso}>Por conciliar, no incluido: {usd(deuda.porConciliar)} ({deuda.cuotasPorConciliar} cuota{deuda.cuotasPorConciliar === 1 ? "" : "s"})</Linea>}
+              {deuda.sinTC.length > 0 && <Linea testid="ejec-deuda-sintc" tono={COL.aviso}>
+                {deuda.sinTC.length} crédito{deuda.sinTC.length > 1 ? "s" : ""} sin tipo de cambio{deuda.tcExiste === false ? " (Maestros sin tipos de cambio)" : ""} no suma{deuda.sinTC.length > 1 ? "n" : ""}: {deuda.sinTC.map(c => `${c.empresa} · ${c.acreedor} ${c.moneda}`).join("; ")}</Linea>}
+              {deuda.tcAntiguo.length > 0 && <Linea testid="ejec-deuda-tcantiguo" tono={COL.aviso}>TC con antigüedad sobre el aviso: {deuda.tcAntiguo.map(c => `${c.moneda} al ${fechaCorta(c.fecha)}`).filter((x, i, a) => a.indexOf(x) === i).join(", ")}</Linea>}
+              {deuda.fuera.capital > 0 && <Linea>Fuera del perímetro, no suma: {usd(deuda.fuera.capital)} ({deuda.fuera.empresas.join(", ")})</Linea>}
+            </>}
+          </BloqueEjecutivo>
+        )}
+      </div>
+    </section>
+  );
+}
+
 // ── «Requiere tu decisión» ────────────────────────────────────────────
 // Solo lo que ESTE perfil puede ejecutar (ver ≠ hacer), con las reglas de cada
 // módulo. Una fuente sin leer se dice «no disponible», nunca cero.
@@ -244,7 +324,7 @@ function InicioRendiciones({ clase, rend, onNueva, onVer }) {
   );
 }
 
-export default function Inicio({ clase, usuario, vista = "inicio", soloRendiciones, tareas, rend, nominas, puedeRendir, modulos, avisos,
+export default function Inicio({ clase, usuario, vista = "inicio", soloRendiciones, tareas, rend, nominas, ejecutiva, puedeRendir, modulos, avisos,
   onAbrirModulo, onNuevaRendicion, onVerRendiciones, onAbrirTareas }) {
   const compacta = clase === "compacta";
   const hoy = new Date();
@@ -306,6 +386,7 @@ export default function Inicio({ clase, usuario, vista = "inicio", soloRendicion
       <div style={{ display: "flex", flexDirection: "column", gap: compacta ? ESP.l : ESP.xl }}>
         {!compacta && <Avisos avisos={avisos}/>}
         {puedeRendir && compacta && <BotonPrincipal testid="inicio-nueva-rendicion" onClick={onNuevaRendicion}>+ Nueva rendición</BotonPrincipal>}
+        <FranjaEjecutiva ejecutiva={ejecutiva} onAbrirModulo={onAbrirModulo} compacta={compacta}/>
         <Decisiones items={decisiones} compacta={compacta}/>
         {pendientes && !compacta && (
           <div>

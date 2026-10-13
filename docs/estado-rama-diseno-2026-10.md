@@ -456,7 +456,7 @@ Firefox ni equipos reales; nada corrido en producción.
 
 ## Estado al 09-10
 
-Las pruebas de la muestra terminaron (§6e), las de los ajustes también (§6f y §6g). **Siguen
+Las pruebas de la muestra terminaron (§6e), las de los ajustes también (§6f, §6g y §6h). **Siguen
 pendientes:** tu revisión visual de la muestra y de los ajustes, y la adaptación de los demás
 módulos (grupos 2 a 5 de `docs/diseno/homogeneidad-y-plan.md` §4), que no empieza hasta esa
 revisión. Nada de esto está aprobado para producción: sin merge a `main` ni despliegue.
@@ -587,6 +587,90 @@ crédito) OK; jest en hora de Chile 1.761/1.761. En UTC, 1.760/1.761: falló una
 aislada y en la corrida de hora de Chile. No toca nada de este cambio (viene de `main`, commit
 569dcb2), pero su causa no está establecida: queda pendiente revisarla, no se trata como
 inestable. No probado en Safari, Firefox ni dispositivos reales.
+
+## 6h. Cierre de puntos acotados (13-10) — pruebas terminadas; pendiente tu revisión visual
+
+Sin integrar ramas, sin merge ni despliegue. Grupo 2 sin tocar.
+
+**1. Lectura de consulta del inicio** (`src/diseno/lecturaConsulta.js`). Revisión de lo que lee
+el inicio:
+
+| Lectura | Antes | Efecto sobre el guardado | Ahora |
+|---|---|---|---|
+| Rendiciones | `dbLoadGeneric("rendiciones")` | **sí**: registra versión y base en friskuHelpers, las mismas con que guarda Rendiciones | `lectorConsulta.rendiciones()` |
+| Nóminas | `leerNominasParaInicio` = `dbLoadNominas` | no registraba (devuelve los metadatos a quien llama), pero era la función de carga del módulo | `lectorConsulta.nominas(filasNominasConsulta(…))`; se quitó el alias |
+| Tareas | estado propio de `App` | no lee | sin cambio |
+| Franja: finanzas, bancos, TC | — (nuevo) | — | `lectorConsulta.fila(...)`; **nunca** `dbLoad`/`dbLoadBancos`/`dbLoadGeneric` |
+
+El lector solo hace GET, no importa ningún contrato de guardado y no reintenta.
+`filasNominasConsulta` es la misma selección de filas que `dbLoadNominas`.
+Prueba `lecturaInicioSinEfectos.test.js` (5), con las instancias REALES (`persist` y el registro
+de friskuHelpers): el control muestra que las cargas de los módulos borran el conflicto de
+Finanzas y cambian el registro de Rendiciones; con el lector, el estado de guardado de las seis
+filas queda idéntico, el conflicto sigue bloqueando el guardado y no sale ninguna escritura.
+En navegador, `scripts/e2e/inicio-consulta.mjs`: con Finanzas en conflicto se va al inicio y se
+vuelve. En el inicio solo hay GET (rendiciones, nóminas, finanzas, bancos, TC) y ninguna
+escritura; el dato de la otra sesión queda en el servidor.
+
+**Hallazgo (anterior a esta rama, idéntico en el build previo): volver a Finanzas NO conserva el
+conflicto.** Al desmontar, Finanzas no escribe (bien: la fila está bloqueada), pero al volver
+`dbLoad` llama `registrarCarga`, que limpia el conflicto, y la pantalla muestra lo del servidor;
+lo local en conflicto se pierde sin aviso. En el recorrido de prueba, además, la normalización de
+identificadores vuelve a correr y escribe (un PATCH declarado sobre los datos frescos del
+servidor; no pisa lo de la otra sesión). No depende del inicio: el build anterior, que leía con
+`dbLoadGeneric`, da exactamente lo mismo. Corregirlo es un cambio de persistencia de Finanzas
+(no recargar encima de un conflicto pendiente y ofrecer las dos salidas al volver, o impedir
+salir del módulo con la fila en conflicto). Queda como **decisión tuya**; la prueba lo exige con
+`ESPERA_CONSERVA=1`.
+
+**2. `compensacionConcurrencia.test.js`: causa encontrada.** La prueba hace aplicar la misma
+compensación en dos sesiones y espera que la segunda choque. `aplicarCompensacion`
+(`src/programas.js`) estampa la hora con `new Date()`; si las dos sesiones aplican en el mismo
+milisegundo, producen exactamente el mismo contenido, y el contrato de guardado lo trata como
+reintento idempotente («lo que queríamos ya está en el servidor», req 10) y devuelve `ok:true`.
+La regla de la app es correcta (no se duplica nada); la prueba depende del reloj. Comparación en
+las mismas condiciones (prueba, `persistContract.js` y `programas.js` idénticos en `main`
+c9c5792 y en la rama):
+
+| | `main` c9c5792 | rama |
+|---|---|---|
+| Reloj fijo (mismo instante en las dos sesiones) | falla siempre (3/3) | falla siempre (3/3) |
+| Reloj que avanza 1 ms por estampa | pasa (3/3) | pasa (3/3) |
+| Prueba sin modificar, 3 corridas con carga | falló 1 de 3 | falló 1 de 4 (la del 10-10) |
+
+No la causa ningún cambio de la rama. Arreglo propuesto (no aplicado; es una prueba de `main`):
+dar a cada sesión un reloj propio en la prueba, o comparar contra contenidos distintos.
+
+**3. Deuda antigua de la rama funcional: superada y excluida** (commit `847772a` en
+`claude/fervent-bell-uu6ae8`: §3 y §7 de su documento, CLAUDE.md y la receta de etapa 1). La
+deuda se toma solo de `src/creditos.js` de `main`.
+
+**4. Franja ejecutiva del inicio** (`src/diseno/resumenEjecutivo.js`, `Inicio.jsx`):
+- Caja = Σ `saldoBancoEmpresaUSD`; deuda = `analisisCartera(valorizarCreditos(creditos, maestro_tc, hoy))`,
+  lo mismo que Créditos → «Análisis CFO». Sin fórmulas propias, sin mínimo proyectado y sin enlazar
+  al KPI fijo del Dashboard (los enlaces van a Saldos Bancos y Créditos).
+- A la vista: US$, perímetro (las 6 sociedades consolidadas por nombre; Allpa Chile, Allpa Perú y
+  Frisku Perú fuera, sin sumar), fechas de los saldos (cada cuenta tiene la suya) y fecha de corte
+  de la deuda con «TC de Maestros a esa fecha · capital, sin intereses».
+- Estados: INCOMPLETO (cuentas o créditos sin tipo de cambio, sociedades sin saldo vigente,
+  nombrados uno por uno), «no disponible» con Reintentar si una lectura falla (nunca cero), y
+  «No hay créditos guardados» en vez de mostrar la lista por defecto del código. Lo por conciliar
+  y lo fuera del perímetro se informan aparte y no suman.
+- Permisos: solo con Dashboard visible (que ya exige acceso a todas las consolidadas); la caja
+  además exige Saldos Bancos y la deuda Créditos. No se concede nada nuevo.
+- Semilla de la vista previa: saldos y créditos ficticios (uno en CLP valorizado con un TC ficticio,
+  uno vencido sin pago registrado → por conciliar, uno de Allpa Chile → fuera, una cuenta EUR sin TC).
+- Costo: el inicio del CFO lee la fila `finanzas` completa (~4,4 MB en producción) cada vez que se
+  vuelve al inicio, porque los créditos viven dentro de ese blob. A considerar antes de producción.
+
+**5.** El menú de la nómina en teléfono se llama «Opciones de nómina» (visible y accesible).
+
+**Pruebas** (build congelado `main.5f33062e.js`, Chromium emulado, datos ficticios; solo lo
+afectado): `ajustes-muestra` (franja + nóminas) 45/45; `inicio-consulta` 7/7; `muestra-ejecutiva`
+65/65; `hub-navegacion` 77/77; `grupo1-finanzas` 200/200; `dialogos-app` 27/27; nóminas
+(guardado, condicionado, crédito), `apertura-sin-cambios` y `aislamiento` OK; jest 1.766/1.766 en
+UTC y en hora de Chile (nuevas: `lecturaInicioSinEfectos` 5, `resumenEjecutivo` 4). No probado en
+Safari, Firefox ni dispositivos reales.
 
 ## 7. Archivos
 

@@ -1683,8 +1683,8 @@ export const EMPRESAS_KEYS_ALL = [
 // Empresas que entran al consolidado del grupo.
 // Allpa Farms Chile y Perú quedan fuera del consolidado (método patrimonio, IAS 28).
 // Frisku Foods Perú existe solo en Nóminas (no en el consolidado de Finanzas).
-const EMPRESAS_FUERA_CONSOLIDADO = ["Allpa Farms", "Allpa Farms Perú", "Frisku Foods Perú"];
-const EMPRESAS_KEYS_CONSOLIDADO = EMPRESAS_KEYS_ALL.filter(n => !EMPRESAS_FUERA_CONSOLIDADO.includes(n));
+export const EMPRESAS_FUERA_CONSOLIDADO = ["Allpa Farms", "Allpa Farms Perú", "Frisku Foods Perú"];
+export const EMPRESAS_KEYS_CONSOLIDADO = EMPRESAS_KEYS_ALL.filter(n => !EMPRESAS_FUERA_CONSOLIDADO.includes(n));
 
 // Acceso completo a Finanzas si: admin, CFO, sin array (retrocompat),
 // array vacío, o array contiene TODAS las empresas del consolidado.
@@ -16059,7 +16059,13 @@ export function puedeAvanzarNomina(estado, usuario, canEdit) {
 }
 // Lectura de nóminas para el inicio: la misma función del módulo (sin registrar
 // versiones de guardado: es solo lectura).
-export { dbLoadNominas as leerNominasParaInicio };
+// Filas de nóminas que corresponden a un perfil: la MISMA selección que hace
+// dbLoadNominas. La usa el inicio con su lector de consulta (src/diseno/lecturaConsulta.js),
+// que no pasa por el contrato de guardado de Nóminas.
+export function filasNominasConsulta(empresasPermitidas) {
+  const emp = (!empresasPermitidas?.length) ? EMPRESAS_NOM : EMPRESAS_NOM.filter(e => empresasPermitidas.includes(e));
+  return emp.map(empresa => ({ empresa, fila: filaNominaDe(empresa) }));
+}
 
 // Carga nóminas POR EMPRESA. Cada fila queda con su estado:
 //   "ok"          → leída; se guarda condicionada a su versión;
@@ -17140,7 +17146,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
   creditosData=[], puedePagarCredito=false, onPagoCredito}) {
   const nom = nomina;
   const nomActual = useUltimo(nomina);   // la nómina vigente mientras se espera un diálogo
-  const claseVentana = useClaseVentana();   // teléfono: acciones del circuito a la vista, el resto en «Más»
+  const claseVentana = useClaseVentana();   // teléfono: acciones del circuito a la vista, el resto en «Opciones de nómina»
   const esCFO = usuario?.rol==="admin" || usuario?.esCFO;
   const [soloVer, setSoloVer] = useState(false);
   const [transicionando, setTransicionando] = useState(false); // guardando un cambio de estado
@@ -17862,7 +17868,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
     <div style={{fontFamily:"sans-serif",background:C.bg,minHeight:"100vh",color:C.text}}>
       {/* Encabezado de la nómina: sistema común (mdt-cabmod / mdt-boton). Mismas acciones,
           condiciones y permisos que antes; solo cambia la presentación. En teléfono, las
-          acciones del circuito quedan a la vista y el resto pasa a «Más». */}
+          acciones del circuito quedan a la vista y el resto pasa a «Opciones de nómina». */}
       {(()=>{
         const selectorHermanas = (onSwitchNomina&&(
               <select value={nom.id}
@@ -17939,7 +17945,7 @@ function NominaDetalle({nomina, onUpdate, onBack, usuario, canEdit, saldosBancos
             </div>
             <div className="mdt-barra-nomina__fila mdt-barra-nomina__acciones">
               {accionCircuito}
-              <MenuMas etiqueta="Más acciones de la nómina" testid="nomina-mas">
+              <MenuMas rotulo="Opciones de nómina" etiqueta="Opciones de nómina" testid="nomina-mas">
                 <div className="mdt-mas__dato">Semana {nom.semana} · {nom.año} · {nom.fecha}</div>
                 {selectorHermanas}
                 {accionesSec}

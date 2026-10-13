@@ -68,7 +68,11 @@ Lo común ya resuelto en la rama: navegación (lateral / riel / barra inferior),
 Cada grupo: sin reescribir módulos, sin tocar cálculos, persistencia ni permisos; pruebas solo de
 lo que cambia sobre un build congelado; capturas en los 4 tamaños.
 
-## 5. Franja ejecutiva del CFO (propuesta, no implementada) — revisada el 10-10
+## 5. Franja ejecutiva del CFO — implementada el 13-10 (caja y deuda; sin mínimo). Ver estado §6h
+
+Lo que sigue es el análisis del 10-10 que llevó a esa implementación.
+
+### Análisis del 10-10
 
 **Qué mostraría** (una fila compacta sobre «Requiere tu decisión», solo para quien tiene
 Finanzas → Dashboard): caja hoy, deuda (capital pendiente, con lo vencido y lo por conciliar

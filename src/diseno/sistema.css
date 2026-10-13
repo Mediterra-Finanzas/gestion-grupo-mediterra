@@ -319,3 +319,4 @@ html[data-nav="compacta"] .mdt-dup-nav { display: none; }
 .mdt-barra-nomina--compacta .mdt-cabmod__titulo { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mdt-barra-nomina--compacta .mdt-barra-nomina__acciones > .mdt-boton { flex: 1 1 0; min-width: 0; white-space: normal; line-height: 1.15; padding: 4px 8px; }
 .mdt-barra-nomina--compacta .mdt-barra-nomina__acciones > .mdt-mas { flex: 0 0 auto; margin-left: auto; }
+.mdt-barra-nomina--compacta .mdt-mas > .mdt-boton { white-space: normal; line-height: 1.15; padding: 4px 10px; max-width: 120px; text-align: left; }

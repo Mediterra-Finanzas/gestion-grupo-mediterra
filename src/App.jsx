@@ -1,7 +1,9 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import OsirisModule from "./OsirisModule.jsx";
-import FinanzasModule, { EMPRESAS_KEYS_ALL, pestanasVisiblesFinanzas, leerNominasParaInicio } from "./FinanzasModule.jsx";
+import FinanzasModule, { EMPRESAS_KEYS_ALL, EMPRESAS_KEYS_CONSOLIDADO, EMPRESAS_FUERA_CONSOLIDADO, pestanasVisiblesFinanzas, filasNominasConsulta } from "./FinanzasModule.jsx";
+import { cajaEjecutiva, deudaEjecutiva } from "./diseno/resumenEjecutivo.js";
+import { lectorConsulta } from "./diseno/lecturaConsulta.js";
 import AllegriaModule from "./AllegriaModule.jsx";
 import FriskuComercialModule from "./FriskuComercialModule.jsx";
 import ContabilidadModule from "./ContabilidadModule.jsx";
@@ -26,7 +28,6 @@ import { DialogosHost } from "./diseno/dialogos.jsx";
 import Inicio from "./diseno/Inicio.jsx";
 import { useClaseVentana } from "./diseno/useClaseVentana";
 import { resumenRendiciones, resumenTareas, totalAccionable, esSoloRendiciones, resumenNominas } from "./diseno/resumenInicio";
-import { dbLoadGeneric } from "./friskuHelpers";
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
 // En vez de pantalla blanca, muestra botón de actualizar
@@ -1944,28 +1945,66 @@ export default function App(){
   const puedeRendirU=(u)=>!!u && modulosDeUsuarioSeguro(u).includes("finanzas")
     && pestanasVisiblesFinanzas(u, getTabPermisosModulo(u,"finanzas")).some(t=>t.id==="rendiciones");
   const puedeRendirActual=puedeRendirU(usuarioFresco);
-  // Contadores de rendiciones del inicio: SOLO LECTURA de la fila `rendiciones`
-  // (la misma que ya lee el módulo para cualquier perfil con la pestaña). Si falla,
-  // los contadores quedan «no disponibles», nunca en cero.
+  // Contadores de rendiciones del inicio: CONSULTA de la fila `rendiciones` (la misma
+  // que lee el módulo) con el lector de consulta, que no registra la lectura en el
+  // guardado de Rendiciones (dbLoadGeneric sí lo hacía). Si falla, los contadores
+  // quedan «no disponibles», nunca en cero.
   const cargarRendHub=useCallback(async()=>{
     setRendHub(r=>({...r,estado:"cargando"}));
-    try{ const d=await dbLoadGeneric("rendiciones"); setRendHub({estado:"ok",datos:Array.isArray(d)?d:[]}); }
+    try{ const d=await lectorConsulta.rendiciones(); setRendHub({estado:"ok",datos:d}); }
     catch(e){ console.warn("[Inicio] rendiciones no leídas:",e); setRendHub({estado:"error",datos:null}); }
   },[]);
-  // Nóminas para «Requiere tu decisión»: SOLO LECTURA con la misma función del
-  // módulo, únicamente si el perfil ve la pestaña Nóminas. Si falla: «no disponible».
+  // Nóminas para «Requiere tu decisión»: CONSULTA de las mismas filas que lee el
+  // módulo (filasNominasConsulta), con el lector de consulta. Solo si el perfil ve
+  // la pestaña Nóminas. Si una fila falla: «no disponible».
   const veNominasActual = !!usuarioFresco && modulosDeUsuarioSeguro(usuarioFresco).includes("finanzas")
     && pestanasVisiblesFinanzas(usuarioFresco, getTabPermisosModulo(usuarioFresco,"finanzas")).some(t=>t.id==="nominas");
   const cargarNomHub=useCallback(async()=>{
     setNomHub(r=>({...r,estado:"cargando"}));
     try{
       const ep = Array.isArray(usuarioFresco?.empresas_permitidas) && usuarioFresco.empresas_permitidas.length && usuarioFresco.rol!=="admin" && !usuarioFresco.esCFO ? usuarioFresco.empresas_permitidas : null;
-      const d=await leerNominasParaInicio(ep);
+      const d=await lectorConsulta.nominas(filasNominasConsulta(ep), ep);
       const fallidas=Object.values(d.filas||{}).filter(f=>f.estado==="error").length;
       setNomHub(fallidas?{estado:"error",datos:null}:{estado:"ok",datos:d.nominas||[]});
     }catch(e){ console.warn("[Inicio] nóminas no leídas:",e); setNomHub({estado:"error",datos:null}); }
   // eslint-disable-next-line
   },[usuarioFresco?.nombre]);
+  // Franja ejecutiva: caja y deuda del grupo. Solo para quien ve el Dashboard de
+  // Finanzas (exige acceso a todas las sociedades consolidadas) y, para cada bloque,
+  // la pestaña de donde sale (Saldos Bancos / Créditos). Lectura de CONSULTA: no
+  // toca el guardado de Finanzas. Cada bloque tiene su propio estado.
+  const pestFin = usuarioFresco && modulosDeUsuarioSeguro(usuarioFresco).includes("finanzas")
+    ? pestanasVisiblesFinanzas(usuarioFresco, getTabPermisosModulo(usuarioFresco,"finanzas")).map(t=>t.id) : [];
+  const veEjecutiva = pestFin.includes("dashboard") && (pestFin.includes("bancos") || pestFin.includes("creditos"));
+  const veCajaEjec = veEjecutiva && pestFin.includes("bancos");
+  const veDeudaEjec = veEjecutiva && pestFin.includes("creditos");
+  const [ejecHub,setEjecHub]=useState({caja:{estado:"cargando"},deuda:{estado:"cargando"}});
+  const cargarEjecHub=useCallback(async()=>{
+    setEjecHub({caja:{estado:"cargando"},deuda:{estado:"cargando"}});
+    const leer = (id)=>lectorConsulta.fila(id).then(r=>({ok:true,r}),e=>({ok:false,e}));
+    const [ban, fin, tc] = await Promise.all([veCajaEjec?leer("finanzas_bancos"):null, veDeudaEjec?leer("finanzas"):null, veDeudaEjec?leer("maestro_tc"):null]);
+    const caja = !veCajaEjec ? null : !ban.ok ? {estado:"error"}
+      : {estado:"ok", ...cajaEjecutiva(ban.r.valor?.saldos||{}, EMPRESAS_KEYS_CONSOLIDADO)};
+    let deuda = null;
+    if(veDeudaEjec){
+      if(!fin.ok || !tc.ok) deuda = {estado:"error"};
+      else {
+        const cred = fin.r.valor?.creditos_data;
+        // Sin créditos guardados no se muestra la lista por defecto del código como deuda vigente.
+        deuda = (!Array.isArray(cred) || !cred.length) ? {estado:"sin_datos"}
+          : {estado:"ok", ...deudaEjecutiva(cred, tc.r.valor||{}, EMPRESAS_KEYS_CONSOLIDADO, EMPRESAS_FUERA_CONSOLIDADO), tcExiste: tc.r.existe};
+      }
+    }
+    if(ban && !ban.ok) console.warn("[Inicio] saldos no leídos:", ban.e);
+    if(fin && !fin.ok) console.warn("[Inicio] créditos no leídos:", fin.e);
+    if(tc && !tc.ok) console.warn("[Inicio] maestro_tc no leído:", tc.e);
+    setEjecHub({caja, deuda});
+  // eslint-disable-next-line
+  },[veCajaEjec, veDeudaEjec]);
+  useEffect(()=>{
+    if(usuarioActual && !moduloActivo && veEjecutiva) cargarEjecHub();
+  // eslint-disable-next-line
+  },[usuarioActual?.nombre, moduloActivo, veEjecutiva, veCajaEjec, veDeudaEjec]);
   useEffect(()=>{
     if(usuarioActual && !moduloActivo && veNominasActual) cargarNomHub();
   // eslint-disable-next-line
@@ -4533,6 +4572,7 @@ Equipo Mediterra`);
       )}
       {marco(
         <Inicio clase={claseVentana} usuario={uNav} vista={vistaInicio} soloRendiciones={soloRendicionesNav}
+          ejecutiva={veEjecutiva ? { ...ejecHub, reintentar: cargarEjecHub, perimetro: EMPRESAS_KEYS_CONSOLIDADO, fuera: EMPRESAS_FUERA_CONSOLIDADO } : null}
           tareas={tareasNav} rend={rendNav} nominas={nomNav} puedeRendir={puedeRendirActual}
           modulos={modulosNav.map(m => m.id === "finanzas"
             ? { ...m, accesos: pestanasFinNav.map(t => ({ id: t.id, label: t.label.replace(/^\S+\s/, "") })) } : m)}
