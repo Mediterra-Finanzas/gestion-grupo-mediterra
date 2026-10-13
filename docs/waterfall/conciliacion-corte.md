@@ -1,5 +1,12 @@
 # Waterfall desde el saldo bancario de corte — conciliación (datos FICTICIOS)
 
+> **Estado 13-10 (tarde):** el resultado se rotula «Proyección parcial: mes del corte pendiente
+> de conciliar». **No es un saldo final definitivo** y no está autorizado como tal. El mes del
+> corte queda excluido: ni se incluye completo ni se supone que su pendiente es cero. La fila con
+> el mes completo es una **simulación**, no el saldo correcto, ni un mínimo, ni un máximo. La
+> fila «atribuible» se retiró. Propuesta para registrar el flujo posterior al corte y
+> comparación de criterios entre pantallas: `propuesta-pendientes-corte.md`.
+
 Alcance: build de la rama `claude/waterfall-perimetro` (desde `main` c9c5792), Chromium emulado,
 Supabase falso y datos ficticios de la vista previa; Excel recalculado en LibreOffice. No es
 producción.
@@ -112,9 +119,8 @@ suma.
 - **Total.** 205.433 + 54.080 = 259.513; 2.150.631 − 316.607 = 1.834.024;
   259.513 + 1.834.024 = 2.093.537.
 
-La fila «Participación Controladora» aplicaba el % de propiedad a la caja de las subsidiarias.
-Ahora está en el bloque informativo, como «Saldo final × % de propiedad (atribuible; no es caja
-consolidada)».
+La fila «Participación Controladora» aplicaba el % de propiedad a la caja de las subsidiarias:
+**retirada** de la pantalla y del Excel.
 
 ## 4. Excel
 

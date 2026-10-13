@@ -5608,6 +5608,16 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
       ? `VISTA GERENCIAL DE CAJA, no consolidación contable: suma las ${sumadas.length - jvProporcional.length} sociedades al 100% y ${jvProporcional.map(n=>`${n} al ${Math.round(proporcional[n]*100)}% de su caja`).join(" y ")}. Bajo IAS 28 una JV se registra por método de participación y su caja no se suma.`
       : `Total Consolidado = ${sumadas.length} sociedades (${sumadas.join(", ")}).`)
     + (separadas.length ? ` ${separadas.join(" y ")}: JV por método de participación, se muestran aparte al 100% y NO suman al total.` : "");
+  // Saldos a fechas distintas: dentro de una sociedad (varias cuentas) y entre sociedades.
+  // Su suma NO es la caja a una fecha común; se dice en pantalla y en el Excel.
+  const fechasCuentas = (n) => [...new Set(cuentasSaldoEmpresa(saldosBancos, n).map(c => String(c.fecha).slice(0,10)))].sort();
+  const empFechasDistintas = [...sumadas, ...separadas].filter(n => fechasCuentas(n).length > 1);
+  const fechasTotal = [...new Set(sumadas.flatMap(fechasCuentas))].sort();
+  const fmtFc = (f) => `${f.slice(8,10)}-${f.slice(5,7)}-${f.slice(0,4)}`;
+  const textoFechas = [
+    fechasTotal.length > 1 ? `El total suma saldos bancarios a ${fechasTotal.length} fechas distintas (${fmtFc(fechasTotal[0])} a ${fmtFc(fechasTotal[fechasTotal.length-1])}): no es la caja del grupo a una fecha común.` : "",
+    ...empFechasDistintas.map(n => `${n}: sus cuentas tienen fechas distintas (${fechasCuentas(n).map(fmtFc).join(", ")}); se toma la más reciente como corte y lo ocurrido entre esas fechas puede estar o no en el saldo.`),
+  ].filter(Boolean);
   const textoIncompleto = Object.keys(avisosSaldo).filter(n => sumadas.includes(n)).length
     ? `Saldo de caja INCOMPLETO: se excluyen cuentas sin TC guardado de ${Object.keys(avisosSaldo).filter(n => sumadas.includes(n)).join(", ")}.` : "";
 
@@ -5657,7 +5667,6 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
         fcCapital: v(ingNop + egrNop),
         total: sinProy ? null : plan.flujoProyectado,
         saldoFinal: plan.saldoFinal,
-        participacionCtrl: plan.saldoFinal == null ? null : plan.saldoFinal * factor(n),
         mesCorte: plan.corteEnTemporada ? plan.flujoMesCorte : null,
         saldoFinalConMesCorte: plan.corteEnTemporada ? plan.saldoFinalConMesCorte : null,
         historico: plan.historico.length ? plan.flujoHistorico : null,
@@ -5670,7 +5679,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
   const totales = useMemo(()=>{
     const keys = ["saldoCaja","ingresos","egresosOp","impuestos","fcOp","callCapital",
                   "financiamiento","pagoCreditos","dividendosRec","otrosIngresosN",
-                  "inversiones","aportesCapital","fcCapital","total","saldoFinal","participacionCtrl",
+                  "inversiones","aportesCapital","fcCapital","total","saldoFinal",
                   "mesCorte","saldoFinalConMesCorte","historico"];
     const t = {};
     keys.forEach(k=>{
@@ -5715,13 +5724,13 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
     {key:"otrosIngresosN", label:"Otros Ingresos No Operacionales", tipo:"cap"},
     {key:"fcCapital",      label:"Flujo Caja Capital",        tipo:"subtotal"},
     {key:"total",          label:"Flujo proyectado posterior al mes del corte", tipo:"total"},
-    {key:"saldoFinal",     label:"Saldo Final Caja (USD) = saldo inicial + flujo proyectado", tipo:"saldoFinal"},
-    {key:"_info",          label:"Informativo — fuera de la identidad, no suma", tipo:"separador"},
-    // Aplica el % de propiedad al saldo final, también al de las subsidiarias: NO es caja
-    // consolidada (las subsidiarias consolidan al 100% con interés minoritario). Solo informativo.
-    {key:"participacionCtrl", label:"Saldo final × % de propiedad (atribuible; no es caja consolidada)", tipo:"info"},
-    {key:"mesCorte",       label:"Flujo del mes del corte (no incluido: no se puede separar lo ya incorporado al banco)", tipo:"info"},
-    {key:"saldoFinalConMesCorte", label:"Saldo final si el mes del corte estuviera completo pendiente", tipo:"info"},
+    // NO es un saldo final definitivo: el mes del corte queda pendiente de conciliar (ni completo
+    // ni en cero). La fila "atribuible" (saldo × % de propiedad) se retiró: aplicaba porcentajes a
+    // la caja de subsidiarias que consolidan al 100%.
+    {key:"saldoFinal",     label:"Proyección parcial (USD): mes del corte pendiente de conciliar", tipo:"saldoFinal"},
+    {key:"_info",          label:"Fuera de la proyección parcial — no suma", tipo:"separador"},
+    {key:"mesCorte",       label:"Flujo del mes del corte EXCLUIDO, pendiente de conciliar (ver fecha del saldo de cada sociedad)", tipo:"info"},
+    {key:"saldoFinalConMesCorte", label:"Simulación: si TODO el flujo del mes del corte estuviera pendiente (no es el saldo correcto, ni un mínimo, ni un máximo)", tipo:"info"},
     {key:"historico",      label:"Flujo ya transcurrido de la temporada (histórico, ya en el saldo bancario)", tipo:"info"},
   ];
 
@@ -5851,7 +5860,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
     });
 
     // Perímetro (y aviso de saldo incompleto) al pie, igual que en pantalla.
-    const notas = [textoPerimetro, textoIncompleto, "Saldo inicial + flujo proyectado = saldo final. El mes del corte no entra (la proyección es mensual y no separa lo ya incorporado al banco); se informa aparte. Los meses anteriores al corte son históricos y no suman.", "Las subsidiarias van al 100% de su caja; la fila «atribuible» (saldo final × % de propiedad) es informativa y no es caja consolidada."].filter(Boolean);
+    const notas = [textoPerimetro, textoIncompleto, ...textoFechas, "PROYECCIÓN PARCIAL, no saldo final definitivo: saldo al corte + flujo de los meses posteriores al mes del corte. El flujo del mes del corte está EXCLUIDO y pendiente de conciliar (ni completo ni cero). La fila de simulación no es el saldo correcto, ni un mínimo, ni un máximo. Los meses anteriores al corte son históricos y no suman.", "Las subsidiarias van al 100% de su caja; la inclusión proporcional de JV es una vista gerencial, no IAS 28."].filter(Boolean);
     notas.forEach((t,i)=>{ const r = rows.length+6+i; rowsXml += `<row r="${r}"><c r="A${r}" t="inlineStr" s="6"><is><t>${escXml(t)}</t></is></c></row>`; });
 
     const tableRef = `A4:${lastCol}${rows.length+4}`;
@@ -5923,7 +5932,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
 </Relationships>`;
 
     // Hoja 2: conciliación mes a mes por sociedad (mismo perímetro que el total).
-    const CLASE = { historico:"Histórico (ya en el banco)", mes_corte:"Mes del corte (no incluido)", puente:"Puente hasta la temporada", proyectado:"Proyectado" };
+    const CLASE = { historico:"Histórico (ya en el banco)", mes_corte:"Mes del corte (excluido, pendiente de conciliar)", puente:"Puente hasta la temporada", proyectado:"Proyectado" };
     const enc2 = ["Sociedad","Mes","Clasificación","Flujo USD","Saldo proyectado acumulado","Fecha del saldo de corte","Saldo al corte"];
     let r2 = `<row r="1">${enc2.map((h,c)=>`<c r="${colLetter(c)}1" t="inlineStr" s="1"><is><t>${escXml(h)}</t></is></c>`).join("")}</row>`;
     conciliacion.forEach((x,i)=>{
@@ -6100,7 +6109,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
           <div style={{overflowX:"auto",marginTop:8,border:`1px solid ${C.border}`,borderRadius:10}}>
             <table data-testid="waterfall-conciliacion" style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
               <thead><tr style={{background:C.bg2}}>
-                {["Mes","Histórico (ya en el banco)","Mes del corte (no incluido)","Puente hasta la temporada","Proyectado","Saldo proyectado acumulado"].map(h=>
+                {["Mes","Histórico (ya en el banco)","Mes del corte (excluido, pendiente de conciliar)","Puente hasta la temporada","Proyectado","Saldo proyectado acumulado"].map(h=>
                   <th key={h} style={{padding:"8px 10px",textAlign:h==="Mes"?"left":"right",fontSize:10,color:C.muted}}>{h}</th>)}
               </tr></thead>
               <tbody>
@@ -6121,9 +6130,10 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
       </div>
 
       <div style={{marginTop:10,fontSize:10,color:C.muted,fontStyle:"italic",padding:"0 4px"}}>
-        💡 Cifras en USD · Valores positivos = ingresos / saldo · Valores negativos = egresos. Las subsidiarias van al 100% de su caja; el % de propiedad solo se usa en la fila informativa «atribuible».
+        💡 Cifras en USD · Valores positivos = ingresos / saldo · Valores negativos = egresos. Las subsidiarias van al 100% de su caja.
+        {textoFechas.map((t,i)=><div key={i} data-testid="waterfall-fechas-distintas" style={{marginTop:4,color:C.orange,fontStyle:"normal",fontWeight:700}}>⚠ {t}</div>)}
         <div data-testid="waterfall-perimetro" style={{marginTop:4,fontWeight:esGerencial?800:400,color:esGerencial?C.orange:undefined}}>{textoPerimetro}</div>
-        <div style={{marginTop:4}}>Saldo inicial + flujo proyectado = saldo final. El mes del corte no entra: la proyección es mensual y no permite separar lo que ya está en el banco; su monto se informa aparte, junto con el saldo final que resultaría si estuviera completo pendiente. Los meses anteriores al corte son históricos y no vuelven a sumar.</div>
+        <div data-testid="waterfall-parcial" style={{marginTop:4,fontStyle:"normal",fontWeight:700}}>Proyección parcial, no un saldo final definitivo: saldo al corte + flujo de los meses posteriores al mes del corte. El flujo del mes del corte queda EXCLUIDO y pendiente de conciliar (no se incluye completo ni se supone cero), porque la proyección es mensual y no separa lo que ya está en el banco. La fila de simulación solo muestra qué pasaría si ese mes estuviera completo pendiente. Los meses anteriores al corte son históricos y no suman.</div>
         {textoIncompleto&&<div data-testid="waterfall-incompleto" style={{marginTop:4,color:C.orange,fontStyle:"normal",fontWeight:700}}>⚠ {textoIncompleto}</div>}
       </div>
     </div>
