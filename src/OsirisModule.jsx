@@ -33,9 +33,21 @@ import {
   estadoBeneficio, faltantesBeneficio, consumoCupo, configBeneficio,
   estadoReajuste, faltantesReajuste, configReajuste, previsualizarReajuste,
   ACCION, netoNoDefinitivo, territorioDe,
-  reajusteOperativo, contratosConReajusteSinDefinir,
+  contratosConReajusteSinDefinir,
   REAJUSTE_APLICANDO, REAJUSTE_MARCADO_SIN_DEFINICION, REAJUSTE_REGISTRADO_SIN_APLICAR,
+  REAJUSTE_ACTIVADO_APLICANDO,
 } from "./osiris/condicionesConfigurables";
+import {
+  reajusteDeFila as reajusteActivadoDeFila, estadoActivacion, previsualizarActivacion,
+  puedeCrearActivacion, puedeEditarTerminos, activar as activarReajuste, desactivar as desactivarReajuste,
+  conProteccionConservada, bloqueoPorFechasSelladas, MOTIVO_PROTECCION_CONSERVADA,
+  puedeDesactivar, previsualizarDesactivacion, historialActivacion, identidadDe,
+  reajusteOperativoConActivacion,
+  hayRegistroVigente, hayRegistroDeActivacion, TERMINOS_BLOQUEABLES,
+  antecedentesDeCobro, REGLAS_FECHA,
+  ACTIVADO as REAJ_ACTIVADO, MODIFICACION_PENDIENTE as REAJ_MODIF_PENDIENTE,
+  CONFLICTO_CON_ANTIGUA as REAJ_CONFLICTO, SIN_ACTIVAR as REAJ_SIN_ACTIVAR,
+} from "./osiris/reajusteAplicado";
 import {
   PAISES_CONSTITUCION, paisConstitucionDe, declararPaisConstitucion,
   indicioDesdeDocumentos, divergenciaConPaisIdentificacion, clientesPorRevisar,
@@ -7257,6 +7269,28 @@ function derivarRoyaltyPlantaDesdeContratos(ctData, ocsByCt) {
   return out;
 }
 
+// El reajuste ACTIVADO es el unico camino por el que este motor puede mover
+// un monto del royalty comercial. Si no hay activacion efectiva, si la fila
+// esta protegida por antecedentes de cobro, o si la regla del aniversario
+// dentro del periodo no esta resuelta, devuelve el monto tal cual.
+//
+// La configuracion antigua (royaltyInflacion + rcInflacionPct) sigue su propio
+// camino, intacto: cuando esta operando, la activacion queda en conflicto y
+// esta funcion no hace nada.
+function reajusteDeTemporada(ct, temporada, montoBase, pago) {
+  const r = reajusteActivadoDeFila(ct, {temporada, montoFact: montoBase},
+    {mesCobro: ct && ct.rcMesCobro, antecedentes: pago});
+  const seAplica = r.aplica && !r.bloqueado && !r.intocable;
+  return {
+    // H8: la fila lleva de donde sale el numero, para que cuadre en pantalla.
+    base: montoBase,
+    factor: seAplica ? r.factor : 1,
+    ajuste: seAplica ? +(r.ajustado - montoBase).toFixed(2) : 0,
+    total: seAplica ? r.ajustado : montoBase,
+    detalle: r,
+  };
+}
+
 function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
   // Por cada temporada × contrato genera un registro
   const out = [];
@@ -7318,6 +7352,10 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
         const tieneOv = haOv!==undefined && haOv!==null && String(haOv).trim()!=="" && !isNaN(Number(haOv));
         const ha = tieneOv ? Number(haOv) : haDeriv;
         const monto = tieneOv ? ha * vphInfl : montoDeriv;
+        // El reajuste se calcula sobre el monto QUE SE VA A COBRAR, incluido el
+        // override manual de hectareas. Si se calculara sobre el derivado, un
+        // override dejaria el ajuste descolgado del importe.
+        const rj = reajusteDeTemporada(ct, temp, monto, pago);
         out.push({
           id: `rc_${ct.id}_${temp.replace("/","")}`,
           ctId: ct.id,
@@ -7333,8 +7371,12 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
           inflPct,
           factorInfl: vphInfl>0 ? vphInfl/valorPorHa : 1,
           valorPorHaInfl: vphInfl,
-          montoFact: monto,
-          montoCobro: monto * retFactorNeto(ct),
+          montoFact: rj.total,
+          montoCobro: rj.total * retFactorNeto(ct),
+          montoBaseSinReajuste: rj.base,
+          reajusteFactor: rj.factor,
+          reajusteAjuste: rj.ajuste,
+          reajusteActivado: rj.detalle,
           whtPct: retEstadoDe(ct).pct,
           retEstado: retEstadoDe(ct).estado, retPct: retEstadoDe(ct).pct,
           netoValidado: retEstadoDe(ct).validado, retEtiqueta: retEstadoDe(ct).etiqueta,
@@ -7364,11 +7406,16 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
     const temps = temporadasEntre(inicioTemp, ct.fechaTermino);
     temps.forEach((temp, tempIdx) => {
       const factorInfl = Math.pow(1 + inflPct/100, tempIdx);
-      const montoFact = haTotal * valorPorHa * factorInfl;
-      const montoCobro = montoFact * retFactorNeto(ct);
+      const montoSinReajuste = haTotal * valorPorHa * factorInfl;
       // Pagos guardados por temporada en el contrato
       const pagosKey = ct.rcPagos || {};
       const pago = pagosKey[temp] || {};
+      // H2: esta rama (plantaciones x temporadas) tambien aplica el reajuste
+      // activado. Antes no lo hacia, y es la rama por la que van los contratos
+      // sin cohortes declaradas, Olmos incluido.
+      const rjL = reajusteDeTemporada(ct, temp, montoSinReajuste, pago);
+      const montoFact = rjL.total;
+      const montoCobro = montoFact * retFactorNeto(ct);
       out.push({
         id: `rc_${ct.id}_${temp.replace("/","")}`,
         ctId: ct.id,
@@ -7382,6 +7429,10 @@ function derivarRoyaltyComercialDesdeContratos(ctData, ocsByCt) {
         valorPorHaInfl: valorPorHa * factorInfl,
         montoFact,
         montoCobro,
+        montoBaseSinReajuste: rjL.base,
+        reajusteFactor: rjL.factor,
+        reajusteAjuste: rjL.ajuste,
+        reajusteActivado: rjL.detalle,
         whtPct: retEstadoDe(ct).pct,
         retEstado: retEstadoDe(ct).estado, retPct: retEstadoDe(ct).pct,
         netoValidado: retEstadoDe(ct).validado, retEtiqueta: retEstadoDe(ct).etiqueta,
@@ -7503,8 +7554,9 @@ async function exportarContratos(filtrado) {
     r.tipoContractFee==="Sin Contract Fee"?"—":(r.montoContractFee||0),
     r.valorRoyaltyPlanta||"",
     r.valorRoyaltyComercial||"",
-    (()=>{ const ro=reajusteOperativo(r);
-      return ro.estado===REAJUSTE_APLICANDO ? ("Aplicando "+ro.pct+" %/año")
+    (()=>{ const ro=reajusteOperativoConActivacion(r);
+      return ro.estado===REAJUSTE_ACTIVADO_APLICANDO ? ("Activado — "+ro.pct+" %/año")
+        : ro.estado===REAJUSTE_APLICANDO ? ("Aplicando "+ro.pct+" %/año")
         : ro.estado===REAJUSTE_MARCADO_SIN_DEFINICION ? "Marcado sin definición — NO se aplica"
         : ro.estado===REAJUSTE_REGISTRADO_SIN_APLICAR ? "Registrado — todavía NO se aplica"
         : "Sin reajuste"; })(),
@@ -7916,7 +7968,10 @@ function OrdenesCompraSec({r, upd, can, ocsVivero=[]}) {
   );
 }
 
-function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[],setVariedadesMaestro,especiesMaestro=[],setEspeciesMaestro,obtentoresData=[],viverosData=[],setViveros,can,tiposAnexoPersist,setTiposAnexoPersist,tiposContratoPersist,setTiposContratoPersist,usuarioActual={}}){
+// Se exporta para poder renderizar la pantalla real en una prueba de
+// integracion. Las reglas de linter controlan el texto del codigo; esta
+// prueba ejecuta el codigo. Son cosas distintas y hacen falta las dos.
+export function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[],setVariedadesMaestro,especiesMaestro=[],setEspeciesMaestro,obtentoresData=[],viverosData=[],setViveros,can,tiposAnexoPersist,setTiposAnexoPersist,tiposContratoPersist,setTiposContratoPersist,usuarioActual={}}){
   const [vista,setVista]=useState("tabla");
   const [sel,setSel]=useState(null);
   const [sec,setSec]=useState("empresa");
@@ -7986,6 +8041,20 @@ function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[
   // Wizard de "nuevo contrato": paso actual
   const [wizStep, setWizStep] = useState(1);
 
+  // B-3 · Con un registro de activacion -aunque este RETIRADO- no se cambia
+  // que modelo opera. La guarda mira si el registro EXISTE, no si esta
+  // vigente: si mirara la vigencia, retirarlo seria un atajo para eludir la
+  // proteccion. Los contratos sin registro nuevo siguen igual que siempre.
+  // Va aca, en el mismo alcance que `upd`, porque el control cuelga de este.
+  const upProtegido=(r,campo,val,motivo)=>{ if(!can) return;
+    if(hayRegistroDeActivacion(r)){ window.alert(motivo); return; }
+    upd(r.id,campo,val); };
+  const MOT_ANTIGUA="Este contrato tiene un registro de activacion del reajuste nuevo. Cambiar la "+
+    "configuracion antigua decide QUE MODELO opera -ahora o cuando el registro vuelva a aplicar-, "+
+    "y esa transicion no esta habilitada en este paquete. Retirar el registro no levanta esta proteccion.";
+  const MOT_BASE="Este contrato tiene un registro de activacion del reajuste. El valor por hectarea es "+
+    "la BASE sobre la que se compone el reajuste, asi que cambiarlo mueve el resultado economico. Esa "+
+    "modificacion no esta habilitada en este paquete. Retirar el registro no levanta esta proteccion.";
   const upd=(id,c,v)=>setData(prev=>prev.map(r=>{
     if(r.id!==id) return r;
     // Para objetos anidados (anexos), serializar; para otros, directo
@@ -8835,7 +8904,32 @@ Motivo del retiro:`, "");
                 // sintetico para escribir. El resto de la ficha usa <Cell>, que en
                 // solo lectura no renderiza ningun input.
                 const upB = (campo,val)=>{ if(!can) return; upd(r.id,"beneficioFee",{...(r.beneficioFee||{}),[campo]:val}); };
-                const upR = (campo,val)=>{ if(!can) return; upd(r.id,"reajuste",{...(r.reajuste||{}),[campo]:val}); };
+                // Acepta un campo o un objeto con varios. El control de T3 recorta
+                // el cuerpo del helper por balance de llaves, asi que partir esta
+                // funcion en varias lineas ya no la haria aparecer como una
+                // escritura directa; lo que si comprueba es que la guarda este.
+                // B-1 · Con un registro de activacion vigente, estos terminos no se
+                // tocan: cambiar el tipo o destildar "Confirmado" apaga el reajuste
+                // -25.690,69 sin vista previa, sin confirmacion y sin historial. La
+                // guarda va DENTRO de la funcion: el `disabled` del control no
+                // desconecta el handler. La clausula NO es documental: vaciarla deja el
+                // antecedente en "pendiente" y apaga el sello, el mismo importe por otra
+                // via, asi que entra en la lista igual que los demas terminos.
+                // La autorizacion dice: cuando EXISTA un registro, tambien incompleto, en
+                // conflicto o retirado. Mirar la vigencia dejaba abierto
+                // desactivar -> editar -> reactivar como via de modificacion, que no
+                // esta autorizada. Los terminos y el historial quedan intactos.
+                const hayRegistro = hayRegistroDeActivacion(r);
+                const upR = (campo,val)=>{ if(!can) return;
+                  const cambios = (campo&&typeof campo==="object")?campo:{[campo]:val};
+                  if(hayRegistro&&Object.keys(cambios).some(k=>TERMINOS_BLOQUEABLES.indexOf(k)>=0)){
+                    window.alert("Este contrato tiene un registro de activacion del reajuste. Los terminos del "+
+                      "antecedente -tipo, confirmacion, porcentaje, desde cuando se aplica, indice, fuente, fecha "+
+                      "base y la clausula que lo respalda- determinan lo que el motor aplica, o lo que aplicaria "+
+                      "despues, asi que cambiarlos es una modificacion economica: no esta habilitada en este "+
+                      "paquete. Retirar el registro no levanta esta proteccion.");
+                    return; }
+                  upd(r.id,"reajuste",{...(r.reajuste||{}),...cambios}); };
                 const inp2 = {padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11};
                 const marco = (ok)=>({background: ok?C.successBg:(C.amBg||"#fef9c3"), border:`1px solid ${ok?C.success:(C.am||"#ca8a04")}`, borderRadius:10, padding:12, marginBottom:14});
                 return (<>
@@ -8911,12 +9005,14 @@ Motivo del retiro:`, "");
                         {estR==="noDeclarado"?" \u00b7 no declarado":(estR==="sinReajuste"?" \u00b7 sin reajuste":(estR==="confirmado"?" \u00b7 confirmado":" \u00b7 PENDIENTE"))}
                       </span>
                       <span style={{fontSize:9,fontWeight:700,marginLeft:6,padding:"1px 6px",borderRadius:99,background:C.cardAlt,color:C.muted,border:`1px solid ${C.border}`}}>
-                        {ACCION.configura} · la comprobación {ACCION.simula.toLowerCase()} · no aplica al cálculo real
+                        {hayRegistro
+                          ? "Hay una activación registrada: estos términos SÍ gobiernan el cálculo a través de ella, y por eso quedan bloqueados"
+                          : <>{ACCION.configura} · la comprobación {ACCION.simula.toLowerCase()} · no aplica al cálculo real</>}
                       </span>
                     </div>
                     <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
                       <div><div style={{fontSize:10,color:C.gris}}>Tipo</div>
-                        <select disabled={!can} value={rj.tipo} onChange={e=>upR("tipo",e.target.value)} style={inp2}>
+                        <select disabled={!can||hayRegistro} value={rj.tipo} onChange={e=>upR("tipo",e.target.value)} style={inp2}>
                           <option value="">sin definir</option>
                           <option value="sin_reajuste">Sin reajuste</option>
                           <option value="porcentaje">Porcentaje fijo</option>
@@ -8924,29 +9020,41 @@ Motivo del retiro:`, "");
                         </select></div>
                       {rj.tipo==="porcentaje"&&(
                         <div><div style={{fontSize:10,color:C.gris}}>Porcentaje anual</div>
-                          <input type="number" disabled={!can} value={rj.pct===null?"":rj.pct} placeholder="sin definir"
-                            onChange={e=>upR("pct",e.target.value===""?"":(parseFloat(e.target.value)||0))} style={{...inp2,width:110}}/></div>
+                          {/* D2: antes esto hacia parseFloat(valor)||0, asi que una entrada
+                              vacia o invalida se guardaba como 0 y despues se daba por
+                              una configuracion completa. Ahora se guarda lo escrito tal
+                              cual y el modelo distingue sin definir, invalido y cero
+                              expreso. Un 0 escrito a proposito sigue siendo un 0. */}
+                          <input type="number" disabled={!can||hayRegistro} value={rj.pctCrudo} placeholder="sin definir"
+                            onChange={e=>upR({pct:e.target.value, pctOrigen:"ingresado"})}
+                            style={{...inp2,width:110,borderColor:rj.pctEstado==="invalido"?C.danger:undefined}}/>
+                          {rj.pctEstado==="invalido"&&<div style={{fontSize:9,color:C.danger,marginTop:2}}>
+                            Lo cargado no es un numero. Queda sin definir, no en cero.</div>}
+                          {rj.pctEstado==="cero"&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>
+                            {rj.pctOrigen==="ingresado"
+                              ? "0 % ingresado en este campo: sin efecto de reajuste."
+                              : "0 % registrado: sin efecto de reajuste. No consta si se ingreso asi o quedo de una conversion anterior del campo."}</div>}</div>
                       )}
                       {rj.tipo==="indice"&&(<>
                         <div><div style={{fontSize:10,color:C.gris}}>Indice</div>
-                          <input disabled={!can} value={rj.indice} placeholder="sin definir" onChange={e=>upR("indice",e.target.value)} style={{...inp2,width:120}}/></div>
+                          <input disabled={!can||hayRegistro} value={rj.indice} placeholder="sin definir" onChange={e=>upR("indice",e.target.value)} style={{...inp2,width:120}}/></div>
                         <div><div style={{fontSize:10,color:C.gris}}>Fuente</div>
-                          <input disabled={!can} value={rj.fuente} placeholder="sin definir" onChange={e=>upR("fuente",e.target.value)} style={{...inp2,width:130}}/></div>
+                          <input disabled={!can||hayRegistro} value={rj.fuente} placeholder="sin definir" onChange={e=>upR("fuente",e.target.value)} style={{...inp2,width:130}}/></div>
                         <div><div style={{fontSize:10,color:C.gris}}>Fecha base</div>
-                          <input type="date" disabled={!can} value={rj.fechaBase} onChange={e=>upR("fechaBase",e.target.value)} style={inp2}/></div>
+                          <input type="date" disabled={!can||hayRegistro} value={rj.fechaBase} onChange={e=>upR("fechaBase",e.target.value)} style={inp2}/></div>
                       </>)}
                       {rj.tipo&&rj.tipo!=="sin_reajuste"&&(
                         <div><div style={{fontSize:10,color:C.gris}}>Se aplica desde</div>
-                          <input type="date" disabled={!can} value={rj.desde} onChange={e=>upR("desde",e.target.value)} style={inp2}/></div>
+                          <input type="date" disabled={!can||hayRegistro} value={rj.desde} onChange={e=>upR("desde",e.target.value)} style={inp2}/></div>
                       )}
                       {rj.tipo&&(
                         <div style={{flex:1,minWidth:200}}><div style={{fontSize:10,color:C.gris}}>Clausula que lo respalda</div>
-                          <input disabled={!can} value={rj.referencia} placeholder="p. ej. Annexure D 1.2.5, p.24"
+                          <input disabled={!can||hayRegistro} value={rj.referencia} placeholder="p. ej. Annexure D 1.2.5, p.24"
                             onChange={e=>upR("referencia",e.target.value)} style={{...inp2,width:"100%",boxSizing:"border-box"}}/></div>
                       )}
                       {rj.tipo&&(
                         <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:700,cursor:can?"pointer":"default"}}>
-                          <input type="checkbox" disabled={!can} checked={rj.confirmado} onChange={()=>upR("confirmado",!rj.confirmado)}/>
+                          <input type="checkbox" disabled={!can||hayRegistro} checked={rj.confirmado} onChange={()=>upR("confirmado",!rj.confirmado)}/>
                           Confirmado
                         </label>
                       )}
@@ -8982,7 +9090,7 @@ Motivo del retiro:`, "");
                 </div>
                 <div>
                   <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>Valor Royalty Comercial (USD/Há)</div>
-                  <Cell val={r.valorRoyaltyComercial} onChange={v=>upd(r.id,"valorRoyaltyComercial",parseFloat(v)||0)} type="number" can={can}/>
+                  <Cell val={r.valorRoyaltyComercial} onChange={v=>upProtegido(r,"valorRoyaltyComercial",parseFloat(v)||0,MOT_BASE)} can={can&&!hayRegistroDeActivacion(r)} type="number"/>
                   <div style={{fontSize:9,color:retFactorNeto(r)===1?C.muted2:C.danger,marginTop:3}}>{retFactorNeto(r)===1?"Sin retención":"Retención "+retEstadoDe(r).pct+"% ("+retEstadoDe(r).etiqueta+") — neto = $"+(((Number(r.valorRoyaltyComercial)||0)*retFactorNeto(r)).toFixed(0))+"/há"}</div>
                 </div>
                 <div style={{display:"flex",alignItems:"flex-end",paddingBottom:4,gap:10}}>
@@ -8990,13 +9098,13 @@ Motivo del retiro:`, "");
                     background:r.royaltyInflacion?C.amBg:C.cardAlt,border:`1px solid ${r.royaltyInflacion?"#fde047":C.border}`,
                     borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:600,
                     color:r.royaltyInflacion?C.am:C.muted2}}>
-                    <input type="checkbox" checked={r.royaltyInflacion||false} disabled={!can} onChange={()=>upd(r.id,"royaltyInflacion",!r.royaltyInflacion)} style={{accentColor:C.warning}}/>
+                    <input type="checkbox" checked={r.royaltyInflacion||false} disabled={!can||hayRegistroDeActivacion(r)} onChange={()=>upProtegido(r,"royaltyInflacion",!r.royaltyInflacion,MOT_ANTIGUA)} style={{accentColor:C.warning}}/>
                     📈 Sujeto a Inflación
                   </label>
                   {r.royaltyInflacion&&(
                     <div style={{minWidth:120}}>
                       <div style={{fontSize:11,color:C.gris,fontWeight:600,marginBottom:4}}>% inflación anual</div>
-                      <Cell val={r.rcInflacionPct} onChange={v=>upd(r.id,"rcInflacionPct",parseFloat(v)||0)} type="number" can={can}/>
+                      <Cell val={r.rcInflacionPct} onChange={v=>upProtegido(r,"rcInflacionPct",parseFloat(v)||0,MOT_ANTIGUA)} type="number" can={can&&!hayRegistroDeActivacion(r)}/>
                     </div>
                   )}
                 </div>
@@ -9004,12 +9112,19 @@ Motivo del retiro:`, "");
                     la pantalla decia "Sujeto a Inflacion" y no se reajustaba nada.
                     Esto lo dice. No cambia ningun importe. */}
                 {(()=>{
-                  const ro = reajusteOperativo(r);
+                  // D1: antes este aviso pintaba SIEMPRE en ambar. Con el reajuste
+                  // activado mostraba un texto de normalidad con el color de
+                  // advertencia, y el mismo texto salia en verde dos bloques mas
+                  // abajo. Aca no hay detalle de filas, asi que no afirma nada
+                  // sobre los importes: va en el color neutro de informacion.
+                  const ro = reajusteOperativoConActivacion(r);
                   if(!ro.aviso) return null;
+                  const activo = ro.estado===REAJUSTE_ACTIVADO_APLICANDO;
                   return (
                     <div style={{gridColumn:"1 / -1",marginTop:8,fontSize:10,lineHeight:1.6,
-                      background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,
-                      borderRadius:8,padding:"8px 12px",color:C.am||"#854d0e"}}>
+                      background:activo?C.successBg:(C.amBg||"#fef9c3"),
+                      border:`1px solid ${activo?C.success:(C.am||"#ca8a04")}`,
+                      borderRadius:8,padding:"8px 12px",color:activo?C.success:(C.am||"#854d0e")}}>
                       <strong>{ro.titulo}.</strong> {ro.aviso}
                       {ro.detalle?<div style={{marginTop:4,color:C.muted}}>{ro.detalle}</div>:null}
                     </div>
@@ -9585,6 +9700,23 @@ Motivo del retiro:`, "");
               const ocsByCt={[r.id]:ocsViv};
               const rcRows=derivarRoyaltyComercialDesdeContratos([r],ocsByCt);
               const rcFact=rcRows.reduce((s,x)=>s+(x.montoFact||0),0), rcCobro=rcRows.reduce((s,x)=>s+(x.montoCobro||0),0);
+              // Base con la activacion apagada y vista previa: una sola vez.
+              // Las usan el rotulo, el aviso y el panel de activacion; antes
+              // cada uno la recalculaba por su cuenta.
+              const antecedentesDeFila=(f)=>((r.rcPagos||{})[f.temporada]||null);
+              const rcRowsBase=derivarRoyaltyComercialDesdeContratos(
+                [{...r, reajusteActivacion:{...(r.reajusteActivacion||{}), activado:false}}], ocsByCt);
+              // Lo que cada temporada vale HOY. Si la activacion ya esta vigente,
+              // esto NO es la base: es la base con el ajuste puesto. La previa
+              // lo necesita para medir la diferencia contra el importe que el
+              // usuario tiene delante, no contra la base.
+              const actualPorTemporada=rcRows.reduce((m,x)=>(m[x.temporada]=x.montoFact,m),{});
+              const previaRC=previsualizarActivacion(r, rcRowsBase,
+                {mesCobro:r.rcMesCobro, antecedentesDe:antecedentesDeFila, actualPorTemporada});
+              const filasRC={cambian:previaRC.filasQueCambian, protegidas:previaRC.filasIntocables,
+                pendientes:previaRC.filasSinFechaSellada,
+                protegidasConservadas:previaRC.filasProtegidasConservadas};
+              const avisoRC=reajusteOperativoConActivacion(r, {filas:filasRC});
               // Royalty Planta por tandas de plantas (entrada directa en el contrato).
               const totPlantasC=(r.plantaciones||[]).reduce((s,p)=>s+(parseFloat(p.nPlantas)||0),0);
               const valorPP=parseFloat(r.valorRoyaltyPlanta)||1;
@@ -9678,7 +9810,17 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
               const rcFuturas=rcRows.filter(x=>x.temporada>tempActual);
               const rcFutFact=rcFuturas.reduce((s,x)=>s+(x.montoFact||0),0), rcFutCobro=rcFuturas.reduce((s,x)=>s+(x.montoCobro||0),0);
               // Editores de estado de cobro (se guardan en el contrato).
-              const updRcPago=(temp,campo,val)=>{ const np={...(r.rcPagos||{})}; np[temp]={...(np[temp]||{}),[campo]:val}; upd(r.id,"rcPagos",np); };
+              // D-12 · Vaciar o corregir un antecedente de cobro NO devuelve la fila
+              // al recalculo. Si la edicion dejaria la fila sin antecedentes, se
+              // conserva lo que tenia: el campo se edita igual -corregir un numero
+              // de factura es tarea normal-, pero la proteccion queda. Levantarla es
+              // una operacion economica con su propio flujo, que no esta en este
+              // paquete, asi que nada de aca la quita. Cubre los cinco antecedentes
+              // porque compara el ANTES contra el DESPUES con la misma funcion que
+              // usa la Regla 4, no una lista de campos.
+              const updRcPago=(temp,campo,val)=>{ const np={...(r.rcPagos||{})};
+                const antes=np[temp]||{}; const despues={...antes,[campo]:val};
+                np[temp]=conProteccionConservada(antes,despues); upd(r.id,"rcPagos",np); };
               const inp={padding:"3px 6px",borderRadius:4,border:`1px solid ${C.border}`,fontSize:11};
               // Parcialidades del RC por temporada (para dividir el cobro en varias líneas/facturas)
               const parcialesDe=(temp)=>(((r.rcPagos||{})[temp]||{}).parciales)||[];
@@ -9700,7 +9842,17 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                         style={{...inp,width:78,textAlign:"right",borderColor:x.haAjustada?C.am:C.border,fontWeight:x.haAjustada?700:400,color:x.haAjustada?C.am:C.text}}/>
                     : N((x.haTotal||0).toFixed(2))}{x.haAjustada?<div style={{fontSize:9,color:C.muted2}}>der: {N((x.haDeriv||0).toFixed(2))}</div>:null}</td>
                   <td style={{padding:"5px 8px",textAlign:"right"}}>${N((x.valorPorHaInfl||0).toFixed(2))}{x.factorInfl>1?<span style={{fontSize:9,color:C.am,display:"block"}}>×{x.factorInfl.toFixed(3)}</span>:null}</td>
-                  <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(x.montoFact.toFixed(2))}</td>
+                  {/* H8: el importe tiene que poder verificarse en pantalla.
+                      Cuando hay reajuste aplicado se muestra de donde sale:
+                      base + ajuste = total, con el factor. */}
+                  <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.text}}>
+                    ${N(x.montoFact.toFixed(2))}
+                    {x.reajusteAjuste>0?(
+                      <span style={{display:"block",fontSize:9,fontWeight:500,color:C.am||"#854d0e"}}>
+                        base ${N(Number(x.montoBaseSinReajuste||0).toFixed(2))} + ajuste ${N(Number(x.reajusteAjuste).toFixed(2))} (x{Number(x.reajusteFactor||1).toFixed(4)})
+                      </span>
+                    ):null}
+                  </td>
                   <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:C.success}}>${N(x.montoCobro.toFixed(2))}</td>
                   <td style={{padding:"5px 8px"}}>{can&&!parciales.length?<input value={x.fechaEst||""} type="date" onChange={e=>updRcPago(x.temporada,"fechaEst",e.target.value)} style={inp}/>:(parciales.length?"—":(x.fechaEst||"—"))}</td>
                   <td style={{padding:"5px 8px",textAlign:"center"}}>{!parciales.length&&editable&&can?<input type="checkbox" checked={!!x.pagado} onChange={e=>updRcPago(x.temporada,"pagado",e.target.checked)}/>:(parciales.length?"—":(x.pagado?"✓":"—"))}</td>
@@ -9853,19 +10005,281 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
                     <div style={{fontSize:13,fontWeight:800,color:C.text}}>📈 Royalty Comercial <span style={{fontSize:10,fontWeight:500,color:C.muted}}>(paga el cliente)</span> {inflPct>0
                       ? <span style={{fontSize:10,color:C.am}}>· inflación {N(inflPct)}%/año</span>
-                      : (reajusteOperativo(r).estado!==REAJUSTE_APLICANDO && reajusteOperativo(r).aviso
+                      : avisoRC.estado===REAJUSTE_ACTIVADO_APLICANDO
+                          ? (avisoRC.llevanElAjuste
+                              ? <span style={{fontSize:10,color:C.success}}>· reajuste aplicado {N(avisoRC.pct)}%/año</span>
+                              : <span style={{fontSize:10,color:C.am}}>· reajuste activado, sin efecto en estas temporadas</span>)
+                      : (avisoRC.estado!==REAJUSTE_APLICANDO && avisoRC.aviso
                           ? <span style={{fontSize:10,color:C.am}}>· sin reajuste aplicado</span>
                           : null)}</div>
                     <div style={{fontSize:11,color:C.muted}}>Fact total: <strong style={{color:C.text}}>${N(rcFact.toFixed(2))}</strong> · Neto: <strong style={{color:C.success}}>${N(rcCobro.toFixed(2))}</strong></div>
                   </div>
                   {(()=>{
-                    const ro = reajusteOperativo(r);
+                    const ro = avisoRC;
                     if(!ro.aviso) return null;
+                    // "Activado" no alcanza: hay que mirar si alguna fila lo lleva.
+                    const aplicando = ro.estado===REAJUSTE_ACTIVADO_APLICANDO && !!ro.llevanElAjuste;
                     return (
                       <div style={{fontSize:10,lineHeight:1.6,marginBottom:10,
-                        background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,
-                        borderRadius:8,padding:"7px 11px",color:C.am||"#854d0e"}}>
-                        <strong>Estos montos no llevan reajuste.</strong> {ro.aviso}
+                        background:aplicando?C.successBg:(C.amBg||"#fef9c3"),
+                        border:`1px solid ${aplicando?C.success:(C.am||"#ca8a04")}`,
+                        borderRadius:8,padding:"7px 11px",color:aplicando?C.success:(C.am||"#854d0e")}}>
+                        <strong>{aplicando?"Estos montos YA llevan el reajuste."
+                          :ro.estado===REAJUSTE_ACTIVADO_APLICANDO?"Estos montos NO llevan el reajuste, aunque esté activado."
+                          :"Estos montos no llevan reajuste."}</strong> {ro.aviso}
+                      </div>
+                    );
+                  })()}
+                  {/* Activacion del reajuste. Vive aca porque aca estan las filas
+                      y los montos: la vista previa es fila por fila. */}
+                  {(()=>{
+                    const act = estadoActivacion(r);
+                    const permiso = puedeCrearActivacion();
+                    const edit = puedeEditarTerminos(r);
+                    // H3: `rcRows` YA trae el reajuste aplicado cuando la activacion
+                    // esta vigente. Partir de ahi componia el factor dos veces y
+                    // mostraba un "antes" y una "diferencia" que no eran los reales.
+                    // `rcRowsBase` se calcula arriba con la activacion apagada, una
+                    // sola vez, y es exactamente lo que el sistema guardaria.
+                    const antes = antecedentesDeFila;
+                    const prev = previaRC;
+                    const ra = r.reajusteActivacion||{};
+                    // Los cuatro campos estan `disabled` cuando hay una activacion
+                    // vigente, pero `disabled` NO desconecta el handler: ese fue el
+                    // agujero de T3. Sin esta condicion se podia borrar el respaldo
+                    // de un contrato activo con un evento sintetico y apagar el
+                    // reajuste -25.690,69 sin motivo, sin confirmacion y sin historial.
+                    const upA = (campo,val)=>{ if(!can || !edit.puede) return; upd(r.id,"reajusteActivacion",{...(r.reajusteActivacion||{}),[campo]:val}); };
+                    const col = act.estado===REAJ_ACTIVADO ? C.success
+                      : act.estado===REAJ_MODIF_PENDIENTE ? (C.am||"#ca8a04")
+                      : act.estado===REAJ_CONFLICTO ? C.danger : C.border;
+                    const inp3 = {padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:11};
+                    return (
+                      <div style={{background:C.cardAlt,border:`1px solid ${col}`,borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:6}}>
+                          <div style={{fontSize:12,fontWeight:800,color:C.text}}>
+                            Activacion del reajuste
+                            <span style={{marginLeft:8,fontSize:10,fontWeight:700,color:col}}>
+                              {act.estado===REAJ_ACTIVADO?"\u00b7 ACTIVO"
+                                :act.estado===REAJ_MODIF_PENDIENTE?"\u00b7 ACTIVO con modificacion pendiente"
+                                :act.estado===REAJ_CONFLICTO?"\u00b7 EN CONFLICTO con la configuracion antigua"
+                                :act.estado===REAJ_SIN_ACTIVAR?"\u00b7 sin activar":"\u00b7 no activable"}
+                            </span>
+                          </div>
+                          <span style={{fontSize:9,fontWeight:700,padding:"1px 6px",borderRadius:99,background:C.card,color:C.muted,border:`1px solid ${C.border}`}}>
+                            Confirmar un antecedente no activa nada
+                          </span>
+                        </div>
+
+                        {act.motivo&&<div style={{fontSize:10,lineHeight:1.6,color:C.muted,marginBottom:8}}>{act.motivo}</div>}
+
+                        {act.estado===REAJ_MODIF_PENDIENTE&&(
+                          <div style={{fontSize:10,lineHeight:1.6,marginBottom:8,padding:"6px 10px",borderRadius:8,
+                            background:C.amBg||"#fef9c3",border:`1px solid ${C.am||"#ca8a04"}`,color:C.am||"#854d0e"}}>
+                            {(act.diferencias||[]).map(d=>(
+                              <div key={d.campo}>{d.campo}: sellado <strong>{String(d.sellado)}</strong> · ahora <strong>{String(d.actual)}</strong></div>
+                            ))}
+                          </div>
+                        )}
+
+                        {!edit.puede&&(
+                          <div style={{fontSize:10,lineHeight:1.6,marginBottom:8,color:C.muted}}>
+                            <strong>Bloqueado:</strong> {edit.motivo}
+                          </div>
+                        )}
+
+                        {/* Datos de la activacion. Editables solo cuando no hay nada activo. */}
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))",gap:8,marginBottom:8}}>
+                          <div>
+                            <div style={{fontSize:10,color:C.gris,fontWeight:600,marginBottom:3}}>Fecha de referencia</div>
+                            <input type="date" disabled={!can||!edit.puede} value={ra.fechaReferencia||""}
+                              onChange={e=>upA("fechaReferencia",e.target.value)} style={{...inp3,width:"100%"}}/>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:C.gris,fontWeight:600,marginBottom:3}}>Respaldo de la fecha</div>
+                            <input type="text" disabled={!can||!edit.puede} value={ra.respaldo||""} placeholder="p. ej. comprobante del primer pago"
+                              onChange={e=>upA("respaldo",e.target.value)} style={{...inp3,width:"100%",boxSizing:"border-box"}}/>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:C.gris,fontWeight:600,marginBottom:3}}>Fecha que determina la tasa</div>
+                            <select disabled={!can||!edit.puede} value={ra.reglaFecha||""} onChange={e=>upA("reglaFecha",e.target.value)}
+                              style={{...inp3,width:"100%"}}>
+                              <option value="">— sin declarar —</option>
+                              {REGLAS_FECHA.map(o=><option key={o} value={o}>{o}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:C.gris,fontWeight:600,marginBottom:3}}>Respaldo de esa regla</div>
+                            <input type="text" disabled={!can||!edit.puede} value={ra.reglaFechaRespaldo||""} placeholder="clausula que lo dice"
+                              onChange={e=>upA("reglaFechaRespaldo",e.target.value)} style={{...inp3,width:"100%",boxSizing:"border-box"}}/>
+                          </div>
+                        </div>
+
+                        {/* Vista previa FILA POR FILA, antes de activar y despues. */}
+                        <div style={{overflowX:"auto",marginBottom:8}}>
+                          <table style={{borderCollapse:"collapse",width:"100%",fontSize:10}}>
+                            <thead><tr style={{background:C.card}}>
+                              {["Temporada","Base sin reajuste","Importe actual","Resultado propuesto","Diferencia","Estado"].map(h=>(
+                                <th key={h} style={{padding:"4px 8px",textAlign:"left",fontWeight:700,color:C.muted,borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                              ))}
+                            </tr></thead>
+                            <tbody>
+                              {prev.detalle.map(d=>(
+                                <tr key={d.temporada}>
+                                  <td style={{padding:"4px 8px"}}>{d.temporada}</td>
+                                  <td style={{padding:"4px 8px",textAlign:"right",color:C.muted}}>${N(d.base.toFixed(2))}</td>
+                                  <td style={{padding:"4px 8px",textAlign:"right",fontWeight:700,color:C.text}}>${N(d.actual.toFixed(2))}</td>
+                                  <td style={{padding:"4px 8px",textAlign:"right"}}>{d.intocable||d.bloqueado?"\u2014":`$${N(d.ajustado.toFixed(2))}`}</td>
+                                  {/* Desde que la diferencia se mide contra el importe actual puede
+                                      ser NEGATIVA. Mostrar solo las positivas ocultaria una baja. */}
+                                  <td style={{padding:"4px 8px",textAlign:"right",color:d.diferencia>0?C.success:d.diferencia<0?C.danger:C.muted2}}>{d.diferencia===0?"\u2014":`${d.diferencia>0?"+":"−"}$${N(Math.abs(d.diferencia).toFixed(2))}`}</td>
+                                  {/* La fecha SELLADA se muestra: para una regla que depende
+                                      de una fecha de la fila, es la que el motor va a usar y la
+                                      que el usuario confirma. Y una fila sin fecha sellada se
+                                      nombra como pendiente, no como "sin efecto". */}
+                                  <td style={{padding:"4px 8px",fontSize:9,color:C.muted}}
+                                      title={(d.antecedentes||{}).soloPorConservada?MOTIVO_PROTECCION_CONSERVADA:undefined}>
+                                    {/* Una fila protegida por un antecedente que YA se retiro no
+                                        "tiene factura o pago": tiene la proteccion conservada, y
+                                        decir lo primero seria describir algo que no esta. */}
+                                    {d.intocable?((d.antecedentes||{}).soloPorConservada
+                                      ?`protegida: antecedentes retirados${(d.antecedentes||{}).desdeConservada?` el ${d.antecedentes.desdeConservada}`:""} · proteccion conservada`
+                                      :"protegida: tiene factura o pago")
+                                      :d.reglaPendiente?"bloqueada: regla pendiente"
+                                      :d.fechaNoSellada?"pendiente: sin fecha sellada"
+                                      :d.aplica?`${d.periodos} periodo(s)${d.fechaSellada?` · fecha sellada ${d.fechaSellada} (${d.origenFechaSellada})`:""}`
+                                      :"sin efecto"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div style={{fontSize:10,color:C.muted,marginBottom:8}}>
+                          Filas que cambian: <strong>{prev.filasQueCambian}</strong> · protegidas: <strong>{prev.filasIntocables}</strong> ·
+                          bloqueadas por regla pendiente: <strong>{prev.filasBloqueadasPorReglaPendiente}</strong> ·
+                          {prev.filasSinFechaSellada>0&&<> pendientes por fecha no sellada: <strong>{prev.filasSinFechaSellada}</strong> · </>}
+                          diferencia aplicada: <strong>${N(prev.diferenciaAplicada.toFixed(2))}</strong>
+                        </div>
+
+                        {/* Acciones. Activar y desactivar son operaciones economicas:
+                            permiso dentro de la accion, identidad canonica, vista
+                            previa y confirmacion explicita. */}
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                          {/* El boton se elige por si el registro esta MARCADO
+                              (`activado`), no por si `estadoActivacion` lo declara
+                              activo. Con un registro marcado pero no activo -incompleto,
+                              o en conflicto con la configuracion antigua- la pantalla
+                              ofrecia "Activar", que no hace nada porque la accion lo
+                              bloquea. Lo que corresponde ofrecer es retirar ese registro,
+                              que es una operacion economica con su vista previa, su
+                              motivo y su confirmacion. Ojo: NO es el criterio de las
+                              guardas. Esas miran `hayRegistroDeActivacion`, que incluye
+                              el registro retirado; aca un registro retirado si debe
+                              ofrecer reactivacion, con los terminos conservados. */}
+                          {hayRegistroVigente(r)
+                            ? <button disabled={!can||!puedeDesactivar(r,{puedeEditar:can}).puede} onClick={()=>{
+                                const pm = puedeDesactivar(r,{puedeEditar:can});
+                                if(!pm.puede){ window.alert(pm.motivo); return; }
+                                const ident = identidadDe(usuarioActual);
+                                if(!ident.valida){ window.alert(ident.motivo); return; }
+                                const pd = previsualizarDesactivacion(r, rcRowsBase, {mesCobro:r.rcMesCobro, antecedentesDe:antes});
+                                const lineas = pd.detalle.filter(x=>x.diferencia<0)
+                                  .map(x=>`${x.temporada}: $${N(x.conReajuste.toFixed(2))} → $${N(x.sinReajuste.toFixed(2))}`).join("\n");
+                                // En conflicto, el motor NO esta usando este registro: usa la
+                                // configuracion antigua. Retirarlo no quita ese reajuste y no
+                                // mueve ningun importe, y la previa tiene que decirlo.
+                                const enConflicto = act.estado===REAJ_CONFLICTO;
+                                // Si no hay NADA aplicado, el encabezado no puede decir que los
+                                // importes vuelven a la base: no se movieron nunca. Pasaba en los
+                                // cuatro estados registrados pero no vigentes, y confirmaba con
+                                // "dejar de aplicar US$ 0.00", que es la redaccion que ya se
+                                // habia rechazado.
+                                const nadaAplicado = pd.filasQueBajan===0;
+                                const encabezado = enConflicto
+                                  ? "Retirar este registro NO cambia los importes.\n\n"+
+                                    "La configuracion antigua ("+N(inflPct)+" %/año) sigue OPERANDO y es la que "+
+                                    "produce los importes actuales. Desactivar el registro nuevo no la quita.\n"+
+                                    "El registro, sus terminos y su historial se conservan, con constancia de la baja.\n\n"
+                                  : nadaAplicado
+                                  ? "Retirar este registro NO cambia los importes: hoy no hay ningun reajuste "+
+                                    "aplicado ("+act.motivo.replace(/\*\*/g,"")+")\n\n"+
+                                    "El registro, sus terminos y su historial se conservan, con constancia de la baja.\n\n"
+                                  : "Desactivar devuelve importes a la base.\n\n";
+                                const motivo = window.prompt(
+                                  encabezado+lineas+
+                                  "\n\nFilas que bajan: "+pd.filasQueBajan+
+                                  "\nSe deja de aplicar: US$ "+Math.abs(pd.diferencia).toFixed(2)+
+                                  "\n\n¿Por que se retira? (obligatorio)");
+                                if(!motivo||!motivo.trim()) return;
+                                const ok = window.confirm(enConflicto
+                                  ? "¿Confirmas retirar el registro? Los importes no cambian: la configuracion antigua sigue operando."
+                                  : nadaAplicado
+                                  ? "¿Confirmas retirar el registro? Los importes no cambian: no hay nada aplicado."
+                                  : "¿Confirmas desactivar y dejar de aplicar US$ "+Math.abs(pd.diferencia).toFixed(2)+"?");
+                                if(!ok) return;
+                                const res = desactivarReajuste(r,{motivo, usuarioActual, confirmado:true, impacto:pd.diferencia, puedeEditar:can});
+                                if(!res.ok){ window.alert(res.motivo); return; }
+                                upd(r.id,"reajusteActivacion",res.contrato.reajusteActivacion);
+                              }} style={{background:C.dangerBg,color:C.danger,border:`1px solid ${C.danger}`,borderRadius:8,padding:"6px 14px",cursor:can?"pointer":"default",fontSize:11,fontWeight:700}}>
+                                Desactivar
+                              </button>
+                            : !permiso.puede
+                            ? <span style={{fontSize:10,color:C.danger,fontWeight:700}}>{permiso.motivo}</span>
+                            : <button disabled={!can} onClick={()=>{
+                                if(!can){ window.alert("Sin permiso de edicion en esta pestana."); return; }
+                                const ident = identidadDe(usuarioActual);
+                                if(!ident.valida){ window.alert(ident.motivo); return; }
+                                // Si falta la fecha que la regla exige, se bloquea ACA, antes
+                                // de ofrecer confirmar "US$ 0,00". Preguntar primero y rechazar
+                                // despues es pedirle al usuario que acepte un cero causado por
+                                // informacion ausente. La accion lo vuelve a comprobar.
+                                const bloq = bloqueoPorFechasSelladas({
+                                  reglaFecha: ra.reglaFecha, filas: rcRowsBase,
+                                  antecedentesDe: antecedentesDeFila, mesCobro: r.rcMesCobro});
+                                if(bloq){ window.alert(bloq.motivo); return; }
+                                const ok = window.confirm(
+                                  "Activar el reajuste cambia importes.\n\n"+
+                                  "Filas que cambian: "+prev.filasQueCambian+"\n"+
+                                  // No se les atribuye una factura a las filas que ya no la
+                                  // tienen: la proteccion conservada protege igual, y nombrarla
+                                  // mal en el texto que se confirma es peor que en una celda.
+                                  "Protegidas (factura, pago o proteccion conservada): "+prev.filasIntocables+"\n"+
+                                  "Bloqueadas por regla pendiente: "+prev.filasBloqueadasPorReglaPendiente+"\n"+
+                                  "Diferencia que se aplica: US$ "+prev.diferenciaAplicada.toFixed(2)+"\n\n"+
+                                  "¿Confirmas?");
+                                if(!ok) return;
+                                // Las filas van a la accion: para una regla que depende de
+                                // una fecha de la fila, el sello guarda ESA fecha, no solo la
+                                // regla. Sin las filas la accion no puede sellarla y rechaza.
+                                const res = activarReajuste(r, {
+                                  fechaReferencia: ra.fechaReferencia, respaldo: ra.respaldo,
+                                  reglaFecha: ra.reglaFecha, reglaFechaRespaldo: ra.reglaFechaRespaldo,
+                                  puedeEditar: can, usuarioActual, confirmado: true,
+                                  filas: rcRowsBase, antecedentesDe: antecedentesDeFila,
+                                  mesCobro: r.rcMesCobro,
+                                  impacto: prev.diferenciaAplicada});
+                                if(!res.ok){ window.alert(res.motivo); return; }
+                                upd(r.id,"reajusteActivacion",res.contrato.reajusteActivacion);
+                              }} style={{background:C.success,color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:can?"pointer":"default",fontSize:11,fontWeight:700}}>
+                                Activar el reajuste
+                              </button>}
+                          {act.activo&&<span style={{fontSize:10,color:C.muted}}>Sellado: {act.pct} % · desde {act.fechaReferencia} · por {act.reglaSellada}</span>}
+                        </div>
+                        {/* Historial de activaciones y desactivaciones de ESTE contrato. */}
+                        {historialActivacion(r).length>0&&(
+                          <div style={{marginTop:8,fontSize:10,color:C.muted,lineHeight:1.6}}>
+                            <strong>Historial:</strong>
+                            {historialActivacion(r).map((h,i)=>(
+                              <div key={i}>
+                                {h.fecha} · {h.evento} · {h.autor}
+                                {h.sello?` \u00b7 ${h.sello.pct} % desde ${h.sello.fechaReferencia}`:""}
+                                {h.impactoConfirmado!==null&&h.impactoConfirmado!==undefined?` \u00b7 impacto US$ ${N(Number(h.impactoConfirmado).toFixed(2))}`:""}
+                                {h.motivo?` \u00b7 ${h.motivo}`:""}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -10710,7 +11124,10 @@ La orden conserva sus despachos, facturas y cuotas. Queda registrado quién la a
                   {/* Decia "+IPC" por tener la casilla puesta, sin mirar si habia
                       porcentaje. Al lado del importe, eso afirma un ajuste que no ocurre. */}
                   {(()=>{
-                    const ro = reajusteOperativo(r);
+                    const ro = reajusteOperativoConActivacion(r);
+                    if(ro.estado===REAJUSTE_ACTIVADO_APLICANDO)
+                      return <span title="Reajuste activado. Las temporadas con factura o pago registrado, o con proteccion conservada de un antecedente ya retirado, no se recalculan."
+                        style={{fontSize:9,color:C.success,marginLeft:4,fontWeight:700}}>+{N(ro.pct)}%/año</span>;
                     if(ro.estado===REAJUSTE_APLICANDO)
                       return <span style={{fontSize:9,color:C.am,marginLeft:4}}>+{N(ro.pct)}%/año</span>;
                     if(ro.estado===REAJUSTE_MARCADO_SIN_DEFINICION)

@@ -202,8 +202,35 @@ describe("6 · permisos: solo lectura no escribe", () => {
     expect(ini).toBeGreaterThan(0);
     expect(fin).toBeGreaterThan(ini);
     const bloque = src.slice(ini, fin);
-    const directos = bloque.split("\n").filter((l) => /upd\(r\.id/.test(l) && !/const up[BR] =/.test(l));
-    expect(directos).toEqual([]);
+    // Se retira el CUERPO de los dos helpers con guarda y recien despues se
+    // busca una escritura directa: lo que importa es el hecho, no el formato.
+    // El cuerpo se recorta por BALANCE DE LLAVES, no por una linea que
+    // matchee el write. Esa maquina de estados se cegaba con un cambio de
+    // forma: bastaba prefijar el write del helper con `return ` -identico en
+    // semantica- para que el escaner se quedara "dentro del helper" por el
+    // resto del bloque y dejara pasar un `upd(r.id,...)` directo en el
+    // control del Tipo, que es un bypass real de la guarda.
+    const recortar = (txt, decl) => {
+      let i = txt.indexOf(decl);
+      while (i >= 0) {
+        const abre = txt.indexOf("{", i);
+        if (abre < 0) break;
+        let d = 0, j = abre;
+        for (; j < txt.length; j++) {
+          if (txt[j] === "{") d++;
+          else if (txt[j] === "}") { d--; if (d === 0) break; }
+        }
+        txt = txt.slice(0, i) + txt.slice(j + 1);
+        i = txt.indexOf(decl);
+      }
+      return txt;
+    };
+    let resto = bloque;
+    ["const upB = (campo,val)=>", "const upR = (campo,val)=>"].forEach((d) => { resto = recortar(resto, d); });
+    const fuera = resto.split("\n").filter((l) => /upd\(r\.id/.test(l) && !/^\s*\/\//.test(l));
+    expect(fuera).toEqual([]);
+    // Y los dos helpers siguen teniendo su guarda de permiso.
+    expect((bloque.match(/const up[BR] = \(campo,val\)=>{ if\(!can\) return;/g) || []).length).toBe(2);
   });
 
   test("el modelo no tiene ninguna función que escriba el registro", () => {
