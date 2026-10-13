@@ -5737,11 +5737,13 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
     const emailAsunto = asuntoCorreoInforme(inf);
 
     try {
+      // Acción del servidor: exige sesión con el módulo Osiris (api/_correo.js).
       const res = await fetch("/api/send-email", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({to, subject:emailAsunto, message:emailBody, modulo:"osiris"})
+        method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({accion:"informe_osiris", para:to, asunto:emailAsunto, mensaje:emailBody})
       });
-      if(!res.ok) throw new Error(await res.text());
+      if(!res.ok && res.status < 500) { console.warn("[Email] el servidor rechazó el informe:", res.status); return false; }   // sin respaldo: sería saltarse el control
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
       console.log(`[Email] ✅ Enviado a ${to}`);
       if(linkInforme) {
         setData(prev=>({...prev, informes:(prev.informes||[]).map(i=>i.id===inf.id?{...i,linkInforme,fechaEnvio:new Date().toISOString().slice(0,10)}:i)}));

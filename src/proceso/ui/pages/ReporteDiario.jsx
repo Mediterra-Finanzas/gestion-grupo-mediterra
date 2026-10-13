@@ -14,7 +14,7 @@ import {
 import { cargarPlantas } from "../../core/procesoDB";
 import { traducirError, fechaCalendarioTz, TZ_OPERACIONAL } from "../../core/procesoF7Domain";
 import { construirEmailInformeDiario, filasInformeDiario, totalesInformeDiario } from "../../core/reportingEmail";
-import { enviarEmail } from "../../../emailHelper";
+import { enviarReporteDiario } from "../../../emailHelper";
 import {
   ProcPageHeader, ProcCard, ProcButton, ProcField, inputStyle, ProcStatusBadge,
   ProcDataTable, ProcFilters, ProcLoadingState, ProcErrorState, ProcEmptyState, ProcModal,
@@ -120,7 +120,7 @@ export default function ReporteDiario() {
       if (!dest) { notificar("La configuración no tiene destinatarios activos.", "error"); await cargar(); return; }
       const { asunto, html, texto } = construirEmailInformeDiario(ej, { plantaNombre: plantaNombre(ej.planta_id) });
       try {
-        const r = await enviarEmail({ to: dest, subject: asunto, html, message: texto, modulo: "allegria" });
+        const r = await enviarReporteDiario({ empresaId: empresa, ejecucionId: ej.id });   // el servidor lo arma desde el snapshot, como el cron
         if (r && r.success) {
           await marcarEnviadoReporte({ empresaId: empresa, ejecucionId: ej.id, proveedor: r.method || "smtp", messageId: r.messageId || r.id || "ok" });
           notificar(`Informe enviado a ${dest}`);
@@ -143,7 +143,7 @@ export default function ReporteDiario() {
       const dest = (ej.destinatarios_snapshot || []).map((d) => d.email).filter(Boolean).join(",");
       const { asunto, html, texto } = construirEmailInformeDiario(ej, { plantaNombre: plantaNombre(ej.planta_id) });
       try {
-        const r = await enviarEmail({ to: dest, subject: asunto, html, message: texto, modulo: "allegria" });
+        const r = await enviarReporteDiario({ empresaId: empresa, ejecucionId: ej.id });   // el servidor lo arma desde el snapshot, como el cron
         if (r && r.success) await marcarEnviadoReporte({ empresaId: empresa, ejecucionId: ej.id, proveedor: r.method || "smtp", messageId: r.messageId || r.id || "ok" });
         else await marcarErrorReporte({ empresaId: empresa, ejecucionId: ej.id, error: (r && r.error) || "proveedor no disponible" });
       } catch (e) { await marcarErrorReporte({ empresaId: empresa, ejecucionId: ej.id, error: e.message || "error de envío" }); }

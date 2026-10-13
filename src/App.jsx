@@ -21,6 +21,7 @@ import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash
 
 import { credencialPreservada } from "./data/credencialPreservada";
 import { restaurarFilas, mensajeRestauracion, validarRespaldo } from './restaurarRespaldo.js';
+import { correoServidor, abrirSesionCorreo, cerrarSesionCorreo, puedeUsarRespaldo } from "./emailHelper";
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
 // En vez de pantalla blanca, muestra botón de actualizar
@@ -422,15 +423,15 @@ if(typeof window !== "undefined" && !window._auditBeforeUnload) {
 }
 
 
-async function enviarEmail(toEmail, nombre, asunto, cuerpo) {
-  try {
-    const res = await fetch("/api/send-email", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({to:toEmail, subject:asunto, message:`${nombre}\n\n${cuerpo}`, modulo:"mediterra"})
-    });
-    if(!res.ok) throw new Error(await res.text());
-  } catch(e) {
-    console.warn("[Email] SMTP falló, intentando EmailJS:", e.message);
+// Código provisorio: el servidor comprueba que ese código esté vigente para ese usuario
+// (lo guarda cifrado la app en `pins`) y lo envía solo a su casilla registrada.
+async function enviarCodigoProvisorio(toEmail, nombre, codigo) {
+  const r = await correoServidor("codigo_provisorio", { email: toEmail, codigo });
+  if (r.ok || !puedeUsarRespaldo(r)) return;
+  const asunto = "Código provisorio - Mediterra";
+  const cuerpo = `Tu código provisorio es: ${codigo}\n\nVence en 45 minutos. Al ingresar deberás crear un PIN nuevo de 6 dígitos. Tu PIN anterior quedó inhabilitado.`;
+  {
+    console.warn("[Email] servidor de correo no disponible, intentando EmailJS");
     await fetch("https://api.emailjs.com/api/v1.0/email/send", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({service_id:EMAILJS_SERVICE,template_id:EMAILJS_TEMPLATE,user_id:EMAILJS_KEY,
@@ -441,14 +442,10 @@ async function enviarEmail(toEmail, nombre, asunto, cuerpo) {
 
 // Template separado para notificaciones de tareas (sin texto de PIN)
 async function enviarNotificacion(toEmail, nombre, asunto, mensaje) {
-  try {
-    const res = await fetch("/api/send-email", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({to:toEmail, subject:asunto, message:mensaje, modulo:"mediterra"})
-    });
-    if(!res.ok) throw new Error(await res.text());
-  } catch(e) {
-    console.warn("[Email] SMTP falló, intentando EmailJS:", e.message);
+  const r = await correoServidor("notificacion", { para: String(toEmail).split(",").map(x=>x.trim()).filter(Boolean), asunto, mensaje });
+  if (r.ok || !puedeUsarRespaldo(r)) return;
+  {
+    console.warn("[Email] servidor de correo no disponible, intentando EmailJS");
     await fetch("https://api.emailjs.com/api/v1.0/email/send", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({service_id:EMAILJS_SERVICE,template_id:EMAILJS_TEMPLATE_NOTIF,user_id:EMAILJS_KEY,
@@ -893,7 +890,7 @@ function PanelPermisos({ usuarios, setUsuarios, onClose, pinsPersonalizados = {}
       await dbSavePins(next);
       // Enviar por correo (best-effort) y mostrar el código al admin UNA vez,
       // para poder entregarlo si el correo no llega a la casilla del usuario.
-      enviarEmail(u.email, u.nombre, "Código provisorio - Mediterra", `Tu código provisorio es: ${codigo}\n\nVence en 45 minutos. Al ingresar deberás crear un PIN nuevo de 6 dígitos. Tu PIN anterior quedó inhabilitado.\n\nhttps://gestion-grupo-mediterra.vercel.app`).catch(()=>{});
+      enviarCodigoProvisorio(u.email, u.nombre, codigo).catch(()=>{});
       window.auditLog("reset_pin", {modulo:"sistema", seccion:"permisos",
         descripcion:`Admin reseteó el PIN de ${u.nombre} (código provisorio emitido)`, registroId:u.nombre});
       window.alert(`Código provisorio para ${u.nombre}:\n\n        ${codigo}\n\nVence en 45 minutos. Compártelo con el usuario (también se envió por correo).\nAl ingresar deberá crear un PIN nuevo de 6 dígitos. Su PIN anterior quedó inhabilitado.`);
@@ -2687,10 +2684,8 @@ export default function App(){
           + `— Mediterra Hub`;
 
         try {
-          await fetch("/api/send-email", {
-            method:"POST", headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({to:"ahuerta@grupomediterra.cl", subject:`📦 Backup Mediterra Hub — ${new Date().toISOString().slice(0,10)}`, message:mensaje, modulo:"mediterra"})
-          });
+          const rb = await correoServidor("notificacion", { para:["ahuerta@grupomediterra.cl"], asunto:`📦 Backup Mediterra Hub — ${new Date().toISOString().slice(0,10)}`, mensaje });
+          if (!rb.ok && puedeUsarRespaldo(rb)) throw new Error(`HTTP ${rb.status}`);
         } catch(e) {
           await fetch("https://api.emailjs.com/api/v1.0/email/send", {
             method:"POST", headers:{"Content-Type":"application/json"},
@@ -2981,6 +2976,7 @@ export default function App(){
   // Helper central de logout con auditoría
   function doLogout() {
     const u = usuarioActual;
+    cerrarSesionCorreo();
     if(u) window.auditLog("logout", {modulo:"sistema", seccion:"autenticación",
       descripcion:`${u.nombre} cerró sesión`});
     // Flush inmediato del buffer antes de limpiar
@@ -3159,6 +3155,7 @@ export default function App(){
         descripcion:`${w.nombre} debe actualizar su PIN antes de entrar`});
     } else {
       setUsuarioActual(w);
+      abrirSesionCorreo(w.email, pinInput);   // sesión de correo comprobada en el servidor (cookie HttpOnly)
       sessionStorage.setItem('mediterra_usuario', w.nombre);
       window._auditUsuarioActual = w;
       window.auditLog("login", {modulo:"sistema", seccion:"autenticación",
@@ -3195,7 +3192,7 @@ export default function App(){
     setPinsPersonalizados(nuevosPins);
     await dbSavePins(nuevosPins); // fuente de verdad de PINs
     try{
-      await enviarEmail(w.email,w.nombre,"Código provisorio - Mediterra",`Tu código provisorio es: ${codigo}\n\nVence en 45 minutos. Al ingresar deberás crear un PIN nuevo de 6 dígitos. Tu PIN anterior quedó inhabilitado.\n\nhttps://gestion-grupo-mediterra.vercel.app`);
+      await enviarCodigoProvisorio(w.email, w.nombre, codigo);
       setResetMsg(MSG_NEUTRAL);
       window.auditLog("reset_pin", {modulo:"sistema", seccion:"autenticación",
         descripcion:`Se envió PIN temporal a ${w.nombre} (${w.email})`,
@@ -3265,6 +3262,7 @@ export default function App(){
       // Si venía de login con temporal, ahora sí entrar a la app
       if(workerPendiente){
         setUsuarioActual(workerPendiente);
+        abrirSesionCorreo(workerPendiente.email, pinNuevo);
         sessionStorage.setItem('mediterra_usuario', workerPendiente.nombre);
         window._auditUsuarioActual = workerPendiente;
         // E1.5 auth dual: emitir sesión Supabase con el PIN nuevo (ya persistido arriba).
@@ -3449,11 +3447,10 @@ Equipo Mediterra`);
     try {
       const appUrl = window.location.origin;
       const mensaje = `Hola ${nombre},\n\nSe ha creado tu cuenta en la plataforma Gestión Grupo Mediterra.\n\n📧 Tu email de acceso: ${email}\n🔑 Tu PIN temporal: ${pin}\n👤 Rol asignado: ${rol==="admin"?"Administrador":rol==="gerente_tecnico"?"Gte. Técnico":rol==="consulta"?"Consulta":"Editor"}\n\n🔗 Ingresa aquí: ${appUrl}\n\n⚠️ Por seguridad, cambia tu PIN después del primer ingreso desde Configuración.\n\nSaludos,\nGrupo Mediterra`;
-      const res = await fetch("/api/send-email", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({to:email, subject:"🔑 Bienvenido a Gestión Grupo Mediterra", message:mensaje, modulo:"mediterra"})
-      });
-      if(!res.ok) throw new Error(await res.text());
+      void mensaje;   // el texto lo arma el servidor (plantilla «bienvenida»)
+      const rw = await correoServidor("bienvenida", { email, nombre, pin, rol });
+      if(!rw.ok && !puedeUsarRespaldo(rw)) { console.warn("[Email] el servidor rechazó la bienvenida:", rw.status); return; }
+      if(!rw.ok) throw new Error(`HTTP ${rw.status}`);
       console.log(`[Email] ✅ Bienvenida enviada a ${email}`);
     } catch(e) {
       console.warn("[Email] SMTP falló, intentando EmailJS:", e.message);
@@ -3516,7 +3513,7 @@ Equipo Mediterra`);
     setPinsPersonalizados(next);
     await dbSavePins(next);
     if(u.email){
-      enviarEmail(u.email, nombre, "Código provisorio - Mediterra", `Hola ${nombre},\n\nTu código provisorio es: ${codigo}\n\nVence en 45 minutos. Al ingresar deberás crear un PIN nuevo de 6 dígitos. Tu PIN anterior quedó inhabilitado.\n\nhttps://gestion-grupo-mediterra.vercel.app`).catch(()=>{});
+      enviarCodigoProvisorio(u.email, nombre, codigo).catch(()=>{});
     }
     window.auditLog("reset_pin", {modulo:"sistema", seccion:"permisos",
       descripcion:`Admin reseteó el PIN de ${nombre} (código provisorio emitido)`, registroId:nombre});
