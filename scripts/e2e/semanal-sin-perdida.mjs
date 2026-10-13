@@ -64,7 +64,8 @@ const celda = async (etiqueta, col) => page.evaluateHandle(([etiqueta, col]) => 
   }
   return null;
 }, [etiqueta, col]);
-const textoCelda = async (etiqueta, col) => { const h = await celda(etiqueta, col); return h.asElement() ? (await h.asElement().innerText()).trim() : null; };
+// Primera línea de la celda: la Σ puede traer debajo «sin fecha …».
+const textoCelda = async (etiqueta, col) => { const h = await celda(etiqueta, col); return h.asElement() ? (await h.asElement().innerText()).trim().split('\n')[0] : null; };
 const ovGuardado = () => {
   const fr = leerFila(store, 'finanzas')?.finanzas_real?.[EMP]?._proyOverrides || {};
   const k = Object.keys(fr).find(x => x === LINEA || x.endsWith('::' + LINEA));
@@ -103,10 +104,10 @@ console.log('\n=== 2 · escribir 1.000 en esa semana ===');
   await (await h.$('input')).press('Enter');
   await page.waitForTimeout(3500);
   const ov = ovGuardado();
-  check('lo guardado conserva la semana calculada y agrega la editada',
-        ov && ov.val && ov.val._sem0 === base && ov.val._sem2 === 1000 && Object.keys(ov.val).length === 2, JSON.stringify(ov));
+  check('lo guardado: 1.000 en S42 y el resto del mes sigue sin fecha',
+        ov && ov.val && ov.val._sem2 === 1000 && ov.val._sinFecha === base - 1000 && Object.keys(ov.val).length === 2, JSON.stringify(ov));
   check('con la clave de su categoría', ov && ov.clave.includes('::'), ov && ov.clave);
-  check(`el mes = ${base} + 1.000`, num(await textoCelda(LINEA, `Σ ${MES}`)) === base + 1000, await textoCelda(LINEA, `Σ ${MES}`));
+  check(`el mes sigue en ${base}: distribuir mueve, no suma`, num(await textoCelda(LINEA, `Σ ${MES}`)) === base, await textoCelda(LINEA, `Σ ${MES}`));
   await page.screenshot({ path: `${OUT}/semanal/02-editada.png`, fullPage: false });
 }
 
@@ -116,7 +117,7 @@ await page.reload({ waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(3500);
 await abrirFlujo();
 check('el dato guardado no cambió', JSON.stringify(ovGuardado()) === guardado);
-check(`tras recargar el mes = ${base + 1000}`, num(await textoCelda(LINEA, `Σ ${MES}`)) === base + 1000, await textoCelda(LINEA, `Σ ${MES}`));
+check(`tras recargar el mes = ${base}`, num(await textoCelda(LINEA, `Σ ${MES}`)) === base, await textoCelda(LINEA, `Σ ${MES}`));
 
 console.log('\n=== 4 · Excel recalculado ===');
 {
@@ -134,7 +135,7 @@ console.log('\n=== 4 · Excel recalculado ===');
   const colMes = refs.find(k => ws[k].v === MES && /^[A-Z]+\d+$/.test(k))?.replace(/\d+$/, '');
   const filaLinea = refs.find(k => /^A\d+$/.test(k) && String(ws[k].v).trim() === LINEA)?.slice(1);
   const v = colMes && filaLinea ? ws[`${colMes}${filaLinea}`]?.v : undefined;
-  check(`Excel ${LINEA} ${MES} = ${base + 1000}`, Math.abs((v || 0) - (base + 1000)) < 0.01, `${v}`);
+  check(`Excel ${LINEA} ${MES} = ${base}`, Math.abs((v || 0) - base) < 0.01, `${v}`);
 }
 
 check('0 peticiones escapadas a producción', escapadas.length === 0, escapadas.slice(0, 3).join(' · '));

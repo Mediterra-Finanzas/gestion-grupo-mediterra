@@ -15,7 +15,7 @@ import os from 'os';
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
 import * as XLSX from 'xlsx-js-style';
-import { CeldaEditable, semillaSemanal, buildEmpresas, buildEmpresasConOverrides, aplicarCreditosAEmpresas,
+import { CeldaEditable, semillaSemanal, aplicarEdicionSemana, totalMesOverride, saldoSemanal, buildEmpresas, buildEmpresasConOverrides, aplicarCreditosAEmpresas,
   avisosDeEmpresa, avisosCreditosEmpresa, claveLinea } from '../FinanzasModule.jsx';
 import { exportarFlujoEmpresa } from '../flujoExportExcel.js';
 
@@ -53,39 +53,79 @@ describe('D1 · CeldaEditable no guarda si no se escribió nada', () => {
   });
 });
 
-describe('D1 · semillaSemanal: las otras semanas parten de lo que se veía', () => {
-  test('sin valor manual: el calculado queda en la semana 1', () => {
-    expect(semillaSemanal(undefined, 2600, undefined)).toEqual({ _sem0: 2600 });
+// Vista semanal (oct-2026): un mensual sin reparto queda SIN FECHA; distribuir
+// lo MUEVE a una semana (no duplica el mes) y bajar una semana lo devuelve.
+describe('vista semanal · semilla y distribución', () => {
+  test('sin valor manual: el calculado queda sin fecha', () => {
+    expect(semillaSemanal(undefined, 2600, undefined)).toEqual({ _sinFecha: 2600 });
   });
-  test('valor manual mensual: queda en la última semana (donde se mostraba)', () => {
-    expect(semillaSemanal(5200, 2600, undefined)).toEqual({ _sem3: 5200 });
+  test('valor manual mensual: queda sin fecha (antes se fingía en la última semana)', () => {
+    expect(semillaSemanal(5200, 2600, undefined)).toEqual({ _sinFecha: 5200 });
   });
-  test('valor manual mensual 0 (mes cerrado) se respeta', () => {
-    expect(semillaSemanal(0, 2600, undefined)).toEqual({ _sem3: 0 });
+  test('valor manual mensual 0 (mes cerrado): nada que distribuir', () => {
+    expect(semillaSemanal(0, 2600, undefined)).toEqual({});
   });
-  test('línea con reparto semanal propio', () => {
+  test('línea con reparto semanal propio (fechas de Créditos): se conservan', () => {
     expect(semillaSemanal(undefined, 300, [0, 100, 0, 200])).toEqual({ _sem1: 100, _sem3: 200 });
   });
-  test('sin nada que conservar', () => { expect(semillaSemanal(undefined, 0, undefined)).toEqual({}); });
   test('null o texto se tratan como sin valor manual (igual que la pantalla)', () => {
-    expect(semillaSemanal(null, 50, undefined)).toEqual({ _sem0: 50 });
-    expect(semillaSemanal('x', 50, undefined)).toEqual({ _sem0: 50 });
+    expect(semillaSemanal(null, 50, undefined)).toEqual({ _sinFecha: 50 });
+    expect(semillaSemanal('x', 50, undefined)).toEqual({ _sinFecha: 50 });
   });
-
-  // Mismo cálculo que el mes en pantalla (getProy) y que el Excel
-  // (buildEmpresasConOverrides): Σ semanas guardadas.
-  test('editar la semana 3 conserva el calculado: mes = 2.600 + 1.000 (antes 1.000)', () => {
+  test('distribuir todo a fin de mes: el mes no cambia y no queda nada sin fecha', () => {
+    const o = aplicarEdicionSemana(semillaSemanal(undefined, 2600), 3, 2600);
+    expect(o).toEqual({ _sem3: 2600 });
+    expect(totalMesOverride(o)).toBe(2600);
+  });
+  test('distribuir una parte: el resto sigue sin fecha (no se duplica ni desaparece)', () => {
+    const o = aplicarEdicionSemana(semillaSemanal(undefined, 2600), 2, 1000);
+    expect(o).toEqual({ _sem2: 1000, _sinFecha: 1600 });
+    expect(totalMesOverride(o)).toBe(2600);
+  });
+  test('bajar una semana devuelve el importe a sin fecha', () => {
+    const o = aplicarEdicionSemana({ _sem3: 2600 }, 3, 600);
+    expect(o).toEqual({ _sem3: 600, _sinFecha: 2000 });
+    expect(totalMesOverride(o)).toBe(2600);
+  });
+  test('distribuir MÁS que el mes sube el total solo por el exceso', () => {
+    const o = aplicarEdicionSemana({ _sinFecha: 1000 }, 1, 1500);
+    expect(o).toEqual({ _sem1: 1500 });
+    expect(totalMesOverride(o)).toBe(1500);
+  });
+  test('objeto antiguo sin _sinFecha: las semanas mandan, como antes', () => {
+    expect(totalMesOverride({ _sem0: 100, _sem2: 50 })).toBe(150);
+  });
+  test('Excel/consolidado (buildEmpresasConOverrides) = pantalla: semanas + sin fecha', () => {
     const empresas = buildEmpresas({}, { cobros: [] });
     const emp = empresas['Allegria Foods'];
     const sec = emp.sections.find(s => s.lines.some(l => l.label === 'Arriendo Oficina'));
     const idx = 6; // Oct-26
     const base = sec.lines.find(l => l.label === 'Arriendo Oficina').proy[idx];
     expect(base).toBeGreaterThan(0);
-    const ov = { ...semillaSemanal(undefined, base, undefined), _sem2: 1000 };
+    const ov = aplicarEdicionSemana(semillaSemanal(undefined, base), 2, 1000);
     const real = { 'Allegria Foods': { _proyOverrides: { [claveLinea(sec.cat, 'Arriendo Oficina')]: { [idx]: ov } } } };
     const out = buildEmpresasConOverrides(empresas, real, {}, {});
     const l = out['Allegria Foods'].sections.find(s => s.cat === sec.cat).lines.find(x => x.label === 'Arriendo Oficina');
-    expect(l.proy[idx]).toBe(base + 1000);
+    expect(l.proy[idx]).toBe(base);
+  });
+});
+
+describe('vista semanal · saldo semanal (corte en semana intermedia)', () => {
+  // Mes del corte = 6 (Oct-26), semana en curso = 2 (S42). Flujo fechado por semana:
+  const fechado = { '6_0': -100, '6_1': 0, '6_2': -30, '6_3': -500, '7_0': 50, '7_1': 0, '7_2': 0, '7_3': 0 };
+  const flujoSemana = (m, s) => fechado[`${m}_${s}`] || 0;
+  const base = { mesIni: 6, semIni: 2, saldoIni: 1000, flujoSemana };
+  test('semanas anteriores al corte: sin saldo', () => {
+    expect(saldoSemanal({ ...base, mesIdx: 6, semIdx: 1, acumMesPrevio: null })).toBeNull();
+  });
+  test('lo fechado en una semana pasada NO se da por pagado: entra en la semana en curso', () => {
+    // 1000 − 100 (atrasado S40) − 30 (S42) = 870
+    expect(saldoSemanal({ ...base, mesIdx: 6, semIdx: 2, acumMesPrevio: null })).toBe(870);
+    expect(saldoSemanal({ ...base, mesIdx: 6, semIdx: 3, acumMesPrevio: null })).toBe(370);
+  });
+  test('mes siguiente parte del cierre mensual (que incluye lo sin fecha)', () => {
+    // cierre Oct (mensual) = 370 − 200 sin fecha = 170
+    expect(saldoSemanal({ ...base, mesIdx: 7, semIdx: 0, acumMesPrevio: 170 })).toBe(220);
   });
 });
 

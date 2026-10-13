@@ -19,7 +19,7 @@
 import {
   flujoCreditosEmpresa, estadoCredito, registrarPago, registrarFechaEstimada, quitarFechaEstimada,
   fechaEstimadaVigente, servicioDeudaPorMes, confirmarImpaga, controlDesde, controlDesdePorRegla,
-  CONTROL_DESDE_REGISTROS_ANTIGUOS, partesISO,
+  CONTROL_DESDE_REGISTROS_ANTIGUOS, partesISO, saldosAlCorte, saldoCapitalAl,
 } from '../creditos.js';
 import { avisosCreditosEmpresa, textosAvisosCreditos, buildEmpresas, aplicarCreditosAEmpresas } from '../FinanzasModule.jsx';
 import { MESES, mIdx } from '../horizonte.js';
@@ -144,6 +144,27 @@ describe('fecha estimada de pago', () => {
       expect(linea.proy[NOV]).toBe(200000);
       expect(linea.proy[OCT]).toBe(0);
     } finally { jest.useRealTimers(); }
+  });
+});
+
+// Hallazgos de la revisión independiente (1696cd3): todos los consumidores
+// ubican la cuota donde la proyecta el flujo.
+describe('fecha estimada: saldo al corte, UF y texto', () => {
+  const cap = { ...bice, uid: 'K1', desglose: { capital: 200000, interes: 0, cargos: 0, respaldo: 'sintético' } };
+  const conEst = registrarFechaEstimada(cap, 'K1@2026-10-15', '2027-02-15', 'prórroga', 'qa', '2026-10-20');
+  test('saldo de capital al 31-12 sigue con la deuda si el pago estimado es en febrero', () => {
+    expect(saldoCapitalAl([conEst], '2026-12-31', '2026-10-20').capital).toBe(200000);
+    expect(saldosAlCorte([conEst], '2026-12-31', '2026-10-20').porEmpresa['Allegria Foods'].capital).toBe(200000);
+    // y al 31-03 ya está pagada (después de la fecha estimada)
+    expect(saldoCapitalAl([conEst], '2027-03-31', '2026-10-20').capital).toBe(0);
+    // sin fecha estimada, la vencida impaga se supone pagada en el mes en curso (como antes)
+    expect(saldoCapitalAl([cap], '2026-12-31', '2026-10-20').capital).toBe(0);
+  });
+  test('UF: se valoriza con el factor de la fecha en que se proyecta el pago', () => {
+    const uf = { ...conEst, moneda: 'UF', _tc: { factor: 40, porFecha: (f) => ({ factor: f >= '2027-01-01' ? 41 : 40 }) } };
+    const f = flujo([uf], '2026-10-20');
+    expect(f.prestamos.total[mIdx('Feb-27')]).toBe(200000 * 41);
+    expect(servicioDeudaPorMes([uf], '2026-10-20')['2027-02'].total).toBe(200000 * 41);
   });
 });
 

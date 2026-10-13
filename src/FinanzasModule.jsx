@@ -885,20 +885,66 @@ export function textosAvisosCreditos(av) {
   if (av.ovIgnorados.length) out.push(`ℹ Créditos: ${av.ovIgnorados.length} valor(es) manual(es) antiguo(s) en Pago Préstamos / Renovaciones siguen aplicándose en lugar del calendario de Créditos: ${av.ovIgnorados.map(o => `${o.linea} ${o.mes}: manual ${$$(o.manual)} → Créditos ${$$(o.creditos)}`).join(" · ")}.`);
   return out;
 }
-// Al editar UNA semana de un mes que todavía no tiene valores semanales, las
-// otras semanas deben partir de lo que la pantalla mostraba (getProySemana):
-// el valor manual mensual en la última semana, o el calculado en la primera
-// (o repartido por semana si la línea lo trae). Sin esto, el mes pasaba a valer
-// solo la semana editada y lo demás se perdía, sin aviso.
+// ── Vista semanal: fechas SOLO cuando existen ─────────────────────
+// Un valor mensual sin reparto semanal NO tiene fecha dentro del mes: antes la
+// vista semanal lo ponía en la 1ª semana (calculado) o en la última (manual
+// mensual), y si esa semana ya había pasado el saldo semanal lo omitía. Ahora:
+//   · override numérico o valor calculado sin semanas → "sin fecha" en el mes:
+//     cuenta en el total del mes y en el saldo de cierre, no en una semana;
+//   · override objeto { _sem0.._sem3, _sinFecha }: las semanas cargadas mandan
+//     y `_sinFecha` es la parte del mes todavía sin distribuir.
+//     Total del mes = Σ semanas + _sinFecha.
+// Distribuir es MOVER: escribir un importe en una semana lo toma de la parte
+// sin fecha (no se duplica el mensual); bajarlo lo devuelve a sin fecha (no
+// desaparece). El total del mes solo sube si se distribuye más de lo que hay.
+// Para cambiar el total se edita la vista mensual.
+const _r2s = (x) => Math.round((Number(x) || 0) * 100) / 100;
+export function totalMesOverride(ov) {
+  if (typeof ov === "number") return ov;
+  if (ov === null || typeof ov !== "object") return undefined;
+  let t = 0;
+  for (let s = 0; s < 4; s++) if (ov[`_sem${s}`] !== undefined) t += Number(ov[`_sem${s}`]) || 0;
+  if (ov._sinFecha !== undefined) t += Number(ov._sinFecha) || 0;
+  return t;
+}
+// Punto de partida al editar una semana: lo que el mes tiene hoy.
 export function semillaSemanal(efectivo, base, semProyMes) {
-  if (typeof efectivo === "number") return { _sem3: efectivo };
+  if (typeof efectivo === "number") return efectivo ? { _sinFecha: efectivo } : {};
   if (efectivo !== null && typeof efectivo === "object") return { ...efectivo };
   if (Array.isArray(semProyMes)) {
     const o = {};
     semProyMes.forEach((v, s) => { if (s < 4 && Number(v)) o[`_sem${s}`] = Number(v); });
     return o;
   }
-  return base ? { _sem0: base } : {};
+  return base ? { _sinFecha: base } : {};
+}
+// Escribir `nuevo` en la semana `semIdx` de un objeto semanal.
+export function aplicarEdicionSemana(obj, semIdx, nuevo) {
+  const o = { ...(obj || {}) };
+  const k = `_sem${semIdx}`;
+  const d = (Number(nuevo) || 0) - (Number(o[k]) || 0);
+  let libre = Number(o._sinFecha) || 0;
+  libre = d > 0 ? libre - Math.min(d, libre) : libre - d;
+  o[k] = Number(nuevo) || 0;
+  if (_r2s(libre) !== 0) o._sinFecha = _r2s(libre); else delete o._sinFecha;
+  return o;
+}
+// Saldo semanal (vista semanal). Mes del corte: parte del saldo bancario en la
+// semana en curso y SUMA ahí lo fechado en semanas anteriores del mes (una fecha
+// pasada no es un pago: sigue pendiente). Meses siguientes: parten del cierre
+// del mes anterior. Lo "sin fecha" no entra en ninguna semana; entra en el
+// cierre del mes (`acumMes`), igual que en la vista mensual y en el Excel.
+export function saldoSemanal({ mesIdx, semIdx, mesIni, semIni, saldoIni, acumMesPrevio, flujoSemana }) {
+  if (mesIdx < mesIni) return null;
+  if (mesIdx === mesIni && semIdx < semIni) return null;
+  let a, desde;
+  if (mesIdx === mesIni) {
+    a = saldoIni;
+    for (let s = 0; s < semIni; s++) a += flujoSemana(mesIdx, s);   // atrasado
+    desde = semIni;
+  } else { a = acumMesPrevio; desde = 0; }
+  for (let s = desde; s <= semIdx; s++) a += flujoSemana(mesIdx, s);
+  return a;
 }
 // Escenario "incluyendo cuotas potencialmente impagas" (por conciliar).
 // Caerían en el mes en curso. Si ese mes tiene un VALOR MANUAL vigente en la
@@ -6221,15 +6267,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
     if(lockFrom !== null && idx >= lockFrom) return base;
     if(ovIdx === undefined) return base;
     if(typeof ovIdx === "number") return ovIdx;
-    // ovIdx es objeto con semanas: suma solo las semanas que el usuario ingresó
-    if(typeof ovIdx === "object" && ovIdx !== null) {
-      let total = 0;
-      for(let s=0; s<4; s++){
-        const k = `_sem${s}`;
-        if(ovIdx[k] !== undefined) total += Number(ovIdx[k])||0;
-      }
-      return total;
-    }
+    // ovIdx es objeto con semanas: semanas ingresadas + lo que queda sin fecha
+    if(typeof ovIdx === "object" && ovIdx !== null) return totalMesOverride(ovIdx);
     return base;
   },[proyOverrides, emp, resoluciones]);
 
@@ -6249,16 +6288,16 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       const l = sec && sec.lines.find(x=>x.label===lineLabel);
       if(l){ base = l.proy[idx]||0; if(typeof l._lockOverrideFromIdx==="number") lockFrom=l._lockOverrideFromIdx; if(l._semProy) semProy=l._semProy; }
     }
-    // Celda controlada por parámetros: ignora override, muestra base en la 1ª semana.
+    // Sin override (o celda controlada por parámetros): solo lo que tiene fecha.
     if(ov === undefined || (lockFrom !== null && idx >= lockFrom)) {
       // Línea con reparto semanal propio (Créditos: semana del vencimiento)
       if(semProy) return (semProy[idx]?.[semIdx]) || 0;
-      // Sin override: mostrar el valor base COMPLETO en la primera semana
-      return semIdx === 0 ? base : 0;
+      // Valor mensual sin reparto: SIN FECHA (no se inventa una semana)
+      return 0;
     }
     if(typeof ov === "number") {
-      // Override mensual antiguo: mostrar solo en última semana
-      return isLastInMonth ? ov : 0;
+      // Override mensual: SIN FECHA dentro del mes
+      return 0;
     }
     if(typeof ov === "object" && ov !== null) {
       const k = `_sem${semIdx}`;
@@ -6296,11 +6335,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       if(vals[kSem] !== undefined) {
         total += Number(vals[kSem])||0;
       } else {
-        // Retrocompatibilidad: si no hay valor por semana pero hay mensual antiguo, mostrar en última semana
-        const hasAnySem = [0,1,2,3].some(s=>vals[`${idx}_${s}`]!==undefined);
-        if(!hasAnySem && vals[idx] !== undefined && isLastInMonth) {
-          total += Number(vals[idx])||0;
-        }
+        // Valor mensual sin semanas: SIN FECHA (cuenta en el mes, no en una semana)
       }
     });
     return total;
@@ -6343,13 +6378,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       const v = vals[`${idx}_${semIdx}`];
       if(v !== undefined) {
         total += Number(v) || 0;
-      } else {
-        // Si no hay semanas y sí mensual, atribuir todo a S1 (retrocompatibilidad)
-        const hasAnySem = [0,1,2,3].some(s => vals[`${idx}_${s}`] !== undefined);
-        if(!hasAnySem && semIdx === 0 && vals[idx] !== undefined) {
-          total += Number(vals[idx]) || 0;
-        }
       }
+      // Valor mensual sin semanas: SIN FECHA (cuenta en el mes, no en una semana)
     });
     return total;
   },[addedLines]);
@@ -6422,18 +6452,13 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       if(!next[clave]) next[clave]={};
       if(semIdx != null) {
         // Override semanal: mantener objeto con claves _sem0.._sem3
-        const current = next[clave][idx];
-        if(typeof current === "object" && current !== null) {
-          next[clave][idx] = { ...current, [`_sem${semIdx}`]: nuevoVal };
-        } else {
-          // Sin valores semanales todavía: las demás semanas parten de lo que
-          // la pantalla mostraba (valor manual mensual o calculado), no de 0.
-          const efectivo = overridesDeLinea(prev, emp, cat, lineLabel, resoluciones)?.[idx];
-          const sec = emp.sections.find(x=>x.cat===cat);
-          const l = sec && sec.lines.find(x=>x.label===lineLabel);
-          const semilla = semillaSemanal(efectivo, l ? (l.proy[idx]||0) : 0, l?._semProy?.[idx]);
-          next[clave][idx] = { ...semilla, [`_sem${semIdx}`]: nuevoVal };
-        }
+        // Distribuir = mover desde lo sin fecha del mes (no duplicar el mensual);
+        // bajar una semana devuelve el importe a sin fecha (no desaparece).
+        const efectivo = overridesDeLinea(prev, emp, cat, lineLabel, resoluciones)?.[idx];
+        const sec = emp.sections.find(x=>x.cat===cat);
+        const l = sec && sec.lines.find(x=>x.label===lineLabel);
+        const semilla = semillaSemanal(efectivo, l ? (l.proy[idx]||0) : 0, l?._semProy?.[idx]);
+        next[clave][idx] = aplicarEdicionSemana(semilla, semIdx, nuevoVal);
       } else {
         // Override mensual directo (vista mensual)
         next[clave][idx] = nuevoVal;
@@ -6547,21 +6572,39 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   // - Semanas futuras del mes actual → acumulativo desde semIdxActual
   // - Meses siguientes → arranca desde acumArr[mesIdx-1] (consistente con vista mensual)
   const getAcumSemana = useCallback((mesIdx, semIdx) => {
-    if (mesIdx < mesIdxInicioSaldo) return null;
-    if (mesIdx === mesIdxInicioSaldo && semIdx < semIdxActual) return null;
     const sIni = saldoBancoUSD != null ? saldoBancoUSD : emp.saldo_ini;
-    let startVal, startSem;
-    if (mesIdx === mesIdxInicioSaldo) {
-      startVal = sIni;
-      startSem = semIdxActual;
-    } else {
-      startVal = acumArr[mesIdx - 1] ?? sIni;
-      startSem = 0;
-    }
-    let a = startVal;
-    for (let s = startSem; s <= semIdx; s++) a += flujoNetoPorSemana(mesIdx, s);
-    return a;
+    return saldoSemanal({ mesIdx, semIdx, mesIni: mesIdxInicioSaldo, semIni: semIdxActual, saldoIni: sIni,
+      acumMesPrevio: acumArr[mesIdx - 1] ?? sIni, flujoSemana: flujoNetoPorSemana });
   },[mesIdxInicioSaldo, semIdxActual, saldoBancoUSD, emp, acumArr, flujoNetoPorSemana]); // eslint-disable-line
+  // Lo que el mes tiene SIN FECHA (neto): total del mes − lo fechado en sus semanas.
+  const sinFechaMes = useCallback((mesIdx) => {
+    let fechado = 0;
+    for (let s = 0; s < 4; s++) fechado += flujoNetoPorSemana(mesIdx, s);
+    return (flujoArr[mesIdx] || 0) - fechado;
+  },[flujoArr, flujoNetoPorSemana]);
+  // Detalle de lo sin fecha de un mes, separado en ingresos y egresos.
+  const sinFechaDetalle = useCallback((mesIdx) => {
+    let ing = 0, egr = 0;
+    emp.sections.forEach(sec => {
+      const add = (v) => { if (Math.abs(v) < 0.005) return; if (sec.signo > 0) ing += v; else egr += v; };
+      sec.lines.forEach(l => {
+        let mes = getProy(sec.cat, l.label, mesIdx) + (l.subLines ? sumSubLinesMes(l.label, mesIdx) : 0);
+        for (let s = 0; s < 4; s++) mes -= getProySemana(sec.cat, l.label, mesIdx, s, s === 3) + (l.subLines ? sumSubLinesSemana(l.label, mesIdx, s, s === 3) : 0);
+        add(mes);
+      });
+      let al = sumAddedLinesMes(sec.cat, mesIdx);
+      for (let s = 0; s < 4; s++) al -= sumAddedLinesSemana(sec.cat, mesIdx, s);
+      add(al);
+    });
+    return { ing, egr };
+  },[emp, getProy, getProySemana, sumSubLinesMes, sumSubLinesSemana, sumAddedLinesMes, sumAddedLinesSemana]);
+  // Fechado en semanas ANTERIORES a la actual del mes del corte: sigue pendiente
+  // (no es un pago) y se suma en la semana en curso.
+  const atrasadoMesCorte = useMemo(() => {
+    let a = 0;
+    for (let s = 0; s < semIdxActual; s++) a += flujoNetoPorSemana(mesIdxInicioSaldo, s);
+    return a;
+  },[semIdxActual, mesIdxInicioSaldo, flujoNetoPorSemana]);
 
   // Flujo neto por mes (para totales mensuales en vista semanal)
   const flujoMes = useMemo(()=>{
@@ -6928,6 +6971,12 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                               <span style={{color:val!==0?(sec.signo>0?C.green:C.red):C.muted2,
                                 fontWeight:val!==0?700:400,fontSize:9}}>
                                 {val!==0?$$(val):"—"}
+                                {(()=>{ // parte del mes sin semana (no se inventa la fecha)
+                                  let fechado=0;
+                                  for(let si=0;si<4;si++) fechado+=getProySemana(sec.cat,line.label,col.idx,si,si===3)+(line.subLines?sumSubLinesSemana(line.label,col.idx,si,si===3):0);
+                                  const sf=val-fechado;
+                                  return Math.abs(sf)>=0.005 ? <div data-testid="sin-fecha-linea" style={{fontSize:7,color:C.muted,fontStyle:"italic",fontWeight:400}}>sin fecha {$$(sf)}</div> : null;
+                                })()}
                               </span>
                             ) : col.type==="month_collapsed" ? (
                               <CeldaEditable
@@ -7451,8 +7500,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                 }
                 return cols.map((col,ci)=>{
                   const isTot=col.isTotalMes;
-                  const nSems=col.type==="month_collapsed"||isTot?1:col.nSems;
-                  const val=flujoArr[col.idx]/nSems;
+                  // Semana: lo fechado en esa semana. Mes: el total (incluye lo sin fecha).
+                  const val=col.type==="week" ? flujoNetoPorSemana(col.idx, col.semIdx) : flujoArr[col.idx];
                   const isFirst=col.isFirstInSeason||col.isFirstInMonth;
                   return (
                     <td key={`flujo-${col.mes}-${col.label}-${ci}`}
@@ -7466,6 +7515,35 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
                 });
               })}
             </tr>
+
+            {/* Vista semanal: lo que el saldo semanal no puede ubicar en una semana */}
+            {vista==="semanal"&&[
+              {key:"sf", titulo:"sin fecha en el mes (neto)", ayuda:"Valores mensuales sin reparto semanal: entran al cierre del mes (Σ), no a una semana",
+               valor:(col)=> col.type==="week" ? null : sinFechaMes(col.idx)},
+              {key:"at", titulo:"atrasado (semanas anteriores, pendiente)", ayuda:"Fechado en semanas ya pasadas del mes en curso sin pago registrado: se suma en la semana en curso",
+               valor:(col)=> (col.type==="week" && col.idx===mesIdxInicioSaldo && col.semIdx===semIdxActual) ? atrasadoMesCorte : null},
+            ].map(f=>(
+              <tr key={f.key} data-testid={`fila-${f.key}`} style={{background:`${C.yellow}0d`}}>
+                <td title={f.ayuda} style={{padding:"4px 14px",color:C.muted,fontSize:9,fontStyle:"italic",
+                  position:"sticky",left:0,background:C.card,borderRight:`1px solid ${C.border}`,zIndex:1}}>
+                  · {f.titulo}
+                </td>
+                {colStructure.map(({season:s,collapsed,cols})=>{
+                  if(collapsed) return <td key={s.key} style={{borderLeft:`2px solid ${C.border2}`}}/>;
+                  return cols.map((col,ci)=>{
+                    const v=f.valor(col);
+                    return (
+                      <td key={`${f.key}-${col.mes}-${col.label}-${ci}`}
+                        style={{padding:"3px 5px",textAlign:"right",fontSize:9,fontStyle:"italic",
+                          color:v==null||Math.abs(v)<0.005?C.muted2:cf(v),
+                          borderLeft:col.isFirstInSeason?`2px solid ${C.border2}`:`1px solid ${C.border}11`}}>
+                        {v==null||Math.abs(v)<0.005?"":$$(v)}
+                      </td>
+                    );
+                  });
+                })}
+              </tr>
+            ))}
 
             {/* SALDO ACUMULADO ─────────────────────────────────── */}
             <tr style={{background:`${C.blue}11`}}>
@@ -7610,6 +7688,21 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
             <span style={{marginLeft:8,color:C.yellow}}>● {Object.keys(proyOverrides).length} línea(s) con valores modificados</span>}
         </div>
       )}
+
+      {/* ── Vista semanal: importes sin fecha y atrasados del mes en curso ── */}
+      {vista==="semanal"&&(()=>{
+        const d = sinFechaDetalle(mesIdxInicioSaldo);
+        if(Math.abs(d.ing)<0.005&&Math.abs(d.egr)<0.005&&Math.abs(atrasadoMesCorte)<0.005) return null;
+        return (
+          <div data-testid="aviso-semanal-incompleto" style={{background:C.warningBg,border:`1px solid ${C.warning}`,borderRadius:10,padding:"10px 14px",fontSize:11,color:C.text,lineHeight:1.6}}>
+            <strong>Saldo semanal de {MESES_65[mesIdxInicioSaldo]} incompleto por fechas:</strong>{" "}
+            {(Math.abs(d.ing)>=0.005||Math.abs(d.egr)>=0.005)&&<>ingresos {$$(d.ing)} y egresos {$$(d.egr)} no tienen semana
+            (valores mensuales sin reparto): no se ubican en ninguna semana y entran al cierre del mes (columna Σ), igual que en la vista mensual y el Excel.
+            Para fecharlos, escribe el importe en su semana: se toma de lo sin fecha, sin duplicar el mes. </>}
+            {Math.abs(atrasadoMesCorte)>=0.005&&<>Lo fechado en semanas ya pasadas del mes ({$$(atrasadoMesCorte)} neto) no se da por pagado ni cobrado: se suma en la semana en curso.</>}
+          </div>
+        );
+      })()}
 
       {/* ── Créditos: vencidos arrastrados, sin TC, manuales que no aplican ── */}
       {(avisoCreditos.arrastrados.length>0||avisoCreditos.porConciliar.length>0||avisoCreditos.sinTC.length>0||avisoCreditos.ovIgnorados.length>0||avisoCreditos.tcAvisos.length>0||avisoCreditos.estimados.length>0)&&(
@@ -8345,7 +8438,7 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
                   <td style={{...CR_TD,whiteSpace:"nowrap"}}>{fmtDate(v.fecha)}{v.estimado&&<span title="Interés estimado tras prepago sobre calendario manual" style={{color:C.orange}}> ≈</span>}{v.tasaVariable&&v.pendiente.interes>0&&<span title="Interés proyectado con la tasa de referencia supuesta constante" style={{color:C.orange,fontSize:9}}> proy.</span>}
                     {(()=>{ const fe=fechaEstimadaVigente(credito,v.key); return fe&&v.pendienteTotal>0&&!v.porConciliar
                       ? <div data-testid="fecha-estimada" style={{fontSize:9,color:fe.fecha<hoy?C.red:C.blue}} title={`${fe.motivo} · ${fe.usuario||""} ${fe.ts?fe.ts.slice(0,10):""}`}>
-                          pago estimado {fmtDate(fe.fecha)}{fe.fecha<hoy?" (ya pasó: se arrastra a hoy)":""}</div> : null; })()}</td>
+                          pago estimado {fmtDate(fe.fecha)}{fe.fecha>=hoy?"":(v.fecha<hoy?" (ya pasó: se arrastra a hoy)":" (ya pasó: vuelve al vencimiento contractual)")}</div> : null; })()}</td>
                   <td style={{...CR_TD,color:C.muted}}>{v.origen==="renovacion"?`Renov. ${v.renovacion+1}`:"Cuota"}</td>
                   <td style={{...CR_TD,textAlign:"right"}}>{$c(v.capital,mon)}</td>
                   <td style={{...CR_TD,textAlign:"right",color:C.orange}}>{$c(v.interes,mon)}</td>
@@ -11343,14 +11436,7 @@ function reporte_calcSaldoProyectadoMensual_v2(empNombre, realData, empresas, sa
     if(lockFrom !== null && idx >= lockFrom) return base;
     if(ov === undefined) return base;
     if(typeof ov === "number") return ov;
-    if(typeof ov === "object" && ov !== null) {
-      let total = 0;
-      for(let s=0; s<4; s++){
-        const k = `_sem${s}`;
-        if(ov[k] !== undefined) total += Number(ov[k])||0;
-      }
-      return total;
-    }
+    if(typeof ov === "object" && ov !== null) return totalMesOverride(ov);   // semanas + sin fecha
     return base;
   }
 
@@ -11448,14 +11534,7 @@ function reporte_calcDetalleMensual(empNombre, realData, empresas, saldosBancos,
     if(lockFrom !== null && idx >= lockFrom) return base;
     if(ov === undefined) return base;
     if(typeof ov === "number") return ov;
-    if(typeof ov === "object" && ov !== null) {
-      let total = 0;
-      for(let s=0; s<4; s++){
-        const k = `_sem${s}`;
-        if(ov[k] !== undefined) total += Number(ov[k])||0;
-      }
-      return total;
-    }
+    if(typeof ov === "object" && ov !== null) return totalMesOverride(ov);   // semanas + sin fecha
     return base;
   }
 
@@ -11635,14 +11714,7 @@ function reporte_getTopMovimientos(empNombre, realData, empresas, subLinesGlobal
     if(lockFrom !== null && idx >= lockFrom) return base;
     if(ov === undefined) return base;
     if(typeof ov === "number") return ov;
-    if(typeof ov === "object" && ov !== null) {
-      let total = 0;
-      for(let s=0; s<4; s++){
-        const k = `_sem${s}`;
-        if(ov[k] !== undefined) total += Number(ov[k])||0;
-      }
-      return total;
-    }
+    if(typeof ov === "object" && ov !== null) return totalMesOverride(ov);   // semanas + sin fecha
     return base;
   }
 
