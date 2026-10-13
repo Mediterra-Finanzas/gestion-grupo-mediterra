@@ -11681,10 +11681,6 @@ function ReportesOsiris({rpData=[],rcData=[],feData=[],fvData=[],ctData=[],obten
 // COMPONENTE PRINCIPAL — Hub Osiris mejorado
 // ══════════════════════════════════════════════════════════
 export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPermisos={},onBack,onLogout}) {
-  // App pasa `esAdmin` como FUNCIÓN (nombre) => bool. Usarla como booleano la volvía
-  // siempre verdadera: cualquier perfil, incluso consulta, podía reordenar el hub y
-  // escribir la fila osiris. Ordenar es solo del administrador, como declaraba el hub.
-  const soyAdmin = usuarioActual?.rol === "admin" || (typeof esAdmin === "function" ? !!esAdmin(usuarioActual?.nombre) : esAdmin === true);
   // ── Osiris tiene su propia persistencia (fila "osiris" en Supabase) ──
   const [osirisData, setOsirisData] = useState({});
   // Último valor, para revisar después de un diálogo de la app (ya no bloquea como window.prompt).
@@ -12236,7 +12232,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         const order=(Array.isArray(osirisData?.hubCardsOrder)&&osirisData.hubCardsOrder.length===HUB_DEFAULT.length)?osirisData.hubCardsOrder:HUB_DEFAULT;
         const items=order.filter(id=>DEFS[id]).map(id=>({id,...DEFS[id]}));
         return <Accesos items={items} titulo="Accesos" testid="hub-osiris"
-          onOrdenar={soyAdmin ? (ids)=>setOsirisData(prev=>({...(prev||{}),hubCardsOrder:ids})) : undefined}/>;
+          onOrdenar={esAdmin ? (ids)=>setOsirisData(prev=>({...(prev||{}),hubCardsOrder:ids})) : undefined}/>;
       })()}
 
       {/* Resumen (mismas cifras de siempre) */}

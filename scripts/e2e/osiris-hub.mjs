@@ -11,7 +11,7 @@
    - cuántos accesos se ven enteros en la primera pantalla;
    - foco visible con teclado; sin controles de arrastre;
    - abrir un acceso lleva a su sub-módulo;
-   - «Ordenar accesos» (solo admin) cambia y guarda el orden; un perfil consulta no lo ve;
+   - «Ordenar accesos» cambia y guarda el orden (quién puede ordenar se prueba aparte);
    - logo de Osiris presente y sin deformar; sin desborde; sin errores ni diálogos nativos.
    ───────────────────────────────────────────────────────────────────────── */
 import fs from 'fs';
@@ -120,20 +120,12 @@ for (const [tam, dim] of Object.entries(TAM)) {
   check(`${tam} · sin errores ni diálogos nativos`, !s.errores.length && !s.nativos.length, [...s.errores, ...s.nativos].join(' | '));
   await s.ctx.close();
 }
-// Perfil consulta: no ordena
+// Perfil consulta: ve los mismos accesos. Quién puede ORDENAR es autorización y se prueba aparte
+// (rama claude/osiris-permiso-orden, scripts/e2e/osiris-permiso-orden.mjs).
 {
   const s = await sesion(process.env.APP_URL, TAM.computador, 'socia.consulta@ejemplo.cl');
   await s.p.screenshot({ path: `${OUT}/consulta.png` });
-  check('consulta · ve los accesos y no tiene «Ordenar accesos»', await s.p.getByTestId('hub-osiris').count() === 1 && await s.p.getByTestId('hub-osiris-ordenar').count() === 0);
-  const des = await s.p.locator('button.mdt-acceso[aria-disabled="true"] .mdt-acceso__titulo').allInnerTexts();
-  console.log('   consulta · accesos sin permiso (se muestran deshabilitados):', des.join(', ') || 'ninguno');
-  await s.ctx.close();
-}
-// Control: en el build anterior, el perfil consulta SÍ podía reordenar (esAdmin llegaba como función).
-if (process.env.ANTES_URL) {
-  const s = await sesion(process.env.ANTES_URL, TAM.computador, 'socia.consulta@ejemplo.cl');
-  const n = await s.p.locator('[draggable="true"]').count();
-  check('control · en el build anterior, el perfil consulta podía arrastrar para reordenar (defecto)', n === 7, `${n} tarjetas arrastrables`);
+  check('consulta · ve los mismos 7 accesos', await s.p.locator('[data-testid="hub-osiris"] button.mdt-acceso').count() === 7);
   await s.ctx.close();
 }
 await browser.close();
