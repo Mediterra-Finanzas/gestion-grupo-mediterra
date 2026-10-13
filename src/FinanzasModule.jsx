@@ -2,7 +2,7 @@
 import { useFuenteGrafico, EncabezadoModulo, Circuito, MenuMas } from "./diseno/componentes.jsx";
 import { useClaseVentana } from "./diseno/useClaseVentana";
 import { pasosNomina } from "./diseno/circuito.js";
-import { medidasLogoPDF, formatoDataUrl, rutaLogoEmpresa, cargarBytesLogo, agregarLogoHoja } from "./diseno/logoExport.js";
+import { medidasLogoPDF, formatoDataUrl, rutaLogoEmpresa, cargarBytesLogo, agregarLogoHoja, cargarJSZip } from "./diseno/logoExport.js";
 import { pedirTexto, elegirOpcion, useUltimo, huella, sigueIgual, avisarDesactualizado } from "./diseno/dialogos.jsx";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -12224,12 +12224,57 @@ async function reporte_generarPDF(opts) {
   // Solo cambia dónde parte la tabla en la página que sigue; filas y cifras no.
   let logoSeccion = logo;
   const autoTableBase = doc.autoTable.bind(doc);
-  doc.autoTable = (o = {}) => autoTableBase({ ...o,
-    margin: { ...(o.margin || {}), top: 28 },
+  const conEncabezado = (o, extra = {}) => ({ ...o, ...extra,
+    margin: { ...(o.margin || {}), top: 28, ...(extra.margin || {}) },
     didDrawPage: (d) => {
       if(d.pageNumber > 1) _pdfAddHeader(doc, semana, fechaStr, false, logoSeccion);
       if(o.didDrawPage) o.didDrawPage(d);
     } });
+  // Una fila TOTAL no queda sola en una página, separada de las filas que resume.
+  // Se mide primero en un documento auxiliar del mismo tamaño (nada se dibuja en el
+  // reporte). Si quedaría sola: la tabla completa pasa a una página nueva cuando cabe
+  // entera en ella; si no cabe, se adelanta el corte (margen inferior mayor) hasta
+  // que el TOTAL vaya acompañado. Mismas filas, en el mismo orden: solo cambia dónde
+  // se corta la página.
+  const textoFila = (r) => (Array.isArray(r) ? r : []).map(c => c && typeof c === "object" ? String(c.content ?? "") : String(c ?? "")).join(" ");
+  const paginaDeFilas = (o, startY, margenInf) => {
+    const W = doc.internal.pageSize.getWidth(), Hh = doc.internal.pageSize.getHeight();
+    const aux = new jsPDF({ orientation: W > Hh ? "landscape" : "portrait", unit: "mm", format: "a4" });
+    const pag = [];
+    aux.autoTable({ ...o, startY, margin: { ...(o.margin || {}), top: 28, ...(margenInf != null ? { bottom: margenInf } : {}) },
+      didDrawPage: undefined,
+      didDrawCell: (d) => { if(d.section === "body") pag[d.row.index] = d.pageNumber; if(o.didDrawCell) o.didDrawCell(d); } });
+    return pag;
+  };
+  const totalSolo = (pag, n) => n >= 2 && pag[n - 1] !== pag[n - 2];
+  // _titulo: título de sección que va 2 mm sobre la tabla; solo una tabla con título
+  // declarado se mueve ENTERA (su título va con ella). Las demás adelantan el corte.
+  const dibujarTitulo = (texto, y) => {
+    doc.setTextColor(..._PDF_COLORS.TEAL_DARK);
+    doc.setFont("helvetica","bold"); doc.setFontSize(10);
+    doc.text(texto, 12, y);
+  };
+  doc.autoTable = (entrada = {}) => {
+    const { _titulo, ...o } = entrada;
+    const body = o.body || [], n = body.length;
+    const normal = () => { if(_titulo) dibujarTitulo(_titulo, o.startY - 2); return autoTableBase(conEncabezado(o)); };
+    if(typeof o.startY !== "number" || n < 2 || !/\bTOTAL\b/i.test(textoFila(body[n - 1]))) return normal();
+    if(!totalSolo(paginaDeFilas(o, o.startY), n)) return normal();
+    if(_titulo && paginaDeFilas(o, 34).every(p => p === 1)) {
+      const W = doc.internal.pageSize.getWidth(), Hh = doc.internal.pageSize.getHeight();
+      doc.addPage("a4", W > Hh ? "landscape" : "portrait");
+      _pdfAddHeader(doc, semana, fechaStr, false, logoSeccion);
+      dibujarTitulo(_titulo, 32);
+      return autoTableBase(conEncabezado(o, { startY: 34 }));
+    }
+    if(_titulo) dibujarTitulo(_titulo, o.startY - 2);
+    const base = 40 / doc.internal.scaleFactor;   // margen inferior por defecto de autoTable
+    for(let k = 1; k <= 12; k++) {
+      const m = base + k * 8;
+      if(!totalSolo(paginaDeFilas(o, o.startY, m), n)) return autoTableBase(conEncabezado(o, { margin: { bottom: m } }));
+    }
+    return autoTableBase(conEncabezado(o));
+  };
 
   let yPos = 42; // después del header
 
@@ -12379,9 +12424,9 @@ async function reporte_generarPDF(opts) {
 
   // 3. Compromisos consolidados próximas 8 semanas (mayo-junio), agrupados por empresa
   ensureSpacePortada(50);
-  doc.setTextColor(..._PDF_COLORS.TEAL_DARK);
-  doc.setFont("helvetica","bold"); doc.setFontSize(10);
-  doc.text("Compromisos Consolidados — Próximas 8 Semanas (top 5 detallado + resto agrupado)", 12, yPos);
+  // El título lo dibuja el envoltorio de autoTable: así viaja con la tabla si esta pasa entera
+  // a la página siguiente (ver «Una fila TOTAL no queda sola»).
+  const titulo_comp = "Compromisos Consolidados — Próximas 8 Semanas (top 5 detallado + resto agrupado)";
   yPos += 2;
 
   // Helper: para una lista de items de una empresa, separar top 5 + agrupar resto por catLabel
@@ -12464,6 +12509,7 @@ async function reporte_generarPDF(opts) {
   ]);
 
   doc.autoTable({
+    _titulo: titulo_comp,
     startY: yPos,
     head: [["Semana(s)", "Concepto", "Monto USD"]],
     body: compConsRows,
@@ -12481,9 +12527,9 @@ async function reporte_generarPDF(opts) {
 
   // 4. Ingresos consolidados próximas 8 semanas (mismo formato)
   ensureSpacePortada(50);
-  doc.setTextColor(..._PDF_COLORS.TEAL_DARK);
-  doc.setFont("helvetica","bold"); doc.setFontSize(10);
-  doc.text("Ingresos Consolidados — Próximas 8 Semanas (top 5 detallado + resto agrupado)", 12, yPos);
+  // El título lo dibuja el envoltorio de autoTable: así viaja con la tabla si esta pasa entera
+  // a la página siguiente (ver «Una fila TOTAL no queda sola»).
+  const titulo_ing = "Ingresos Consolidados — Próximas 8 Semanas (top 5 detallado + resto agrupado)";
   yPos += 2;
 
   const ingPorEmpresa = {};
@@ -12529,6 +12575,7 @@ async function reporte_generarPDF(opts) {
   ]);
 
   doc.autoTable({
+    _titulo: titulo_ing,
     startY: yPos,
     head: [["Semana(s)", "Concepto", "Monto USD"]],
     body: ingConsRows,
@@ -15543,15 +15590,18 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
             {flujoSubTab==="flujo"&&empTab!=="_consolidado"&&empTab!=="_intercompany"&&(
               <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
                 {empExportMsg&&<span style={{fontSize:10,color:C.muted,maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{empExportMsg}</span>}
-                <button onClick={()=>{
+                <button onClick={async()=>{
                   try{
+                    // Logo de la empresa en la cabecera (blanca). Si no carga, sale como antes.
+                    let logo=null;
+                    try{ const bytes=await cargarBytesLogo(rutaLogoEmpresa(empTab)); const JSZip=bytes?await cargarJSZip():null; if(bytes&&JSZip) logo={bytes,JSZip,agregarLogoHoja}; }catch(e){}
                     const emp=empresasConOverridesMain[empTab];
                     const saldoIni=getSaldoBancoInicial(saldosBancos,empTab,empresas[empTab]?.saldo_ini);
                     const hoyX=new Date();
                     const mesX=`${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][hoyX.getMonth()]}-${String(hoyX.getFullYear()).slice(2)}`;
                     const notasSaldo=notasSaldoInicial(saldosBancos, empTab, {hoy:hoyX, mesLabel:mesX, fallback:empresas[empTab]?.saldo_ini});
                     const avisoSaldo=saldosBancos?avisoSaldoIncompleto(saldoBancoEmpresaUSD(saldosBancos,empTab)):null;
-                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}, avisos:[...avisosDeEmpresa(realData, empresasConOverridesMain, empTab), ...(avisoSaldo?[avisoSaldo]:[])], notasSaldo});
+                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}, avisos:[...avisosDeEmpresa(realData, empresasConOverridesMain, empTab), ...(avisoSaldo?[avisoSaldo]:[])], notasSaldo, logo});
                     setEmpExportMsg("✓ "+f);
                   }catch(e){ console.error(e); setEmpExportMsg("✗ Error al exportar"); }
                   setTimeout(()=>setEmpExportMsg(null),5000);

@@ -81,6 +81,9 @@ const S = {
   notaPie: { font:{ name:FONT, sz:9, italic:true, color:{rgb:'595959'} }, alignment:{ horizontal:'left' } },
   title:    { font:{ name:FONT, sz:13, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' } },
   titleSub: { font:{ name:FONT, sz:10, italic:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' } },
+  // Cabecera blanca (con logo): misma fila 1, más alta; texto oscuro legible sobre blanco.
+  titleW:   { font:{ name:FONT, sz:13, bold:true, color:{rgb:NAVY} }, fill:{ fgColor:{rgb:'FFFFFF'} }, alignment:{ horizontal:'left', vertical:'center' } },
+  titleSubW:{ font:{ name:FONT, sz:10, italic:true, color:{rgb:'475569'} }, fill:{ fgColor:{rgb:'FFFFFF'} }, alignment:{ horizontal:'left', vertical:'center' } },
   seasonHdr:{ font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:BLUE} }, alignment:{ horizontal:'center', vertical:'center' }, border:BORD },
   colHdr:   { font:{ name:FONT, sz:9, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'center', vertical:'center' }, border:BORD },
   concept:  { font:{ name:FONT, sz:10, bold:true, color:{rgb:'FFFFFF'} }, fill:{ fgColor:{rgb:NAVY} }, alignment:{ horizontal:'left', vertical:'center' }, border:BORD },
@@ -156,7 +159,7 @@ function fillAdditive(cells, num, r1, cols, sty) {
 // fechas y paridades sale el saldo inicial.
 function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue,
                           saldoIniMonth0Formula, saldoIniMonth0Number, startAccumIdx = 0,
-                          avisos = [], notasPie = [] }) {
+                          avisos = [], notasPie = [], cabecera = 'oscura' }) {
   // cats: [{ cat, lines:[{label,vals}], monthFormula?(mc)->string }]
   const cells = {}; const rows = []; const merges = []; const num = {};
   let r = 0;
@@ -164,15 +167,19 @@ function buildStatement({ title, subtitle, cols, monthOrder, cats, saldoIniValue
   const catByKey = {}; cats.forEach(c => { catByKey[c.cat] = c; });
 
   // Fila 1: título (merge sobre toda la fila)
-  cells[ref(r+1,0)] = { t:'s', v:title, s:S.title };
+  // cabecera 'blanca': la MISMA fila 1 (no se insertan filas: las fórmulas no se mueven),
+  // fondo blanco y más alta para el logo, que se agrega después al archivo (ver exportarFlujoEmpresa).
+  const blanca = cabecera === 'blanca';
+  const sT = blanca ? S.titleW : S.title, sTS = blanca ? S.titleSubW : S.titleSub;
+  cells[ref(r+1,0)] = { t:'s', v:title, s:sT };
   const lastColIdx = cols[cols.length-1].c;
-  for (let c=1;c<=lastColIdx;c++) cells[ref(r+1,c)] = { t:'s', v:'', s: c<=4?S.title:S.title };
+  for (let c=1;c<=lastColIdx;c++) cells[ref(r+1,c)] = { t:'s', v:'', s:sT };
   // Los avisos van en el subtítulo y en una nota al pie: NO se agregan filas
   // arriba para no mover la grilla (los meses siguen en la fila 3).
   const subt = avisos && avisos.length ? `${subtitle || ''}${subtitle ? ' · ' : ''}${avisos.join(' · ')}` : subtitle;
-  if (subt) cells[ref(r+1,5)] = { t:'s', v:subt, s:S.titleSub };
+  if (subt) cells[ref(r+1,5)] = { t:'s', v:subt, s:sTS };
   merges.push({ s:{r:r,c:0}, e:{r:r,c: subtitle?4:lastColIdx} });
-  rows[r] = { level:0, hpx:22 };
+  rows[r] = { level:0, hpx: blanca ? 52 : 22 };
   r++;
 
   // Fila 2: cabecera de temporadas
@@ -1511,7 +1518,9 @@ const PARAM_BUILDERS = {
   'Allegria Foods':   (p, m) => p.paramsAllegria && buildParametrosAllegria(p.paramsAllegria, p.allegraComisionArandanos, m),
 };
 
-export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName, params = null, avisos = [], notasSaldo = [] }) {
+// logo = { bytes, JSZip, agregarLogoHoja } → cabecera blanca + logo de la empresa en la fila 1.
+// Sin logo (o si falla) el archivo sale como siempre: cabecera oscura y XLSX.writeFile.
+export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonStartYear = null, fileName, params = null, avisos = [], notasSaldo = [], logo = null }) {
   if (!emp) throw new Error('Empresa sin datos');
   const { months, cols, monthOrder } = buildHorizonte(lastSeasonStartYear);
 
@@ -1532,6 +1541,7 @@ export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonSta
     startAccumIdx: idxMesActual(months),
     avisos,
     notasPie: notasSaldo,
+    cabecera: logo ? 'blanca' : 'oscura',
   });
 
   const wb = XLSX.utils.book_new();
@@ -1546,7 +1556,18 @@ export function exportarFlujoEmpresa({ emp, empName, saldoIni = 0, lastSeasonSta
 
   const safeName = String(empName).replace(/[^\w\-]+/g,'_').slice(0,40);
   const fname = fileName || `Flujo_${safeName}_${months[months.length-1].label}.xlsx`;
-  XLSX.writeFile(wb, fname);
+  if (!logo) { XLSX.writeFile(wb, fname); return fname; }
+  // Con logo: el libro se escribe igual y solo se le AGREGA el dibujo (no se toca ninguna celda).
+  const datos = XLSX.write(wb, { bookType:'xlsx', type:'array' });
+  const tituloPx = 12 + String(built.cells.A1?.v || '').length * 10;
+  const anchosAE = [36, 11.5, 11.5, 11.5, 11.5];
+  const descargar = (blob) => { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = fname; a.click(); setTimeout(() => URL.revokeObjectURL(u), 4000); };
+  const sinLogo = () => descargar(new Blob([datos], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  logo.JSZip.loadAsync(datos)
+    .then(async zip => (await logo.agregarLogoHoja(zip, { bytes:logo.bytes, colWidths:anchosAE, altoPt:30, hoja:1, minIzquierdaPx:tituloPx }))
+      ? zip.generateAsync({ type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }) : null)
+    .then(b => b ? descargar(b) : sinLogo())
+    .catch(() => sinLogo());
   return fname;
 }
 

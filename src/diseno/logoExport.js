@@ -76,6 +76,22 @@ export function tamanoImagen(bytes) { return tamanoPng(bytes) || tamanoJpeg(byte
 // a <mergeCells> (así son los Excel armados a mano de la app).
 const EMU_PX = 9525, EMU_PT = 12700;
 const pxDeAncho = (w) => Math.trunc(Number(w) * 7 + 5);   // ancho de columna en caracteres → px
+// JSZip desde el CDN que ya usan los demás Excel (sin dependencia nueva). null si no carga
+// o si no responde en `esperaMs`: quien exporta sigue sin logo en vez de quedar esperando.
+export async function cargarJSZip(esperaMs = 6000) {
+  if (typeof window === "undefined") return null;
+  if (window.JSZip) return window.JSZip;
+  try {
+    await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error("JSZip no respondió")), esperaMs);
+      const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+      s.onload = () => { clearTimeout(t); res(); }; s.onerror = () => { clearTimeout(t); rej(new Error("JSZip no cargó")); };
+      document.head.appendChild(s);
+    });
+    return window.JSZip || null;
+  } catch (e) { return null; }
+}
+
 export async function agregarLogoHoja(zip, { bytes, colWidths = [], altoPt = 50, hoja = 1, margenPx = 8, limiteDerechoPx = 980, minIzquierdaPx = 0 } = {}) {
   const dim = tamanoImagen(bytes);
   if (!dim || !dim.ancho || !dim.alto) return false;

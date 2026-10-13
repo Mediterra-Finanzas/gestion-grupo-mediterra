@@ -271,6 +271,9 @@ describe('módulo completo: pestaña Saldos Bancos = flujo en pantalla = Excel d
 
     mockCapturas.length = 0;
     await clic(/📥 Excel$/);
+    // El botón primero intenta cargar el logo (aquí no hay red: sale sin logo, por writeFile),
+    // así que la descarga llega después del clic.
+    for (let i = 0; i < 50 && !mockCapturas.length; i++) await act(async () => { await new Promise(r => setTimeout(r, 20)); });
     expect(mockCapturas.length).toBe(1);
     const { celda, notas } = saldoInicialExcel(mockCapturas[0].wb);
 

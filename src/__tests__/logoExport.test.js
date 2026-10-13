@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { encajarLogo, medidasLogoPDF, tamanoJpeg } from "../diseno/logoExport.js";
+import { encajarLogo, medidasLogoPDF, tamanoJpeg, cargarJSZip } from "../diseno/logoExport.js";
 
 const prop = (m) => m.w / m.h;
 
@@ -24,5 +24,14 @@ describe("logos en exportaciones: proporción real dentro de la caja", () => {
     const buf = new Uint8Array(fs.readFileSync(path.join(__dirname, "../../public/osiris-logo.jpg")));
     expect(tamanoJpeg(buf)).toEqual({ ancho: 2127, alto: 774 });
     expect(tamanoJpeg(new Uint8Array([1, 2, 3]))).toBeNull();
+  });
+});
+
+describe("cargarJSZip: si el CDN no responde, se exporta sin logo en vez de esperar", () => {
+  test("sin respuesta del script → null dentro del plazo", async () => {
+    delete window.JSZip;
+    const t0 = Date.now();
+    await expect(cargarJSZip(80)).resolves.toBeNull();
+    expect(Date.now() - t0).toBeLessThan(2000);
   });
 });

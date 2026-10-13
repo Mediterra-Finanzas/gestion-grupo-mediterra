@@ -279,6 +279,22 @@ if (ahora.semanalPdf) {
     const sinTitulo = pags.filter(pg => !pw.filter(w => w.pag === pg && w.y1 <= 21 * MMPT).map(w => w.t).join(' ').includes('Reporte Semanal de Flujo de Caja'));
     check('semanalPdf: ninguna página interior tiene texto montado sobre la línea del encabezado', !cruzan.length, cruzan.slice(0, 5).map(w => `p${w.pag} «${w.t}» ${(w.y0 / MMPT).toFixed(1)} mm`).join(' · '));
     check('semanalPdf: todas las páginas interiores llevan el título del encabezado', !sinTitulo.length, `sin título: ${sinTitulo.join(', ') || 'ninguna'}`);
+    // Un TOTAL no queda solo en una página: tras el encabezado de página, la primera línea no es
+    // la fila de rótulos repetida seguida directamente de una fila TOTAL.
+    const aislados = [];
+    for (let pg = 2; pg <= paginas(ahora.semanalPdf); pg++) {
+      const lin = sh('pdftotext', ['-layout', '-f', String(pg), '-l', String(pg), ahora.semanalPdf, '-']).split('\n').map(l => l.trim()).filter(Boolean)
+        .filter(l => !/Reporte Semanal de Flujo de Caja|^Gestión Grupo Mediterra|^Semana \d+|Generado por Gestión/.test(l) && !/^(lunes|martes|miércoles|jueves|viernes|sábado|domingo),/.test(l));
+      if (/^(Semana\(s\)|Sem\.)\s/.test(lin[0] || '') && /^TOTAL/.test(lin[1] || '')) aislados.push(`p${pg} «${lin[1].slice(0, 40)}»`);
+    }
+    check('semanalPdf: ninguna fila TOTAL queda sola en una página, separada de sus filas', !aislados.length, aislados.join(' · ') || 'ninguna');
+    // Y ningún título de sección queda al pie de una página sin su tabla.
+    const huerfanos = [];
+    for (let pg = 1; pg <= paginas(ahora.semanalPdf); pg++) {
+      const lin = sh('pdftotext', ['-layout', '-f', String(pg), '-l', String(pg), ahora.semanalPdf, '-']).split('\n').map(l => l.trim()).filter(Boolean).filter(l => !/Generado por Gestión/.test(l));
+      if (/Próximas 8 Semanas|Consolidado —/.test(lin[lin.length - 1] || '')) huerfanos.push(`p${pg} «${lin[lin.length - 1].slice(0, 45)}»`);
+    }
+    check('semanalPdf: ningún título de sección queda solo al pie de una página', !huerfanos.length, huerfanos.join(' · ') || 'ninguno');
     check('semanalPdf: logos de empresa sin deformar (resolución x = y)', imgs.filter(i => i.xppi && i.yppi).every(i => Math.abs(i.xppi - i.yppi) <= Math.max(1, 0.01 * i.yppi)));
   }
   if (ahora.auditoriaXlsx) {

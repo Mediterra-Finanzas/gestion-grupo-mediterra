@@ -855,6 +855,77 @@ Lo que falta decidir antes de implementarlo (por eso no se implementó):
 - **Orden.** Uno por exportador, con su prueba: el Excel del flujo primero, repitiendo
   `excelRecalcFlujo` (`RECALC=1`) y la comparación pantalla-Excel de `regresion-empresas`.
 
+## 6l. Cabecera blanca en el Excel del flujo y TOTAL no aislado en el Reporte (13-10)
+
+El perímetro y el corte del Waterfall están en la rama candidata `claude/waterfall-perimetro`
+(sin integrar): ver su `docs/waterfall/conciliacion-corte.md`.
+
+### Excel del flujo por empresa (SheetJS): cabecera blanca con logo
+
+Solo en este exportador (botón «📥 Excel» de Flujo Empresas, una sociedad).
+
+- **Fila 1.** Es la misma fila de antes: pasa a fondo blanco, título azul oscuro y altura de 22 a
+  52 pt. Lleva el logo de la sociedad, el archivo original, en su proporción, a la derecha del
+  título.
+- **Lo que no cambia.** No se insertan filas, no se toca ninguna fórmula ni ningún logo.
+- **Cómo se agrega el logo.** El libro se escribe igual con SheetJS y después se le agrega el
+  dibujo con JSZip, el mismo CDN que ya usan los otros Excel.
+- **Si falla.** Si el logo o JSZip no cargan (JSZip tiene un plazo de 6 s), el archivo sale como
+  antes: cabecera oscura y `writeFile`. Antes de agregar el plazo, un CDN sin respuesta dejaba el
+  botón esperando.
+
+`scripts/e2e/excel-cabecera.mjs`, build final `main.ed88c1e3.js` contra la versión 13: 22/22,
+para Allegria Foods (JPEG, 3 hojas) y Mediterra (PNG).
+
+| Comprobación | Allegria Foods | Mediterra |
+|---|---|---|
+| Fórmulas iguales celda por celda | 841 | 974 |
+| Valores en caché iguales | 3.283 celdas | 3.267 celdas |
+| Recalculado en LibreOffice sin caché, mismo resultado | 841 fórmulas | 974 fórmulas |
+| Filas | 36, misma numeración | 37, misma numeración |
+| Formato que cambia | solo la fila 1 (71 celdas) | solo la fila 1 (71 celdas) |
+| Impresión (LibreOffice → PDF), página 1 | logo y título legible, sin tocarse | ídem |
+
+El formato se compara resuelto (fuente, relleno, borde y número), no por número de estilo:
+SheetJS renumera los estilos al agregar uno nuevo.
+
+Capturas de la impresión, antes y después:
+`docs/diseno/muestra/ajustes/excel-cabecera-{Allegria_Foods,Mediterra}.png`. Archivo de ejemplo:
+`flujo-allegria-foods-cabecera-ficticio.xlsx`.
+
+Prueba ajustada: `saldoInicialUnico.test.js` espera la descarga, que ahora llega después del
+clic. Pasan `saldoInicialUnico`, `exportRegresionEmpresas`, `integracionSaldos`,
+`lineasDuplicadas` y `logoExport`; esta última suma la prueba del plazo de JSZip.
+
+Pendiente, sin extender todavía: el Excel consolidado del flujo, Créditos, Contabilidad, EEFF,
+ANF y Rendiciones.
+
+### Reporte Semanal: TOTAL GRUPO junto a sus filas
+
+El envoltorio de `autoTable` mide la tabla en un documento auxiliar antes de dibujarla. Si la
+última fila es un TOTAL y quedaría sola en una página:
+
+- si la tabla tiene título declarado (Compromisos e Ingresos consolidados) y cabe entera en una
+  página nueva, pasa entera **con su título**;
+- si no, se adelanta el corte de página hasta que el TOTAL quede acompañado.
+
+| Datos ficticios | Versión 12 | Versión 13 | Ahora |
+|---|---|---|---|
+| Páginas | 13 | 13 | 13 |
+| Página 3 | continuación de Compromisos + Ingresos (sin encabezado) | continuación de Compromisos + Ingresos sin su TOTAL | continuación de Compromisos con su TOTAL |
+| Página 4 | Saldo Caja Proyectado | TOTAL de Ingresos solo + Saldo Caja Proyectado | Ingresos completa (título, filas, TOTAL) + Saldo Caja Proyectado |
+
+Filas: el contenido sin encabezados ni pies es idéntico palabra por palabra al de la versión 12
+(3.148 palabras, sin rótulos repetidos).
+
+- Ningún TOTAL queda solo y ningún título de sección queda al pie de una página.
+- Control: la versión 13 falla en «TOTAL solo» (p. 4).
+- La iteración intermedia de este cambio dejaba el título de Ingresos solo al pie de la p. 3. La
+  prueba de título huérfano lo detecta, y por eso el título ahora viaja con la tabla.
+
+Captura: `docs/diseno/muestra/ajustes/reporte-total-antes-despues.png` (versión 13: p. 3 y 4;
+ahora: p. 3 y 4).
+
 ## 7. Archivos
 
 Nuevos: `src/diseno/{tokens.js,useClaseVentana.js,resumenInicio.js,Navegacion.jsx,Inicio.jsx}`,
