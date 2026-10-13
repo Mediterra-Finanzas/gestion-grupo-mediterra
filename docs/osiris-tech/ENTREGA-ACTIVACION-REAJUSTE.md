@@ -729,13 +729,17 @@ porque el primer merge cambia `main`.
 
 | | Paso 1 · recuperación compatible | Paso 2 · candidato |
 |---|---|---|
-| **Identificador** | `f3fd527662620eefa4f32d66e6b4369479eacf86` | `248f4c15b3b638892eb48da88c5d72582ed5383d` |
+| **Identificador** | el de la solicitud de autorización del paso 1 | el de la solicitud del paso 2 |
 | **Rama** | `osiris/recuperacion-compatible` | `osiris/publicacion-paso2` |
 | **Base** | `c9c579206bcb613bdc5aad61d01480ee01f5760a` (`origin/main`) | el resultado del paso 1 |
 | **Forma del merge** | fast-forward: el resultado de `main` **es** ese SHA | un commit sobre ese `main` |
 | **Diff** | 15 archivos, +8.047 / −37 | **una línea de producto** (la bandera) + el gateo de un bloque de prueba |
 | **Qué habilita** | nada nuevo: el motor sabe leer activaciones selladas, pero no se puede crear ninguna | se pueden crear activaciones |
 | **Volver atrás** | redeploy del deployment productivo anterior | redeploy del deployment del paso 1, ya certificado |
+
+Los identificadores exactos van en la solicitud de autorización y no en esta tabla, a propósito:
+escribirlos acá cambiaría el commit que los contiene. Lo que esta acta fija son las ramas, las
+bases y la forma de cada merge.
 
 El paso 2 es de una línea **porque** el paso 1 ya publicó todo lo demás. El código de producto del
 paso 2 es byte a byte idéntico al del paso 1 salvo esa línea, y al del candidato que se revisó de
