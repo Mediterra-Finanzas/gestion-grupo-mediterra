@@ -114,7 +114,14 @@ describe("3 · editar con la version de recuperacion y volver al candidato", () 
 });
 
 // ══════════════════════════════════════════════════════════════════
-describe("4 · no deja crear activaciones nuevas", () => {
+// Lo unico de este archivo que depende de la version. Los tres bloques de
+// arriba valen en las dos -importes identicos, activacion conservada, ida y
+// vuelta sin perdida- y por eso corren siempre: son la compatibilidad, que es
+// lo que hay que seguir probando despues de publicar el candidato. Este cuarto
+// mide que la recuperacion NO deja crear, asi que corre solo alla.
+const dRecuperacion = ACTIVACIONES_NUEVAS_HABILITADAS ? describe.skip : describe;
+
+dRecuperacion("4 · no deja crear activaciones nuevas", () => {
   test("la bandera esta en false", () => {
     expect(ACTIVACIONES_NUEVAS_HABILITADAS).toBe(false);
   });
