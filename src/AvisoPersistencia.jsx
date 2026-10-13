@@ -67,7 +67,11 @@ export default function AvisoPersistencia({ aviso, onCerrar }) {
       </div>
       <div>{aviso.texto}</div>
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-        {!esFusion && (
+        {/* Con un conflicto PENDIENTE no se ofrece recargar: la fila quedó
+            bloqueada a propósito y recargar descartaría el trabajo local sin
+            decirlo, que es justo una de las dos salidas explícitas. Esas dos
+            las ofrece el panel del módulo (PanelConflictoFila), con su texto. */}
+        {!esFusion && !aviso.conflictoPendiente && (
           <button onClick={() => window.location.reload()}
             style={{ background: col.bd, color: "#fff", border: "none", borderRadius: 6,
               padding: "5px 12px", cursor: "pointer", fontWeight: 800, fontSize: 11 }}>
