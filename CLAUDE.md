@@ -967,10 +967,16 @@ Reglas actuales (`totalMesOverride`, `semillaSemanal`, `aplicarEdicionSemana`,
 - **Sublíneas y conceptos agregados** no tienen `_sinFecha`: ahí las semanas
   reemplazan el mensual. Por eso, si el mes solo tiene valor mensual, la
   semana NO se edita (hay que dejar primero el mensual en 0, explícitamente).
-- **Reporte Semanal** (`reporte_getMovimientos4Semanas`): misma regla. Lo sin
-  fecha sale como «Mes AA sin fecha», lo fechado en semanas pasadas del mes
-  como «Mes AA Sn (atrasado)». Su semana en curso se calcula por día del mes
-  (no por semana ISO como la pantalla): diferencia preexistente, no corregida.
+- **Reporte Semanal** (`reporte_getMovimientos4Semanas`): NO usa todavía esta
+  regla. Conserva la anterior (calculado → 1ª semana, manual mensual → última,
+  mensual de concepto agregado → 1ª) y lo puesto en semanas anteriores a su
+  semana en curso no aparece. Lo único nuevo: el `_sinFecha` de un reparto
+  parcial va a la 1ª semana, como el resto de lo mensual, para no desaparecer.
+  Se intentó llevarle la regla nueva y la revisión independiente encontró que
+  su corte a 50 ítems sacaba hasta US$64.673 del KPI «Compromisos 4 Sem.», que
+  sumaba meses enteros en una ventana de 8 semanas y que su orden mezcla
+  diciembre con enero (`anio*100+mes*10+sem`, preexistente): se revirtió y
+  queda como decisión pendiente del CFO.
 - Las semanas repartidas a mano llevan la marca «est.» (fecha estimada).
 
 Límites conocidos (no corregidos): las funciones auxiliares de saldo mensual

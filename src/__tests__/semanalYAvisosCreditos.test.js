@@ -137,24 +137,21 @@ describe('vista semanal · montos negativos y total del mes (hallazgos de la rev
   });
 });
 
-describe('reporte semanal · sin fechas inventadas (reloj fijo 14-10-2026)', () => {
-  test('mensual → «sin fecha»; semana pasada → «atrasado»; reparto parcial → semana + sin fecha', () => {
+// El Reporte Semanal conserva su regla anterior (limitación declarada en
+// CLAUDE.md); lo único nuevo es que la parte sin distribuir de un reparto
+// parcial no desaparece: va donde el reporte ya pone lo mensual (1ª semana).
+describe('reporte semanal · lo sin distribuir no desaparece (reloj fijo 14-10-2026)', () => {
+  test('reparto parcial en noviembre: 1.000 en S4 y 1.700 en S1', () => {
     jest.useFakeTimers('modern'); jest.setSystemTime(new Date(2026, 9, 14, 12, 0, 0));
     try {
       const empresas = buildEmpresas({}, { cobros: [] });
       const real = { 'Allegria Foods': { _proyOverrides: {
-        'egr_var::Seguros Exportación': { 6: 106000 },
-        'egr_fijo::Arriendo Camionetas': { 6: { _sem0: 2600 } },
-        'egr_fijo::Arriendo Oficina': { 6: { _sem3: 1000, _sinFecha: 1700 } },
+        'egr_fijo::Arriendo Oficina': { 7: { _sem3: 1000, _sinFecha: 1700 } },
       } } };
       const d = reporte_armarDatosEmpresa('Allegria Foods', real, empresas, null, 0, '', 950, {}, {});
       const c = d.compromisos.map(x => `${x.mes}|${x.label}|${Math.round(x.monto)}`);
-      expect(c).toContain('Oct 26 sin fecha|Seguros Exportación|106000');
-      expect(c.some(x => /^Oct 26 S\d \(atrasado\)\|Arriendo Camionetas\|2600$/.test(x))).toBe(true);
-      expect(c).toContain('Oct 26 S4|Arriendo Oficina|1000');
-      expect(c).toContain('Oct 26 sin fecha|Arriendo Oficina|1700');
-      // ningún monto inventado en la 1ª semana del mes
-      expect(c.some(x => x.startsWith('Oct 26 S1|Seguros'))).toBe(false);
+      expect(c).toContain('Nov 26 S4|Arriendo Oficina|1000');
+      expect(c).toContain('Nov 26 S1|Arriendo Oficina|1700');
     } finally { jest.useRealTimers(); }
   });
 });
