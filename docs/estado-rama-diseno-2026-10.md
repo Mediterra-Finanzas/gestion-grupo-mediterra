@@ -926,6 +926,60 @@ Filas: el contenido sin encabezados ni pies es idéntico palabra por palabra al 
 Captura: `docs/diseno/muestra/ajustes/reporte-total-antes-despues.png` (versión 13: p. 3 y 4;
 ahora: p. 3 y 4).
 
+## 6m. Grupo 2 · Tareas y Contabilidad (13-10) — pendiente tu revisión visual
+
+Se retomó el borrador `claude/diseno-grupo2-borrador` (862ba86) sobre esta rama. El único
+conflicto, en `sistema.css`, se resolvió conservando los dos bloques. Además se agregó el
+**encabezado común** (`EncabezadoModulo`, el mismo de Finanzas) a los dos módulos.
+
+**Tareas**
+
+- Encabezado común: logo de Mediterra, período, persona filtrada, estado de guardado, botón de
+  vencidas y Salir. Es el mismo contenido que el encabezado oscuro anterior.
+- Pestañas del sistema y tabla apilable en teléfono: cada tarea es una tarjeta con sus rótulos.
+- Semáforos circulares de 28 px (44 px al dedo), con nombre accesible.
+- Comentario en el diálogo del sistema; textos de 11 px como mínimo.
+
+Se conservan el semáforo doble, las dependencias, la apertura por empresa, los co-responsables,
+la configuración y los recordatorios.
+
+**Contabilidad**
+
+- Encabezado común. El logo es el de la empresa elegida, de la tabla única de logos; sin empresa
+  o sin logo, el de Mediterra.
+- El selector de empresa es el mismo control y queda como acción del encabezado.
+- Diálogos del sistema, controles de 44 px al dedo y tabla con desplazamiento accesible.
+- Error de lectura con reintento: ya no aparece «Sin registros».
+
+Se conservan el árbol de cuentas, la centralización, los períodos y la homologación.
+
+**Vista previa aislada, incluida la comprobación de versión.** La app consulta el sitio publicado
+cada 30 s para detectar versiones. En la vista previa, el simulador responde esa consulta dentro
+de la página y la política de contenido no permite conectarse a `vercel.app`.
+`vista-previa-aislamiento.mjs` pasa de 4 a 7 casos:
+- la comprobación corre (1 vez en 8 s);
+- 0 peticiones a la base o al sitio publicado;
+- control: sin la intercepción y sin la política, la prueba sí ve la salida.
+
+**Pruebas** (build congelado de esta rama, Chromium emulado, datos ficticios). Resultado de
+`grupo2-tareas-contabilidad.mjs`: 154/154.
+- **Pantallas:** 7 de Tareas y 10 de Contabilidad, en computador 1440, tablet 834 y teléfono
+  390, sin desborde ni cifras recortadas, con controles del sistema de 44 px.
+- **Encabezado:** el logo carga y conserva su proporción en los 3 tamaños.
+- **Acciones:** **ninguna acción desaparece** respecto de la versión 14, ni para el CFO ni para
+  la contadora.
+- **Semáforo:** cambia de estado y se guarda en `main`.
+- **Lecturas:** recorrer no escribe en Contabilidad, y una lectura fallida muestra el error con
+  reintento.
+
+jest de Tareas e Inicio: 37/37.
+
+Capturas: `docs/diseno/muestra/grupo2/`.
+
+**Pendiente.** Esta rama no tiene integrado `main` desde c9c5792, que avanzó 86 commits
+(recuperación de Osiris y vista semanal). Antes de proponer la integración del diseño hay que
+traer `main` y repetir lo afectado (regla 14).
+
 ## 7. Archivos
 
 Nuevos: `src/diseno/{tokens.js,useClaseVentana.js,resumenInicio.js,Navegacion.jsx,Inicio.jsx}`,

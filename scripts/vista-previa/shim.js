@@ -76,7 +76,8 @@
     if (url.indexOf(HOST) >= 0) return listo.then(function () { return manejarSupabase(url, metodo, init); });
     if (url.indexOf('api.emailjs.com') >= 0) return resp('OK');
     // Detector de versión de producción: en la vista previa no aplica (evita recargas).
-    if (url.indexOf('gestion-grupo-mediterra.vercel.app') >= 0) return resp('', 404);
+    // Se cuenta para que la prueba de aislamiento demuestre que la comprobación corrió y no salió a la red.
+    if (url.indexOf('gestion-grupo-mediterra.vercel.app') >= 0) { window.__vpComprobacionVersion = (window.__vpComprobacionVersion || 0) + 1; return resp('', 404); }
     try { var uu = new URL(url, location.href); if (uu.origin === location.origin && uu.pathname.indexOf('/api/') === 0) return resp({}); } catch (e) {}
     return fetchReal(input, init);
   };
