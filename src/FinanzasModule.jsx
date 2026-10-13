@@ -6,7 +6,8 @@ import EEFFModule from './EEFFModule.jsx';
 import RendicionesModule from './RendicionesModule.jsx';
 import { theme } from './theme';
 import { exportarFlujoConsolidado, exportarFlujoEmpresa } from './flujoExportExcel.js';
-import { saldoBancoEmpresaUSD, usdAParidadVivo, usdDeSaldo, motivoExclusion, notasSaldoInicial, avisoSaldoIncompleto } from './saldosBancosUSD.js';
+import { saldoBancoEmpresaUSD, usdAParidadVivo, usdDeSaldo, motivoExclusion, notasSaldoInicial, avisoSaldoIncompleto, cuentasSaldoEmpresa } from './saldosBancosUSD.js';
+import { corteEmpresa, planEmpresa, conciliacionMensual } from './waterfallCorte.js';
 import { buildAllpaPeruLineas, ALLPA_PERU_KG_2026, ALLPA_PERU_PRECIO_2026, ALLPA_PERU_RATES_2026 } from './allpaPeruPpto.js';
 import { calcularAmortizacionSocio, generarInteresPeriodico } from './creditoSocio.js';
 import {
@@ -5026,9 +5027,10 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
               </div>
             </div>
           )}
-          {/* Consolidación proporcional de Allpa (Chile 50% / Perú 26%, parametrizable) */}
+          {/* Inclusión proporcional de Allpa (Chile 50% / Perú 26%, parametrizable): VISTA GERENCIAL,
+              no consolidación contable (IAS 28 = método de participación). */}
           <div>
-            <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Allpa (participación)</div>
+            <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Allpa · vista gerencial proporcional (no IAS 28)</div>
             <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
               <Btn active={incAllpaChile} onClick={()=>setIncAllpaChile(v=>!v)} color={C.teal}>{incAllpaChile?"✓ ":""}Chile {Math.round(pctChile*100)}%</Btn>
               <Btn active={incAllpaPeru} onClick={()=>setIncAllpaPeru(v=>!v)} color={C.teal}>{incAllpaPeru?"✓ ":""}Perú {Math.round(pctPeru*100)}%</Btn>
@@ -5596,15 +5598,23 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
   const empNames = [...sumadas, ...separadas];
   const [temporadaSel, setTemporadaSel] = useState(SEASONS[0]?.key || "");
   const rotuloPct = (n) => proporcional[n] != null ? `proporcional ${Math.round(proporcional[n]*100)}%` : `${Math.round((PARTICIPACION_CONTROLADORA[n]??1)*100)}%`;
-  const textoPerimetro = `Total Consolidado = ${sumadas.length} sociedades (${sumadas.join(", ")})`
-    + (separadas.length ? `. ${separadas.join(" y ")}: JV por método de participación, se muestran aparte al 100% y NO suman al total.` : ".");
+  // Con una JV incluida proporcionalmente el total deja de ser el perímetro consolidado: es una
+  // VISTA GERENCIAL de caja. Bajo IAS 28 una JV va por método de participación y su caja no se suma.
+  // Las subsidiarias siguen al 100% (línea a línea); el % se aplica solo a la JV incluida.
+  const jvProporcional = sumadas.filter(n => proporcional[n] != null);
+  const esGerencial = jvProporcional.length > 0;
+  const rotuloTotal = esGerencial ? `Total vista gerencial (${sumadas.length - jvProporcional.length} sociedades + ${jvProporcional.length} JV proporcional)` : `Total Consolidado (${sumadas.length} sociedades)`;
+  const textoPerimetro = (esGerencial
+      ? `VISTA GERENCIAL DE CAJA, no consolidación contable: suma las ${sumadas.length - jvProporcional.length} sociedades al 100% y ${jvProporcional.map(n=>`${n} al ${Math.round(proporcional[n]*100)}% de su caja`).join(" y ")}. Bajo IAS 28 una JV se registra por método de participación y su caja no se suma.`
+      : `Total Consolidado = ${sumadas.length} sociedades (${sumadas.join(", ")}).`)
+    + (separadas.length ? ` ${separadas.join(" y ")}: JV por método de participación, se muestran aparte al 100% y NO suman al total.` : "");
   const textoIncompleto = Object.keys(avisosSaldo).filter(n => sumadas.includes(n)).length
     ? `Saldo de caja INCOMPLETO: se excluyen cuentas sin TC guardado de ${Object.keys(avisosSaldo).filter(n => sumadas.includes(n)).join(", ")}.` : "";
 
   const temporada = SEASONS.find(s=>s.key===temporadaSel) || SEASONS[0];
   const idx = temporada?.indices || [];
 
-  // Índice del mes actual: el saldo banco es la posición real de hoy, la acumulación arranca aquí.
+  // Mes en curso: solo se usa para una sociedad SIN saldo bancario registrado.
   const mesIdxHoy = useMemo(()=>{
     const H=new Date();
     const lb=`${MN[H.getMonth()]}-${String(H.getFullYear()).slice(2)}`;
@@ -5612,97 +5622,86 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
     return ix>=0?ix:0;
   },[]);
 
-  // Construir conceptos por empresa
+  // Corte por sociedad: fecha del saldo bancario (ver src/waterfallCorte.js).
+  const cortePorEmp = useMemo(()=>{
+    const r = {};
+    empNames.forEach(n => { r[n] = corteEmpresa(cuentasSaldoEmpresa(saldosBancos, n), MESES_65, mesIdxHoy); });
+    return r;
+  }, [saldosBancos, empNames.join("|"), mesIdxHoy]); // eslint-disable-line
+
+  // Identidad: saldo al corte (o proyectado al inicio) + flujo proyectado = saldo final.
+  // Las filas de conceptos suman SOLO los meses proyectados (posteriores al mes del corte).
   const datos = useMemo(()=>{
     const res = {};
     empNames.forEach(n=>{
       const emp = empresas[n];
-      const firstIdx = idx[0];
-      const lastIdx = idx[idx.length-1];
-
-      // Ingresos Operacionales
-      const ingresos = sumCatWF(emp, "ing_op", idx);
-      // Egresos Operacionales = egr_var + egr_fijo
-      const egresosOp = sumCatWF(emp, "egr_var", idx) + sumCatWF(emp, "egr_fijo", idx);
-      // Impuestos
-      const impuestos = sumCatWF(emp, "imp", idx);
+      const plan = planEmpresa({ flujo: flujoPorEmp[n] || [], idx, saldoCorte: saldoIniPorEmp[n] || 0, corte: cortePorEmp[n] });
+      const P = plan.proyectados;
+      const ingresos  = sumCatWF(emp, "ing_op", P);
+      const egresosOp = sumCatWF(emp, "egr_var", P) + sumCatWF(emp, "egr_fijo", P);
+      const impuestos = sumCatWF(emp, "imp", P);
       const fcOp = ingresos + egresosOp + impuestos;
-
-      // Ingresos y Egresos No Operacionales
-      const ingNop = sumCatWF(emp, "ing_nop", idx);
-      const egrNop = sumCatWF(emp, "egr_nop", idx);
-
-      // Desglose individual
-      const callCap   = findLineWF(emp,"Capital Calls");
-      const finInL    = findLineWF(emp,"Ingresos Financiamiento");
-      const ingRenL   = findLineWF(emp,"Ingreso Renovación");
-      const otrosINop = findLineWF(emp,"Otros Ingresos No Operacionales");
-      const pagoPres  = findLineWF(emp,"Pago Préstamos - Total");
-      const renovL    = findLineWF(emp,"Renovaciones");
-      const aportesL  = findLineWF(emp,"Aportes de Capital");
-
-      const callCapital    = callCap   ? sumRangeWF(callCap.line.proy,idx)   * callCap.signo   : 0;
-      const financiamiento = finInL    ? sumRangeWF(finInL.line.proy,idx)    * finInL.signo    : 0;
-      const dividendosRec  = ingRenL   ? sumRangeWF(ingRenL.line.proy,idx)   * ingRenL.signo   : 0;
-      const otrosIngresosN = otrosINop ? sumRangeWF(otrosINop.line.proy,idx) * otrosINop.signo : 0;
-      const pagoCreditos   = pagoPres  ? sumRangeWF(pagoPres.line.proy,idx)  * pagoPres.signo  : 0;
-      const inversiones    = renovL    ? sumRangeWF(renovL.line.proy,idx)    * renovL.signo    : 0;
-      const aportesCapital = aportesL  ? sumRangeWF(aportesL.line.proy,idx)  * aportesL.signo  : 0;
-
-      const fcCapital = ingNop + egrNop;
-      
-      // Total: sumar directamente de flujoPorEmp para garantizar consistencia con el flujo
-      const flujoArr = flujoPorEmp[n] || [];
-      const total = idx.reduce((s,i) => s + (Number(flujoArr[i])||0), 0);
-      
-      // Saldo caja y final: la acumulación arranca en el mes actual (saldo banco = posición real de hoy),
-      // no en el inicio del horizonte. Así no se doble-cuentan flujos de meses ya transcurridos.
-      const saldoIni = saldoIniPorEmp[n] || 0;
-      let acum = saldoIni;
-      let saldoFinalCalc = saldoIni;
-      for(let i = mesIdxHoy; i <= lastIdx; i++) {
-        acum += (Number(flujoArr[i])||0);
-        if(i === lastIdx) saldoFinalCalc = acum;
-      }
-      // Saldo caja: acumulado desde hoy hasta antes del primer mes de la temporada.
-      let saldoCajaCalc = saldoIni;
-      if(firstIdx > mesIdxHoy) {
-        let a = saldoIni;
-        for(let i = mesIdxHoy; i < firstIdx; i++) a += (Number(flujoArr[i])||0);
-        saldoCajaCalc = a;
-      }
-      const saldoCaja = saldoCajaCalc;
-      const saldoFinal = saldoFinalCalc;
-      
-      const participacion = factor(n);
-
+      const ingNop = sumCatWF(emp, "ing_nop", P);
+      const egrNop = sumCatWF(emp, "egr_nop", P);
+      const linea = (lbl) => { const l = findLineWF(emp, lbl); return l ? sumRangeWF(l.line.proy, P) * l.signo : 0; };
+      const sinProy = plan.estado === "terminada";
+      const v = (x) => sinProy ? null : x;
       res[n] = {
-        saldoCaja, ingresos, egresosOp, impuestos, fcOp,
-        callCapital, financiamiento, pagoCreditos, dividendosRec, otrosIngresosN,
-        inversiones, aportesCapital,
-        fcCapital, total, saldoFinal,
-        participacionCtrl: saldoFinal * participacion,
+        plan,
+        saldoCaja: plan.saldoInicio,
+        ingresos: v(ingresos), egresosOp: v(egresosOp), impuestos: v(impuestos), fcOp: v(fcOp),
+        callCapital: v(linea("Capital Calls")), financiamiento: v(linea("Ingresos Financiamiento")),
+        pagoCreditos: v(linea("Pago Préstamos - Total")), dividendosRec: v(linea("Ingreso Renovación")),
+        otrosIngresosN: v(linea("Otros Ingresos No Operacionales")), inversiones: v(linea("Renovaciones")),
+        aportesCapital: v(linea("Aportes de Capital")),
+        fcCapital: v(ingNop + egrNop),
+        total: sinProy ? null : plan.flujoProyectado,
+        saldoFinal: plan.saldoFinal,
+        participacionCtrl: plan.saldoFinal == null ? null : plan.saldoFinal * factor(n),
+        mesCorte: plan.corteEnTemporada ? plan.flujoMesCorte : null,
+        saldoFinalConMesCorte: plan.corteEnTemporada ? plan.saldoFinalConMesCorte : null,
+        historico: plan.historico.length ? plan.flujoHistorico : null,
       };
     });
     return res;
-  }, [empresas, saldosBancos, idx, saldoIniPorEmp, acumPorEmp, flujoPorEmp, mesIdxHoy]); // eslint-disable-line
+  }, [empresas, idx, saldoIniPorEmp, flujoPorEmp, cortePorEmp]); // eslint-disable-line
 
-  // Totales consolidados (suma horizontal)
+  // Totales (suma horizontal). Las JV separadas NO suman. null si ninguna sociedad tiene dato.
   const totales = useMemo(()=>{
     const keys = ["saldoCaja","ingresos","egresosOp","impuestos","fcOp","callCapital",
                   "financiamiento","pagoCreditos","dividendosRec","otrosIngresosN",
-                  "inversiones","aportesCapital",
-                  "fcCapital","total","saldoFinal","participacionCtrl"];
+                  "inversiones","aportesCapital","fcCapital","total","saldoFinal","participacionCtrl",
+                  "mesCorte","saldoFinalConMesCorte","historico"];
     const t = {};
     keys.forEach(k=>{
-      t[k] = sumadas.reduce((s,n)=>s+(datos[n]?.[k]||0), 0);   // las JV separadas NO suman
+      const vals = sumadas.map(n=>datos[n]?.[k]).filter(x=>x!=null);
+      t[k] = vals.length ? vals.reduce((a,b)=>a+b,0) : null;
     });
     return t;
   }, [datos, sumadas]); // eslint-disable-line
 
-  // Definir filas del waterfall
+  const estados = new Set(sumadas.map(n=>datos[n]?.plan.estado));
+  const rotuloSaldo = estados.size===1 && estados.has("futura") ? "Saldo proyectado al inicio de temporada (USD)"
+    : estados.size===1 && estados.has("en_curso") ? "Saldo bancario al corte (USD)"
+    : estados.size===1 && estados.has("terminada") ? "Saldo inicial (temporada terminada antes del corte)"
+    : "Saldo inicial: al corte, o proyectado al inicio si el corte es anterior (USD)";
+  const fmtF = (f) => f ? `${f.slice(8,10)}-${f.slice(5,7)}-${f.slice(0,4)}` : "";
+  function textoCorte(n) {
+    const c = cortePorEmp[n]; if(!c) return "";
+    if(!c.conSaldo) return `sin saldo bancario: saldo base, sin fecha · desde ${c.mes}`;
+    return (c.fechasDistintas ? `${fmtF(c.fechaMin)} a ${fmtF(c.fecha)} (cuentas con fechas distintas)` : fmtF(c.fecha)) + ` · mes del corte ${c.mes || "anterior al horizonte"}`;
+  }
+  function textoCorteTotal() {
+    const fs = sumadas.map(n=>cortePorEmp[n]).filter(c=>c?.conSaldo).flatMap(c=>[c.fechaMin,c.fecha]).sort();
+    const sin = sumadas.filter(n=>!cortePorEmp[n]?.conSaldo);
+    return (fs.length ? (fs[0]===fs[fs.length-1] ? fmtF(fs[0]) : `${fmtF(fs[0])} a ${fmtF(fs[fs.length-1])}`) : "")
+      + (sin.length ? ` · sin saldo bancario: ${sin.join(", ")}` : "");
+  }
+
+  // Filas. Hasta "Saldo Final" rige la identidad; lo que sigue es informativo y NO suma.
   const FILAS = [
-    {key:"saldoCaja",      label:"Total Saldo Caja (USD)",  tipo:"saldo"},
+    {key:"fechaCorte",     label:"Fecha del saldo bancario de corte", tipo:"texto"},
+    {key:"saldoCaja",      label:rotuloSaldo,                tipo:"saldo"},
     {key:"ingresos",       label:"Ingresos",                 tipo:"op"},
     {key:"egresosOp",      label:"Egresos Operacionales",    tipo:"op"},
     {key:"impuestos",      label:"Impuestos",                tipo:"op"},
@@ -5715,14 +5714,30 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
     {key:"aportesCapital", label:"Aportes de Capital",        tipo:"cap"},
     {key:"otrosIngresosN", label:"Otros Ingresos No Operacionales", tipo:"cap"},
     {key:"fcCapital",      label:"Flujo Caja Capital",        tipo:"subtotal"},
-    {key:"total",          label:"Total Flujo del Período",   tipo:"total"},
-    {key:"saldoFinal",     label:"Saldo Final Caja (USD)",    tipo:"saldoFinal"},
-    {key:"participacionCtrl", label:"Participación Controladora", tipo:"controladora"},
+    {key:"total",          label:"Flujo proyectado posterior al mes del corte", tipo:"total"},
+    {key:"saldoFinal",     label:"Saldo Final Caja (USD) = saldo inicial + flujo proyectado", tipo:"saldoFinal"},
+    {key:"_info",          label:"Informativo — fuera de la identidad, no suma", tipo:"separador"},
+    // Aplica el % de propiedad al saldo final, también al de las subsidiarias: NO es caja
+    // consolidada (las subsidiarias consolidan al 100% con interés minoritario). Solo informativo.
+    {key:"participacionCtrl", label:"Saldo final × % de propiedad (atribuible; no es caja consolidada)", tipo:"info"},
+    {key:"mesCorte",       label:"Flujo del mes del corte (no incluido: no se puede separar lo ya incorporado al banco)", tipo:"info"},
+    {key:"saldoFinalConMesCorte", label:"Saldo final si el mes del corte estuviera completo pendiente", tipo:"info"},
+    {key:"historico",      label:"Flujo ya transcurrido de la temporada (histórico, ya en el saldo bancario)", tipo:"info"},
   ];
+
+  // Conciliación mes a mes (mismo perímetro: sociedades que suman al total).
+  const conciliacion = useMemo(()=>conciliacionMensual({ empresas: sumadas, flujoPorEmp, saldoCortePorEmp: saldoIniPorEmp, cortePorEmp, idx, meses: MESES_65 }),
+    [sumadas.join("|"), flujoPorEmp, saldoIniPorEmp, cortePorEmp, idx]); // eslint-disable-line
+  const conciliacionPorMes = useMemo(()=>{
+    const m = {};
+    conciliacion.forEach(r=>{ const o = m[r.idx] || (m[r.idx] = { idx:r.idx, mes:r.mes, historico:0, mes_corte:0, puente:0, proyectado:0 }); o[r.clase] += r.flujo; });
+    return Object.values(m).sort((a,b)=>a.idx-b.idx);
+  }, [conciliacion]);
+  const [verConciliacion, setVerConciliacion] = useState(false);
 
   // Formato miles con signo
   function fmt(v) {
-    if(v === 0 || v == null || isNaN(v)) return "—";
+    if(v === 0 || v == null || isNaN(v)) return "—";   // null = sin proyección (temporada terminada)
     const abs = Math.abs(Math.round(v));
     const s = v < 0 ? "-" : "";
     return `${s}${abs.toLocaleString("es-CL")}`;
@@ -5754,16 +5769,28 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
         s.onload=res;s.onerror=rej;document.head.appendChild(s);
       });
     }
-    const headers = ["Concepto", ...sumadas, `Total Consolidado (${sumadas.length} sociedades)`, ...separadas.map(n=>`${n} (JV · no suma)`)];
+    const headers = ["Concepto", ...sumadas.map(n=>proporcional[n]!=null?`${n} (JV ${Math.round(proporcional[n]*100)}% · gerencial)`:n), rotuloTotal, ...separadas.map(n=>`${n} (JV · no suma)`)];
+    // Fila 5 = primera de FILAS. Saldo Final = saldo inicial + flujo proyectado y el total
+    // = suma de las sociedades, como FÓRMULA (con su valor), para poder auditarlos.
+    const filaDe = (k) => FILAS.findIndex(f=>f.key===k) + 5;
+    const nSum = sumadas.length;
     const rows = FILAS.map(f=>{
       const row = [f.label];
-      sumadas.forEach(n=>{
-        row.push(datos[n]?.[f.key]||0);
-      });
-      row.push(totales[f.key]||0);
-      separadas.forEach(n=>{
-        row.push(datos[n]?.[f.key]||0);
-      });
+      const r = filaDe(f.key);
+      const celda = (n, c) => {
+        if(f.tipo==="separador") return "";
+        if(f.key==="fechaCorte") return textoCorte(n);
+        const v = datos[n]?.[f.key];
+        if(v == null) return "—";
+        if(f.key==="saldoFinal" && datos[n]?.saldoCaja!=null) return { f:`${colLetter(c)}${filaDe("saldoCaja")}+${colLetter(c)}${filaDe("total")}`, v };
+        return v;
+      };
+      sumadas.forEach((n,i)=>row.push(celda(n, i+1)));
+      if(f.tipo==="separador") row.push("");
+      else if(f.key==="fechaCorte") row.push(textoCorteTotal());
+      else if(totales[f.key]==null) row.push("—");
+      else row.push({ f:`SUM(B${r}:${colLetter(nSum)}${r})`, v: totales[f.key] });
+      separadas.forEach((n,i)=>row.push(celda(n, nSum+2+i)));
       return row;
     });
 
@@ -5776,7 +5803,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
 
     // Título
     rowsXml += `<row r="1" ht="28" customHeight="1"><c r="A1" t="inlineStr" s="5"><is><t>Flujo de Caja Consolidado — Grupo Mediterra</t></is></c></row>`;
-    rowsXml += `<row r="2" ht="18" customHeight="1"><c r="A2" t="inlineStr" s="6"><is><t>${escXml(temporada.label)} · Exportado ${new Date().toLocaleDateString("es-CL")}</t></is></c></row>`;
+    rowsXml += `<row r="2" ht="18" customHeight="1"><c r="A2" t="inlineStr" s="6"><is><t>${escXml(temporada.label)}${esGerencial?" · VISTA GERENCIAL (no IAS 28)":""} · Exportado ${new Date().toLocaleDateString("es-CL")}</t></is></c></row>`;
     rowsXml += `<row r="3" ht="10" customHeight="1"></row>`;
 
     // Headers
@@ -5812,7 +5839,9 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
             estilo = 0;
           }
         }
-        if(typeof val === "number" && val !== 0) {
+        if(val && typeof val === "object" && val.f) {
+          rowsXml += `<c r="${addr}" s="${c===0?0:(esTotal?12:esSubtotal?11:esSaldo?13:10)}"><f>${escXml(val.f)}</f><v>${val.v}</v></c>`;
+        } else if(typeof val === "number" && val !== 0) {
           rowsXml += `<c r="${addr}" s="${estilo}"><v>${val}</v></c>`;
         } else {
           rowsXml += `<c r="${addr}" t="inlineStr" s="${estilo}"><is><t>${escXml(val)}</t></is></c>`;
@@ -5822,7 +5851,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
     });
 
     // Perímetro (y aviso de saldo incompleto) al pie, igual que en pantalla.
-    const notas = [textoPerimetro, textoIncompleto, "Participación Controladora = Saldo Final × % de propiedad."].filter(Boolean);
+    const notas = [textoPerimetro, textoIncompleto, "Saldo inicial + flujo proyectado = saldo final. El mes del corte no entra (la proyección es mensual y no separa lo ya incorporado al banco); se informa aparte. Los meses anteriores al corte son históricos y no suman.", "Las subsidiarias van al 100% de su caja; la fila «atribuible» (saldo final × % de propiedad) es informativa y no es caja consolidada."].filter(Boolean);
     notas.forEach((t,i)=>{ const r = rows.length+6+i; rowsXml += `<row r="${r}"><c r="A${r}" t="inlineStr" s="6"><is><t>${escXml(t)}</t></is></c></row>`; });
 
     const tableRef = `A4:${lastCol}${rows.length+4}`;
@@ -5883,14 +5912,32 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
     const wbXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <bookViews><workbookView/></bookViews>
-  <sheets><sheet name="Flujo Consolidado" sheetId="1" r:id="rId1"/></sheets>
+  <sheets><sheet name="Flujo Consolidado" sheetId="1" r:id="rId1"/><sheet name="Conciliación" sheetId="2" r:id="rId3"/></sheets>
 </workbook>`;
 
     const wbRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
 </Relationships>`;
+
+    // Hoja 2: conciliación mes a mes por sociedad (mismo perímetro que el total).
+    const CLASE = { historico:"Histórico (ya en el banco)", mes_corte:"Mes del corte (no incluido)", puente:"Puente hasta la temporada", proyectado:"Proyectado" };
+    const enc2 = ["Sociedad","Mes","Clasificación","Flujo USD","Saldo proyectado acumulado","Fecha del saldo de corte","Saldo al corte"];
+    let r2 = `<row r="1">${enc2.map((h,c)=>`<c r="${colLetter(c)}1" t="inlineStr" s="1"><is><t>${escXml(h)}</t></is></c>`).join("")}</row>`;
+    conciliacion.forEach((x,i)=>{
+      const r = i+2, c0 = cortePorEmp[x.empresa];
+      const t = (c,v) => `<c r="${c}${r}" t="inlineStr"><is><t>${escXml(v)}</t></is></c>`;
+      const n = (c,v) => v==null ? "" : `<c r="${c}${r}" s="10"><v>${v}</v></c>`;
+      r2 += `<row r="${r}">${t("A",x.empresa)}${t("B",x.mes)}${t("C",CLASE[x.clase])}${n("D",x.flujo)}${n("E",x.saldoAcum)}${t("F",c0.conSaldo?c0.fecha:"sin fecha")}${n("G",saldoIniPorEmp[x.empresa]||0)}</row>`;
+    });
+    const sheet2Xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  <cols><col min="1" max="1" width="22" customWidth="1"/><col min="2" max="2" width="9" customWidth="1"/><col min="3" max="3" width="28" customWidth="1"/><col min="4" max="5" width="18" customWidth="1"/><col min="6" max="7" width="16" customWidth="1"/></cols>
+  <sheetData>${r2}</sheetData>
+</worksheet>`;
 
     const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -5898,6 +5945,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
   <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
   <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
 </Types>`;
 
@@ -5912,6 +5960,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
     zip.file("xl/workbook.xml", wbXml);
     zip.file("xl/_rels/workbook.xml.rels", wbRels);
     zip.file("xl/worksheets/sheet1.xml", sheetXml);
+    zip.file("xl/worksheets/sheet2.xml", sheet2Xml);
     zip.file("xl/styles.xml", stylesXml);
 
     const blob = await zip.generateAsync({type:"blob"});
@@ -5967,8 +6016,8 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
               ))}
               <th style={{padding:"10px 14px",textAlign:"right",color:C.accentL,fontWeight:900,
                 fontSize:10,minWidth:120}}>
-                TOTAL
-                <div style={{fontSize:9,color:C.muted2,fontWeight:400,marginTop:2}}>{sumadas.length} sociedades</div>
+                {esGerencial ? "TOTAL · VISTA GERENCIAL" : "TOTAL"}
+                <div style={{fontSize:9,color:C.muted2,fontWeight:400,marginTop:2}}>{esGerencial ? `${sumadas.length-jvProporcional.length} sociedades + JV proporcional · no es IAS 28` : `${sumadas.length} sociedades`}</div>
               </th>
               {separadas.map(n=>(
                 <th key={n} data-testid="waterfall-jv" style={{padding:"10px 10px",textAlign:"right",color:C.muted,
@@ -5988,6 +6037,16 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
               const isSubtotal = f.tipo === "subtotal";
               const isTotal = f.tipo === "total";
               const isCtrl = f.tipo === "controladora";
+              if(f.tipo === "separador") return (
+                <tr key={f.key}><td colSpan={sumadas.length+2+separadas.length} data-testid="waterfall-informativo"
+                  style={{padding:"10px 14px 4px",fontSize:10,fontWeight:800,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,borderTop:`2px solid ${C.border}`}}>{f.label}</td></tr>);
+              if(f.tipo === "texto") return (
+                <tr key={f.key} data-testid="waterfall-fecha-corte" style={{borderBottom:`1px solid ${C.border}33`}}>
+                  <td style={{padding:"8px 14px",position:"sticky",left:0,background:C.bg2,fontSize:11,color:C.muted,zIndex:1}}>{f.label}</td>
+                  {sumadas.map(n=><td key={n} style={{padding:"8px 10px",textAlign:"right",fontSize:10,color:C.muted}}>{textoCorte(n)}</td>)}
+                  <td style={{padding:"8px 14px",textAlign:"right",fontSize:10,color:C.muted,background:`${C.accent}11`}}>{textoCorteTotal()}</td>
+                  {separadas.map(n=><td key={n} style={{padding:"8px 10px",textAlign:"right",fontSize:10,color:C.muted,borderLeft:`2px dashed ${C.border}`}}>{textoCorte(n)}</td>)}
+                </tr>);
               const bg = (isSaldo||isSaldoFinal) ? `${C.blue}11`
                        : isTotal ? `${C.accent}22`
                        : isSubtotal ? `${C.green}11`
@@ -6000,12 +6059,12 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
                   <td style={{padding:"8px 14px",position:"sticky",left:0,background:bg,
                     fontWeight, color:isCtrl?C.teal:(isSaldo||isSaldoFinal)?C.blue:isTotal?C.accent:isSubtotal?C.green:C.text,
                     fontSize:(isTotal||isSaldoFinal||isCtrl)?12:11,zIndex:1}}>
-                    {f.label}{isCtrl&&<span style={{fontSize:9,color:C.muted,marginLeft:6}}>(% propiedad)</span>}
+                    {f.label}
                   </td>
                   {sumadas.map(n=>{
-                    const v = datos[n]?.[f.key] || 0;
+                    const v = datos[n]?.[f.key] ?? null;
                     return (
-                      <td key={n} style={{padding:"8px 10px",textAlign:"right",
+                      <td key={n} style={{padding:"8px 10px",textAlign:"right",fontStyle:f.tipo==="info"?"italic":"normal",
                         color:colorFila(f.tipo,v),fontWeight,fontSize:11}}>
                         {fmtSaldo(v, f.tipo)}
                       </td>
@@ -6017,7 +6076,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
                     {fmtSaldo(totales[f.key], f.tipo)}
                   </td>
                   {separadas.map(n=>{
-                    const v = datos[n]?.[f.key] || 0;
+                    const v = datos[n]?.[f.key] ?? null;
                     return (
                       <td key={n} style={{padding:"8px 10px",textAlign:"right",fontStyle:"italic",
                         color:colorFila(f.tipo,v),fontWeight,fontSize:11,borderLeft:`2px dashed ${C.border}`}}>
@@ -6032,9 +6091,39 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
         </table>
       </div>
 
+      <div style={{marginTop:10}}>
+        <button data-testid="waterfall-ver-conciliacion" onClick={()=>setVerConciliacion(v=>!v)}
+          style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,cursor:"pointer",fontSize:11,fontWeight:700}}>
+          {verConciliacion?"▾":"▸"} Conciliación mes a mes ({sumadas.length} sociedades del total)
+        </button>
+        {verConciliacion&&(
+          <div style={{overflowX:"auto",marginTop:8,border:`1px solid ${C.border}`,borderRadius:10}}>
+            <table data-testid="waterfall-conciliacion" style={{borderCollapse:"collapse",fontSize:11,width:"100%"}}>
+              <thead><tr style={{background:C.bg2}}>
+                {["Mes","Histórico (ya en el banco)","Mes del corte (no incluido)","Puente hasta la temporada","Proyectado","Saldo proyectado acumulado"].map(h=>
+                  <th key={h} style={{padding:"8px 10px",textAlign:h==="Mes"?"left":"right",fontSize:10,color:C.muted}}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {conciliacionPorMes.map(r=>{
+                  // Saldo acumulado del total: solo desde que TODAS las sociedades pasaron su mes del corte.
+                  const todas = sumadas.every(n=>r.idx>cortePorEmp[n].mesIdx);
+                  const acum = todas ? sumadas.reduce((s,n)=>{ const f=conciliacion.filter(x=>x.empresa===n&&x.idx<=r.idx&&x.saldoAcum!=null).pop(); return s+(f?f.saldoAcum:(saldoIniPorEmp[n]||0)); },0) : null;
+                  return (<tr key={r.idx} style={{borderTop:`1px solid ${C.border}33`}}>
+                    <td style={{padding:"6px 10px"}}>{r.mes}</td>
+                    {["historico","mes_corte","puente","proyectado"].map(k=><td key={k} style={{padding:"6px 10px",textAlign:"right",fontStyle:k==="proyectado"?"normal":"italic"}}>{fmt(r[k])}</td>)}
+                    <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700}}>{acum==null?"—":fmt(acum)}</td>
+                  </tr>);
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <div style={{marginTop:10,fontSize:10,color:C.muted,fontStyle:"italic",padding:"0 4px"}}>
-        💡 Cifras en USD · Valores positivos = ingresos / saldo · Valores negativos = egresos · Participación Controladora = Saldo Final × % de propiedad.
-        <div data-testid="waterfall-perimetro" style={{marginTop:4}}>{textoPerimetro}</div>
+        💡 Cifras en USD · Valores positivos = ingresos / saldo · Valores negativos = egresos. Las subsidiarias van al 100% de su caja; el % de propiedad solo se usa en la fila informativa «atribuible».
+        <div data-testid="waterfall-perimetro" style={{marginTop:4,fontWeight:esGerencial?800:400,color:esGerencial?C.orange:undefined}}>{textoPerimetro}</div>
+        <div style={{marginTop:4}}>Saldo inicial + flujo proyectado = saldo final. El mes del corte no entra: la proyección es mensual y no permite separar lo que ya está en el banco; su monto se informa aparte, junto con el saldo final que resultaría si estuviera completo pendiente. Los meses anteriores al corte son históricos y no vuelven a sumar.</div>
         {textoIncompleto&&<div data-testid="waterfall-incompleto" style={{marginTop:4,color:C.orange,fontStyle:"normal",fontWeight:700}}>⚠ {textoIncompleto}</div>}
       </div>
     </div>
