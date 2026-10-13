@@ -5173,7 +5173,9 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
 
       {/* Vista Waterfall — Conceptos × Empresas por temporada */}
       {vistaConsolidado==="waterfall"&&(
-        <WaterfallConsolidado empresas={empresasConOverrides} saldosBancos={saldosBancos} saldoIniPorEmp={saldoIniPorEmp} acumPorEmp={acumPorEmp} flujoPorEmp={flujoPorEmp}/>
+        <WaterfallConsolidado empresas={empresasConOverrides} saldosBancos={saldosBancos} saldoIniPorEmp={saldoIniPorEmp} acumPorEmp={acumPorEmp} flujoPorEmp={flujoPorEmp}
+          incluidas={empNamesConsolidado} avisosSaldo={avisosSaldoIncompleto}
+          proporcional={{...(onChile?{"Allpa Farms":pctChile}:{}), ...(onPeru?{"Allpa Farms Perú":pctPeru}:{})}}/>
       )}
     </div>
   );
@@ -5328,6 +5330,22 @@ const PARTICIPACION_CONTROLADORA = {
   "Allpa Farms":0.50,
   "Allpa Farms Perú":0.26,
 };
+
+// Perímetro del Waterfall (oct-2026). El "Total Consolidado" usa el MISMO
+// perímetro que la vista Consolidado: las 6 sociedades línea a línea, más una
+// JV solo si allí se activó su consolidación proporcional (ya viene escalada a
+// su %). Una JV no incluida sigue visible, en su propia columna a la derecha
+// del total, y NO suma. Antes el total sumaba Allpa Perú al 100% (y dejaba
+// fuera Allpa Chile), así que no cuadraba con el Consolidado.
+// La participación controladora de una JV ya escalada es su propio valor: el %
+// no se aplica dos veces.
+export const JV_WATERFALL = ["Allpa Farms","Allpa Farms Perú"];
+export function perimetroWaterfall(nombres, incluidas = EMPRESAS_KEYS_CONSOLIDADO, proporcional = {}) {
+  const sumadas = incluidas.filter(n => nombres.includes(n));
+  const separadas = JV_WATERFALL.filter(n => nombres.includes(n) && !sumadas.includes(n));
+  const factor = (n) => proporcional[n] != null ? 1 : (PARTICIPACION_CONTROLADORA[n] ?? 1);
+  return { sumadas, separadas, factor };
+}
 
 // Participación parametrizable de Mediterra en Allpa (Chile/Perú) para la
 // opción de consolidación proporcional del consolidado. Persistida en el blob
@@ -5570,13 +5588,18 @@ function MatrizMensualConsolidado({empresas, empNames, flujoPorEmp={}, acumPorEm
   );
 }
 
-function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPorEmp={}, flujoPorEmp={}}) {
-  // Solo en esta vista (waterfall) se incorpora Allpa Perú. En el resto del
-  // consolidado queda excluido (IAS 28). La fila "Participación Controladora"
-  // refleja el 26% de Mediterra sobre su saldo final.
-  const empNames = Object.keys(empresas).filter(n => EMPRESAS_KEYS_CONSOLIDADO.includes(n) || n === "Allpa Farms Perú");
+function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPorEmp={}, flujoPorEmp={}, incluidas=EMPRESAS_KEYS_CONSOLIDADO, proporcional={}, avisosSaldo={}}) {
+  // Total = perímetro del Consolidado (ver perimetroWaterfall). Las JV no
+  // incluidas van aparte, a la derecha del total, y no suman. La fila
+  // "Participación Controladora" = saldo final × % de propiedad.
+  const { sumadas, separadas, factor } = perimetroWaterfall(Object.keys(empresas), incluidas, proporcional);
+  const empNames = [...sumadas, ...separadas];
   const [temporadaSel, setTemporadaSel] = useState(SEASONS[0]?.key || "");
-  const [mostrarControladora, setMostrarControladora] = useState(true);
+  const rotuloPct = (n) => proporcional[n] != null ? `proporcional ${Math.round(proporcional[n]*100)}%` : `${Math.round((PARTICIPACION_CONTROLADORA[n]??1)*100)}%`;
+  const textoPerimetro = `Total Consolidado = ${sumadas.length} sociedades (${sumadas.join(", ")})`
+    + (separadas.length ? `. ${separadas.join(" y ")}: JV por método de participación, se muestran aparte al 100% y NO suman al total.` : ".");
+  const textoIncompleto = Object.keys(avisosSaldo).filter(n => sumadas.includes(n)).length
+    ? `Saldo de caja INCOMPLETO: se excluyen cuentas sin TC guardado de ${Object.keys(avisosSaldo).filter(n => sumadas.includes(n)).join(", ")}.` : "";
 
   const temporada = SEASONS.find(s=>s.key===temporadaSel) || SEASONS[0];
   const idx = temporada?.indices || [];
@@ -5651,7 +5674,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
       const saldoCaja = saldoCajaCalc;
       const saldoFinal = saldoFinalCalc;
       
-      const participacion = PARTICIPACION_CONTROLADORA[n] ?? 1;
+      const participacion = factor(n);
 
       res[n] = {
         saldoCaja, ingresos, egresosOp, impuestos, fcOp,
@@ -5672,10 +5695,10 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
                   "fcCapital","total","saldoFinal","participacionCtrl"];
     const t = {};
     keys.forEach(k=>{
-      t[k] = empNames.reduce((s,n)=>s+(datos[n]?.[k]||0), 0);
+      t[k] = sumadas.reduce((s,n)=>s+(datos[n]?.[k]||0), 0);   // las JV separadas NO suman
     });
     return t;
-  }, [datos, empNames]);
+  }, [datos, sumadas]); // eslint-disable-line
 
   // Definir filas del waterfall
   const FILAS = [
@@ -5731,18 +5754,16 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
         s.onload=res;s.onerror=rej;document.head.appendChild(s);
       });
     }
-    const headers = ["Concepto", ...empNames, "Total Consolidado"];
-    if(mostrarControladora) headers.push("Participación Controladora");
+    const headers = ["Concepto", ...sumadas, `Total Consolidado (${sumadas.length} sociedades)`, ...separadas.map(n=>`${n} (JV · no suma)`)];
     const rows = FILAS.map(f=>{
       const row = [f.label];
-      empNames.forEach(n=>{
+      sumadas.forEach(n=>{
         row.push(datos[n]?.[f.key]||0);
       });
       row.push(totales[f.key]||0);
-      if(mostrarControladora) {
-        if(f.key === "total") row.push(totales.participacionCtrl||0);
-        else row.push("");
-      }
+      separadas.forEach(n=>{
+        row.push(datos[n]?.[f.key]||0);
+      });
       return row;
     });
 
@@ -5800,6 +5821,10 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
       rowsXml += `</row>`;
     });
 
+    // Perímetro (y aviso de saldo incompleto) al pie, igual que en pantalla.
+    const notas = [textoPerimetro, textoIncompleto, "Participación Controladora = Saldo Final × % de propiedad."].filter(Boolean);
+    notas.forEach((t,i)=>{ const r = rows.length+6+i; rowsXml += `<row r="${r}"><c r="A${r}" t="inlineStr" s="6"><is><t>${escXml(t)}</t></is></c></row>`; });
+
     const tableRef = `A4:${lastCol}${rows.length+4}`;
     const merges = [`A1:${lastCol}1`,`A2:${lastCol}2`];
     const mergesXml = `<mergeCells count="${merges.length}">${merges.map(m=>`<mergeCell ref="${m}"/>`).join("")}</mergeCells>`;
@@ -5844,8 +5869,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
   </cellXfs>
 </styleSheet>`;
 
-    const colWidths = [38, ...empNames.map(()=>16), 18];
-    if(mostrarControladora) colWidths.push(22);
+    const colWidths = [38, ...sumadas.map(()=>16), 22, ...separadas.map(()=>20)];
     const colsXml = `<cols>${colWidths.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join("")}</cols>`;
 
     const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -5932,19 +5956,29 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
                 background:C.bg2,minWidth:240,zIndex:2}}>
                 {temporada?.label || "—"}
               </th>
-              {empNames.map(n=>(
+              {sumadas.map(n=>(
                 <th key={n} style={{padding:"10px 10px",textAlign:"right",color:C.muted,
                   fontWeight:700,fontSize:10,minWidth:105}}>
                   {n}
                   <div style={{fontSize:9,color:C.muted2,fontWeight:400,marginTop:2}}>
-                    {empresas[n]?.emoji || ""} <span style={{color:C.teal}}>{Math.round((PARTICIPACION_CONTROLADORA[n]??1)*100)}%</span>
+                    {empresas[n]?.emoji || ""} <span style={{color:C.teal}}>{rotuloPct(n)}</span>
                   </div>
                 </th>
               ))}
               <th style={{padding:"10px 14px",textAlign:"right",color:C.accentL,fontWeight:900,
                 fontSize:10,minWidth:120}}>
                 TOTAL
+                <div style={{fontSize:9,color:C.muted2,fontWeight:400,marginTop:2}}>{sumadas.length} sociedades</div>
               </th>
+              {separadas.map(n=>(
+                <th key={n} data-testid="waterfall-jv" style={{padding:"10px 10px",textAlign:"right",color:C.muted,
+                  fontWeight:700,fontSize:10,minWidth:115,borderLeft:`2px dashed ${C.border}`}}>
+                  {n}
+                  <div style={{fontSize:9,color:C.muted2,fontWeight:400,marginTop:2}}>
+                    {empresas[n]?.emoji || ""} JV {rotuloPct(n)} · no suma
+                  </div>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -5968,7 +6002,7 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
                     fontSize:(isTotal||isSaldoFinal||isCtrl)?12:11,zIndex:1}}>
                     {f.label}{isCtrl&&<span style={{fontSize:9,color:C.muted,marginLeft:6}}>(% propiedad)</span>}
                   </td>
-                  {empNames.map(n=>{
+                  {sumadas.map(n=>{
                     const v = datos[n]?.[f.key] || 0;
                     return (
                       <td key={n} style={{padding:"8px 10px",textAlign:"right",
@@ -5982,6 +6016,15 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
                     background:`${C.accent}11`,fontSize:(isTotal||isSaldoFinal)?12:11}}>
                     {fmtSaldo(totales[f.key], f.tipo)}
                   </td>
+                  {separadas.map(n=>{
+                    const v = datos[n]?.[f.key] || 0;
+                    return (
+                      <td key={n} style={{padding:"8px 10px",textAlign:"right",fontStyle:"italic",
+                        color:colorFila(f.tipo,v),fontWeight,fontSize:11,borderLeft:`2px dashed ${C.border}`}}>
+                        {fmtSaldo(v, f.tipo)}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
@@ -5991,6 +6034,8 @@ function WaterfallConsolidado({empresas, saldosBancos, saldoIniPorEmp={}, acumPo
 
       <div style={{marginTop:10,fontSize:10,color:C.muted,fontStyle:"italic",padding:"0 4px"}}>
         💡 Cifras en USD · Valores positivos = ingresos / saldo · Valores negativos = egresos · Participación Controladora = Saldo Final × % de propiedad.
+        <div data-testid="waterfall-perimetro" style={{marginTop:4}}>{textoPerimetro}</div>
+        {textoIncompleto&&<div data-testid="waterfall-incompleto" style={{marginTop:4,color:C.orange,fontStyle:"normal",fontWeight:700}}>⚠ {textoIncompleto}</div>}
       </div>
     </div>
   );
