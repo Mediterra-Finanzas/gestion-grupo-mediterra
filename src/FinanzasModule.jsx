@@ -49,6 +49,7 @@ import {
 } from './programas.js';
 import ProgramasPanel, { ResumenLado } from './ProgramasComerciales.jsx';
 import ReportesCreditos from './ReportesCreditos.jsx';
+import { tcExacto, rotuloTC, identidadUF } from './rotuloTC.js';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -8763,16 +8764,18 @@ const ESTADO_CONC = {
   incompleta: {lbl:"Conciliación incompleta",  bg:"#fef9c3", fg:"#854d0e"},
   sin_dato:   {lbl:"Sin dato del acreedor",    bg:"#e5e7eb", fg:"#374151"},
 };
-// Texto de un TC: "955 CLP/US$ · 30/09/2026 · Maestros · manual" (+ estimado / antigüedad).
-// UF: se muestra el valor de la UF en CLP (fecha y fuente) y el USD-CLP usado.
-function valorTC(t){
+// Texto de un TC: "955,00 CLP por 1 US$ · 30/09/2026 · Maestros · manual" (+ estimado / antigüedad).
+// Mismo rótulo que Créditos → Reportes (src/rotuloTC.js): valor exacto, 8 cifras significativas.
+// UF: "0,023796567 UF por 1 US$ = 955,00 CLP por 1 US$ ÷ 40.131,84 CLP por 1 UF (UF del …, fuente)".
+// Antes decía "UF … CLP / US$ … CLP = … UF por US$": la división escrita era la inversa de la que da el valor.
+export function valorTC(t){
   if(!t) return "sin TC";
-  if(t.moneda==="UF"){
-    const u = t.ufCLP!=null ? t : (typeof t.porFecha==="function" ? t.porFecha(t.corte||t.fecha) : null);
-    if(u&&u.ufCLP) return `UF ${fmtN(u.ufCLP,2)} CLP (${fmtDate(u.ufFecha)}, ${u.ufFuente}) / US$ ${fmtN(u.usdCLP,2)} CLP = ${fmtN(t.tc,6)} UF por US$`;
-    return `${fmtN(t.tc,6)} UF por US$`;
-  }
-  return `${fmtN(t.tc,t.tc<1?4:2)} ${t.moneda||""} por US$`;
+  const u = t.moneda==="UF" ? (t.ufCLP!=null ? t : (typeof t.porFecha==="function" ? t.porFecha(t.corte||t.fecha) : null)) : null;
+  const x = tcExacto(u&&u.usdCLP&&u.ufCLP&&!(Number(t.factor)>0) ? {usdCLP:u.usdCLP, ufCLP:u.ufCLP} : t);
+  const base = rotuloTC(x, t.moneda||"", "en-US");
+  if(t.moneda==="UF" && u && u.ufCLP && u.usdCLP)
+    return `${base} = ${identidadUF(u.usdCLP, u.ufCLP, "en-US")} (UF del ${fmtDate(u.ufFecha)}, ${u.ufFuente}${u.usdFecha?`; US$ del ${fmtDate(u.usdFecha)}, ${u.usdFuente}`:""})`;
+  return base;
 }
 function textoTC(t){
   if(!t) return "sin TC";

@@ -175,7 +175,7 @@ check('CLP valorizado con TC manual de Maestros 955 del 29/09/2026, fuente visib
 check('PEN sin TC: importe no convertido identificado (PEN 300,000.00)', /PEN 300,000\.00/.test(tMon));
 check('Aviso de total consolidado INCOMPLETO', /INCOMPLETO/.test(await page.locator('body').innerText()));
 const bodyAn = await page.locator('body').innerText();
-check('Análisis: total ESTIMADO por TC declarado (EUR 0,85 del 01/09/2026) con antigüedad > 7 días', /Total ESTIMADO/.test(bodyAn) && /0\.85(00)? EUR por US\$[^|]*01\/09\/2026/.test(bodyAn) && /más de 7 días/.test(bodyAn));
+check('Análisis: total ESTIMADO por TC declarado (EUR 0,85 del 01/09/2026) con antigüedad > 7 días', /Total ESTIMADO/.test(bodyAn) && /0\.85 EUR por 1 US\$[^|]*01\/09\/2026/.test(bodyAn) && /más de 7 días/.test(bodyAn));
 check('Análisis: UF futura como hipótesis de proyección', /hipótesis de proyección/.test(bodyAn));
 const kpiCap = num((bodyAn.match(/Saldo capital identificado \(USD\)[^\n]*\n\s*\$([\d,]+)/i) || [])[1] || 'NaN');
 

@@ -102,10 +102,16 @@ Allegria Service (CLP + renovación), Frisku (PEN sin TC → INCOMPLETO) y vací
    TC declarado (hipótesis), TC con más de 7 días, pagos que no calzan con una cuota, cuotas marcadas
    pagadas sin registro y contratos con datos faltantes.
 2. **UF.** Unidades explícitas («UF por 1 US$»), los dos pares con su fecha y fuente y un ejemplo:
-   500 UF ÷ 0,02379657 UF/US$ = US$ 21.011,43 (= 500 UF × 40.131,84 CLP/UF ÷ 955 CLP/US$).
+   500 UF ÷ 0,023796567 UF/US$ = US$ 21.011,43 (= 500 UF × 40.131,84 CLP/UF ÷ 955 CLP/US$).
    Los pares se leen con `ufPorFecha` de creditos.js y se muestran solo si reproducen exactamente el
-   TC con el que se calculó. El TC se muestra con los decimales necesarios para que la división cuadre al
-   centavo (el módulo lo rotula con 6 decimales, 0,023797, y con eso la división daría 21.011,05).
+   TC con el que se calculó.
+   **Rótulo único en todo Créditos** (`src/rotuloTC.js`): pantalla de Créditos (`valorTC`: detalle,
+   Análisis CFO, Saldo por Mes, avisos del flujo) y Reportes muestran el TC con 8 cifras significativas
+   a partir del valor exacto (1/factor), la unidad «X por 1 US$» y, para la UF, la identidad en el sentido
+   correcto: USD-CLP ÷ UF-CLP. Antes la pantalla mostraba 6 decimales (0,023797, con el que 500 UF daban
+   US$ 21.011,05) y escribía «UF … CLP / US$ … CLP = … UF por US$», que es la división inversa.
+   La pantalla de Créditos formatea en en-US como el resto de sus montos y los Reportes en es-CL: mismo
+   valor y mismos dígitos. `creditos.js` no cambió (sigue guardando `tc` redondeado a 6 decimales).
 3. **Descarga con perfil «ver»:** se mantiene, limitada a sus empresas autorizadas; la pantalla lo dice.
 4. **Rango vs corte:** «El rango filtra movimientos; la fecha de corte determina saldos», en pantalla y en
    el encabezado de Excel y PDF. Cada subtotal dice si es «cartera al corte» (todo el crédito) o

@@ -22,6 +22,7 @@
 // deudora (así la rotula el formulario de Créditos). Se ofrece un solo filtro.
 // ═══════════════════════════════════════════════════════════════════
 import { estadoCredito, pagosVigentes, totalPago, infoTC, esAnulado, uidCredito, hoyISO, isoValida, ufPorFecha } from './creditos.js';
+import { fmtTC, numeroTC, rotuloTC, identidadUF } from './rotuloTC.js';
 
 export const EMPRESAS_LINEA = ['Mediterra', 'Allegria Foods', 'Allegria Service', 'Frisku Foods', 'Osiris', 'Integrity Farms'];
 export const EMPRESAS_JV = ['Allpa Farms', 'Allpa Farms Perú'];
@@ -216,14 +217,6 @@ const rotuloIncompleto = (causas) => {
 
 const fmtN = (x, dec) => Number(x).toLocaleString('es-CL', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 const decMon = (m) => (m === 'UF' ? 4 : m === 'CLP' ? 0 : 2);
-// TC mostrado con los decimales necesarios para que «importe ÷ TC» dé el mismo US$ al centavo.
-function tcMostrado(exacto, montoEj) {
-  for (let d = 2; d <= 10; d++) {
-    const v = Number(exacto.toFixed(d));
-    if (v > 0 && Math.abs(r2(montoEj / v) - r2(montoEj / exacto)) < 0.005 && Math.abs(v - exacto) / exacto < 1e-6) return { v, d };
-  }
-  return { v: exacto, d: 10 };
-}
 
 // Texto de los filtros, IGUAL en pantalla, Excel y PDF (una sola fuente).
 export const COMO_LEER = 'La fecha de corte determina los SALDOS (capital, sin desglose, intereses, vencido, por conciliar, pagado) de toda la cartera filtrada. '
@@ -370,13 +363,16 @@ export function tablasReporte(rep, { alcance = 'consolidado', empresa = '' } = {
   const tcUsados = [];
   const vistos = new Set();
   rep.creditos.forEach(c => { if (!c.tc || c.moneda === 'USD') return; const k = `${c.moneda}|${c.tc.exacto}|${c.tc.fecha}|${c.tc.fuente}`; if (vistos.has(k)) return; vistos.add(k);
-    const conCapital = rep.creditos.find(x => x.moneda === c.moneda && x.tc && x.tc.exacto === c.tc.exacto && x.capitalEstado !== 'no_determinable' && x.capitalPendiente > 0);
+    // Ejemplo con el menor capital confirmado de esa moneda: con 8 cifras significativas la división cuadra al centavo.
+    const conCapital = rep.creditos.filter(x => x.moneda === c.moneda && x.tc && x.tc.exacto === c.tc.exacto && x.capitalEstado !== 'no_determinable' && x.capitalPendiente > 0)
+      .sort((a, b) => a.capitalPendiente - b.capitalPendiente)[0];
     const base = conCapital || c, montoEj = conCapital ? conCapital.capitalPendiente : num(c.montoOriginal) || 1;
-    const { v, d } = tcMostrado(c.tc.exacto, montoEj), usdEj = r2(montoEj / c.tc.exacto);
+    const v = numeroTC(c.tc.exacto), usdEj = r2(montoEj / c.tc.exacto);
     const unidadCorta = `${c.moneda}/US$`;
-    let ejemplo = `${conCapital ? `capital confirmado del crédito ${base.creditoId}: ` : ''}${fmtN(montoEj, decMon(c.moneda))} ${c.moneda} ÷ ${fmtN(v, d)} ${unidadCorta} = US$ ${fmtN(usdEj, 2)}`;
+    let ejemplo = `${conCapital ? `capital confirmado del crédito ${base.creditoId}: ` : ''}${fmtN(montoEj, decMon(c.moneda))} ${c.moneda} ÷ ${fmtTC(c.tc.exacto)} ${unidadCorta} = US$ ${fmtN(usdEj, 2)}`;
+    if (r2(montoEj / v) !== usdEj) ejemplo += ` (con el TC exacto; el TC mostrado está redondeado a ${8} cifras)`;
     if (c.tc.pares) ejemplo += ` (igual a ${fmtN(montoEj, decMon(c.moneda))} UF × ${fmtN(c.tc.pares[1].valor, 2)} CLP/UF ÷ ${fmtN(c.tc.pares[0].valor, 2)} CLP/US$)`;
-    tcUsados.push({ moneda: c.moneda, tc: c.tc.valor, tcExacto: c.tc.exacto, tcTexto: fmtN(v, d), unidad: `${c.moneda} por 1 US$`,
+    tcUsados.push({ moneda: c.moneda, tc: c.tc.valor, tcExacto: c.tc.exacto, tcTexto: fmtTC(c.tc.exacto), unidad: `${c.moneda} por 1 US$`,
       fecha: c.tc.fecha ? fmtF(c.tc.fecha) : 's/f', fuente: c.tc.fuente, par: c.tc.estimado ? 'declarado en el crédito' : c.tc.par, pares: c.tc.pares || null, ejemplo,
       ejemploNum: { monto: montoEj, tc: v, usd: usdEj } }); });
 
@@ -399,9 +395,8 @@ export function tablasReporte(rep, { alcance = 'consolidado', empresa = '' } = {
   const tcTexto = (c) => {
     if (c.moneda === 'USD') return '—';
     if (!c.tc) return 'SIN TC';
-    const x = tcUsados.find(t => t.moneda === c.moneda && t.tcExacto === c.tc.exacto);
-    const base = `${x ? x.tcTexto : c.tc.valor} ${c.moneda} por US$`;
-    if (c.tc.pares) return `${base} = ${fmtN(c.tc.pares[0].valor, 2)} CLP/US$ ÷ ${fmtN(c.tc.pares[1].valor, 2)} CLP/UF`;
+    const base = rotuloTC(c.tc.exacto, c.moneda);              // mismo rótulo que la pantalla de Créditos
+    if (c.tc.pares) return `${base} = ${identidadUF(c.tc.pares[0].valor, c.tc.pares[1].valor)}`;
     return `${base} · ${c.tc.fecha ? fmtF(c.tc.fecha) : 's/f'} · ${c.tc.fuente}`;
   };
   const credFilas = filasConSubtotales(rep.creditos,

@@ -132,7 +132,7 @@ async function verificarDescargas(p, rep, T, nombre) {
   const totTxt = await (async () => { await p.getByTestId('rep-ver-resumen').click(); return p.getByTestId('rep-tabla-resumen').locator('tr', { hasText: 'TOTAL GENERAL en USD' }).innerText(); })();
   check('ajuste 1 · el TOTAL GENERAL en USD advierte todas las causas', ['cuotas sin desglose (2)', 'por conciliar (no confirmadas) (2)', 'sin tipo de cambio al corte (1)', 'TC declarado en el crédito (hipótesis) (1)', 'TC con más de 7 días al corte (1)'].every(x => totTxt.includes(x)), totTxt.replace(/\s+/g, ' ').slice(0, 200));
   const tcTxt = await p.getByTestId('rep-tc').innerText();
-  check('ajuste 2 · UF con unidades, pares y división', tcTxt.includes(textoTC(T.tcUsados.find(x => x.moneda === 'UF'))) && /500,0000 UF ÷ 0,02379657 UF\/US\$ = US\$ 21\.011,43/.test(tcTxt));
+  check('ajuste 2 · UF con unidades, pares y división', tcTxt.includes(textoTC(T.tcUsados.find(x => x.moneda === 'UF'))) && /500,0000 UF ÷ 0,023796567 UF\/US\$ = US\$ 21\.011,43/.test(tcTxt));
   check('ajuste 4 · «el rango filtra movimientos; la fecha de corte determina saldos»', /El rango filtra movimientos; la fecha de corte determina saldos/.test(await p.getByTestId('creditos-reportes').innerText()));
   await verificarDescargas(p, rep, T, 'consolidado');
   {

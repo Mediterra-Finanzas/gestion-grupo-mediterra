@@ -298,7 +298,7 @@ describe('UF con unidades, pares y ejemplo aritmético', () => {
     const { monto, tc, usd } = uf.ejemploNum;
     expect(Math.round(monto / tc * 100) / 100).toBe(usd);
     expect(usd).toBe(21011.43);
-    expect(textoTC(uf)).toMatch(/500,0000 UF ÷ 0,02379657 UF\/US\$ = US\$ 21\.011,43/);
+    expect(textoTC(uf)).toMatch(/500,0000 UF ÷ 0,023796567 UF\/US\$ = US\$ 21\.011,43/);
     expect(textoTC(uf)).toMatch(/USD-CLP 955,00 CLP por 1 US\$ \(10-10-2026, manual\) · UF-CLP 40\.131,84 CLP por 1 UF \(09-10-2026, mindicador\)/);
   });
   test('los demás TC también: importe ÷ TC = US$', () => {
