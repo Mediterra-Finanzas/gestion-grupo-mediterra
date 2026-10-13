@@ -61,12 +61,14 @@ await elegirEmpresa(page, EMP);
 
 console.log('\n=== Parámetros: avisos en pantalla ===');
 await subTab(page, /Parámetros/);
-for (const [temp, testid, re] of [
-  ['Temporada 2026-2027', 'aviso-cerezas-sin-volumen', /Cerezas 2026-2027: faltan kilos y FOB US\$\/kg\. Se proyectan: programas por contraparte, saldos a favor\./],
-  ['Temporada 2027-2028', 'diagnostico-ciruelas', /Ciruelas 2027-2028: faltan materiales US\$\/kg · servicios de packing US\$\/kg · mes de liquidación del cliente · mes de saldo al productor/],
+for (const [temp, fruta, testid, re] of [
+  ['Temporada 2026-2027', /Cerezas$/, 'aviso-cerezas-sin-volumen', /Cerezas 2026-2027: faltan kilos y FOB US\$\/kg\. Se proyectan: programas por contraparte, saldos a favor\./],
+  ['Temporada 2027-2028', /Ciruelas$/, 'diagnostico-ciruelas', /Ciruelas 2027-2028: faltan materiales US\$\/kg · servicios de packing US\$\/kg · mes de liquidación del cliente · mes de saldo al productor/],
 ]) {
   const b = page.getByRole('button', { name: temp });
   if (await b.count()) { await b.first().click(); await page.waitForTimeout(900); }
+  const f = page.getByRole('button', { name: fruta });
+  if (await f.count()) { await f.first().click(); await page.waitForTimeout(900); }
   const t = (await page.locator(`[data-testid="${testid}"]`).allInnerTexts()).join(' | ');
   check(`${temp}: ${testid}`, re.test(t), t.slice(0, 220));
 }
