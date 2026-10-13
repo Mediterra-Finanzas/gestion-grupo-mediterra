@@ -195,7 +195,11 @@ export async function dbSaveGeneric(id, value, opts = {}) {
 
       const f = fusionarPorId(base, aGuardar, actual.valor);
       if (!f.ok || f.conflictos.length > 0) {
-        _registrarLectura(id, actual.valor, actual.updatedAt);   // partir de la versión real
+        // NO se adelanta la versión: el estado en pantalla sigue siendo el anterior al
+        // conflicto, y si la versión pasara a la del servidor el siguiente auto-save
+        // escribiría lo local encima de lo de la otra sesión y devolvería ok (oct-2026,
+        // friskuConflictoPendiente.test.js). Cada guardado vuelve a chocar, vuelve a
+        // intentar la fusión y sigue avisando hasta que se recargue o se resuelva.
         const motivo = f.ok ? "conflicto_item" : "conflicto";
         console.warn(`[Frisku:${id}] ⚠️ CONFLICTO (${motivo})${f.ok ? " en ítems: " + f.conflictos.join(", ") : ""}. No se sobrescribió nada.`);
         return { ok: false, motivo, conflictos: f.ok ? f.conflictos : [], valorServidor: actual.valor };

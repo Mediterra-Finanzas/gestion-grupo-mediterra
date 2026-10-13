@@ -139,7 +139,12 @@ async function dbLoad() {
   if(!res.ok) throw new Error(`dbLoad HTTP ${res.status}`);
   const data = await res.json();
   const row = data?.[0];
-  const value = row?.value || null;
+  // La fila puede venir como TEXTO (así la deja «Restaurar respaldo»). Antes se
+  // devolvía el texto tal cual, d.estados/d.comentarios… quedaban undefined y el
+  // primer auto-save reemplazaba `main` con Tareas vacío (oct-2026, reproducido).
+  // Se interpreta aquí; el contrato sabe que la fila es texto y la reescribe igual.
+  const crudo = row?.value || null;
+  const value = typeof crudo === "string" ? JSON.parse(crudo) : crudo;   // texto ilegible → lanza (regla 9)
   // F0-B: registrar esta lectura en el contrato compartido (versión + base)
   // para habilitar saveConfirmed("main") con concurrencia optimista. Solo se
   // llega aquí sin excepción (carga EXITOSA), así que respeta la Regla 9.
@@ -199,7 +204,10 @@ async function dbLoadPins() {
   if(!res.ok) throw new Error(`dbLoadPins HTTP ${res.status}`);
   const data = await res.json();
   const row = data?.[0];
-  const value = row?.value || null;   // null = fila no existe todavía (migración)
+  const crudo = row?.value || null;   // null = fila no existe todavía (migración)
+  // Fila como texto (tras «Restaurar respaldo»): se interpreta; si no, se tomaba la
+  // copia vieja de PINs de `main` y el siguiente cambio de PIN pisaba los demás.
+  const value = typeof crudo === "string" ? JSON.parse(crudo) : crudo;
   // F0-B: registrar versión/base para habilitar saveConfirmed("pins").
   persist.registrarCarga("pins", value, row?.updated_at || null, typeof row?.value === "string");
   return value;
@@ -283,27 +291,33 @@ async function verificarTemp(codigo, est) {
 // ═══════════════════════════════════════════════════════════════════
 const AUDIT_RETENCION_MESES = 24;
 
+// Lectura del registro de auditoría. LANZA si la lectura falla (regla 9): antes
+// devolvía [] y el guardado siguiente reemplazaba el registro completo solo con
+// los eventos nuevos (oct-2026, reproducido en navegador). Acepta la fila guardada
+// como texto (así la deja «Restaurar respaldo»).
 async function auditLoad() {
-  try {
-    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.audit_log&select=value`, {
-      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
-    });
-    const data = await res.json();
-    const eventos = data?.[0]?.value?.eventos || [];
-    // Filtrar eventos más antiguos que AUDIT_RETENCION_MESES
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - AUDIT_RETENCION_MESES);
-    return eventos.filter(e => new Date(e.timestamp) >= cutoff);
-  } catch { return []; }
+  const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data?id=eq.audit_log&select=value`, {
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }, cache: "no-store"
+  });
+  if (!res.ok) throw new Error(`auditLoad HTTP ${res.status}`);
+  const data = await res.json();
+  if (!Array.isArray(data)) throw new Error("auditLoad: respuesta inesperada");
+  let value = data?.[0]?.value || null;
+  if (typeof value === "string") value = JSON.parse(value);
+  const eventos = Array.isArray(value?.eventos) ? value.eventos : (Array.isArray(value) ? value : []);
+  return filtrarRetencionAudit(eventos);
+}
+// Retención (24 meses, sin cambio). Un evento con fecha ilegible se CONSERVA: antes
+// `Invalid Date >= cutoff` daba false y se borraba en silencio.
+function filtrarRetencionAudit(eventos) {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - AUDIT_RETENCION_MESES);
+  return eventos.filter(e => { const t = new Date(e && e.timestamp); return isNaN(t.getTime()) || t >= cutoff; });
 }
 
 async function auditSave(eventos) {
-  try {
-    // Aplicar retención también al guardar
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - AUDIT_RETENCION_MESES);
-    const limpios = eventos.filter(e => new Date(e.timestamp) >= cutoff);
-    await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
+    const limpios = filtrarRetencionAudit(eventos);
+    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
       method: "POST",
       headers: {
         apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
@@ -311,7 +325,7 @@ async function auditSave(eventos) {
       },
       body: JSON.stringify({ id: "audit_log", value: { eventos: limpios }, updated_at: new Date().toISOString() })
     });
-  } catch(e) { console.error("Error guardando auditoría:", e); }
+    if (!res.ok) throw new Error(`auditSave HTTP ${res.status}`);
 }
 
 // Buffer global: evita race conditions acumulando eventos y grabando cada 5s
@@ -319,13 +333,34 @@ window._auditBuffer = window._auditBuffer || [];
 window._auditAllEvents = window._auditAllEvents || null; // cargados desde Supabase
 window._auditFlushTimer = null;
 
+// Cada envío vuelve a LEER el registro y agrega los eventos nuevos por id. Antes se
+// leía una sola vez por pestaña y se reescribía esa copia: con dos sesiones abiertas,
+// cada envío de una borraba los eventos que la otra había guardado entretanto
+// (reproducido en navegador). Si la lectura o la escritura fallan, los eventos vuelven
+// al búfer y se reintentan: no se pierden ni se escribe un registro incompleto.
+// Queda una ventana de milisegundos entre leer y escribir en la que dos envíos
+// simultáneos pueden pisarse; cerrarla exige una tabla de solo inserción (propuesta).
+let _auditEnvio = null;
 async function auditFlush() {
   if(window._auditBuffer.length === 0) return;
+  if(_auditEnvio) return _auditEnvio;           // un envío a la vez por pestaña
   const nuevos = [...window._auditBuffer];
   window._auditBuffer = [];
-  if(!window._auditAllEvents) window._auditAllEvents = await auditLoad();
-  window._auditAllEvents = [...window._auditAllEvents, ...nuevos];
-  await auditSave(window._auditAllEvents);
+  _auditEnvio = (async () => {
+    try {
+      const servidor = await auditLoad();
+      const ids = new Set(servidor.map(e => e && e.id));
+      const todos = [...servidor, ...nuevos.filter(e => !ids.has(e.id))];
+      await auditSave(todos);
+      window._auditAllEvents = todos;
+    } catch (e) {
+      console.error("Auditoría: no se guardó, se reintenta en el próximo envío:", e);
+      window._auditBuffer = [...nuevos, ...window._auditBuffer];
+      clearTimeout(window._auditFlushTimer);
+      window._auditFlushTimer = setTimeout(auditFlush, 30000);
+    } finally { _auditEnvio = null; }
+  })();
+  return _auditEnvio;
 }
 
 // API principal: auditLog(accion, detalles)
