@@ -132,8 +132,11 @@ describe('vista semanal · montos negativos y total del mes (hallazgos de la rev
   test('editar el TOTAL del mes conserva las semanas fechadas', () => {
     expect(aplicarTotalMes({ _sem3: 106000 }, 120000)).toEqual({ _sem3: 106000, _sinFecha: 14000 });
     expect(aplicarTotalMes({ _sem3: 1000, _sinFecha: 1700 }, 1000)).toEqual({ _sem3: 1000 });
-    // por debajo de lo fechado: el exceso queda explícito como sin fecha negativo
-    expect(totalMesOverride(aplicarTotalMes({ _sem3: 1000 }, 600))).toBe(600);
+    // por debajo de lo fechado: no se aplica (hay que bajar primero las semanas)
+    expect(aplicarTotalMes({ _sem1: 1000, _sem2: 1000 }, 1500)).toBeNull();
+    expect(aplicarTotalMes({ _sem3: 1000 }, 600)).toBeNull();
+    // meses negativos: misma regla con su signo
+    expect(aplicarTotalMes({ _sem0: -400 }, -1000)).toEqual({ _sem0: -400, _sinFecha: -600 });
   });
 });
 

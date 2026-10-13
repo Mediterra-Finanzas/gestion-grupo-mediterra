@@ -944,11 +944,15 @@ export function aplicarEdicionSemana(obj, semIdx, nuevo) {
 }
 // Cambiar el TOTAL del mes (vista mensual) de una línea con reparto semanal:
 // las semanas fechadas se conservan y lo que cambia es la parte sin fecha.
+// Si el total nuevo queda por debajo de lo ya fechado (lo sin fecha tendría el
+// signo contrario), devuelve null: hay que bajar primero las semanas. Así no
+// nace un "sin fecha" negativo que otras vistas lean como compromiso.
 export function aplicarTotalMes(obj, total) {
   const o = { ...(obj || {}) };
   let fechado = 0;
   for (let s = 0; s < 4; s++) if (o[`_sem${s}`] !== undefined) fechado += Number(o[`_sem${s}`]) || 0;
   const libre = _r2s((Number(total) || 0) - fechado);
+  if (libre !== 0 && fechado !== 0 && Math.sign(libre) !== Math.sign(fechado)) return null;
   if (libre !== 0) o._sinFecha = libre; else delete o._sinFecha;
   return o;
 }
@@ -6486,8 +6490,15 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
         // Total del mes (vista mensual). Si el mes ya tenía reparto semanal, las
         // semanas fechadas se conservan: cambia solo lo sin fecha.
         const efectivo = overridesDeLinea(prev, emp, cat, lineLabel, resoluciones)?.[idx];
-        next[clave][idx] = (efectivo !== null && typeof efectivo === "object")
-          ? aplicarTotalMes(efectivo, nuevoVal) : nuevoVal;
+        if (efectivo !== null && typeof efectivo === "object") {
+          const o = aplicarTotalMes(efectivo, nuevoVal);
+          if (!o) {
+            const fechado = [0,1,2,3].reduce((a,si)=>a+(Number(efectivo[`_sem${si}`])||0),0);
+            setTimeout(()=>alert(`${lineLabel} · ${MESES_65[idx]}: el total (${$$(nuevoVal)}) es menor que lo ya repartido en semanas (${$$(fechado)}). Baja primero las semanas en la vista semanal; no se cambió nada.`),0);
+            return prev;
+          }
+          next[clave][idx] = o;
+        } else next[clave][idx] = nuevoVal;
       }
       // La clave antigua (solo etiqueta) de esa misma celda deja de aplicar
       if(next[lineLabel] && next[lineLabel][idx] !== undefined){
