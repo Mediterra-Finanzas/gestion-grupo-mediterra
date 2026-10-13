@@ -12,13 +12,19 @@
      C. Crédito con pago parcial y cuota vencida en semana pasada: el
         pendiente (no lo pagado) entra en la semana en curso.
      D. Distribución estimada a fin de mes: Seguros 106.000 → S43; el mes no
-        cambia, lo sin fecha baja en ese monto, el saldo de S43 lo incluye.
-     E. Distribución parcial: Arriendo Oficina 1.000 → S43; 1.700 siguen sin
-        fecha; el mes no cambia.
+        cambia (no pide confirmar), lo sin fecha baja en ese monto, el saldo
+        de S43 lo incluye.
+     E. Carga parcial (REGLA ACORDADA: con semanas cargadas manda su suma):
+        Arriendo Oficina 1.000 → S43 pide confirmar el cambio del mes;
+        cancelar no guarda nada; aceptar deja el mes en 1.000. La diferencia
+        NO se convierte en otro compromiso.
      F. Guardado y recarga.
      G. Cuadre: saldo S43 + sin fecha = Σ Oct = saldo mensual Oct = Excel.
-     H. Cambiar el total en la vista mensual conserva la semana fechada (marca
-        «est.») y deja la diferencia sin fecha.
+     H. Con semanas cargadas la celda mensual NO se edita (marca «Σ semanas»).
+     I. Negativo legítimo (ajuste −500 en S43 de una línea con semanas): se
+        guarda tal cual, sin confirmación ni bloqueo.
+     J. Reporte Semanal: aviso de detalle incompleto (sin calendarizar y
+        atrasado), sin inventar semana.
    ───────────────────────────────────────────────────────────────────────── */
 import fs from 'fs';
 import path from 'path';
@@ -54,7 +60,9 @@ const { browser, ctx, page } = await abrirApp(store);
 await ctx.clock.install({ time: new Date('2026-10-14T12:00:00-03:00') });
 const errores = [];
 page.on('pageerror', e => errores.push(String(e)));
-page.on('dialog', d => d.accept().catch(() => {}));
+let respuestaDialogo = 'accept';
+const dialogos = [];
+page.on('dialog', d => { dialogos.push(d.message()); (respuestaDialogo === 'accept' ? d.accept() : d.dismiss()).catch(() => {}); });
 const escapadas = [];
 page.on('requestfinished', async r => {
   if (!r.url().includes('bywovqayuzodbzwsriet.supabase.co')) return;
@@ -145,20 +153,27 @@ const cuadre = async (etq) => {
 const c0 = await cuadre('inicial');
 
 console.log('\n=== D · Seguros a fin de mes (S43) ===');
+dialogos.length = 0;
 await escribir('Seguros Exportación', 'S43', 106000);
+check('mismo total: no pide confirmación', dialogos.length === 0, dialogos.join(' | '));
 check('guardado: {_sem3:106000}, sin sin-fecha', JSON.stringify(ov('egr_var::Seguros Exportación')) === JSON.stringify({ _sem3: 106000 }), JSON.stringify(ov('egr_var::Seguros Exportación')));
 check('el mes sigue en 106.000', (await v('Seguros Exportación', 'Σ Oct-26')) === 106000 && (await sinFechaLinea('Seguros Exportación')) === 0);
 const c1 = await cuadre('tras Seguros');
 check('Σ Oct no cambió', cerca(c1.sigma, c0.sigma), `${c0.sigma} → ${c1.sigma}`);
 check('S43 baja 106.000 y lo sin fecha sube 106.000', cerca(c1.s43, c0.s43 - 106000) && cerca(c1.sf, c0.sf + 106000));
 
-console.log('\n=== E · distribución parcial ===');
+console.log('\n=== E · carga parcial: manda la suma de semanas ===');
+respuestaDialogo = 'dismiss'; dialogos.length = 0;
+await escribir('Arriendo Oficina', 'S43', 1000);
+check('pide confirmar con el antes y el después', dialogos.length === 1 && /manda su suma/.test(dialogos[0]) && /NO queda como pendiente/.test(dialogos[0]), dialogos[0]);
+check('cancelar: nada guardado y el mes intacto', ov('egr_fijo::Arriendo Oficina') === undefined && (await v('Arriendo Oficina', 'Σ Oct-26')) === arrOfi, JSON.stringify(ov('egr_fijo::Arriendo Oficina')));
+respuestaDialogo = 'accept'; dialogos.length = 0;
 await escribir('Arriendo Oficina', 'S43', 1000);
 const oOfi = ov('egr_fijo::Arriendo Oficina');
-check('guardado: 1.000 en S43 y el resto sin fecha', oOfi && oOfi._sem3 === 1000 && cerca(oOfi._sinFecha, arrOfi - 1000), JSON.stringify(oOfi));
-check('el mes no cambia', (await v('Arriendo Oficina', 'Σ Oct-26')) === arrOfi && cerca(await sinFechaLinea('Arriendo Oficina'), arrOfi - 1000));
+check('aceptar: guardado solo {_sem3:1000}', JSON.stringify(oOfi) === JSON.stringify({ _sem3: 1000 }), JSON.stringify(oOfi));
+check('el mes = 1.000 y nada sin fecha en la línea', (await v('Arriendo Oficina', 'Σ Oct-26')) === 1000 && (await sinFechaLinea('Arriendo Oficina')) === 0);
 const c2 = await cuadre('tras parcial');
-check('Σ Oct no cambió', cerca(c2.sigma, c0.sigma));
+check(`Σ Oct sube exactamente lo que dejó de ser egreso (${arrOfi - 1000})`, cerca(c2.sigma, c0.sigma + (arrOfi - 1000)), `${c0.sigma} → ${c2.sigma}`);
 
 console.log('\n=== F · recarga ===');
 const antes = JSON.stringify(leerFila(store, 'finanzas').finanzas_real);
@@ -184,21 +199,48 @@ check('saldo mensual Oct = Σ Oct semanal', cerca(mensualOct, c3.sigma), `${mens
   const fila = (et) => refs.find(k => /^A\d+$/.test(k) && String(ws[k].v).trim() === et)?.slice(1);
   const x = (et) => ws[`${col}${fila(et)}`]?.v;
   check('Excel Seguros Oct = 106.000', x('Seguros Exportación') === 106000, `${x('Seguros Exportación')}`);
-  check('Excel Arriendo Oficina Oct = mensual', cerca(x('Arriendo Oficina'), arrOfi));
+  check('Excel Arriendo Oficina Oct = 1.000 (suma de semanas, igual que la pantalla)', cerca(x('Arriendo Oficina'), 1000), `${x('Arriendo Oficina')}`);
   check('Excel saldo final Oct = pantalla', cerca(x('(=) Saldo final caja'), mensualOct), `${x('(=) Saldo final caja')} vs ${mensualOct}`);
 }
 
-console.log('\n=== H · total del mes (vista mensual) conserva la semana fechada ===');
-// las secciones se pliegan/despliegan con un clic: asegurar que la fila esté visible
+console.log('\n=== H · con semanas cargadas la celda mensual no se edita ===');
 if ((await celda('Seguros Exportación', 'Oct-26')) == null) { await page.getByText(/^.*egresos operacionales/i).first().click(); await page.waitForTimeout(400); }
-await escribir('Seguros Exportación', 'Oct-26', 120000);
-check('guardado: S43 se conserva y 14.000 quedan sin fecha', JSON.stringify(ov('egr_var::Seguros Exportación')) === JSON.stringify({ _sem3: 106000, _sinFecha: 14000 }), JSON.stringify(ov('egr_var::Seguros Exportación')));
+check('la celda mensual marca «Σ semanas»', /Σ semanas/.test(await celda('Seguros Exportación', 'Oct-26') || ''), await celda('Seguros Exportación', 'Oct-26'));
+{
+  const antesH = JSON.stringify(ov('egr_var::Seguros Exportación'));
+  const h = (await page.evaluateHandle(([etiqueta, col]) => {
+    for (const t of document.querySelectorAll('table')) {
+      const th = [...t.querySelectorAll('thead th')].find(x => x.innerText.trim() === col);
+      if (!th) continue;
+      const fila = [...t.querySelectorAll('tbody tr')].find(tr => tr.cells[0] && tr.cells[0].innerText.split('\n').map(x => x.trim()).includes(etiqueta));
+      if (!fila) continue;
+      const r = th.getBoundingClientRect(); const cx = r.left + r.width / 2;
+      return [...fila.cells].find(c => { const q = c.getBoundingClientRect(); return q.left <= cx && cx <= q.right; }) || null;
+    }
+    return null;
+  }, ['Seguros Exportación', 'Oct-26'])).asElement();
+  const sp = await h.$('span'); if (sp) await sp.click();
+  await page.waitForTimeout(400);
+  check('no se abre el campo de edición', !(await h.$('input')));
+  check('lo guardado no cambió', JSON.stringify(ov('egr_var::Seguros Exportación')) === antesH);
+}
+
+console.log('\n=== I · negativo legítimo en una semana ===');
 await abrirFlujo('semanal');
-if ((await celda('Seguros Exportación', 'S43')) == null) { await page.getByText(/^.*egresos operacionales/i).first().click(); await page.waitForTimeout(400); }
-check('S43 sigue con 106.000 y marca «est.» (fecha estimada)', (await v('Seguros Exportación', 'S43')) === 106000 && /est\./.test(await celda('Seguros Exportación', 'S43') || ''));
-check('Σ = 120.000 con «sin fecha 14.000»', (await v('Seguros Exportación', 'Σ Oct-26')) === 120000 && (await sinFechaLinea('Seguros Exportación')) === 14000);
-const c4 = await cuadre('tras total mensual');
-check('Σ Oct baja exactamente 14.000', cerca(c4.sigma, c3.sigma - 14000), `${c3.sigma} → ${c4.sigma}`);
+if ((await celda('Arriendo Camionetas', 'S43')) == null) { await page.getByText(/costos fijos/i).first().click(); await page.waitForTimeout(400); }
+dialogos.length = 0;
+await escribir('Arriendo Camionetas', 'S43', -500);
+check('guardado {_sem0:2600,_sem3:-500}, sin confirmación', JSON.stringify(ov('egr_fijo::Arriendo Camionetas')) === JSON.stringify({ _sem0: 2600, _sem3: -500 }) && dialogos.length === 0, JSON.stringify(ov('egr_fijo::Arriendo Camionetas')));
+check('Σ Oct de la línea = 2.100', (await v('Arriendo Camionetas', 'Σ Oct-26')) === 2100, await celda('Arriendo Camionetas', 'Σ Oct-26'));
+await cuadre('tras negativo');
+
+console.log('\n=== J · Reporte Semanal ===');
+await subTab(page, /📅 Reporte Semanal/);
+await page.waitForTimeout(2500);
+{
+  const txt = (await page.locator('[data-testid="reporte-incompleto"]').first().innerText().catch(() => '')) || '';
+  check('aviso de detalle incompleto: sin calendarizar y atrasado', /Detalle semanal incompleto/.test(txt) && /sin calendarizar/.test(txt) && /atrasado/.test(txt), txt.slice(0, 300));
+}
 
 check('sin errores de JavaScript', errores.length === 0, errores.slice(0, 2).join(' | '));
 check('0 peticiones escapadas a producción', escapadas.length === 0);

@@ -1367,7 +1367,12 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
   seasonKeys.forEach(sk => {
     const p = paramsAll[sk]?.ciruelas; if (!p) return;
     const kg = Number(p.kg)||0, fob = Number(p.fob_usd_kg)||0;
-    if (kg===0 || fob===0) return;
+    // Igual que calcAllegria: sin kilos o FOB, los programas por contraparte y
+    // los saldos a favor se proyectan igual (base 0); los calendarios de
+    // materiales y servicios no (no hay volumen).
+    const sinVolumen = kg===0 || fob===0;
+    const hayProgOSaldo = (Array.isArray(p.programas) && p.programas.length) || (Array.isArray(p.saldos_favor) && p.saldos_favor.length);
+    if (sinVolumen && !hayProgOSaldo) return;
     const desc = Number(p.desc_exp_pct)||0, matU = Number(p.mat_usd_kg)||0, srvU = Number(p.srv_usd_kg)||0;
     const rH=r; const kgC=ref(rH,2), fobC=ref(rH,3), descC=ref(rH,4), matC=ref(rH,5), srvC=ref(rH,6);
     put(rH,0,{ t:'s', v:sk, s:PS.txt }); put(rH,1,{ t:'s', v:'Ciruelas', s:PS.txt });
@@ -1394,6 +1399,7 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
       saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'ciruelas',
       modeloVersion:p.modelo_version || 1, decisionesSinFecha:p.decisiones_sin_fecha || {},
     });
+    if (sinVolumen) return;
     (p.dist_mat||[]).forEach(d => {
       const pct = Number(d.pct)||0; const rD=r; const pC=ref(rD,3);
       put(rD,1,{ t:'s', v:'   ↳ Materiales', s:PS.txtSub }); put(rD,3,{ t:'n', v:pct, s:PS.inPct });

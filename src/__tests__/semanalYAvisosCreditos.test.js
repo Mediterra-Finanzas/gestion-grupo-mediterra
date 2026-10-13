@@ -15,7 +15,7 @@ import os from 'os';
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
 import * as XLSX from 'xlsx-js-style';
-import { CeldaEditable, semillaSemanal, aplicarEdicionSemana, aplicarTotalMes, totalMesOverride, saldoSemanal, reporte_armarDatosEmpresa, buildEmpresas, buildEmpresasConOverrides, aplicarCreditosAEmpresas,
+import { CeldaEditable, semillaSemanal, aplicarEdicionSemana, cambioAlCargarSemana, totalMesOverride, saldoSemanal, reporte_armarDatosEmpresa, reporte_calcKPIsGrupo, reporte_textoIncompleto, buildEmpresas, buildEmpresasConOverrides, aplicarCreditosAEmpresas,
   avisosDeEmpresa, avisosCreditosEmpresa, claveLinea } from '../FinanzasModule.jsx';
 import { exportarFlujoEmpresa } from '../flujoExportExcel.js';
 
@@ -53,122 +53,145 @@ describe('D1 · CeldaEditable no guarda si no se escribió nada', () => {
   });
 });
 
-// Vista semanal (oct-2026): un mensual sin reparto queda SIN FECHA; distribuir
-// lo MUEVE a una semana (no duplica el mes) y bajar una semana lo devuelve.
-describe('vista semanal · semilla y distribución', () => {
-  test('sin valor manual: el calculado queda sin fecha', () => {
-    expect(semillaSemanal(undefined, 2600, undefined)).toEqual({ _sinFecha: 2600 });
-  });
-  test('valor manual mensual: queda sin fecha (antes se fingía en la última semana)', () => {
-    expect(semillaSemanal(5200, 2600, undefined)).toEqual({ _sinFecha: 5200 });
-  });
-  test('valor manual mensual 0 (mes cerrado): nada que distribuir', () => {
+// Vista semanal (oct-2026). Un mensual sin reparto queda SIN FECHA (no se le
+// inventa una semana). REGLA ACORDADA: con semanas cargadas manda su suma; sin
+// semanas, el mensual. Cargar la 1ª semana NO convierte el mensual ni su
+// diferencia en otro compromiso: se pide confirmar el cambio del total.
+describe('vista semanal · regla acordada (semanas mandan)', () => {
+  test('la semilla son solo las semanas que el mes ya tiene', () => {
+    expect(semillaSemanal(undefined, 2600, undefined)).toEqual({});
+    expect(semillaSemanal(5200, 2600, undefined)).toEqual({});
     expect(semillaSemanal(0, 2600, undefined)).toEqual({});
-  });
-  test('línea con reparto semanal propio (fechas de Créditos): se conservan', () => {
+    expect(semillaSemanal(null, 50, undefined)).toEqual({});
+    expect(semillaSemanal({ _sem1: 10 }, 50, undefined)).toEqual({ _sem1: 10 });
     expect(semillaSemanal(undefined, 300, [0, 100, 0, 200])).toEqual({ _sem1: 100, _sem3: 200 });
   });
-  test('null o texto se tratan como sin valor manual (igual que la pantalla)', () => {
-    expect(semillaSemanal(null, 50, undefined)).toEqual({ _sinFecha: 50 });
-    expect(semillaSemanal('x', 50, undefined)).toEqual({ _sinFecha: 50 });
+  test('cargar el mes completo en una semana: el total no cambia y no hay confirmación', () => {
+    expect(cambioAlCargarSemana(106000, 0, undefined, 3, 106000)).toBeNull();
+    expect(cambioAlCargarSemana(undefined, 2600, undefined, 3, 2600)).toBeNull();
+    const o = aplicarEdicionSemana(semillaSemanal(106000, 0), 3, 106000);
+    expect(o).toEqual({ _sem3: 106000 });
+    expect(totalMesOverride(o)).toBe(106000);
   });
-  test('distribuir todo a fin de mes: el mes no cambia y no queda nada sin fecha', () => {
-    const o = aplicarEdicionSemana(semillaSemanal(undefined, 2600), 3, 2600);
-    expect(o).toEqual({ _sem3: 2600 });
-    expect(totalMesOverride(o)).toBe(2600);
-  });
-  test('distribuir una parte: el resto sigue sin fecha (no se duplica ni desaparece)', () => {
+  test('cargar una parte: el mes pasa a la suma de semanas y se pide confirmar (no queda un pendiente extra)', () => {
+    expect(cambioAlCargarSemana(undefined, 2600, undefined, 2, 1000)).toEqual({ antes: 2600, despues: 1000 });
     const o = aplicarEdicionSemana(semillaSemanal(undefined, 2600), 2, 1000);
-    expect(o).toEqual({ _sem2: 1000, _sinFecha: 1600 });
-    expect(totalMesOverride(o)).toBe(2600);
+    expect(o).toEqual({ _sem2: 1000 });
+    expect(totalMesOverride(o)).toBe(1000);
   });
-  test('bajar una semana devuelve el importe a sin fecha', () => {
-    const o = aplicarEdicionSemana({ _sem3: 2600 }, 3, 600);
-    expect(o).toEqual({ _sem3: 600, _sinFecha: 2000 });
-    expect(totalMesOverride(o)).toBe(2600);
+  test('con semanas ya cargadas, editar otra semana no pide confirmación y suma', () => {
+    expect(cambioAlCargarSemana({ _sem2: 1000 }, 2600, undefined, 3, 500)).toBeNull();
+    expect(totalMesOverride(aplicarEdicionSemana({ _sem2: 1000 }, 3, 500))).toBe(1500);
   });
-  test('distribuir MÁS que el mes sube el total solo por el exceso', () => {
-    const o = aplicarEdicionSemana({ _sinFecha: 1000 }, 1, 1500);
-    expect(o).toEqual({ _sem1: 1500 });
-    expect(totalMesOverride(o)).toBe(1500);
+  test('sin valor mensual previo no hay nada que confirmar', () => {
+    expect(cambioAlCargarSemana(undefined, 0, undefined, 1, 700)).toBeNull();
+    expect(cambioAlCargarSemana(0, 2600, undefined, 1, 700)).toBeNull();
   });
-  test('objeto antiguo sin _sinFecha: las semanas mandan, como antes', () => {
-    expect(totalMesOverride({ _sem0: 100, _sem2: 50 })).toBe(150);
+  test('Créditos (semanas propias): no aplica', () => {
+    expect(cambioAlCargarSemana(undefined, 300, [0, 100, 0, 200], 1, 50)).toBeNull();
   });
-  test('Excel/consolidado (buildEmpresasConOverrides) = pantalla: semanas + sin fecha', () => {
+  test('negativos legítimos (devolución, ajuste): se cargan igual que los positivos', () => {
+    expect(cambioAlCargarSemana(-1000, 0, undefined, 0, -1000)).toBeNull();
+    expect(cambioAlCargarSemana(-1000, 0, undefined, 0, -400)).toEqual({ antes: -1000, despues: -400 });
+    const o = aplicarEdicionSemana(aplicarEdicionSemana({}, 0, -400), 2, 150);
+    expect(o).toEqual({ _sem0: -400, _sem2: 150 });
+    expect(totalMesOverride(o)).toBe(-250);
+  });
+  test('Excel/consolidado (buildEmpresasConOverrides) = pantalla: suma de semanas', () => {
     const empresas = buildEmpresas({}, { cobros: [] });
     const emp = empresas['Allegria Foods'];
     const sec = emp.sections.find(s => s.lines.some(l => l.label === 'Arriendo Oficina'));
     const idx = 6; // Oct-26
-    const base = sec.lines.find(l => l.label === 'Arriendo Oficina').proy[idx];
-    expect(base).toBeGreaterThan(0);
-    const ov = aplicarEdicionSemana(semillaSemanal(undefined, base), 2, 1000);
+    const ov = aplicarEdicionSemana(aplicarEdicionSemana({}, 2, 1000), 3, 250);
     const real = { 'Allegria Foods': { _proyOverrides: { [claveLinea(sec.cat, 'Arriendo Oficina')]: { [idx]: ov } } } };
     const out = buildEmpresasConOverrides(empresas, real, {}, {});
     const l = out['Allegria Foods'].sections.find(s => s.cat === sec.cat).lines.find(x => x.label === 'Arriendo Oficina');
-    expect(l.proy[idx]).toBe(base);
+    expect(l.proy[idx]).toBe(1250);
   });
-});
-
-describe('vista semanal · montos negativos y total del mes (hallazgos de la revisión)', () => {
-  test('mes −1000: distribuir −400 y luego volver a 0 no pierde el mes', () => {
-    const a = aplicarEdicionSemana(semillaSemanal(-1000, 0), 0, -400);
-    expect(a).toEqual({ _sem0: -400, _sinFecha: -600 });
-    const b = aplicarEdicionSemana(a, 0, 0);
-    expect(totalMesOverride(b)).toBe(-1000);
-  });
-  test('mes −1000: escribir +200 (signo opuesto) cambia el mes solo en esos 200', () => {
-    const o = aplicarEdicionSemana({ _sinFecha: -1000 }, 0, 200);
-    expect(totalMesOverride(o)).toBe(-800);
-    expect(o._sinFecha).toBe(-1000);
-  });
-  test('cambiar de signo una semana: lo que había vuelve a sin fecha', () => {
-    const o = aplicarEdicionSemana({ _sem1: 500 }, 1, -300);
-    expect(o).toEqual({ _sem1: -300, _sinFecha: 500 });
-  });
-  test('subir una semana dentro del mes la toma de sin fecha', () => {
-    expect(aplicarEdicionSemana({ _sem1: 1000, _sinFecha: 1000 }, 1, 1500)).toEqual({ _sem1: 1500, _sinFecha: 500 });
-  });
-  test('editar el TOTAL del mes conserva las semanas fechadas', () => {
-    expect(aplicarTotalMes({ _sem3: 106000 }, 120000)).toEqual({ _sem3: 106000, _sinFecha: 14000 });
-    expect(aplicarTotalMes({ _sem3: 1000, _sinFecha: 1700 }, 1000)).toEqual({ _sem3: 1000 });
-    // por debajo de lo fechado: no se aplica (hay que bajar primero las semanas)
-    expect(aplicarTotalMes({ _sem1: 1000, _sem2: 1000 }, 1500)).toBeNull();
-    expect(aplicarTotalMes({ _sem3: 1000 }, 600)).toBeNull();
-    // meses negativos: misma regla con su signo
-    expect(aplicarTotalMes({ _sem0: -400 }, -1000)).toEqual({ _sem0: -400, _sinFecha: -600 });
-  });
-  // Control del SITIO DE LLAMADA (regla 10): la prueba de la función no ve la
-  // pantalla. Si handleEditProy no atiende el null, guarda null como override y
-  // el mes queda en 0 sin aviso. Se lee el código real de la pantalla.
-  // Punto ciego: una llamada por alias o desde otro handler no se ve aquí.
-  test('la edición mensual atiende el null de aplicarTotalMes sin guardar nada', () => {
+  // Control del SITIO DE LLAMADA (regla 10): se lee el código real de la pantalla.
+  // Puntos ciegos: una llamada por alias o desde otro handler no se ve aquí.
+  test('handleEditProy: con semanas no escribe el mensual; la 1ª semana pide confirmar ANTES de escribir', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'FinanzasModule.jsx'), 'utf8');
-    const llamadas = src.split('\n').filter(x => /aplicarTotalMes\(/.test(x) && !/function aplicarTotalMes/.test(x));
-    expect(llamadas.length).toBe(1);
-    const i = src.indexOf('const o = aplicarTotalMes(efectivo, nuevoVal);');
-    expect(i).toBeGreaterThan(0);
-    const tramo = src.slice(i, src.indexOf('next[clave][idx] = o;', i));
-    expect(tramo).toMatch(/if \(!o\) \{[\s\S]*alert\([\s\S]*return prev;\s*\}/);
+    const i = src.indexOf('const handleEditProy = useCallback(');
+    const fin = src.indexOf('setProyOverrides(prev=>{', i);
+    expect(i).toBeGreaterThan(0); expect(fin).toBeGreaterThan(i);
+    const antes = src.slice(i, fin);
+    expect(antes).toMatch(/if \(semIdx == null\) \{\s*if \(efectivoAhora !== null && typeof efectivoAhora === "object"\) \{[\s\S]*?return;\s*\}/);
+    expect(antes).toMatch(/cambioAlCargarSemana\([\s\S]*?\);\s*if \(c && !window\.confirm\([\s\S]*?\)\) return;/);
+    const cuerpo = src.slice(fin, src.indexOf('},[empNombre, onSaveProy, emp, resoluciones, proyOverrides]);', fin));
+    expect(cuerpo).toMatch(/if \(efectivo !== null && typeof efectivo === "object"\) return prev;/);
+    expect(cuerpo).not.toMatch(/_sinFecha/);
+  });
+  test('la celda mensual no se edita con semanas cargadas (vista mensual y mes plegado)', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'FinanzasModule.jsx'), 'utf8');
+    expect(src).toMatch(/const isEditable=canEdit && !formulaBloquea && !isTot && col\.type!=="month_collapsed" && !mesConSemanas;/);
+    expect(src).toMatch(/canEdit=\{canEdit && !formulaBloquea && !mesConSemanas\}\s*real=\{real\}\s*onSave=\{v=>handleEditProy\(sec\.cat,line\.label,col\.idx,v\)\}/);
   });
 });
 
-// El Reporte Semanal conserva su regla anterior (limitación declarada en
-// CLAUDE.md); lo único nuevo es que la parte sin distribuir de un reparto
-// parcial no desaparece: va donde el reporte ya pone lo mensual (1ª semana).
-describe('reporte semanal · lo sin distribuir no desaparece (reloj fijo 14-10-2026)', () => {
-  test('reparto parcial en noviembre: 1.000 en S4 y 1.700 en S1', () => {
-    jest.useFakeTimers('modern'); jest.setSystemTime(new Date(2026, 9, 14, 12, 0, 0));
-    try {
-      const empresas = buildEmpresas({}, { cobros: [] });
-      const real = { 'Allegria Foods': { _proyOverrides: {
-        'egr_fijo::Arriendo Oficina': { 7: { _sem3: 1000, _sinFecha: 1700 } },
-      } } };
-      const d = reporte_armarDatosEmpresa('Allegria Foods', real, empresas, null, 0, '', 950, {}, {});
-      const c = d.compromisos.map(x => `${x.mes}|${x.label}|${Math.round(x.monto)}`);
-      expect(c).toContain('Nov 26 S4|Arriendo Oficina|1000');
-      expect(c).toContain('Nov 26 S1|Arriendo Oficina|1700');
-    } finally { jest.useRealTimers(); }
+// Reporte Semanal: mismas reglas de fecha que la vista semanal. Lo sin fecha
+// se muestra como pendiente sin calendarizar (no se le inventa semana) y no
+// desaparece al avanzar el corte; los totales van sobre el conjunto completo.
+describe('reporte semanal · sin fecha, atrasado y totales completos', () => {
+  const conReloj = (fecha, fn) => {
+    jest.useFakeTimers('modern'); jest.setSystemTime(fecha);
+    try { return fn(); } finally { jest.useRealTimers(); }
+  };
+  const empresas = buildEmpresas({}, { cobros: [] });
+  const sec = empresas['Allegria Foods'].sections.find(s => s.lines.some(l => l.label === 'Arriendo Oficina'));
+  const clave = claveLinea(sec.cat, 'Arriendo Oficina');
+  const baseOct = sec.lines.find(l => l.label === 'Arriendo Oficina').proy[6];
+  const items = (d) => d.compromisos.filter(x => x.label === 'Arriendo Oficina').map(x => `${x.mes}|${Math.round(x.monto)}`);
+
+  test('lo calculado de octubre es «sin fecha» y sigue ahí en S40, S42 y S43', () => {
+    expect(baseOct).toBeGreaterThan(0);
+    [new Date(2026, 9, 1, 12), new Date(2026, 9, 14, 12), new Date(2026, 9, 21, 12)].forEach(f => {
+      const d = conReloj(f, () => reporte_armarDatosEmpresa('Allegria Foods', {}, empresas, null, 0, '', 950, {}, {}));
+      expect(items(d)).toContain(`Oct 26 sin fecha|${Math.round(baseOct)}`);
+      expect(d.compromisos.some(x => /^Oct 26 S\d/.test(x.mes) && x.label === 'Arriendo Oficina')).toBe(false);
+    });
+  });
+  test('semana cargada: va en su semana; si ya pasó, como atrasado (no como pagado)', () => {
+    const real = { 'Allegria Foods': { _proyOverrides: { [clave]: { 6: { _sem0: 500, _sem3: 700 }, 7: { _sem3: 1000 } } } } };
+    const d = conReloj(new Date(2026, 9, 14, 12), () => reporte_armarDatosEmpresa('Allegria Foods', real, empresas, null, 0, '', 950, {}, {}));
+    expect(items(d)).toEqual(expect.arrayContaining(['Oct 26 S1 (atrasado)|500', 'Oct 26 S4|700', 'Nov 26 S4|1000']));
+    expect(items(d).some(x => x.startsWith('Oct 26 sin fecha'))).toBe(false);
+    expect(items(d).some(x => x.startsWith('Nov 26 sin fecha'))).toBe(false);
+  });
+  test('mes que cae solo en parte en la ventana: su sin fecha queda FUERA del total y se informa', () => {
+    const d = conReloj(new Date(2026, 9, 14, 12), () => reporte_armarDatosEmpresa('Allegria Foods', {}, empresas, null, 0, '', 950, {}, {}));
+    expect(d.compromisos.some(x => x.mes.startsWith('Dic 26'))).toBe(false);
+    expect(d.fueraDelTotal.compromisos.some(x => x.mes === 'Dic 26 sin fecha' && x.label === 'Arriendo Oficina')).toBe(true);
+    const k = reporte_calcKPIsGrupo([d]);
+    expect(k.incompleto.mesesFuera).toEqual(['Dec-26']);
+    expect(reporte_textoIncompleto(k)).toMatch(/sin calendarizar[\s\S]*Fuera de los totales: montos sin fecha de Dec-26/);
+  });
+  test('más de 50 ítems: el KPI suma TODOS (el límite es solo del detalle mostrado)', () => {
+    const adds = { 'Allegria Foods': { [sec.cat]: Array.from({ length: 80 }, (_, n) => ({ label: `Gasto ${n}`, vals: { 6: 10 } })) } };
+    const d = conReloj(new Date(2026, 9, 14, 12), () => reporte_armarDatosEmpresa('Allegria Foods', {}, empresas, null, 0, '', 950, {}, adds));
+    expect(d.compromisos.length).toBeGreaterThan(80);
+    const total = d.compromisos.reduce((s, x) => s + x.monto, 0);
+    const k = reporte_calcKPIsGrupo([d]);
+    expect(k.compromisos4S).toBeCloseTo(total, 6);
+    expect(d.compromisos.filter(x => /^Gasto /.test(x.label)).length).toBe(80);
+  });
+  test('concepto agregado con semanas: mandan las semanas (el mensual no se suma encima)', () => {
+    const adds = { 'Allegria Foods': { [sec.cat]: [{ label: 'Gasto X', vals: { 6: 999, '6_3': 300 } }] } };
+    const d = conReloj(new Date(2026, 9, 14, 12), () => reporte_armarDatosEmpresa('Allegria Foods', {}, empresas, null, 0, '', 950, {}, adds));
+    expect(d.compromisos.filter(x => x.label === 'Gasto X').map(x => `${x.mes}|${x.monto}`)).toEqual(['Oct 26 S4|300']);
+  });
+  test('negativo legítimo: un egreso negativo (devolución) es entrada, no compromiso', () => {
+    const real = { 'Allegria Foods': { _proyOverrides: { [clave]: { 6: { _sem3: -400 } } } } };
+    const d = conReloj(new Date(2026, 9, 14, 12), () => reporte_armarDatosEmpresa('Allegria Foods', real, empresas, null, 0, '', 950, {}, {}));
+    expect(d.ingresos.some(x => x.label === 'Arriendo Oficina' && x.mes === 'Oct 26 S4' && x.monto === 400)).toBe(true);
+    expect(d.compromisos.some(x => x.label === 'Arriendo Oficina' && x.mes === 'Oct 26 S4')).toBe(false);
+  });
+  test('orden: diciembre antes que enero', () => {
+    const d = conReloj(new Date(2026, 11, 16, 12), () => reporte_armarDatosEmpresa('Allegria Foods', {}, empresas, null, 0, '', 950, {}, {}));
+    const k = reporte_calcKPIsGrupo([d]);
+    const meses = k.compromisosConsolidados.map(x => x.mes.slice(0, 6));
+    const iDic = meses.lastIndexOf('Dic 26'), iEne = meses.indexOf('Ene 27');
+    expect(iDic).toBeGreaterThanOrEqual(0); expect(iEne).toBeGreaterThan(iDic);
   });
 });
 

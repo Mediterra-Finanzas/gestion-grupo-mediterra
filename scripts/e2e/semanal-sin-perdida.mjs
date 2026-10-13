@@ -7,8 +7,10 @@
 
    Con datos sintéticos (store aislado), comprueba en la app real:
      1. clic en una semana vacía y salir → 0 escrituras y el mes intacto;
-     2. escribir 1.000 en esa semana → el mes = calculado + 1.000 (antes 1.000),
-        lo guardado son las dos semanas;
+     2. escribir 1.000 en esa semana → la app PIDE CONFIRMAR que el mes pasa
+        del calculado a 1.000 (regla acordada: con semanas cargadas manda su
+        suma). Cancelar no guarda nada; aceptar guarda {_sem2:1000} y el mes
+        queda en 1.000. Nada se convierte en un compromiso adicional;
      3. recarga → igual;
      4. Excel recalculado → la misma cifra que la pantalla.
 
@@ -36,7 +38,9 @@ page.on('requestfinished', async r => {
   const via = resp ? await resp.headerValue('access-control-allow-origin').catch(() => null) : null;
   if (via !== '*') escapadas.push(r.url().slice(0, 70));
 });
-page.on('dialog', d => d.accept().catch(() => {}));
+let respuestaDialogo = 'accept';
+const dialogos = [];
+page.on('dialog', d => { dialogos.push(d.message()); (respuestaDialogo === 'accept' ? d.accept() : d.dismiss()).catch(() => {}); });
 
 const abrirFlujo = async () => {
   await entrarFinanzas(page).catch(() => {});   // tras recargar, la app vuelve al módulo abierto
@@ -96,18 +100,28 @@ console.log('\n=== 1 · clic en la semana vacía y salir sin escribir ===');
 }
 
 console.log('\n=== 2 · escribir 1.000 en esa semana ===');
-{
+const escribirSemana = async () => {
   const h = (await celda(LINEA, SEM)).asElement();
   await (await h.$('span')).click();
   await page.waitForTimeout(300);
   await (await h.$('input')).fill('1000');
   await (await h.$('input')).press('Enter');
   await page.waitForTimeout(3500);
+};
+{
+  const antes = escriturasFinanzas();
+  respuestaDialogo = 'dismiss'; dialogos.length = 0;
+  await escribirSemana();
+  check('pide confirmar mostrando el antes y el después', dialogos.length === 1 && /manda su suma/.test(dialogos[0]) && /1,000|1\.000/.test(dialogos[0]), dialogos[0]);
+  check('cancelar: 0 escrituras y nada guardado', escriturasFinanzas() === antes && ovGuardado() === null, JSON.stringify(ovGuardado()));
+  check(`cancelar: el mes sigue en ${base}`, num(await textoCelda(LINEA, `Σ ${MES}`)) === base, await textoCelda(LINEA, `Σ ${MES}`));
+  respuestaDialogo = 'accept'; dialogos.length = 0;
+  await escribirSemana();
   const ov = ovGuardado();
-  check('lo guardado: 1.000 en S42 y el resto del mes sigue sin fecha',
-        ov && ov.val && ov.val._sem2 === 1000 && ov.val._sinFecha === base - 1000 && Object.keys(ov.val).length === 2, JSON.stringify(ov));
+  check('aceptar: lo guardado es solo la semana cargada (sin compromiso extra)',
+        ov && ov.val && ov.val._sem2 === 1000 && Object.keys(ov.val).length === 1, JSON.stringify(ov));
   check('con la clave de su categoría', ov && ov.clave.includes('::'), ov && ov.clave);
-  check(`el mes sigue en ${base}: distribuir mueve, no suma`, num(await textoCelda(LINEA, `Σ ${MES}`)) === base, await textoCelda(LINEA, `Σ ${MES}`));
+  check('el mes = suma de semanas = 1.000 (regla acordada)', num(await textoCelda(LINEA, `Σ ${MES}`)) === 1000, await textoCelda(LINEA, `Σ ${MES}`));
   await page.screenshot({ path: `${OUT}/semanal/02-editada.png`, fullPage: false });
 }
 
@@ -117,7 +131,7 @@ await page.reload({ waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(3500);
 await abrirFlujo();
 check('el dato guardado no cambió', JSON.stringify(ovGuardado()) === guardado);
-check(`tras recargar el mes = ${base}`, num(await textoCelda(LINEA, `Σ ${MES}`)) === base, await textoCelda(LINEA, `Σ ${MES}`));
+check('tras recargar el mes = 1.000', num(await textoCelda(LINEA, `Σ ${MES}`)) === 1000, await textoCelda(LINEA, `Σ ${MES}`));
 
 console.log('\n=== 4 · Excel recalculado ===');
 {
@@ -135,7 +149,7 @@ console.log('\n=== 4 · Excel recalculado ===');
   const colMes = refs.find(k => ws[k].v === MES && /^[A-Z]+\d+$/.test(k))?.replace(/\d+$/, '');
   const filaLinea = refs.find(k => /^A\d+$/.test(k) && String(ws[k].v).trim() === LINEA)?.slice(1);
   const v = colMes && filaLinea ? ws[`${colMes}${filaLinea}`]?.v : undefined;
-  check(`Excel ${LINEA} ${MES} = ${base}`, Math.abs((v || 0) - base) < 0.01, `${v}`);
+  check(`Excel ${LINEA} ${MES} = 1.000 (igual que la pantalla)`, Math.abs((v || 0) - 1000) < 0.01, `${v}`);
 }
 
 check('0 peticiones escapadas a producción', escapadas.length === 0, escapadas.slice(0, 3).join(' · '));

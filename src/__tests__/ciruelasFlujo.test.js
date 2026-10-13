@@ -107,6 +107,18 @@ describe('ciruelas: datos faltantes', () => {
     expect(av.some(a => /sobrestimada/.test(a) && /440,000|440\.000/.test(a))).toBe(true);
   });
 
+  test('costo de fruta en 0 porque el productor YA está pagado: no es «ingreso sin egreso»', () => {
+    const base = ciruelasCompleta.kg * Math.max(0, 2.2 * 0.94 - 0.3 - 0.25);   // 303.600
+    const cir = { ...ciruelasCompleta,
+      anticipos_productor: [{ id: 'ep1', mes: M(3), usd_kg: 0.4, v: MODELO_VERSION, cerrado: true,
+        realizaciones: [{ id: 'rp1', fecha: '2026-09-01', usd: base }] }] };
+    const r = calcAllegria(params(cir));
+    expect(r.cost.ciruelas.reduce((a, v) => a + v, 0)).toBe(0);
+    const dg = diagnosticoCiruelas(cir, SK);
+    expect(dg.egresosEnCero).not.toContain('costo de fruta');
+    expect(dg.ingresoSinEgreso).toBe(false);
+  });
+
   test('calendario de materiales que no suma 100%', () => {
     const cir = { ...ciruelasCompleta, dist_mat: [{ mes: M(1), pct: 60 }] };
     expect(diagnosticoCiruelas(cir, SK).faltantes.some(f => f.includes('suma 60%'))).toBe(true);
@@ -154,5 +166,46 @@ correr('ciruelas: Excel recalculado = app', () => {
     });
     const errores = Object.keys(ws).filter(k => /^[A-Z]+\d+$/.test(k) && ws[k]?.t === 'e');
     expect(errores).toEqual([]);
+  });
+
+  // Hallazgo de la revisión de 55bc762: sin kilos/FOB, la app proyectaba la
+  // cuota vigente del productor y el Excel la omitía (0).
+  test('sin kilos ni FOB, con una cuota vigente del productor: Excel = app', () => {
+    fs.mkdirSync(OUT, { recursive: true });
+    const cir = { kg: 0, fob_usd_kg: 0, desc_exp_pct: 0, mat_usd_kg: 0, srv_usd_kg: 0,
+      anticipos_cliente: [], mes_liquidacion: '', anticipos_productor: [], mes_saldo_productor: '',
+      dist_mat: [], dist_srv: [],
+      programas: [{ id: 'pp1', lado: 'productor', contraparte: 'Productor Sintético', kilos: 0, v: MODELO_VERSION,
+        cuotas: [{ id: 'cq1', mes: M(2), modalidad: 'monto', monto: 50000, estado: 'vigente', v: MODELO_VERSION,
+          realizaciones: [], sustituye: [] }] }] };
+    const p = params(cir);
+    const r = calcAllegria(p);
+    expect(r.cost.ciruelas[corte + 2]).toBe(50000);
+    let vioCosto = false;
+    const PARAMS = { paramsAllegria: p, allegraComisionArandanos: { cobros: [] } };
+    const emp = buildEmpresas(p, PARAMS.allegraComisionArandanos)['Allegria Foods'];
+    const file = path.join(OUT, 'cir0.xlsx');
+    exportarFlujoEmpresa({ emp, empName: 'Allegria Foods', saldoIni: 0, fileName: file, params: PARAMS });
+    const wb0 = XLSX.readFile(file, { cellFormula: true });
+    wb0.SheetNames.forEach(nm => Object.keys(wb0.Sheets[nm]).forEach(a => {
+      const c = wb0.Sheets[nm][a]; if (a[0] !== '!' && c && c.f) { delete c.v; delete c.w; }
+    }));
+    const sc = path.join(OUT, 'cir0__sc.xlsx'); XLSX.writeFile(wb0, sc, { bookType: 'xlsx' });
+    const rcDir = path.join(OUT, 'rc0'); fs.rmSync(rcDir, { recursive: true, force: true }); fs.mkdirSync(rcDir);
+    execFileSync('soffice', ['--headless', '--norestore', '-env:UserInstallation=file:///tmp/lo_cir',
+      '--convert-to', 'xlsx:Calc MS Excel 2007 XML', '--outdir', rcDir, sc], { stdio: 'pipe', timeout: 300000 });
+    const wb = XLSX.readFile(path.join(rcDir, 'cir0__sc.xlsx'));
+    const ws = wb.Sheets[wb.SheetNames.find(n => n !== 'Parametros' && n !== 'Servicio deuda')];
+    const col = {};
+    Object.keys(ws).filter(k => /^[A-Z]+3$/.test(k)).forEach(k => { col[ws[k].v] = k.replace(/\d+$/, ''); });
+    [['Costo Fruta Ciruelas', r.cost.ciruelas], ['Liquidación Ciruelas', r.ing.ciruelas],
+     ['Materiales Ciruelas', r.mat.ciruelas], ['Servicios de Packing Ciruelas', r.srv.ciruelas]].forEach(([et, app]) => {
+      const fila = Object.keys(ws).filter(k => /^A\d+$/.test(k) && ws[k].v === et).map(k => Number(k.slice(1)))[0];
+      // una línea en cero en todo el horizonte no se exporta: entonces la app también es 0
+      if (!fila) { expect(`${et} ${app.reduce((a, v) => a + Math.abs(v), 0)}`).toBe(`${et} 0`); return; }
+      if (et === 'Costo Fruta Ciruelas') vioCosto = true;
+      MESES.forEach((m, i) => expect(`${et} ${m}=${Math.round(Number(ws[`${col[m]}${fila}`]?.v ?? 0))}`).toBe(`${et} ${m}=${Math.round(app[i])}`));
+    });
+    expect(vioCosto).toBe(true);
   });
 });
