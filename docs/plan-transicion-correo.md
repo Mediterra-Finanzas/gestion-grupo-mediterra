@@ -56,9 +56,9 @@ ni repositorio. Cargarlas no cambia producción hasta el siguiente despliegue.
 
 1. **Antes de desplegar (hecho, local).** Todo con correo simulado, Postgres local y Chromium
    emulado:
-   - servidor 57/57;
+   - servidor 65/65;
    - función real 8/8;
-   - navegador 13/13, que cubre 5xx, red, resultado incierto, 401 con renovación y salir;
+   - navegador 18/18, que cubre 5xx, red, resultado incierto del SMTP con confirmación de reenvío, 401 con renovación y salir;
    - 0 peticiones a EmailJS.
 2. **Después de desplegar, sin enviar correos.** Las tres llamadas `curl` de
    `docs/correo-configuracion-vercel.md` §5: origen ajeno da 403, formato antiguo da 401 y
@@ -125,16 +125,22 @@ no hay tráfico legítimo.
 | El servidor confirma el envío | Nada pendiente | No |
 | Rechazo de autorización o contenido (400/403/404) | «El servidor rechazó…», sin Reintentar | No, no salió |
 | Sesión vencida o revocada (401), límite (429), sin configurar (503) | Fallo confirmado, con Reintentar | No, no salió |
-| El SMTP informa error (502), o falla el registro de la identidad (503) | «No salió». El reintento usa otra identidad | Ver la fila siguiente |
-| **El proveedor aceptó el correo, pero la conexión se cortó y el SMTP lo informó como error** | «No salió» (falso) | **Sí, si se reintenta. No está cubierto.** |
+| El SMTP **rechaza con evidencia**: falla la conexión, TLS o autenticación, rechaza el remitente o un destinatario, o responde 4xx/5xx al mensaje; o falla el registro de la identidad antes de enviar (503) | «No salió». El reintento usa otra identidad | No: hay evidencia de que no se aceptó |
+| **El envío empezó y la conexión se cortó o venció sin respuesta del proveedor** (por ejemplo, durante DATA), o el error no trae datos del SMTP | **Resultado incierto** (antes se mostraba «No salió»). Sin Reintentar, porque la identidad ya se usó. «Reenviar…» exige confirmar el posible duplicado | Solo si la persona confirma el reenvío |
 | **El proveedor aceptó y el servidor cayó o venció antes de responder** (504 o sin respuesta) | **Resultado incierto**. Reintentar es seguro: con la misma identidad el servidor responde «ya recibido» y no reenvía | No, salvo que la persona elija «Reenviar igual» |
 | La identidad se consumió, pero el servidor cayó **antes** de enviar | «Ya recibido», resultado incierto, aunque no salió | No se duplica. Puede perderse si la persona elige «Ya llegó: quitar» |
 | Se recargó la página con envíos pendientes | Los pendientes desaparecen de la vista | Se pierden de la vista; quedan en los registros de Vercel |
 
 La app distingue fallo confirmado de resultado incierto:
 - en un **fallo confirmado**, el aviso dice que no salió;
-- en un **resultado incierto**, el aviso dice que no se puede confirmar, con la referencia y dos
-  opciones: «Ya llegó: quitar» o «Reenviar igual (puede duplicar)».
+- en un **resultado incierto**, el aviso dice que no se puede confirmar y muestra la referencia;
+- si la pérdida fue antes de que el servidor respondiera (sin conexión, o 5xx sin respuesta del
+  servidor de correo), «Reintentar» reusa la misma identidad y no duplica;
+- si el envío empezó, o el servidor ya lo había recibido, las opciones son «Ya llegó: quitar» o
+  «Reenviar…». Reenviar abre un aviso de que el destinatario puede recibirlo dos veces y solo envía
+  con «Sí, reenviar aunque pueda duplicarse»;
+- la función `reenviarIgual` rechaza el reenvío sin `{ confirmado: true }`, aunque se llame
+  directamente.
 
 **No hay garantía absoluta contra duplicados ni contra pérdidas.** Para cerrar los dos casos
 marcados haría falta guardar el estado del envío (enviando → enviado / fallido) en una tabla
@@ -142,19 +148,75 @@ propia, con el `messageId` del proveedor. Es una estructura nueva y requiere tu 
 
 ## 6. Recuperación y rollback sin reabrir el relé
 
-- **No usar «Instant Rollback» de Vercel a un despliegue anterior al cambio.** Devuelve el
-  `api/send-email.js` antiguo, que es el relé abierto.
-- **Rollback seguro (preparar antes del paso C):** una rama con el commit de app anterior más los
-  archivos nuevos de `api/` (`send-email.js`, `_correo.js`, `_reporteDiarioEmail.js` y el cambio
-  del cron). Con ella, la app antigua sigue enviando por EmailJS mientras exista (pasos B–E), y el
-  servidor no queda abierto. Después del paso F, una vuelta atrás de la app deja sin correo a la
-  versión antigua, pero no reabre nada.
+**Dos clases de vuelta atrás.** Lo que importa no es la herramienta (Instant Rollback, Promote o un
+redespliegue), sino a qué versión del endpoint se vuelve:
+
+| Destino | Qué pasa con el correo | ¿Se puede usar? |
+|---|---|---|
+| Un despliegue **anterior a la protección** (cualquiera con el `api/send-email.js` de `main` hasta 778a397) | Vuelve el relé abierto: CORS `*`, destinatario y HTML libres, sin sesión | **No**, salvo decisión explícita de reabrirlo |
+| Un despliegue **que ya tiene la protección** (por ejemplo, el anterior al último, cuando ambos la tienen) | El endpoint sigue protegido; solo cambia la app | **Sí**, Instant Rollback sirve, después de comprobarlo |
+| La rama **`claude/rollback-seguro-correo`** | App de `main` 778a397 con el endpoint protegido de b95d21b | **Sí**. Es el destino seguro mientras no exista un despliegue protegido anterior |
+
+**Cómo se comprueba antes de promover** (`scripts/seguridad/verificar-correo-protegido.mjs`):
+- `--commit <sha>` revisa el código de ese commit:
+  - `api/_correo.js` presente;
+  - el endpoint usa `crearCorreo`;
+  - sin `Allow-Origin: *`;
+  - con TLS validado.
+- `--url <despliegue>` sondea el endpoint publicado con tres peticiones **que no pueden enviar
+  correo, ni siquiera en la versión insegura**: ninguna lleva destinatario ni asunto, que la versión
+  antigua exige antes de llamar al SMTP.
+  - **PROTEGIDO**: OPTIONS desde un origen ajeno responde 403 sin `Allow-Origin`; POST desde un
+    origen ajeno, 403; «cerrar» desde el sitio, 200 con la cookie vencida.
+  - **INSEGURO**: aparece `Allow-Origin: *` o los 400 de «falta to».
+  - **INDETERMINADO**: cualquier otra respuesta. Ese despliegue no se promueve sin revisarlo.
+- Probado en local contra los dos endpoints reales
+  (`scripts/seguridad/verificar-correo-protegido.test.mjs`): el de esta rama sale PROTEGIDO, el de
+  `origin/main` INSEGURO, y la versión antigua no recibió ningún intento de envío.
+
+**Procedimiento si hay que volver atrás después del despliegue:**
+1. Identificar el despliegue destino en Vercel → Deployments y su commit.
+2. `verificar-correo-protegido.mjs --commit <sha>`. Si no da PROTEGIDO, no es destino.
+3. Si no hay ningún despliegue protegido anterior (caso del primer despliegue), usar la rama
+   `claude/rollback-seguro-correo`. Conviene dejarla como despliegue Preview **antes** del paso C
+   (requiere tu autorización), para tenerla lista.
+4. Promover y correr `verificar-correo-protegido.mjs --url <producción>`. Debe dar PROTEGIDO.
+
+**Con la rama de rollback seguro, la app antigua sigue enviando por EmailJS.** El servidor rechaza
+su formato con 401 y ella recurre a EmailJS, mientras EmailJS exista (pasos B a E). Después del
+paso F, esa app antigua queda sin correo: no reabre nada, pero no envía. Por eso F va al final.
+
+**Otras vías:**
 - **Detener el correo sin abrir nada:** quitar `CORREO_SESSION_SECRET` en Vercel y redesplegar. El
-  endpoint responde 503 a todo (falla cerrado) y la app muestra los pendientes.
-- **Recuperar lo que no salió:** en la misma pestaña, desde «correos sin confirmar». Si se recargó,
-  con los registros `correo_error` de Vercel (acción y referencia), reenviando a mano.
+  endpoint responde 503 a todo y la app muestra los pendientes.
+- **Recuperar lo que no salió:**
+  - en la misma pestaña, desde «correos sin confirmar»;
+  - si se recargó la página, desde los registros `correo_error` de Vercel (acción, referencia y
+    fase), reenviando a mano.
 - **Rotación de secretos:**
-  - `CORREO_SESSION_SECRET`: cierra todas las sesiones de correo; cada persona la renueva con su
-    PIN;
-  - `CORREO_RATELIMIT_SECRET`: reinicia contadores e identidades. Solo rotarlo sin envíos
-    pendientes, porque un reintento posterior ya no se reconocería como repetido.
+  - `CORREO_SESSION_SECRET` cierra todas las sesiones de correo;
+  - `CORREO_RATELIMIT_SECRET` reinicia contadores e identidades. Solo rotarlo sin envíos
+    pendientes.
+
+## 7. Tabla de estado de envíos (no implementada)
+
+**Qué resolvería.** El servidor guardaría cada envío: identidad, persona, acción, estado (`enviando`
+→ `enviado` / `rechazado` / `incierto`), hora y el `messageId` del proveedor. Con eso:
+- un reintento con la misma identidad sabría si el anterior **salió** (hoy solo sabe que se usó la
+  identidad), así que «ya procesado» pasaría a ser «enviado» o «no salió» cuando haya dato;
+- **los pendientes se podrían consultar después de recargar** o desde otro equipo: una lista por
+  persona de envíos en `enviando` o `incierto`, en vez de la memoria de la pestaña;
+- un envío que quedó en `enviando` (el servidor cayó a mitad) se vería como incierto, con hora y
+  referencia, sin ir a buscarlo a los registros.
+
+**Qué seguiría abierto:**
+- Si el proveedor acepta el mensaje y el servidor cae **antes de escribir** `enviado`, la fila queda
+  en `enviando` y el resultado sigue siendo incierto. La tabla lo hace visible, pero no lo resuelve.
+- «Aceptado por el proveedor» no es «entregado». Rebotes o filtros de spam posteriores no se ven
+  sin integrar los avisos de rebote de Microsoft 365, que es otro trabajo.
+- Reenviar un incierto con confirmación puede duplicar, igual que hoy.
+- Es una tabla nueva con sus permisos (solo la llave de servicio), su retención y su limpieza.
+  Requiere migración y tu aprobación.
+
+No da garantía absoluta de entrega ni de ausencia de duplicados. Reduce los casos inciertos y los
+deja consultables.
