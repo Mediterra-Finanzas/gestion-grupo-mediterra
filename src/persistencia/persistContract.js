@@ -591,6 +591,18 @@ export function crearPersistencia(opts = {}) {
       return { ok: false, motivo: /HTTP/.test(msg) ? MOTIVOS.HTTP : MOTIVOS.RED, detalle: msg, id };
     }
     const valorServidor = actual.existe ? actual.valor : null;
+    // `versionEsperada`: la versión del servidor que la persona VIO al decidir (la que
+    // comparó y confirmó). Si otra sesión escribió después, no se escribe encima: la
+    // fila sigue en conflicto, ahora contra la versión nueva, y se devuelve para
+    // volver a comparar. Sin esto, la confirmación autorizaba pisar cambios que nunca
+    // se mostraron.
+    if (options && Object.prototype.hasOwnProperty.call(options, "versionEsperada")
+        && actual.updatedAt !== options.versionEsperada) {
+      _marcarConflicto(id, actual.updatedAt, valorServidor, MOTIVOS.CONFLICTO, []);
+      log.warn(`[persist:${id}] ⚠️ reconciliar: el servidor cambió desde la comparación (v${_versionCorta(options.versionEsperada)} → v${_versionCorta(actual.updatedAt)}). No se escribe.`);
+      return { ok: false, motivo: MOTIVOS.CONFLICTO, conflictoPendiente: true, cambioDesdeComparacion: true,
+        valorServidor, version: actual.updatedAt, id };
+    }
     _registrarLectura(id, valorServidor, actual.updatedAt, true);
     _conflicto.delete(id);
     _ultimoMotivo.delete(id);

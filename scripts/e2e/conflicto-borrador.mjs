@@ -126,6 +126,23 @@ async function escenario(salida) {
     await aParametros(B.page);
     check('B ve la versión que se decidió guardar', await valorCampo(B.page, 'FOB US$/kg') === FOB_A);
   }
+  if (salida === 'tercera') {
+    // Una TERCERA sesión guarda después de que A abrió la comparación.
+    const C = await sesion(st, 'C'); await aParametros(C.page);
+    const KG_C = 3333333;
+    await ponerNumero(C.page, 'KG a exportar', KG_C); await C.page.waitForTimeout(2500);
+    check('C guardó después de la comparación de A', fruta(st).kg === KG_C);
+    A.responder(true);
+    await A.page.getByTestId('conflicto-conservar').click(); await A.page.waitForTimeout(3000);
+    check('«Guardar mi borrador» NO pisa lo de C: el servidor conserva lo de C', fruta(st).kg === KG_C && fruta(st).fob_usd_kg === fob0,
+      `kg ${fruta(st).kg} · fob ${fruta(st).fob_usd_kg}`);
+    check('el panel avisa que la otra sesión volvió a guardar y muestra la comparación actualizada (kg de C)',
+      (await A.page.getByTestId('conflicto-cambio-nuevo').count()) === 1 && /kg: tuyo [\d.]+ · servidor 3333333/.test(await A.page.getByTestId('conflicto-comparacion').innerText()));
+    await A.page.screenshot({ path: `${OUT}/${salida}-3-cambio-nuevo.png` });
+    await A.page.getByTestId('conflicto-conservar').click(); await A.page.waitForTimeout(3000);
+    check('con la comparación nueva confirmada, se guarda la versión de A', fruta(st).fob_usd_kg === FOB_A && (await A.page.getByTestId('conflicto-panel').count()) === 0);
+    await C.ctx.close();
+  }
   check(`sin errores de página (${salida})`, !A.errores.length && !B.errores.length, [...A.errores, ...B.errores].join(' | '));
   await A.ctx.close(); await B.ctx.close();
 }

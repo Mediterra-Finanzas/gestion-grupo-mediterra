@@ -962,7 +962,7 @@ dice qué se propone y cómo, para cuando decidas integrar.
 | Cuotas de préstamos por semana y cuotas del día 1 (`ee5eeb0`, parte de `95f071d`/`cb46698`: `cuotasPrestamosEmpresa`) | `flujoCreditosEmpresa` + `ubicarFechaFlujo` ubican cada vencimiento en su mes y semana con fechas ISO (`partesISO`, sin `new Date("AAAA-MM-DD")`) | **Superado para créditos. Excluido.** |
 | `fechaLocal` / «hoy» local fuera de créditos (`8a020f6`) | `creditos.js` tiene `hoyISO` local; `saldosBancosUSD.js` sigue leyendo la fecha del saldo con `new Date(fecha)` (UTC) | **Vigente en parte**: rehacer solo para saldos y nóminas sobre los archivos de `main`. |
 | Vista semanal que cuadra y motor único para Consolidado y Reporte (`0c1de08`, `cb46698`, `95f071d`, `a69ca01`: `motorFlujoEmpresa`, `valorLineaSemana`, `generarSemanasMes`) | No existe en `main` | **Vigente, a rehacer**: el motor debe tomar las cuotas de `flujoCreditosEmpresa` (no de `cuotasPrestamosEmpresa`). No se puede llevar tal cual. |
-| Política de TC de saldos con `maestro_tc` (`cab4009`, `0644207`, doc `7b88f83`) | `saldosBancosUSD.js`: US$ guardado al registrar (open.er-api), cuentas sin TC excluidas y avisadas | **Decisión tuya**: son dos políticas distintas. Si se mantiene `maestro_tc`, se rehace como cambio sobre `saldosBancosUSD.js`, no como archivo paralelo. |
+| Política de TC de saldos (`cab4009`, `0644207`, doc `7b88f83`) | `saldosBancosUSD.js` lee el `usd` guardado de cada saldo; al registrar uno nuevo la pantalla lo convierte con open.er-api en vivo y guarda `tc`, `tcFuente:"open.er-api"`, `tcTs` | **Vigente, política ya acordada** (no se rediscute): `maestro_tc` para conversiones nuevas, históricos sin recálculo masivo, fecha y fuente registradas. Adaptación al modelo vigente en §7.3. |
 | Cuentas sin paridad visibles, total INCOMPLETO (`1d1ac3a`) | `sinTC` + `avisoSaldoIncompleto` en `saldosBancosUSD.js` | **Superado. Excluido.** |
 | Dashboard = Consolidado (`6407e6d`, `cajaGrupoBase`) | Dashboard sigue sumando las 8 sociedades al 100 % desde Apr-26 y con KPI de deuda fijo (8.355.763) | **Vigente, a rehacer** con `saldoBancoEmpresaUSD` (caja) y `analisisCartera` (deuda), como la franja de la rama de diseño. |
 | Rótulos: horizonte y «Créditos Q1-26» (`55a26d1`) | Rótulo de horizonte no derivado; KPI fijo sigue | **Vigente en parte**: el rótulo del KPI desaparece si se reemplaza el KPI (fila anterior). |
@@ -971,7 +971,7 @@ dice qué se propone y cómo, para cuando decidas integrar.
 | Manejador de errores por módulo (`e26cce2`) | `ErrorBoundary` global; la rama de diseño trae `LimiteError` por módulo | **Superado por la rama de diseño** si se integra esa; si no, vigente. |
 | Permisos (`3302695`, `1059b1c`, `fe9470f`, `2f9da34`, `4544620`, `8daee94`, `a4f2318`) | No existe (`permisos/acciones.js`, facultades, `nominas_remuneraciones`) | **Vigente**: grupo independiente; se re-aplica sobre `main` (cambian App, Finanzas y Rendiciones). |
 | Tiempo real por fila (`790a706`) | `main` se suscribe a toda la tabla (`realtime:public:calendario_data`) | **Vigente.** |
-| Borrador en conflicto al salir y volver (13-10, §7.2) | `main` tiene el mismo defecto (su `dbLoad` registra la carga encima del conflicto) | **Vigente**: el cambio es chico y se lleva sobre el `dbLoad` de `main`. |
+| Borrador en conflicto al salir y volver (13-10, §7.2) | `main` tiene el mismo defecto (su `dbLoad` registra la carga encima del conflicto) | **Vigente**: se lleva sobre el `dbLoad` de `main` junto con `versionEsperada` en `reconciliarConservandoLocal` del contrato de `main` (sin eso, «Guardar mi borrador» podría pisar cambios posteriores a la comparación). |
 | Prueba de concurrencia sin reloj (13-10) | La prueba de `main` depende del reloj | **Vigente**: es solo la prueba. |
 | Documentos, prototipo, herramientas | — | No entran al build. |
 
@@ -998,7 +998,26 @@ Corrección (`src/persistencia/borradorConflicto.js` + `FinanzasModule.jsx`):
   borrador** (con confirmación que dice cuántas diferencias de la otra sesión se reemplazan) y
   **Revisar en pantalla** (deja un aviso fijo; la fila sigue bloqueada).
 - El panel aparece ya en el primer conflicto (antes, recién en el segundo intento).
-- Alcance: la Base (`finanzas`). Un escenario guarda un overlay y no se cubrió.
+- **«Guardar mi borrador» vuelve a comprobar la versión del servidor** (13-10, segunda
+  revisión). Antes, `reconciliarConservandoLocal` releía la versión vigente y escribía encima:
+  si otra sesión había guardado después de abrir la comparación, sus cambios se pisaban sin
+  haberse mostrado. Ahora el panel pasa la versión que la persona comparó
+  (`versionEsperada`); si el servidor cambió, no se escribe, la fila sigue en conflicto contra la
+  versión nueva y el panel lo dice («la otra sesión volvió a guardar después de que abriste la
+  comparación») con la comparación actualizada. Solo con una nueva confirmación sobre esa versión
+  se guarda. Una versión vista desconocida nunca escribe. Sin la opción, el contrato se comporta
+  como antes (compatibilidad). Pruebas: `persistVersionComparada.test.js` (4, contrato real;
+  control: sin la comprobación fallan los 2 casos que la exigen) y la salida `tercera` de
+  `conflicto-borrador.mjs` (14/14 en navegador, tres sesiones).
+
+**Limitaciones del borrador (vigentes):**
+- **No sobrevive a recargar ni a cerrar la pestaña**: vive en memoria. Al recargar o cerrar con
+  un conflicto pendiente, el navegador muestra su aviso de salida (`beforeunload`); si la persona
+  confirma, el borrador se pierde. No se guarda en `localStorage` porque el blob de Finanzas pesa
+  varios MB y no cabe.
+- **No cubre escenarios** (`finanzas_esc_*`): solo la Base (`finanzas`). Un escenario guarda un
+  overlay contra la Base y su conflicto sigue con el comportamiento anterior.
+- Es por pestaña: otra pestaña de la misma persona no ve el borrador.
 
 Pruebas: `src/__tests__/borradorConflicto.test.js` (2) y `scripts/e2e/conflicto-borrador.mjs`
 (39 comprobaciones, dos sesiones sobre el mismo Supabase falso: B guarda, A choca, sale al Hub,
@@ -1007,6 +1026,33 @@ guardar el borrador). **Control** contra el código anterior (`847772a`): al vol
 mostraba FOB 0 y kg de B, y el FOB de A había desaparecido sin aviso (3 fallas); con la
 corrección, 8/8 en el mismo tramo. jest 1.846/1.846 en UTC y en hora de Chile;
 `reasignar-bandeja` y `resolver-ambiguos-bordes` OK.
+
+### 7.3 Tipo de cambio de saldos: adaptación de la política acordada al modelo vigente
+
+La política está acordada y no se rediscute: **`maestro_tc` para conversiones nuevas**
+(TC a la fecha del saldo, hasta 5 días hábiles de antigüedad; PEN solo manual), **históricos sin
+recálculo masivo** (un saldo ya guardado conserva su `usd`) y **fecha y fuente registradas** en
+cada conversión. Lo que cambia es dónde se aplica, porque `main` ya tiene una fuente única de
+lectura (`src/saldosBancosUSD.js`) que la rama no tenía:
+
+1. **Lectura: se conserva la de `main`.** `usdDeSaldo` / `saldoBancoEmpresaUSD` siguen leyendo el
+   `usd` guardado de cada registro; no se agrega `src/tc/conversionSaldos.js` como segunda
+   lectura paralela. Como ya no recalcula nada al leer, los históricos quedan intactos sin
+   tocarlos.
+2. **Registro de un saldo nuevo: aquí está el cambio.** En `main` el formulario de Saldos Bancos
+   convierte con open.er-api en vivo (`toUSD(val, moneda, fx)`) y guarda `tc`,
+   `tcFuente:"open.er-api"`, `tcTs`. Se reemplaza esa conversión por la de `maestro_tc` a la
+   fecha del saldo (la lógica de `convertirSaldoNuevo` de la rama) y se guardan `tc`, `par`,
+   `fechaTc`, `fuente` y `tcPolitica`. Sin TC válido en `maestro_tc`, el saldo se guarda sin
+   `usd` y `main` ya lo trata como «sin TC»: no suma y el total queda INCOMPLETO.
+3. **Históricos: rótulo, no recálculo.** Un registro sin `tcPolitica` (todos los actuales,
+   incluidos los de `tcFuente:"open.er-api"`) se rotula «TC histórico» con la fuente y fecha que
+   traiga; nunca se reescribe en bloque.
+4. **Notas del Excel** (`notasSaldoInicial`): hoy dicen «open.er-api» fijo; deben leer la fuente y
+   la fecha del propio registro.
+5. **Falla de carga ≠ ausencia** (`0644207`): si `maestro_tc` no se pudo leer, no se puede
+   registrar el saldo como «sin TC»; se avisa y se bloquea la conversión hasta reintentar.
+6. «A paridad de hoy» con open.er-api queda como referencia, igual que en `main`.
 
 ## 8. Copia mínima para verificar fechas y leasing
 

@@ -12925,7 +12925,17 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   const conservarLocalFila = useCallback(async ()=>{
     const rowId = (conflictoFila && conflictoFila.rowId) || activeRowRef.current;
     setEstadoPersist("guardando");
-    const d = await persist.reconciliarConservandoLocal(rowId);
+    // Se exige que el servidor siga en la versión que la persona comparó: si otra
+    // sesión guardó después, no se escribe y se vuelve a mostrar la comparación.
+    const d = await persist.reconciliarConservandoLocal(rowId, undefined,
+      { versionEsperada: conflictoFila && conflictoFila.version != null ? conflictoFila.version : "__desconocida__" });
+    if(d && d.cambioDesdeComparacion){
+      setEstadoPersist("conflicto");
+      setConflictoFila(prev=>({ ...(prev||{}), rowId, valorServidor:d.valorServidor, version:d.version, cambioNuevo:true }));
+      setVerComparacion(true);
+      setConflictoMin(false);
+      return d;
+    }
     if(!d || d.ok===false){
       setEstadoPersist("error");
       setAvisoPersist(construirAvisoDesde(rowId, d, "el Flujo de Caja"));
@@ -13520,7 +13530,10 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
               : "Tu cambio NO se guardó: otra sesión modificó estos datos"}
           </div>
           <div style={{fontSize:12,lineHeight:1.6,marginBottom:12}}>
-            {conflictoFila.alVolver && <div data-testid="conflicto-al-volver" style={{marginBottom:6}}>
+            {conflictoFila.cambioNuevo && <div data-testid="conflicto-cambio-nuevo" style={{marginBottom:8,padding:"6px 10px",borderRadius:6,background:"#7c2d12",color:"#fed7aa",fontWeight:700}}>
+            No se guardó: la otra sesión volvió a guardar después de que abriste la comparación. Revisa la comparación actualizada antes de decidir.
+          </div>}
+          {conflictoFila.alVolver && <div data-testid="conflicto-al-volver" style={{marginBottom:6}}>
               Lo que tenías al salir se conservó{conflictoFila.borradorDesde ? ` (en conflicto desde ${new Date(conflictoFila.borradorDesde).toLocaleString("es-CL")})` : ""} y es lo que ves en pantalla. No se cargó la versión del servidor encima.
             </div>}
             Mientras esto no se resuelva no se escribe nada en el servidor. No se combinan las dos
