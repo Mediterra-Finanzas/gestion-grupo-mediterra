@@ -30,8 +30,9 @@ sociedades (−276.316 − 174.299 − 191.106).
 No es un doble conteo: son meses que sumaban en una fila y no en la otra. Hay dos defectos
 concretos:
 
-- **Omisión.** Allegria Foods tiene su saldo al 15-09. Su flujo de septiembre (−29.252) no estaba
-  en el saldo bancario ni en la proyección.
+- **Omisión sin aviso.** Allegria Foods tiene su saldo al 15-09. Lo que se movió después de esa
+  fecha en septiembre no estaba en el saldo bancario ni en la proyección (su septiembre completo
+  es −29.252).
 - **Posible duplicación.** Las otras cinco sociedades tienen saldos del 08 al 12 de octubre.
   Sumaban octubre completo (−174.402), y lo pagado o cobrado entre el 1.º de octubre y la fecha
   del saldo ya está en el banco.
@@ -72,10 +73,10 @@ Temporada 2026-2027, 6 sociedades:
   repite.
 - Si el mes del corte estuviera completo pendiente, el saldo final sería 2.152.410
   (2.356.064 − 203.654).
-- Contra el saldo final anterior (2.181.662), la diferencia de +174.402 es el octubre de las cinco
-  sociedades con corte en octubre (ya no entra). La diferencia de −29.252 en sentido contrario es
-  el septiembre de Allegria Foods (ahora sí entra). 2.181.662 + 174.402 = 2.356.064; el septiembre
-  de Allegria Foods queda como mes del corte, igual que octubre para las otras.
+- Contra el saldo final anterior (2.181.662), toda la diferencia es el octubre de las cinco
+  sociedades con corte en octubre, que ya no entra: 2.181.662 + 174.402 = 2.356.064. El septiembre
+  de Allegria Foods (−29.252) no entraba antes ni entra ahora. La diferencia es que ahora se
+  muestra como su mes del corte, en vez de desaparecer sin aviso.
 
 Conciliación mes a mes (pantalla «Conciliación mes a mes» y hoja «Conciliación» del Excel):
 
