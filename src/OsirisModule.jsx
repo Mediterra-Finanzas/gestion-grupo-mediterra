@@ -6,6 +6,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import HomeEjecutivo from "./ux/HomeEjecutivo";
 import { theme } from "./theme";
+import { esAdministrador } from "./osiris/permisoAdmin";
 import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
 import { ubicacionMenuEstado, anclaVisible, ANCHO_MENU_ESTADO } from "./osiris/menuEstado";
 import { catalogoFenologicoCombinado, estadoFenologicoVigente, laboresDeEstado } from "./osiris/fenologia";
@@ -11634,6 +11635,9 @@ function ReportesOsiris({rpData=[],rcData=[],feData=[],fvData=[],ctData=[],obten
 // COMPONENTE PRINCIPAL — Hub Osiris mejorado
 // ══════════════════════════════════════════════════════════
 export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPermisos={},onBack,onLogout}) {
+  // Reordenar el hub es solo del administrador. `esAdmin` llega como función desde App:
+  // usarla como booleano la volvía siempre verdadera (ver src/osiris/permisoAdmin.js).
+  const soyAdmin = esAdministrador(usuarioActual, esAdmin);
   // ── Osiris tiene su propia persistencia (fila "osiris" en Supabase) ──
   const [osirisData, setOsirisData] = useState({});
   const [cargandoOsiris, setCargandoOsiris] = useState(true);
@@ -12213,7 +12217,9 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         const order=(Array.isArray(osirisData?.hubCardsOrder)&&osirisData.hubCardsOrder.length===HUB_DEFAULT.length)?osirisData.hubCardsOrder:HUB_DEFAULT;
         const handleDragStart=(e,id)=>{window._dragCard=id;window._didDrag=true;e.dataTransfer.effectAllowed="move";};
         const handleDrop=(e,targetId)=>{
-          e.preventDefault();e.stopPropagation();const from=window._dragCard;if(!from||from===targetId){window._dragCard=null;return;}
+          e.preventDefault();e.stopPropagation();
+          if(!soyAdmin){window._dragCard=null;return;}   // la acción también lo exige, no solo el arrastre
+          const from=window._dragCard;if(!from||from===targetId){window._dragCard=null;return;}
           const nw=[...order];const fi=nw.indexOf(from),ti=nw.indexOf(targetId);
           if(fi===-1||ti===-1)return;nw.splice(fi,1);nw.splice(ti,0,from);
           setOsirisData(prev=>({...(prev||{}),hubCardsOrder:nw}));window._dragCard=null;
@@ -12225,10 +12231,10 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         return(
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16,maxWidth:700,margin:"0 auto 30px"}}>
             {order.map(cid=>{const d=CARD_DEFS[cid];if(!d)return null;return(
-              <div key={cid} draggable={!!esAdmin} onDragStart={e=>{if(!esAdmin)return;handleDragStart(e,cid);}} onDragOver={e=>{if(!esAdmin)return;e.preventDefault();e.dataTransfer.dropEffect="move";}} onDrop={e=>{if(!esAdmin)return;handleDrop(e,cid);}} onDragEnd={()=>{setTimeout(()=>{window._didDrag=false;},100);window._dragCard=null;}} onClick={()=>handleCardClick(d.onClick)}
+              <div key={cid} draggable={soyAdmin} onDragStart={e=>{if(!soyAdmin)return;handleDragStart(e,cid);}} onDragOver={e=>{if(!soyAdmin)return;e.preventDefault();e.dataTransfer.dropEffect="move";}} onDrop={e=>{if(!soyAdmin)return;handleDrop(e,cid);}} onDragEnd={()=>{setTimeout(()=>{window._didDrag=false;},100);window._dragCard=null;}} onClick={()=>handleCardClick(d.onClick)}
                 style={{background:`linear-gradient(135deg,#ffffff,${d.grad})`,borderRadius:16,padding:"24px 20px",border:`1px solid ${d.border}`,cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden",boxShadow:"0 1px 6px #0001"}}
                 onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
-                {esAdmin&&<div style={{position:"absolute",top:8,right:10,fontSize:10,color:C.muted,cursor:"grab"}} title="Arrastra para reordenar">⋮⋮</div>}
+                {soyAdmin&&<div style={{position:"absolute",top:8,right:10,fontSize:10,color:C.muted,cursor:"grab"}} title="Arrastra para reordenar">⋮⋮</div>}
                 <div style={{fontSize:32,marginBottom:10}}>{d.emoji}</div>
                 <div style={{fontWeight:800,fontSize:16,color:C.text,marginBottom:4}}>{d.label}</div>
                 <div style={{fontSize:11,color:C.muted,marginBottom:12}}>{d.desc}</div>
