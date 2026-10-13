@@ -17,6 +17,8 @@
         fecha; el mes no cambia.
      F. Guardado y recarga.
      G. Cuadre: saldo S43 + sin fecha = Σ Oct = saldo mensual Oct = Excel.
+     H. Cambiar el total en la vista mensual conserva la semana fechada (marca
+        «est.») y deja la diferencia sin fecha.
    ───────────────────────────────────────────────────────────────────────── */
 import fs from 'fs';
 import path from 'path';
@@ -185,6 +187,18 @@ check('saldo mensual Oct = Σ Oct semanal', cerca(mensualOct, c3.sigma), `${mens
   check('Excel Arriendo Oficina Oct = mensual', cerca(x('Arriendo Oficina'), arrOfi));
   check('Excel saldo final Oct = pantalla', cerca(x('(=) Saldo final caja'), mensualOct), `${x('(=) Saldo final caja')} vs ${mensualOct}`);
 }
+
+console.log('\n=== H · total del mes (vista mensual) conserva la semana fechada ===');
+// las secciones se pliegan/despliegan con un clic: asegurar que la fila esté visible
+if ((await celda('Seguros Exportación', 'Oct-26')) == null) { await page.getByText(/^.*egresos operacionales/i).first().click(); await page.waitForTimeout(400); }
+await escribir('Seguros Exportación', 'Oct-26', 120000);
+check('guardado: S43 se conserva y 14.000 quedan sin fecha', JSON.stringify(ov('egr_var::Seguros Exportación')) === JSON.stringify({ _sem3: 106000, _sinFecha: 14000 }), JSON.stringify(ov('egr_var::Seguros Exportación')));
+await abrirFlujo('semanal');
+if ((await celda('Seguros Exportación', 'S43')) == null) { await page.getByText(/^.*egresos operacionales/i).first().click(); await page.waitForTimeout(400); }
+check('S43 sigue con 106.000 y marca «est.» (fecha estimada)', (await v('Seguros Exportación', 'S43')) === 106000 && /est\./.test(await celda('Seguros Exportación', 'S43') || ''));
+check('Σ = 120.000 con «sin fecha 14.000»', (await v('Seguros Exportación', 'Σ Oct-26')) === 120000 && (await sinFechaLinea('Seguros Exportación')) === 14000);
+const c4 = await cuadre('tras total mensual');
+check('Σ Oct baja exactamente 14.000', cerca(c4.sigma, c3.sigma - 14000), `${c3.sigma} → ${c4.sigma}`);
 
 check('sin errores de JavaScript', errores.length === 0, errores.slice(0, 2).join(' | '));
 check('0 peticiones escapadas a producción', escapadas.length === 0);

@@ -958,19 +958,33 @@ Reglas actuales (`totalMesOverride`, `semillaSemanal`, `aplicarEdicionSemana`,
   líneas no tienen fecha contractual); las fechas contractuales son las de
   Créditos y programas, que no se tocan.
 
-Límites conocidos (no corregidos): el **Reporte Semanal** (`reporte_getMovimientos4Semanas`)
-mantiene su propia ubicación por semana (calculado en la 1ª, manual en la última)
-y no muestra lo sin fecha; sus totales mensuales sí incluyen `_sinFecha`.
-Editar una semana de una **sublínea o línea agregada** que solo tenía mensual
-sigue reemplazando el mensual por las semanas (no hay `_sinFecha` ahí). Las
-funciones auxiliares de saldo mensual suman en las líneas agregadas el mensual
-MÁS las semanas (FlujoEmpresa usa "las semanas mandan"): diferencia preexistente.
+- **Signos**: ajustes y devoluciones son negativos. Lo que una semana ACHICA
+  (hacia cero) vuelve a sin fecha; lo que CRECE se toma de sin fecha del mismo
+  signo; solo el exceso cambia el total.
+- **Total del mes** (vista mensual o mes plegado) en una línea con reparto:
+  `aplicarTotalMes` conserva las semanas fechadas y ajusta solo lo sin fecha
+  (puede quedar negativo si el total es menor que lo fechado: queda a la vista).
+- **Sublíneas y conceptos agregados** no tienen `_sinFecha`: ahí las semanas
+  reemplazan el mensual. Por eso, si el mes solo tiene valor mensual, la
+  semana NO se edita (hay que dejar primero el mensual en 0, explícitamente).
+- **Reporte Semanal** (`reporte_getMovimientos4Semanas`): misma regla. Lo sin
+  fecha sale como «Mes AA sin fecha», lo fechado en semanas pasadas del mes
+  como «Mes AA Sn (atrasado)». Su semana en curso se calcula por día del mes
+  (no por semana ISO como la pantalla): diferencia preexistente, no corregida.
+- Las semanas repartidas a mano llevan la marca «est.» (fecha estimada).
+
+Límites conocidos (no corregidos): las funciones auxiliares de saldo mensual
+suman en las líneas agregadas el mensual MÁS las semanas (FlujoEmpresa usa "las
+semanas mandan"); editar el mensual de una sublínea borra sus semanas; en una
+línea con sublíneas, editar la semana del padre escribe el total en el padre.
+Todo preexistente.
 
 Pruebas: `src/__tests__/semanalYAvisosCreditos.test.js` (reglas puras y saldo
 con corte en semana intermedia) y `scripts/e2e/semanal-fechas.mjs` (navegador
 con reloj fijo en S42: sin fecha, atrasado, crédito con pago parcial,
 distribución a fin de mes y parcial, guardado y recarga, cuadre semanal =
-mensual = Excel recalculado; falla 19 controles sobre 9f28861).
+mensual = Excel recalculado, total mensual que conserva semanas; 41 controles,
+19 de los 33 originales fallan sobre 9f28861).
 
 #### Avisos de Créditos también en el Excel (oct-2026)
 

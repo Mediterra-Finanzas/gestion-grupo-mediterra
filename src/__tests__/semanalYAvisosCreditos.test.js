@@ -15,7 +15,7 @@ import os from 'os';
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
 import * as XLSX from 'xlsx-js-style';
-import { CeldaEditable, semillaSemanal, aplicarEdicionSemana, totalMesOverride, saldoSemanal, buildEmpresas, buildEmpresasConOverrides, aplicarCreditosAEmpresas,
+import { CeldaEditable, semillaSemanal, aplicarEdicionSemana, aplicarTotalMes, totalMesOverride, saldoSemanal, reporte_armarDatosEmpresa, buildEmpresas, buildEmpresasConOverrides, aplicarCreditosAEmpresas,
   avisosDeEmpresa, avisosCreditosEmpresa, claveLinea } from '../FinanzasModule.jsx';
 import { exportarFlujoEmpresa } from '../flujoExportExcel.js';
 
@@ -107,6 +107,55 @@ describe('vista semanal · semilla y distribución', () => {
     const out = buildEmpresasConOverrides(empresas, real, {}, {});
     const l = out['Allegria Foods'].sections.find(s => s.cat === sec.cat).lines.find(x => x.label === 'Arriendo Oficina');
     expect(l.proy[idx]).toBe(base);
+  });
+});
+
+describe('vista semanal · montos negativos y total del mes (hallazgos de la revisión)', () => {
+  test('mes −1000: distribuir −400 y luego volver a 0 no pierde el mes', () => {
+    const a = aplicarEdicionSemana(semillaSemanal(-1000, 0), 0, -400);
+    expect(a).toEqual({ _sem0: -400, _sinFecha: -600 });
+    const b = aplicarEdicionSemana(a, 0, 0);
+    expect(totalMesOverride(b)).toBe(-1000);
+  });
+  test('mes −1000: escribir +200 (signo opuesto) cambia el mes solo en esos 200', () => {
+    const o = aplicarEdicionSemana({ _sinFecha: -1000 }, 0, 200);
+    expect(totalMesOverride(o)).toBe(-800);
+    expect(o._sinFecha).toBe(-1000);
+  });
+  test('cambiar de signo una semana: lo que había vuelve a sin fecha', () => {
+    const o = aplicarEdicionSemana({ _sem1: 500 }, 1, -300);
+    expect(o).toEqual({ _sem1: -300, _sinFecha: 500 });
+  });
+  test('subir una semana dentro del mes la toma de sin fecha', () => {
+    expect(aplicarEdicionSemana({ _sem1: 1000, _sinFecha: 1000 }, 1, 1500)).toEqual({ _sem1: 1500, _sinFecha: 500 });
+  });
+  test('editar el TOTAL del mes conserva las semanas fechadas', () => {
+    expect(aplicarTotalMes({ _sem3: 106000 }, 120000)).toEqual({ _sem3: 106000, _sinFecha: 14000 });
+    expect(aplicarTotalMes({ _sem3: 1000, _sinFecha: 1700 }, 1000)).toEqual({ _sem3: 1000 });
+    // por debajo de lo fechado: el exceso queda explícito como sin fecha negativo
+    expect(totalMesOverride(aplicarTotalMes({ _sem3: 1000 }, 600))).toBe(600);
+  });
+});
+
+describe('reporte semanal · sin fechas inventadas (reloj fijo 14-10-2026)', () => {
+  test('mensual → «sin fecha»; semana pasada → «atrasado»; reparto parcial → semana + sin fecha', () => {
+    jest.useFakeTimers('modern'); jest.setSystemTime(new Date(2026, 9, 14, 12, 0, 0));
+    try {
+      const empresas = buildEmpresas({}, { cobros: [] });
+      const real = { 'Allegria Foods': { _proyOverrides: {
+        'egr_var::Seguros Exportación': { 6: 106000 },
+        'egr_fijo::Arriendo Camionetas': { 6: { _sem0: 2600 } },
+        'egr_fijo::Arriendo Oficina': { 6: { _sem3: 1000, _sinFecha: 1700 } },
+      } } };
+      const d = reporte_armarDatosEmpresa('Allegria Foods', real, empresas, null, 0, '', 950, {}, {});
+      const c = d.compromisos.map(x => `${x.mes}|${x.label}|${Math.round(x.monto)}`);
+      expect(c).toContain('Oct 26 sin fecha|Seguros Exportación|106000');
+      expect(c.some(x => /^Oct 26 S\d \(atrasado\)\|Arriendo Camionetas\|2600$/.test(x))).toBe(true);
+      expect(c).toContain('Oct 26 S4|Arriendo Oficina|1000');
+      expect(c).toContain('Oct 26 sin fecha|Arriendo Oficina|1700');
+      // ningún monto inventado en la 1ª semana del mes
+      expect(c.some(x => x.startsWith('Oct 26 S1|Seguros'))).toBe(false);
+    } finally { jest.useRealTimers(); }
   });
 });
 
