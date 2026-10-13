@@ -6,6 +6,8 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import HomeEjecutivo from "./ux/HomeEjecutivo";
 import { theme } from "./theme";
+import { EncabezadoModulo } from "./diseno/componentes.jsx";
+import { pedirTexto, useUltimo, huella, sigueIgual, avisarDesactualizado } from "./diseno/dialogos.jsx";
 import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
 import { ubicacionMenuEstado, anclaVisible, ANCHO_MENU_ESTADO } from "./osiris/menuEstado";
 import { catalogoFenologicoCombinado, estadoFenologicoVigente, laboresDeEstado } from "./osiris/fenologia";
@@ -463,11 +465,11 @@ function BadgePago({pagado,onChange,can,onFechaPago}) {
   const s = pagado
     ? {bg:C.successBg,col:C.success,bdr:"#86efac",lbl:"✅ Pagado"}
     : {bg:C.warningBg,col:C.warning,bdr:"#fde047",lbl:"⏳ Por cobrar"};
-  function handleClick(){
+  async function handleClick(){
     if(!can) return;
     if(!pagado){
-      // Cambiando a Pagado → pedir fecha
-      const fecha = prompt("Fecha de pago (YYYY-MM-DD):",new Date().toISOString().slice(0,10));
+      // Cambiando a Pagado → pedir fecha (diálogo de la app: en teléfono no bloquea la pestaña)
+      const fecha = await pedirTexto("Fecha de pago (AAAA-MM-DD):",new Date().toISOString().slice(0,10),{titulo:"Marcar como pagado",etiqueta:"Fecha de pago",aceptar:"Marcar pagado"});
       if(!fecha) return; // canceló
       onChange(true);
       if(onFechaPago) onFechaPago(fecha);
@@ -5175,8 +5177,8 @@ function MaestroClientes({clientes,setClientes,can}){
               <div key={campo}>
                 <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>{lbl}</div>
                 {tipo==="select" && campo==="pais"
-                  ? <select value={form.pais||""} onChange={e=>{
-                        if(e.target.value==="__nuevo__"){ const n=window.prompt("Nombre del país a agregar:"); if(n&&n.trim()) setForm(p=>({...p,pais:n.trim()})); return; }
+                  ? <select value={form.pais||""} onChange={async e=>{
+                        if(e.target.value==="__nuevo__"){ const n=await pedirTexto("Nombre del país a agregar:","",{titulo:"Agregar país",etiqueta:"País",aceptar:"Agregar"}); if(n&&n.trim()) setForm(p=>({...p,pais:n.trim()})); return; }
                         setForm(p=>({...p,pais:e.target.value}));
                       }}
                       style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,outline:"none"}}>
@@ -5970,7 +5972,7 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                 {puedeEditar&&inf.estado==="Rechazado"&&<button onClick={()=>updInf("estado","En revisión")} style={{padding:"6px 14px",borderRadius:8,background:C.warning,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📤 Reenviar</button>}
                 {puedeAprobar&&<>
                   <button onClick={()=>updItem("informes",inf.id,{estado:"Aprobado",revisor:nombreUsuario,revisorCargo:"Gerente Técnico",fechaAprobacion:new Date().toISOString().slice(0,10)})} style={{padding:"6px 14px",borderRadius:8,background:C.success,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>✅ Aprobar</button>
-                  <button onClick={()=>{const obs=window.prompt("Observaciones del rechazo:");if(obs===null)return;updItem("informes",inf.id,{estado:"Rechazado",observacionesRechazo:obs,revisor:nombreUsuario});}} style={{padding:"6px 14px",borderRadius:8,background:C.danger,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>❌ Rechazar</button>
+                  <button onClick={async()=>{const obs=await pedirTexto("Observaciones del rechazo:","",{titulo:"Rechazar informe",etiqueta:"Observaciones",aceptar:"Rechazar"});if(obs===null)return;updItem("informes",inf.id,{estado:"Rechazado",observacionesRechazo:obs,revisor:nombreUsuario});}} style={{padding:"6px 14px",borderRadius:8,background:C.danger,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>❌ Rechazar</button>
                 </>}
                 <button onClick={()=>generarPDF(inf)} style={{padding:"6px 14px",borderRadius:8,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>📄 PDF</button>
                 <button onClick={()=>{const w=window.open('','_blank');w.document.write(generarHTMLInforme(inf));w.document.close();setTimeout(()=>w.print(),300);}} style={{padding:"6px 14px",borderRadius:8,background:C.muted,color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>🖨️ Imprimir</button>
@@ -6240,8 +6242,8 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                           </div>);
                       })}
                       <div style={{fontSize:9,color:C.muted2,marginTop:6}}>Columnas: Labor | Estado | Calidad ejecución | Observación | Recomendación</div>
-                      {puedeEditar&&<button onClick={()=>{
-                        const nueva=window.prompt("Nombre de la nueva labor:");
+                      {puedeEditar&&<button onClick={async()=>{
+                        const nueva=await pedirTexto("Nombre de la nueva labor:","",{titulo:"Agregar labor",etiqueta:"Labor",aceptar:"Agregar"});
                         if(nueva&&nueva.trim()){
                           const key=`labor_${nueva.trim().replace(/[^a-zA-Z]/g,"_")}`;
                           updInf(key,{estado:"",calidad:"",obs:"",rec:""});
@@ -6391,8 +6393,8 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
                                   e.target.value="";
                                 }}/>
                               </label>
-                              <button onClick={()=>{
-                                const url=window.prompt("Pega la URL de la foto:");
+                              <button onClick={async()=>{
+                                const url=await pedirTexto("Pega la URL de la foto:","",{titulo:"Agregar foto por URL",etiqueta:"URL de la foto",aceptar:"Agregar"});
                                 if(url&&url.trim()) addToArr("fotosInforme",{url:url.trim(),descripcion:"",categoria:"",sector:""});
                               }} style={{padding:"6px 14px",borderRadius:8,background:C.cardAlt,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:11,fontWeight:600}}>🔗 URL</button>
                             </div>}
@@ -6923,9 +6925,9 @@ function MaestroVariedades({variedades,setVariedades,can,obtentores=[],especies=
               <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:3}}>Especie *</div>
               {(especies||[]).length>0?(
                 <div style={{display:"flex",gap:4}}>
-                  <select value={form.especie||""} onChange={e=>{
+                  <select value={form.especie||""} onChange={async e=>{
                     if(e.target.value==="__nueva__") {
-                      const nombre = window.prompt("Nombre de la nueva especie:");
+                      const nombre = await pedirTexto("Nombre de la nueva especie:","",{titulo:"Nueva especie",etiqueta:"Especie",aceptar:"Agregar"});
                       if(!nombre || !nombre.trim()) return;
                       const dupe = (especies||[]).find(x=>x.nombre.toLowerCase().trim()===nombre.toLowerCase().trim());
                       if(dupe) { setForm(p=>({...p,especie:dupe.nombre})); return; }
@@ -9331,9 +9333,9 @@ Motivo del retiro:`, "");
                           <td style={{padding:"6px 8px",minWidth:140}}>
                             <div style={{display:"flex",gap:4,alignItems:"center"}}>
                               {colorEsp&&<div title={p.especie} style={{width:14,height:14,borderRadius:3,background:colorEsp,flexShrink:0,boxShadow:"0 1px 2px #0002"}}/>}
-                              <select disabled={!can} value={p.especie||""} onChange={e=>{
+                              <select disabled={!can} value={p.especie||""} onChange={async e=>{
                                 if(e.target.value==="__nueva__") {
-                                  const nombre = window.prompt("Nombre de la nueva especie:");
+                                  const nombre = await pedirTexto("Nombre de la nueva especie:","",{titulo:"Nueva especie",etiqueta:"Especie",aceptar:"Agregar"});
                                   if(!nombre || !nombre.trim()) return;
                                   const nombreNorm = nombre.trim();
                                   const dupe = (especiesMaestro||[]).find(x=>x.nombre.toLowerCase().trim()===nombreNorm.toLowerCase());
@@ -9367,10 +9369,10 @@ Motivo del retiro:`, "");
                                 ? (variedadesMaestro||[]).filter(v=>v.especie===p.especie)
                                 : [];
                               return (
-                                <select disabled={!can||!p.especie} value={p.variedad_id||""} onChange={e=>{
+                                <select disabled={!can||!p.especie} value={p.variedad_id||""} onChange={async e=>{
                                   if(e.target.value==="__nueva__") {
                                     if(!p.especie){alert("Selecciona primero la especie.");return;}
-                                    const nombre = window.prompt(`Nombre de la nueva variedad (especie: ${p.especie}):`);
+                                    const nombre = await pedirTexto(`Nombre de la nueva variedad (especie: ${p.especie}):`,"",{titulo:"Nueva variedad",etiqueta:"Variedad",aceptar:"Agregar"});
                                     if(!nombre || !nombre.trim()) return;
                                     const nombreNorm = nombre.trim();
                                     const dupe = (variedadesMaestro||[]).find(v=>v.especie===p.especie && v.variedad.toLowerCase().trim()===nombreNorm.toLowerCase());
@@ -10830,9 +10832,9 @@ La orden conserva sus despachos, facturas y cuotas. Queda registrado quién la a
                           <td style={{padding:"5px 8px",minWidth:130}}>
                             <div style={{display:"flex",gap:4,alignItems:"center"}}>
                               {colorEsp&&<div title={p.especie} style={{width:12,height:12,borderRadius:3,background:colorEsp,flexShrink:0,boxShadow:"0 1px 2px #0002"}}/>}
-                              <select value={p.especie||""} onChange={e=>{
+                              <select value={p.especie||""} onChange={async e=>{
                                 if(e.target.value==="__nueva__") {
-                                  const nombre = window.prompt("Nombre de la nueva especie:");
+                                  const nombre = await pedirTexto("Nombre de la nueva especie:","",{titulo:"Nueva especie",etiqueta:"Especie",aceptar:"Agregar"});
                                   if(!nombre || !nombre.trim()) return;
                                   const nombreNorm = nombre.trim();
                                   const dupe = (especiesMaestro||[]).find(x=>x.nombre.toLowerCase().trim()===nombreNorm.toLowerCase());
@@ -10862,10 +10864,10 @@ La orden conserva sus despachos, facturas y cuotas. Queda registrado quién la a
                                 ? (variedadesMaestro||[]).filter(v=>v.especie===p.especie)
                                 : [];
                               return (
-                                <select disabled={!p.especie} value={p.variedad_id||""} onChange={e=>{
+                                <select disabled={!p.especie} value={p.variedad_id||""} onChange={async e=>{
                                   if(e.target.value==="__nueva__") {
                                     if(!p.especie){alert("Selecciona primero la especie.");return;}
-                                    const nombre = window.prompt(`Nombre de la nueva variedad (especie: ${p.especie}):`);
+                                    const nombre = await pedirTexto(`Nombre de la nueva variedad (especie: ${p.especie}):`,"",{titulo:"Nueva variedad",etiqueta:"Variedad",aceptar:"Agregar"});
                                     if(!nombre || !nombre.trim()) return;
                                     const nombreNorm = nombre.trim();
                                     const dupe = (variedadesMaestro||[]).find(v=>v.especie===p.especie && v.variedad.toLowerCase().trim()===nombreNorm.toLowerCase());
@@ -11643,6 +11645,8 @@ function ReportesOsiris({rpData=[],rcData=[],feData=[],fvData=[],ctData=[],obten
 export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPermisos={},onBack,onLogout}) {
   // ── Osiris tiene su propia persistencia (fila "osiris" en Supabase) ──
   const [osirisData, setOsirisData] = useState({});
+  // Último valor, para revisar después de un diálogo de la app (ya no bloquea como window.prompt).
+  const osirisActual = useUltimo(osirisData);
   const [cargandoOsiris, setCargandoOsiris] = useState(true);
   const dataRef = useRef(osirisData);
   useEffect(()=>{ dataRef.current = osirisData; },[osirisData]);
@@ -12120,62 +12124,36 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
 
   // ── Barra de navegación compartida ────────────────────────
   // IMPORTANTE: definida antes de cualquier return para que esté disponible en todos los casos
-  const NavBar = ({breadcrumbItems, showPorCobrar=false}) => (
-    <div style={{
-      background:"#1E2761",
-      borderRadius:14,
-      padding:"14px 20px",
-      marginBottom:18,
-      display:"flex",
-      justifyContent:"space-between",
-      alignItems:"center",
-      flexWrap:"wrap",
-      gap:12,
-      border:"1px solid rgba(255,255,255,0.10)",
-      boxShadow:"0 4px 16px rgba(16,24,40,0.20)",
-    }}>
-      <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13}}>
-          {breadcrumbItems.map((item,i)=>(
+  // Encabezado común (EncabezadoModulo), igual que Finanzas, Tareas y Contabilidad:
+  // misma ruta, mismo logo de Osiris (alto fijo, sin deformar), «Por cobrar» como
+  // contexto y las mismas acciones (Osiris Hub, Mediterra, Salir).
+  const NavBar = ({breadcrumbItems, showPorCobrar=false}) => {
+    const ultimo = breadcrumbItems[breadcrumbItems.length-1];
+    const previos = breadcrumbItems.slice(0,-1);
+    return (
+      <div style={{marginBottom:18}}>
+        <EncabezadoModulo testid="encabezado-osiris"
+          ruta={previos.length ? <>{previos.map((item,i)=>(
             <React.Fragment key={i}>
-              {i>0&&<span style={{color:"rgba(255,255,255,0.3)"}}>›</span>}
+              {i>0&&<span aria-hidden> › </span>}
               {item.onClick
-                ? <button onClick={item.onClick} style={{background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer",fontSize:13,fontWeight:500,padding:0}}>{item.label}</button>
-                : <span style={{color:"#fff",fontWeight:700,fontSize:14}}>{item.label}</span>}
+                ? <button className={`mdt-cabmod__volver${item.onClick===onBack?" mdt-dup-nav":""}`} onClick={item.onClick}>{item.label}</button>
+                : <span>{item.label}</span>}
             </React.Fragment>
-          ))}
-        </div>
-        <div style={{borderLeft:"1px solid rgba(255,255,255,0.2)",paddingLeft:14}}>
-          <OsirisLogo height={36}/>
-        </div>
+          ))}</> : null}
+          titulo={ultimo ? ultimo.label : "Osiris Plant Management"}
+          logo="/osiris-logo.jpg" logoAlt="Osiris Plant Management"
+          contexto={showPorCobrar ? [{rotulo:"Por cobrar", valor:$$(totPend)}] : []}
+          acciones={<>
+            {subApp!==null&&(
+              <button className="mdt-boton mdt-boton--secundario mdt-boton--chico" onClick={()=>setSubApp(null)}>🏠 Osiris Hub</button>
+            )}
+            <button className="mdt-dup-nav mdt-boton mdt-boton--secundario mdt-boton--chico" onClick={onBack}>← Mediterra</button>
+            <button className="mdt-dup-nav mdt-boton mdt-boton--secundario mdt-boton--chico" onClick={onLogout||onBack}>Salir</button>
+          </>}/>
       </div>
-      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        {showPorCobrar&&(
-          <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",textAlign:"right",marginRight:4}}>
-            <div style={{fontSize:9,textTransform:"uppercase",letterSpacing:1,marginBottom:1}}>Por cobrar</div>
-            <div style={{fontSize:14,fontWeight:800,color:"#fbbf24"}}>{$$(totPend)}</div>
-          </div>
-        )}
-        {subApp!==null&&(
-          <button onClick={()=>setSubApp(null)}
-            style={{background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.25)",
-              color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
-            🏠 Osiris Hub
-          </button>
-        )}
-        <button className="mdt-dup-nav" onClick={onBack}
-          style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",
-            color:"rgba(255,255,255,0.7)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>
-          ← Mediterra
-        </button>
-        <button className="mdt-dup-nav" onClick={onLogout||onBack}
-          style={{background:"rgba(248,113,113,0.18)",border:"1px solid rgba(248,113,113,0.3)",
-            color:"#fca5a5",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12}}>
-          Salir
-        </button>
-      </div>
-    </div>
-  );
+    );
+  };
 
   // ── HUB INTERNO OSIRIS ─────────────────────────────────────
   if(subApp===null) return(
@@ -14028,14 +14006,17 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           descripcion:`Eliminó cuota de OC ${ocActiva.n_oc}`});
       };
 
-      const togglePagadoCuota = (cid) => {
+      const togglePagadoCuota = async (cid) => {
         if(!canViveros) return;
         const cuota = (ocActiva?.cuotas||[]).find(c=>c.id===cid);
         if(!cuota) return;
         let fp = cuota.fecha_pago;
         if(!cuota.pagado){
-          const nueva = prompt("Fecha de pago (YYYY-MM-DD):", new Date().toISOString().slice(0,10));
+          const hAntes = huella(ordenesCompra);
+          const nueva = await pedirTexto("Fecha de pago (AAAA-MM-DD):", new Date().toISOString().slice(0,10),{titulo:"Marcar cuota pagada",etiqueta:"Fecha de pago",aceptar:"Marcar pagada"});
           if(!nueva) return;
+          const vivAhora = (Array.isArray(osirisActual.current?.viveros) ? osirisActual.current.viveros : []).find(x=>x.id===v.id);
+          if(!sigueIgual(vivAhora?.ordenesCompra||[], hAntes)) { await avisarDesactualizado("La orden de compra"); return; }
           fp = nueva;
         } else {
           fp = "";
