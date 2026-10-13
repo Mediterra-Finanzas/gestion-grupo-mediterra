@@ -731,8 +731,7 @@ Observación previa, sin tocar: en el Reporte Semanal la página que la tabla de
 sola al continuar (p. 3 con los datos de prueba) no tiene encabezado ni logo. Corregirlo cambia la
 paginación.
 
-Pruebas (build congelado `main.9d503aec.js` sin el cambio de Auditoría, verificado después con
-`CI=true`; Chromium emulado, datos ficticios): `logoEmpresaExport.test.js` (5) y
+Pruebas (build congelado `main.38465d09.js`, el de la vista previa versión 12; Chromium emulado, datos ficticios): `logoEmpresaExport.test.js` (5) y
 `ajustes-muestra.mjs` con `EXPORTS=semanal,nomina,consolidado` 12/12 (páginas 7 a 13 con el logo de
 su empresa por tamaño de imagen; Excel con el logo correcto byte a byte, sin deformar, y abiertos
 en LibreOffice con el logo visible); jest 1.778/1.778 en UTC y en hora de Chile.
