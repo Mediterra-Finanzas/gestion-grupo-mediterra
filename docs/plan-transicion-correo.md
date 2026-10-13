@@ -155,7 +155,7 @@ redespliegue), sino a qué versión del endpoint se vuelve:
 |---|---|---|
 | Un despliegue **anterior a la protección** (cualquiera con el `api/send-email.js` de `main` hasta 778a397) | Vuelve el relé abierto: CORS `*`, destinatario y HTML libres, sin sesión | **No**, salvo decisión explícita de reabrirlo |
 | Un despliegue **que ya tiene la protección** (por ejemplo, el anterior al último, cuando ambos la tienen) | El endpoint sigue protegido; solo cambia la app | **Sí**, Instant Rollback sirve, después de comprobarlo |
-| La rama **`claude/rollback-seguro-correo`** | App de `main` 778a397 con el endpoint protegido de b95d21b | **Sí**. Es el destino seguro mientras no exista un despliegue protegido anterior |
+| La rama **`claude/rollback-seguro-correo`** | App de `main` 778a397 con el endpoint protegido de b95d21b. **Contención, no recuperación completa**: la app antigua envía por EmailJS, que sigue abierto | **Solo antes del paso F**. Con EmailJS retirado, sus correos se pierden sin aviso (comprobado en `scripts/e2e/rollback-sin-emailjs.mjs`) |
 
 **Cómo se comprueba antes de promover** (`scripts/seguridad/verificar-correo-protegido.mjs`):
 - `--commit <sha>` revisa el código de ese commit:
@@ -182,9 +182,13 @@ redespliegue), sino a qué versión del endpoint se vuelve:
    (requiere tu autorización), para tenerla lista.
 4. Promover y correr `verificar-correo-protegido.mjs --url <producción>`. Debe dar PROTEGIDO.
 
-**Con la rama de rollback seguro, la app antigua sigue enviando por EmailJS.** El servidor rechaza
+**Con la rama de rollback seguro, la app antigua sigue enviando por EmailJS. Por eso no es una recuperación completa de seguridad.** El servidor rechaza
 su formato con 401 y ella recurre a EmailJS, mientras EmailJS exista (pasos B a E). Después del
-paso F, esa app antigua queda sin correo: no reabre nada, pero no envía. Por eso F va al final.
+paso F, esa app antigua queda sin correo y **sin avisarlo**: no reabre nada, pero pierde envíos en
+silencio. Por eso:
+- F solo se ejecuta cuando ya exista **un segundo despliegue protegido** con el cliente nuevo, que
+  sirva de destino de vuelta atrás comprobable;
+- desde F, `claude/rollback-seguro-correo` deja de ser un destino válido.
 
 **Otras vías:**
 - **Detener el correo sin abrir nada:** quitar `CORREO_SESSION_SECRET` en Vercel y redesplegar. El
