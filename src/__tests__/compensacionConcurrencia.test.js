@@ -21,6 +21,7 @@ const MES_A = 'Nov-26', MES_LIQ = 'Mar-27';
 function servidorFalso(valorInicial) {
   const fila = { id: 'finanzas', value: JSON.stringify(valorInicial), updated_at: '2026-10-01T00:00:00.000Z' };
   const peticiones = [];
+  let seqVersion = 0;
   const fetchImpl = async (url, opts = {}) => {
     const u = String(url);
     peticiones.push(`${opts.method || 'GET'} ${u.split('/rest/v1/')[1]}`);
@@ -36,12 +37,15 @@ function servidorFalso(valorInicial) {
         return { ok: true, status: 200, json: async () => [] };
       }
       fila.value = body.value;
-      fila.updated_at = body.updated_at || new Date().toISOString();
+      // La versión la asigna el SERVIDOR (v1, v2, …), como en Postgres: no depende del
+      // reloj del cliente, así dos escrituras en el mismo milisegundo no comparten versión.
+      fila.updated_at = `v${++seqVersion}`;
       return { ok: true, status: 200, json: async () => [{ id: fila.id, updated_at: fila.updated_at }] };
     }
     throw new Error(`método no soportado: ${opts.method}`);
   };
-  return { fila, fetchImpl, peticiones, leer: () => JSON.parse(fila.value) };
+  const escrituras = () => peticiones.filter(p => !p.startsWith('GET')).length;
+  return { fila, fetchImpl, peticiones, escrituras, leer: () => JSON.parse(fila.value) };
 }
 
 // Productor P cobró 60.000 contra una liquidación definitiva de 50.000:
@@ -115,55 +119,107 @@ describe('compensación: destino y saldo salen del cuadre', () => {
   });
 });
 
-describe('conflicto entre sesiones', () => {
-  test('la segunda sesión no sobrescribe ni vuelve a descontar', async () => {
-    const srv = servidorFalso(blobInicial());
-    const sesionA = crearPersistencia({ fetch: srv.fetchImpl, logger: { info(){}, warn(){}, error(){} } });
-    const sesionB = crearPersistencia({ fetch: srv.fetchImpl, logger: { info(){}, warn(){}, error(){} } });
+// ── Dos sesiones sobre la misma versión ──────────────────────────────
+// El RELOJ queda FIJO en todo el bloque: las dos sesiones estampan el mismo instante
+// (fechaAplicacion, historial.ts). Así lo único que distingue los casos es el
+// CONTENIDO. Antes la prueba pasaba o fallaba según cayeran o no en el mismo
+// milisegundo: con contenido idéntico, el contrato responde (con razón) que lo que
+// se quería guardar ya está en el servidor.
+const INSTANTE = '2026-10-13T12:00:00.000Z';
+const silencio = { info(){}, warn(){}, error(){} };
+const dosSesiones = async () => {
+  const srv = servidorFalso(blobInicial());
+  const sesionA = crearPersistencia({ fetch: srv.fetchImpl, logger: silencio });
+  const sesionB = crearPersistencia({ fetch: srv.fetchImpl, logger: silencio });
+  const cargaA = await sesionA.load('finanzas');
+  const cargaB = await sesionB.load('finanzas');
+  expect(cargaA.version).toBe(cargaB.version);
+  return { srv, sesionA, sesionB, cargaA, cargaB };
+};
+const aplicar = (blob, usuario = 'qa') => {
+  const f = frutaDe(blob);
+  const d = destinosCompensacion(resumenProductor(blob), { excluirProgramaId: 'pP' })
+    .find(x => x.programaId === 'pQ');
+  const res = aplicarCompensacion(f.saldos_favor[0], 'apC', { saldoDestino: d.absorbe, usuario });
+  const copia = JSON.parse(JSON.stringify(blob));
+  frutaDe(copia).saldos_favor = [res.saldo];
+  return copia;
+};
+// Otra edición concurrente, distinta de la compensación: cambia el importe de Q.
+const otraEdicion = (blob) => {
+  const copia = JSON.parse(JSON.stringify(blob));
+  frutaDe(copia).programas.find(p => p.id === 'pQ').importe_definitivo = 45000;
+  return copia;
+};
+const aplicacionesEnServidor = (srv) => resumenSaldo(frutaDe(srv.leer()).saldos_favor[0]);
 
-    // Las dos cargan la MISMA versión
-    const cargaA = await sesionA.load('finanzas');
-    const cargaB = await sesionB.load('finanzas');
-    expect(cargaA.version).toBe(cargaB.version);
+describe('conflicto entre sesiones (reloj fijo: el contenido es la única diferencia)', () => {
+  beforeEach(() => { jest.spyOn(Date.prototype, 'toISOString').mockReturnValue(INSTANTE); });
+  afterEach(() => { jest.restoreAllMocks(); });
 
-    const aplicar = (blob) => {
-      const f = frutaDe(blob);
-      const d = destinosCompensacion(resumenProductor(blob), { excluirProgramaId: 'pP' })
-        .find(x => x.programaId === 'pQ');
-      const res = aplicarCompensacion(f.saldos_favor[0], 'apC', { saldoDestino: d.absorbe, usuario: 'qa' });
-      const copia = JSON.parse(JSON.stringify(blob));
-      frutaDe(copia).saldos_favor = [res.saldo];
-      return copia;
-    };
+  test('el reloj está fijo: dos aplicaciones iguales producen el MISMO contenido', async () => {
+    const { cargaA, cargaB } = await dosSesiones();
+    expect(JSON.stringify(aplicar(cargaA.value))).toBe(JSON.stringify(aplicar(cargaB.value)));
+    expect(JSON.stringify(aplicar(cargaA.value, 'qa-A'))).not.toBe(JSON.stringify(aplicar(cargaB.value, 'qa-B')));
+  });
 
-    // Sesión A aplica y guarda: confirmado
+  test('contenido IDÉNTICO: reintento idempotente, no conflicto, y no se descuenta dos veces', async () => {
+    const { srv, sesionA, sesionB, cargaA, cargaB } = await dosSesiones();
     const resA = await sesionA.saveConfirmed('finanzas', aplicar(cargaA.value));
     expect(resA.ok).toBe(true);
-    expect(construirAvisoDesde('finanzas', resA, 'el Flujo de Caja')).toBeNull();
-
-    // Sesión B aplica sobre su copia VIEJA y guarda: rechazado, no se pisa
+    const enServidorTrasA = JSON.stringify(srv.leer());
+    const versionTrasA = srv.fila.updated_at;
+    // B quiere guardar EXACTAMENTE lo mismo que ya guardó A
     const resB = await sesionB.saveConfirmed('finanzas', aplicar(cargaB.value));
+    expect(resB.ok).toBe(true);
+    expect(resB.sinCambios).toBe(true);                       // «ya estaba en el servidor»
+    expect(resB.motivo).toBeUndefined();
+    expect(JSON.stringify(srv.leer())).toBe(enServidorTrasA); // el servidor no cambió
+    expect(srv.fila.updated_at).toBe(versionTrasA);           // ni su versión: B no escribió
+    expect(srv.escrituras()).toBe(2);                         // el PATCH de A y el rechazado de B
+    const s = aplicacionesEnServidor(srv);
+    expect(s.aplicaciones.length).toBe(1);
+    expect(Math.round(s.resuelto)).toBe(10000);
+  });
+
+  test.each([
+    ['otra persona aplica la misma compensación', (blob) => aplicar(blob, 'qa-B'), 'qa-A'],
+    ['otra edición distinta del mismo blob', otraEdicion, 'qa-A'],
+  ])('cambios concurrentes DISTINTOS (%s): conflicto, nada se pisa', async (_n, deB, usuarioA) => {
+    const { srv, sesionA, sesionB, cargaA, cargaB } = await dosSesiones();
+    const resA = await sesionA.saveConfirmed('finanzas', aplicar(cargaA.value, usuarioA));
+    expect(resA.ok).toBe(true);
+    expect(construirAvisoDesde('finanzas', resA, 'el Flujo de Caja')).toBeNull();
+    const enServidorTrasA = JSON.stringify(srv.leer());
+
+    const resB = await sesionB.saveConfirmed('finanzas', deB(cargaB.value));
     expect(resB.ok).toBe(false);
     expect(resB.motivo).toBe(MOTIVOS.CONFLICTO);
     const aviso = construirAvisoDesde('finanzas', resB, 'el Flujo de Caja');
     expect(aviso.tipo).toBe('conflicto');
     expect(aviso.texto).toMatch(/No se guardó/);
+    expect(JSON.stringify(srv.leer())).toBe(enServidorTrasA);   // lo de A intacto
 
-    // El servidor conserva UNA sola aplicación aplicada, por 10.000
-    const enServidor = srv.leer();
-    const saldoSrv = resumenSaldo(frutaDe(enServidor).saldos_favor[0]);
-    expect(saldoSrv.aplicaciones.length).toBe(1);
-    expect(Math.round(saldoSrv.resuelto)).toBe(10000);
-    expect(Math.round(saldoSrv.programado)).toBe(0);
-    expect(Math.round(saldoSrv.disponible)).toBe(0);
+    // Reintentar el mismo estado obsoleto tampoco escribe
+    const resB2 = await sesionB.saveConfirmed('finanzas', deB(cargaB.value));
+    expect(resB2.ok).toBe(false);
+    expect(JSON.stringify(srv.leer())).toBe(enServidorTrasA);
 
-    // Y con el estado fresco, volver a aplicarla es imposible
-    expect(() => aplicar(enServidor)).toThrow(/reservada/);
+    // El servidor conserva UNA sola aplicación, por 10.000, hecha por A
+    const s = aplicacionesEnServidor(srv);
+    expect(s.aplicaciones.length).toBe(1);
+    expect(Math.round(s.resuelto)).toBe(10000);
+    expect(Math.round(s.programado)).toBe(0);
+    expect(Math.round(s.disponible)).toBe(0);
+    expect(JSON.stringify(frutaDe(srv.leer()).saldos_favor)).toContain(usuarioA);
+    expect(frutaDe(srv.leer()).programas.find(p => p.id === 'pQ').importe_definitivo).toBe(40000);
+
+    // Con el estado fresco, volver a aplicarla es imposible
+    expect(() => aplicar(srv.leer())).toThrow(/reservada/);
 
     // El flujo descuenta la compensación UNA sola vez: Q pasa de 40.000 a 30.000
-    const costo = calcAllegria(frutaDeParams(enServidor)).cost.cerezas;
+    const costo = calcAllegria(frutaDeParams(srv.leer())).cost.cerezas;
     expect(Math.round(costo[MESES.indexOf(MES_A)])).toBe(30000);
-    // y el total del lado baja 10.000 respecto del bruto (sin compensar)
     const costoAntes = calcAllegria(frutaDeParams(blobInicial())).cost.cerezas;
     expect(Math.round(costoAntes.reduce((a, b) => a + b, 0) - costo.reduce((a, b) => a + b, 0))).toBe(10000);
   });

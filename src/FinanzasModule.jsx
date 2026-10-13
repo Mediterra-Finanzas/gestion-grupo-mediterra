@@ -15,6 +15,7 @@ import { leerUsdSaldo, saldosVigentes, totalSaldosUSD, convertirSaldoNuevo, text
 import { esLineaRelacionada, hashArchivo, docsActivos, tieneRespaldo, pathDocNomina, coberturaNomina, siguienteCorrelativo } from './expedienteHelpers';
 import { USE_GUARD, pollRow } from './guardClient';
 import { persist, construirAvisoDesde } from './persistencia/instancia.js';
+import { borradorConflicto, compararVersiones } from './persistencia/borradorConflicto.js';
 import AvisoPersistencia from './AvisoPersistencia.jsx';
 import { computeOverlay, applyOverlay } from './escenarioOverlay';
 import {
@@ -256,10 +257,21 @@ async function dbLoad(rowId="finanzas") {
   // el contrato compartido la reescribe como objeto jsonb. Ambos se leen igual.
   const parsed = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
   console.log("[dbLoad]", rowId, "keys:", Object.keys(parsed));
+  _ultimaLectura[rowId] = { version: d?.[0]?.updated_at || null };
+  // Fila en CONFLICTO PENDIENTE con un borrador conservado: NO se registra la carga.
+  // registrarCarga limpiaría el conflicto y la marca de cambios, y el borrador
+  // quedaría sin protección (el siguiente auto-save escribiría o se perdería). La
+  // lectura sirve solo para mostrar la versión vigente y comparar.
+  if(persist.conflictoPendiente(rowId) && borradorConflicto.tiene(rowId)) {
+    _ultimaLectura[rowId].enConflicto = true;
+    return parsed;
+  }
   // F0-B: registrar versión/base para saveConfirmed(rowId) con optimistic lock.
   persist.registrarCarga(rowId, parsed, d?.[0]?.updated_at || null, typeof raw === "string");
   return parsed;
 }
+// Metadatos de la última lectura de cada fila (versión y si quedó en conflicto).
+const _ultimaLectura = {};
 // F0-B: toda escritura del flujo pasa por el contrato compartido (PATCH
 // condicionado por updated_at + confirmación del servidor + detección de
 // conflicto). Devuelve el objeto-resultado {ok, motivo, ...} (ya NO un boolean):
@@ -12201,6 +12213,9 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   // Conflicto pendiente de la fila: { valorServidor, version } + las DOS salidas
   // explícitas. Mientras está puesto, el contrato no escribe nada.
   const [conflictoFila,setConflictoFila]=useState(null);
+  const [verComparacion,setVerComparacion]=useState(false);   // panel de conflicto: comparar versiones
+  const [conflictoMin,setConflictoMin]=useState(false);       // panel minimizado a un aviso fijo
+  useEffect(()=>{ if(!conflictoFila){ setConflictoMin(false); setVerComparacion(false); } },[conflictoFila]);
   // Registros antiguos sin identificador detectados al cargar: { cambios, valor }.
   // Se normalizan en memoria y la ESCRITURA es un paso explícito (ver banner).
   const [normPendiente,setNormPendiente]=useState(null);
@@ -12581,8 +12596,17 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
   useEffect(()=>{
     dbLoad()
       .then(d=>{
-        applyData(d);
-        baseBlobRef.current = d;   // cache inicial del base (se re-cachea al editar/salir de Base)
+        // Volver con un conflicto pendiente: se muestra el BORRADOR conservado (lo que
+        // la persona tenía), no la versión del servidor encima. La fila sigue
+        // bloqueada (el contrato no escribe) y se ofrece comparar, descartar o resolver.
+        const enConflicto = _ultimaLectura.finanzas?.enConflicto ? borradorConflicto.obtener("finanzas") : null;
+        const inicial = enConflicto ? enConflicto.valor : d;
+        applyData(inicial);
+        baseBlobRef.current = inicial;   // cache inicial del base (se re-cachea al editar/salir de Base)
+        if(enConflicto){
+          setEstadoPersist("conflicto");
+          setConflictoFila({ rowId:"finanzas", valorServidor:d, version:_ultimaLectura.finanzas?.version || null, alVolver:true, borradorDesde: enConflicto.desde });
+        }
         // Saldos de bancos: fila dedicada compartida. Si aún no existe, se
         // siembra desde el blob (migración una sola vez).
         dbLoadBancos().then(sb=>{
@@ -12806,10 +12830,15 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     // Estado VISIBLE. "guardado" solo cuando el servidor confirmó. Un conflicto
     // pendiente NO es un error de red: deja la fila bloqueada hasta que se elija
     // una de las dos salidas (recuperar el servidor o conservar lo local).
-    if(res && res.motivo === persist.MOTIVOS.CONFLICTO_PENDIENTE){
+    if(res && (res.conflictoPendiente || res.motivo === persist.MOTIVOS.CONFLICTO_PENDIENTE)){
+      // Se conserva lo que se intentó guardar (el borrador), por si la persona sale
+      // del módulo antes de resolver: al volver se le ofrece de nuevo, sin pérdida.
+      // Solo la Base: un escenario guarda un overlay y se resuelve al reabrirlo.
+      if(rowId === "finanzas") borradorConflicto.guardar(rowId, blob, { usuario: usuarioActual?.nombre || "" });
       setEstadoPersist("conflicto");
-      setConflictoFila({ rowId, valorServidor: res.valorServidor, version: res.version });
+      setConflictoFila(prev => ({ ...(prev||{}), rowId, valorServidor: res.valorServidor !== undefined ? res.valorServidor : prev?.valorServidor, version: res.version || prev?.version }));
     } else if(res && res.ok){
+      if(rowId === "finanzas") borradorConflicto.descartar(rowId);
       setEstadoPersist("ok");
       setConflictoFila(null);
       setTimeout(()=>setEstadoPersist(p=>p==="ok"?"idle":p),2000);
@@ -12884,6 +12913,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       return r;
     }
     if(r.value) applyData(r.value);
+    if(rowId === "finanzas") borradorConflicto.descartar(rowId);
     setConflictoFila(null);
     setEstadoPersist("ok");
     setSaved("✅ Se cargó la versión del servidor. Tu cambio local se descartó.");
@@ -13460,38 +13490,84 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
       {/* Conflicto pendiente: la fila queda BLOQUEADA para escritura y los cambios
           locales se conservan. Solo salen de acá las dos decisiones explícitas; no
           se fusionan dos operaciones financieras de forma automática. */}
-      {conflictoFila && (
-        <div style={{position:"fixed",left:"50%",top:"12%",transform:"translateX(-50%)",zIndex:9999,
-          maxWidth:620,padding:18,borderRadius:10,background:"#1f2937",
+      {conflictoFila && (()=>{
+        // Comparación: borrador (lo que hay en pantalla) contra la versión vigente
+        // del servidor. Se calcula al pedirla, no en cada render.
+        const comp = verComparacion ? compararVersiones(buildBlob(), conflictoFila.valorServidor) : null;
+        const pedirDescartar = ()=>{
+          if(!window.confirm("Descartar tu borrador\n\nSe cargará la versión del servidor y se perderá lo que tenías sin guardar. Esta acción no se puede deshacer.\n\n¿Descartar el borrador?")) return;
+          recuperarDelServidorFila();
+        };
+        const pedirConservar = ()=>{
+          const c = compararVersiones(buildBlob(), conflictoFila.valorServidor);
+          if(!window.confirm(`Guardar tu borrador sobre la versión vigente\n\nReemplaza lo que guardó la otra sesión (${c.total} diferencia${c.total===1?"":"s"} en ${c.secciones.map(x=>x.rotulo).join(", ")||"—"}). Lo de la otra sesión se pierde.\n\n¿Guardar tu versión?`)) return;
+          conservarLocalFila();
+        };
+        if(conflictoMin) return (
+          <div data-testid="conflicto-banner" style={{position:"sticky",top:0,zIndex:9998,marginBottom:10,padding:"8px 12px",borderRadius:8,
+            background:"#1f2937",border:"2px solid #f59e0b",color:"#fbbf24",fontSize:12,fontWeight:700,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+            <span>Conflicto pendiente: no se guarda nada hasta resolverlo. Estás viendo tu borrador.</span>
+            <button onClick={()=>setConflictoMin(false)} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #f59e0b",background:"transparent",color:"#fbbf24",fontWeight:700,fontSize:12,cursor:"pointer"}}>Resolver</button>
+          </div>
+        );
+        return (
+        <div data-testid="conflicto-panel" role="dialog" aria-label="Conflicto con otra sesión" style={{position:"fixed",left:"50%",top:"8%",transform:"translateX(-50%)",zIndex:9999,
+          width:"min(680px, calc(100vw - 32px))",maxHeight:"84vh",overflowY:"auto",padding:18,borderRadius:10,background:"#1f2937",
           border:"2px solid #f59e0b",boxShadow:"0 12px 40px rgba(0,0,0,0.5)",color:"#f9fafb"}}>
           <div style={{fontWeight:800,fontSize:14,marginBottom:8,color:"#fbbf24"}}>
-            Tu cambio NO se guardó: otra sesión modificó estos datos
+            {conflictoFila.alVolver
+              ? "Tienes un borrador sin guardar: otra sesión modificó estos datos"
+              : "Tu cambio NO se guardó: otra sesión modificó estos datos"}
           </div>
-          <div style={{fontSize:12,lineHeight:1.6,marginBottom:14}}>
-            Mientras esto no se resuelva no se escribe nada en el servidor, y tu cambio
-            sigue en pantalla sin perderse. No se combinan las dos versiones de forma
-            automática porque son operaciones financieras: la decisión es tuya.
-            <div style={{marginTop:8}}>
-              <strong>Recuperar la del servidor</strong> descarta lo que escribiste acá.
-              <br/>
-              <strong>Conservar la mía</strong> escribe tu versión encima de la del
-              servidor, y se pierde lo que haya hecho la otra sesión.
+          <div style={{fontSize:12,lineHeight:1.6,marginBottom:12}}>
+            {conflictoFila.alVolver && <div data-testid="conflicto-al-volver" style={{marginBottom:6}}>
+              Lo que tenías al salir se conservó{conflictoFila.borradorDesde ? ` (en conflicto desde ${new Date(conflictoFila.borradorDesde).toLocaleString("es-CL")})` : ""} y es lo que ves en pantalla. No se cargó la versión del servidor encima.
+            </div>}
+            Mientras esto no se resuelva no se escribe nada en el servidor. No se combinan las dos
+            versiones de forma automática porque son operaciones financieras: la decisión es tuya.
+            Puedes navegar a otros módulos y volver: el borrador se conserva mientras no recargues ni cierres la pestaña.
+          </div>
+          {comp && (
+            <div data-testid="conflicto-comparacion" style={{fontSize:11,background:"#111827",borderRadius:8,padding:10,marginBottom:12,border:"1px solid #374151"}}>
+              {comp.iguales ? <div>Tu borrador y la versión del servidor son iguales.</div> : <>
+                <div style={{fontWeight:700,marginBottom:6}}>{comp.total} diferencia{comp.total===1?"":"s"} entre tu borrador y la versión vigente del servidor</div>
+                {comp.secciones.map(sec=>(
+                  <div key={sec.clave} style={{marginBottom:6}}>
+                    <div style={{fontWeight:700,color:"#fbbf24"}}>{sec.rotulo} · {sec.cambios}</div>
+                    {sec.ejemplos.map((e,k)=>(
+                      <div key={k} style={{fontFamily:"monospace",color:"#d1d5db",overflowWrap:"anywhere"}}>
+                        {e.ruta||"(sección completa)"}: tuyo {e.local} · servidor {e.servidor}
+                      </div>
+                    ))}
+                    {sec.cambios>sec.ejemplos.length && <div style={{color:"#9ca3af"}}>y {sec.cambios-sec.ejemplos.length} más</div>}
+                  </div>
+                ))}
+              </>}
             </div>
-          </div>
+          )}
           <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-            <button onClick={recuperarDelServidorFila}
+            <button data-testid="conflicto-comparar" onClick={()=>setVerComparacion(v=>!v)}
+              style={{padding:"8px 14px",borderRadius:6,border:"1px solid #93c5fd",background:"#93c5fd22",color:"#bfdbfe",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+              {verComparacion ? "Ocultar comparación" : "Comparar versiones"}
+            </button>
+            <button data-testid="conflicto-descartar" onClick={pedirDescartar}
               style={{padding:"8px 14px",borderRadius:6,border:"1px solid "+C.accent,
                 background:C.accent+"22",color:C.accent,fontWeight:700,fontSize:12,cursor:"pointer"}}>
-              Recuperar la versión del servidor (descarta mi cambio)
+              Descartar mi borrador (cargar la del servidor)
             </button>
-            <button onClick={conservarLocalFila}
+            <button data-testid="conflicto-conservar" onClick={pedirConservar}
               style={{padding:"8px 14px",borderRadius:6,border:"1px solid #f59e0b",
                 background:"#f59e0b22",color:"#fbbf24",fontWeight:700,fontSize:12,cursor:"pointer"}}>
-              Conservar mi versión (reemplaza la del servidor)
+              Guardar mi borrador (reemplaza la del servidor)
+            </button>
+            <button data-testid="conflicto-minimizar" onClick={()=>setConflictoMin(true)}
+              style={{padding:"8px 14px",borderRadius:6,border:"1px solid #6b7280",background:"transparent",color:"#d1d5db",fontWeight:600,fontSize:12,cursor:"pointer"}}>
+              Revisar en pantalla
             </button>
           </div>
         </div>
-      )}
+        );
+      })()}
       {/* ── Header ─────────────────────────────────────────── */}
       <div style={{
         background:C.primary,

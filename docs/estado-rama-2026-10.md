@@ -948,6 +948,66 @@ Como los grupos son independientes, los permisos podrían integrarse **antes** y
 - Se aplica limpio sobre `3a9d33e`. Resultado: build OK; 41 pruebas (permisos + `autorizacionGuardado` de `main`); navegador 14/14.
 - **Se prepara como rama de integración recién cuando cierres la matriz (§4.3)**: si la matriz cambia, cambia el conjunto.
 
+### 7.1 Revisión contra `main` vigente (c9c5792, 13-10-2026) — sin merge
+
+La rama parte de `3a9d33e`; `main` avanzó 63 commits, entre ellos el modelo nuevo de créditos
+(`src/creditos.js`: contratos, pagos, conciliaciones, TC al corte, flujo por semana) y la fuente
+única de saldos (`src/saldosBancosUSD.js`). Comprobado buscando en `origin/main` cada función
+que introduce el grupo y leyendo cómo `main` resuelve lo mismo. **No se hizo merge**: la tabla
+dice qué se propone y cómo, para cuando decidas integrar.
+
+| Grupo (commits) | En `main` hoy | Decisión |
+|---|---|---|
+| KPI de deuda (`30ecf58`, `476560e`) | `creditos.js` (`analisisCartera`, `saldoCapitalAl`, `porConciliarCartera`) | **Superado. Excluido** (§3). |
+| Cuotas de préstamos por semana y cuotas del día 1 (`ee5eeb0`, parte de `95f071d`/`cb46698`: `cuotasPrestamosEmpresa`) | `flujoCreditosEmpresa` + `ubicarFechaFlujo` ubican cada vencimiento en su mes y semana con fechas ISO (`partesISO`, sin `new Date("AAAA-MM-DD")`) | **Superado para créditos. Excluido.** |
+| `fechaLocal` / «hoy» local fuera de créditos (`8a020f6`) | `creditos.js` tiene `hoyISO` local; `saldosBancosUSD.js` sigue leyendo la fecha del saldo con `new Date(fecha)` (UTC) | **Vigente en parte**: rehacer solo para saldos y nóminas sobre los archivos de `main`. |
+| Vista semanal que cuadra y motor único para Consolidado y Reporte (`0c1de08`, `cb46698`, `95f071d`, `a69ca01`: `motorFlujoEmpresa`, `valorLineaSemana`, `generarSemanasMes`) | No existe en `main` | **Vigente, a rehacer**: el motor debe tomar las cuotas de `flujoCreditosEmpresa` (no de `cuotasPrestamosEmpresa`). No se puede llevar tal cual. |
+| Política de TC de saldos con `maestro_tc` (`cab4009`, `0644207`, doc `7b88f83`) | `saldosBancosUSD.js`: US$ guardado al registrar (open.er-api), cuentas sin TC excluidas y avisadas | **Decisión tuya**: son dos políticas distintas. Si se mantiene `maestro_tc`, se rehace como cambio sobre `saldosBancosUSD.js`, no como archivo paralelo. |
+| Cuentas sin paridad visibles, total INCOMPLETO (`1d1ac3a`) | `sinTC` + `avisoSaldoIncompleto` en `saldosBancosUSD.js` | **Superado. Excluido.** |
+| Dashboard = Consolidado (`6407e6d`, `cajaGrupoBase`) | Dashboard sigue sumando las 8 sociedades al 100 % desde Apr-26 y con KPI de deuda fijo (8.355.763) | **Vigente, a rehacer** con `saldoBancoEmpresaUSD` (caja) y `analisisCartera` (deuda), como la franja de la rama de diseño. |
+| Rótulos: horizonte y «Créditos Q1-26» (`55a26d1`) | Rótulo de horizonte no derivado; KPI fijo sigue | **Vigente en parte**: el rótulo del KPI desaparece si se reemplaza el KPI (fila anterior). |
+| Escrituras sin cambio efectivo, `InputNumero` (`dfe3e84`, `88ce198`) | Absorbido (versión ampliada en `main`) | **Ya en `main`.** |
+| Respaldo/Restaurar v3 (`7b8e350`, `af6571f`) y auto-v4 (`d54c779`) | `main` suspendió el respaldo automático con aviso y no activa auto-v4 | **Revisar contra `main`**: el formato v3 sigue sin estar en `main`; auto-v4 queda inactivo en ambas. |
+| Manejador de errores por módulo (`e26cce2`) | `ErrorBoundary` global; la rama de diseño trae `LimiteError` por módulo | **Superado por la rama de diseño** si se integra esa; si no, vigente. |
+| Permisos (`3302695`, `1059b1c`, `fe9470f`, `2f9da34`, `4544620`, `8daee94`, `a4f2318`) | No existe (`permisos/acciones.js`, facultades, `nominas_remuneraciones`) | **Vigente**: grupo independiente; se re-aplica sobre `main` (cambian App, Finanzas y Rendiciones). |
+| Tiempo real por fila (`790a706`) | `main` se suscribe a toda la tabla (`realtime:public:calendario_data`) | **Vigente.** |
+| Borrador en conflicto al salir y volver (13-10, §7.2) | `main` tiene el mismo defecto (su `dbLoad` registra la carga encima del conflicto) | **Vigente**: el cambio es chico y se lleva sobre el `dbLoad` de `main`. |
+| Prueba de concurrencia sin reloj (13-10) | La prueba de `main` depende del reloj | **Vigente**: es solo la prueba. |
+| Documentos, prototipo, herramientas | — | No entran al build. |
+
+Etapas que se propondrían (cuando lo autorices), todas desde `main` vigente y **sin** los
+grupos superados: (1) permisos; (2) tiempo real por fila + borrador en conflicto + prueba de
+concurrencia; (3) Dashboard con caja y deuda de las fuentes de `main`; (4) motor semanal
+rehecho sobre `flujoCreditosEmpresa`; (5) política de TC, solo si decides cambiar la de `main`.
+
+### 7.2 Borrador en conflicto al salir y volver a Finanzas (13-10-2026)
+
+Defecto: con la fila `finanzas` en conflicto, salir del módulo perdía lo que la persona tenía en
+pantalla (el componente se desmonta) y al volver `dbLoad` → `registrarCarga` limpiaba el
+conflicto y mostraba lo del servidor, sin aviso. Igual en `main`.
+
+Corrección (`src/persistencia/borradorConflicto.js` + `FinanzasModule.jsx`):
+- Cada intento de guardado que termina en conflicto conserva el blob que se quería guardar como
+  **borrador** (en memoria de la pestaña; sobrevive a navegar dentro de la app, no a recargar,
+  y para eso ya está el aviso al cerrar la pestaña).
+- `dbLoad` **no registra la carga** si la fila está en conflicto pendiente y hay borrador: la
+  lectura solo sirve para comparar. Así el contrato sigue bloqueando y no se guarda nada solo.
+- Al volver, la pantalla muestra el **borrador**, no la versión del servidor, con el panel
+  «Tienes un borrador sin guardar». Opciones: **Comparar versiones** (diferencias por sección,
+  con los dos valores), **Descartar mi borrador** (con confirmación expresa), **Guardar mi
+  borrador** (con confirmación que dice cuántas diferencias de la otra sesión se reemplazan) y
+  **Revisar en pantalla** (deja un aviso fijo; la fila sigue bloqueada).
+- El panel aparece ya en el primer conflicto (antes, recién en el segundo intento).
+- Alcance: la Base (`finanzas`). Un escenario guarda un overlay y no se cubrió.
+
+Pruebas: `src/__tests__/borradorConflicto.test.js` (2) y `scripts/e2e/conflicto-borrador.mjs`
+(39 comprobaciones, dos sesiones sobre el mismo Supabase falso: B guarda, A choca, sale al Hub,
+vuelve, sigue editando; 0 escrituras mientras está pendiente; comparar; cancelar, descartar y
+guardar el borrador). **Control** contra el código anterior (`847772a`): al volver la pantalla
+mostraba FOB 0 y kg de B, y el FOB de A había desaparecido sin aviso (3 fallas); con la
+corrección, 8/8 en el mismo tramo. jest 1.846/1.846 en UTC y en hora de Chile;
+`reasignar-bandeja` y `resolver-ambiguos-bordes` OK.
+
 ## 8. Copia mínima para verificar fechas y leasing
 
 **Formato de la versión publicada:** el botón "💾 Respaldo" de `main` genera "Mediterra Hub Backup v1" (`tablas[id].data`). Es el mismo formato en `8df9862` y en `3a9d33e`, sin cambios desde el 24-09-2026, así que vale para cualquiera de los dos que esté desplegado. **Incluye `pins`: los PIN en forma de hash PBKDF2** (no es cifrado: no se pueden descifrar, pero un hash de PIN de 6 dígitos se puede probar por fuerza bruta) y los datos de todos los módulos.
