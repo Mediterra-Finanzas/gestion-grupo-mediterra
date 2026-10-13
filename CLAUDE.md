@@ -845,12 +845,22 @@ de Angelo: o no descuenta (se cobra/paga al liquidar, como un sin-fecha
 histórico) o se declara como monto no proyectable aparte. No se cambió en el
 cierre de oct-2026 por no tener dato real con el que validarlo.
 
-#### Limitación conocida — costos de ciruelas
+#### Ciruelas conectadas al flujo (oct-2026)
 
-`calcAllegria` calcula `cost/mat/srv` de ciruelas pero `buildAllegria` no tiene líneas de
-flujo para ellos: los anticipos de productor, saldo, materiales y servicios de ciruelas no
-llegan al flujo ni al Excel. Está avisado en pantalla. Pendiente aparte (decisión contable
-de Angelo), no se arregló en el cambio de anticipos.
+Antes solo «Liquidación Ciruelas» llegaba al flujo; costo de fruta, materiales y
+servicios se calculaban y no iban a ninguna línea. Ahora `buildAllegria` tiene
+«Costo Fruta Ciruelas», «Materiales Ciruelas» y «Servicios de Packing Ciruelas»
+(`cost/mat/srv.ciruelas`), y el Excel las arma en Parametros con los parámetros
+PROPIOS de ciruelas (columnas CC/MC/SC), nunca con las tarifas de cerezas.
+`diagnosticoCiruelas(p, sk)` lista lo que falta (kilos, FOB, materiales y
+servicios US$/kg, precio neto > 0, mes de liquidación, mes de saldo productor,
+calendarios que sumen 100%) y marca `ingresoSinEgreso` cuando el cliente
+proyecta caja y alguno de los tres egresos no proyecta nada. Se muestra en el
+panel de ciruelas y viaja al Excel (`avisosCiruelas`, individual y consolidado).
+No hay bloqueo automático: no se activa el mes de liquidación mientras falten
+datos. Prueba: `src/__tests__/ciruelasFlujo.test.js` (con `RECALC=1`, Excel
+recalculado = app mes a mes).
+
 #### Identidad de una línea = categoría + etiqueta (sep-2026)
 
 Dos categorías pueden tener conceptos con el MISMO nombre y es válido:

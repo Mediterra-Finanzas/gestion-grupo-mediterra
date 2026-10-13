@@ -161,11 +161,19 @@ test('un override del mismo mes sí se avisa en la temporada que lo contiene', (
   verTexto(/May-26/);
 });
 
-test('ciruelas: informa que sus costos no llegan al flujo', () => {
+test('ciruelas: dice qué parámetros propios faltan para conectar ingreso y egresos', () => {
   const p = { "2026-2027": { ciruelas:{ kg:100000, fob_usd_kg:1, desc_exp_pct:0, mat_usd_kg:0, srv_usd_kg:0,
     anticipos_cliente:[], anticipos_productor:[], dist_mat:[], dist_srv:[] } } };
   render(<ParamsFruta seasonKey="2026-2027" fruta="ciruelas" params={p} setParams={()=>{}}/>);
-  verTexto(/NO están conectados a ninguna línea del flujo/);
+  verTexto(/Ciruelas 2026-2027: faltan materiales US\$\/kg · servicios de packing US\$\/kg · mes de liquidación del cliente · mes de saldo al productor/);
+  verTexto(/no actives el mes de liquidación del cliente/);
+});
+
+test('ciruelas: ingreso proyectado sin egresos se declara como caja sobrestimada', () => {
+  const p = { "2026-2027": { ciruelas:{ kg:100000, fob_usd_kg:1, desc_exp_pct:0, mat_usd_kg:0, srv_usd_kg:0,
+    mes_liquidacion:"Mar-27", anticipos_cliente:[], anticipos_productor:[], dist_mat:[], dist_srv:[] } } };
+  render(<ParamsFruta seasonKey="2026-2027" fruta="ciruelas" params={p} setParams={()=>{}}/>);
+  verTexto(/Ingreso de ciruelas proyectado \(\$100,000\) sin costo de fruta, materiales, servicios de packing: la caja está sobrestimada/);
 });
 
 test('modo solo lectura: sin botones de registro ni de borrado', () => {

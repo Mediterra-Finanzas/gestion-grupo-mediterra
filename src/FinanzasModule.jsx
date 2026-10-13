@@ -677,6 +677,47 @@ export function calcAllegria(params) {
   return { ing, cost, mat, srv, recup, devol };
 }
 
+// Ciruelas: qué falta para que ingreso y egresos lleguen completos al flujo.
+// No usa ninguna tarifa de cerezas: solo los parámetros propios de la fruta.
+// `ingresoSinEgreso` = el cliente proyecta caja y alguno de los egresos
+// (costo de fruta, materiales o servicios) no proyecta nada.
+export function diagnosticoCiruelas(p, sk = "") {
+  const n = (v) => Number(v) || 0;
+  const kg = n(p?.kg), fob = n(p?.fob_usd_kg), desc = n(p?.desc_exp_pct), matU = n(p?.mat_usd_kg), srvU = n(p?.srv_usd_kg);
+  const sumaPct = (arr) => (arr || []).reduce((a, d) => a + n(d?.pct), 0);
+  const mesOk = (m) => mIdx(m) >= 0;
+  const faltantes = [];
+  if (kg <= 0) faltantes.push("kilos");
+  if (fob <= 0) faltantes.push("FOB US$/kg");
+  if (matU <= 0) faltantes.push("materiales US$/kg");
+  if (srvU <= 0) faltantes.push("servicios de packing US$/kg");
+  if (fob > 0 && fob * (1 - desc / 100) - matU - srvU <= 0) faltantes.push("precio neto al productor > 0 (FOB × (1 − desc%) − materiales − servicios)");
+  if (!mesOk(p?.mes_liquidacion)) faltantes.push("mes de liquidación del cliente");
+  if (!mesOk(p?.mes_saldo_productor)) faltantes.push("mes de saldo al productor");
+  if (matU > 0 && Math.abs(sumaPct(p?.dist_mat) - 100) > 0.001) faltantes.push(`calendario de materiales (suma ${sumaPct(p?.dist_mat)}%, debe ser 100%)`);
+  if (srvU > 0 && Math.abs(sumaPct(p?.dist_srv) - 100) > 0.001) faltantes.push(`calendario de servicios (suma ${sumaPct(p?.dist_srv)}%, debe ser 100%)`);
+  const r = calcAllegria(sk ? { [sk]: { ciruelas: p } } : {});
+  const tot = (a) => (a?.ciruelas || []).reduce((x, v) => x + v, 0);
+  const ingreso = tot(r.ing), costo = tot(r.cost), materiales = tot(r.mat), servicios = tot(r.srv);
+  const egresosEnCero = [["costo de fruta", costo], ["materiales", materiales], ["servicios de packing", servicios]]
+    .filter(([, v]) => !(v > 0)).map(([t]) => t);
+  const ingresoSinEgreso = ingreso > 0 && egresosEnCero.length > 0;
+  const relevante = kg > 0 || fob > 0 || ingreso > 0 || costo > 0 || materiales > 0 || servicios > 0;
+  return { faltantes, ingreso, costo, materiales, servicios, egresosEnCero, ingresoSinEgreso, relevante, completo: faltantes.length === 0 };
+}
+// Avisos de ciruelas para el Excel de Allegria Foods (subtítulo y pie).
+export function avisosCiruelas(paramsAllegria) {
+  const out = [];
+  Object.keys(paramsAllegria || {}).sort().forEach(sk => {
+    const p = paramsAllegria[sk]?.ciruelas; if (!p) return;
+    const dg = diagnosticoCiruelas(p, sk);
+    if (!dg.relevante) return;
+    if (dg.ingresoSinEgreso) out.push(`⚠ Ciruelas ${sk}: ingreso proyectado ${$$(dg.ingreso)} sin ${dg.egresosEnCero.join(", ")}. La caja está sobrestimada.`);
+    if (dg.faltantes.length) out.push(`ℹ Ciruelas ${sk}: faltan ${dg.faltantes.join(" · ")}.`);
+  });
+  return out;
+}
+
 function semanaDeDate(d) {
   const date = new Date(d);
   const jan1 = new Date(date.getFullYear(),0,1);
@@ -1601,6 +1642,10 @@ export function buildAllegria(params, allegraComisionArandanos) {
         {label:"Materiales",                         proy:[...mat.cerezas],   formula:true},
         {label:"Seguros Exportación",                proy:Z65()},
         {label:"Servicios de Packing",               proy:[...srv.cerezas],   formula:true},
+        // Ciruelas: mismos conceptos, con SUS parámetros (nunca las tarifas de cerezas).
+        {label:"Costo Fruta Ciruelas",               proy:[...cost.ciruelas], formula:true},
+        {label:"Materiales Ciruelas",                proy:[...mat.ciruelas],  formula:true},
+        {label:"Servicios de Packing Ciruelas",      proy:[...srv.ciruelas],  formula:true},
         {label:"Servicios Terceros / Arriendo Bodegas", proy:Z65()},
         {label:"Devolución de anticipos a clientes", proy:sumaFrutas(devol), formula:true, noEsCosto:true},
       ]},
@@ -2274,7 +2319,7 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
   // mientras existan, el flujo muestra el valor manual y NO el calculado.
   const lineasDeFruta = fruta==="cerezas"
     ? ["Anticipo Cerezas","Costo Fruta Exportación"]
-    : fruta==="ciruelas" ? ["Liquidación Ciruelas"] : [];
+    : fruta==="ciruelas" ? ["Liquidación Ciruelas","Costo Fruta Ciruelas","Materiales Ciruelas","Servicios de Packing Ciruelas"] : [];
   // Solo los overrides de los meses de ESTA temporada: un valor manual en un mes
   // de otra temporada no tiene nada que ver con los parámetros que se editan acá.
   // Si la temporada no está en SEASONS, mesesTemporada devuelve MESES_65 y el
@@ -2450,13 +2495,18 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
               {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
             <ResumenLado r={resProd} esCli={false} C={C} $$={$$} mesLiq={p.mes_saldo_productor||""}/>
-            {fruta==="ciruelas"&&(
-              <div style={{fontSize:9,color:C.warning,marginTop:8,lineHeight:1.5}}>
-                Limitación conocida (pendiente aparte, fuera de este cambio): los costos de ciruelas —anticipos productor,
-                saldo, materiales y servicios— se calculan pero NO están conectados a ninguna línea del flujo de Allegria Foods.
-                Lo que cargues acá no llega al flujo ni al Excel.
-              </div>
-            )}
+            {fruta==="ciruelas"&&(()=>{
+              const dg = diagnosticoCiruelas(p, seasonKey);
+              if(!dg.relevante) return null;
+              return (
+                <div data-testid="diagnostico-ciruelas" style={{fontSize:9,color:dg.ingresoSinEgreso?C.danger:C.warning,marginTop:8,lineHeight:1.5}}>
+                  {dg.ingresoSinEgreso&&<div><strong>Ingreso de ciruelas proyectado ({$$(dg.ingreso)}) sin {dg.egresosEnCero.join(", ")}: la caja está sobrestimada.</strong></div>}
+                  {dg.faltantes.length>0
+                    ? <div>Ciruelas {seasonKey}: faltan {dg.faltantes.join(" · ")}. Mientras falten, no actives el mes de liquidación del cliente.</div>
+                    : <div>Ciruelas {seasonKey}: parámetros propios completos. Ingreso, costo de fruta, materiales y servicios van a sus líneas del flujo.</div>}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
@@ -4672,7 +4722,7 @@ export function buildEmpresasConOverrides(empresas, realData, addedLinesGlobal, 
 // ═══════════════════════════════════════════════════════════════════
 // CONSOLIDADO — dentro de Flujo Empresas
 // ═══════════════════════════════════════════════════════════════════
-function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={},escenarioNombre=null,paramsPart={},onSaveParamsPart=null,creditosData=null}) {
+function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subLinesGlobal={},escenarioNombre=null,paramsPart={},onSaveParamsPart=null,creditosData=null,avisosExtraPorEmp={}}) {
   const empNames=Object.keys(empresas);
   // Consolidación proporcional de Allpa (opción por empresa): se puede incluir
   // Allpa Chile, Allpa Perú, o ambas al mismo tiempo — cada una escalada por su
@@ -5124,7 +5174,7 @@ function Consolidado({empresas,saldosBancos,realData={},addedLinesGlobal={},subL
               try{
                 const avisosPorEmp={};
                 empNamesConsolidado.forEach(n=>{
-                  const av=avisosDeEmpresa(realData, empresasConOverrides, n, {creditos:creditosData, empresasBase:empresas});
+                  const av=[...avisosDeEmpresa(realData, empresasConOverrides, n, {creditos:creditosData, empresasBase:empresas}), ...(avisosExtraPorEmp[n]||[])];
                   if(avisosSaldoIncompleto[n]) av.push(avisosSaldoIncompleto[n]);
                   if(av.length) avisosPorEmp[n]=av;
                 });
@@ -15529,7 +15579,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                     const mesX=`${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][hoyX.getMonth()]}-${String(hoyX.getFullYear()).slice(2)}`;
                     const notasSaldo=notasSaldoInicial(saldosBancos, empTab, {hoy:hoyX, mesLabel:mesX, fallback:empresas[empTab]?.saldo_ini});
                     const avisoSaldo=saldosBancos?avisoSaldoIncompleto(saldoBancoEmpresaUSD(saldosBancos,empTab)):null;
-                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}, avisos:[...avisosDeEmpresa(realData, empresasConOverridesMain, empTab, {creditos:creditosVal, empresasBase:empresas}), ...(avisoSaldo?[avisoSaldo]:[])], notasSaldo});
+                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}, avisos:[...avisosDeEmpresa(realData, empresasConOverridesMain, empTab, {creditos:creditosVal, empresasBase:empresas}), ...(empTab==="Allegria Foods"?avisosCiruelas(params):[]), ...(avisoSaldo?[avisoSaldo]:[])], notasSaldo});
                     setEmpExportMsg("✓ "+f);
                   }catch(e){ console.error(e); setEmpExportMsg("✗ Error al exportar"); }
                   setTimeout(()=>setEmpExportMsg(null),5000);
@@ -15610,7 +15660,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           {/* Consolidado */}
           {empTab==="_consolidado"&&accesoCompletoEmpresas&&(
             <Consolidado empresas={empresas} saldosBancos={saldosBancos} realData={realData} addedLinesGlobal={addedLinesGlobal} subLinesGlobal={subLines}
-              creditosData={creditosVal}
+              creditosData={creditosVal} avisosExtraPorEmp={{"Allegria Foods":avisosCiruelas(params)}}
               paramsPart={paramsPart} onSaveParamsPart={puedoEdit("flujo")?handleSaveParamsPart:null}
               escenarioNombre={escActivo ? (escenarios.find(e=>e.id===escActivo)?.name || "Escenario") : null}/>
           )}
