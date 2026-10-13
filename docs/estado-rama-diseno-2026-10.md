@@ -1008,3 +1008,32 @@ inyectada), `src/FinanzasModule.jsx` (DD12, diálogos, botones, umbrales, análi
 `*.vercel.app`) y `scripts/vista-previa/semilla-diseno.mjs` (nóminas ficticias).
 
 Sin cambios de cálculos financieros, remuneraciones, permisos ni persistencia.
+
+## Osiris con el sistema común (rama `claude/diseno-osiris`, 13-10-2026)
+
+Base: rama de diseño (041080d) + `main` integrado dos veces: ee229d4 y 778a397.
+778a397 trae lo que toca Osiris: activaciones de reajuste habilitadas, `ACTIVACIONES_NUEVAS_HABILITADAS = true`.
+Se tomó la versión de `main` en `reajusteAplicado.js` y `versionRecuperacion.test.js`.
+En Finanzas se conservan los avisos de créditos de `main` (fecha estimada y fuera de horizonte) y, del lado de diseño, el logo del Excel y `useLetraFlujo`.
+`OsirisModule.jsx` y la navegación no cambiaron en `main` entre esas versiones.
+
+**Qué cambia en Osiris (solo pantalla):**
+- El encabezado oscuro (`NavBar`) pasa a `EncabezadoModulo`, con la misma ruta y el logo de Osiris a alto fijo, sin deformar.
+- «Por cobrar» pasa a ser contexto del encabezado.
+- Se mantienen los botones Osiris Hub, ← Mediterra y Salir. Los dos últimos llevan `mdt-dup-nav`.
+- El logo grande del hub y las tarjetas no cambian.
+- 11 `window.prompt` se reemplazan por `pedirTexto`, el diálogo de la app.
+- Marcar pagada una cuota de una OC de vivero revisa ahora que la OC no haya cambiado mientras se respondía (`avisarDesactualizado`). Con el diálogo de la app la pantalla deja de quedar bloqueada.
+
+**Evidencia** (local, build congelado, Chromium emulado, datos ficticios):
+- `CI=true` build OK.
+- jest 2.111 pasan (74 omitidas), en UTC y en America/Santiago.
+- `osiris-encabezado.mjs`: 53/53 en computador y teléfono. Cubre los 7 sub-módulos, la vuelta al hub, «Por cobrar», el diálogo «Agregar país» y su cancelación, que la navegación no escribe la fila `osiris` y que no aparecen diálogos nativos.
+- `ajustes-muestra` (Osiris): 21/21. El PDF y el Excel tienen las mismas páginas, texto y celdas que el build anterior. El logo mantiene su proporción y el GIF de especies queda completo y animado.
+- `creditos.mjs`, `creditos-fecha-estimada.mjs` y `avisos-creditos-excel.mjs`, todos OK.
+
+**Pendiente:**
+- Quedan 3 `window.prompt` (reajuste, retiro y baja): `pantallaReajuste.test.js` simula el prompt síncrono. Con las activaciones ya habilitadas en `main`, conviene migrarlos junto con esa prueba.
+- Quedan 51 `confirm` y 76 `alert`.
+- El circuito de aprobación de contratos y anexos no tiene `Circuito`.
+- La vista previa no se actualizó: sigue siendo la v15.
