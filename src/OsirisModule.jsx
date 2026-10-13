@@ -8,6 +8,7 @@ import HomeEjecutivo from "./ux/HomeEjecutivo";
 import { theme } from "./theme";
 import { EncabezadoModulo } from "./diseno/componentes.jsx";
 import { pedirTexto, useUltimo, huella, sigueIgual, avisarDesactualizado } from "./diseno/dialogos.jsx";
+import { estadoFirmasContrato } from "./osiris/estadoFirmas";
 import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
 import { ubicacionMenuEstado, anclaVisible, ANCHO_MENU_ESTADO } from "./osiris/menuEstado";
 import { catalogoFenologicoCombinado, estadoFenologicoVigente, laboresDeEstado } from "./osiris/fenologia";
@@ -7981,6 +7982,10 @@ function OrdenesCompraSec({r, upd, can, ocsVivero=[]}) {
 // integracion. Las reglas de linter controlan el texto del codigo; esta
 // prueba ejecuta el codigo. Son cosas distintas y hacen falta las dos.
 export function ControlContratos({data,setData,clientes,setClientes,variedadesMaestro=[],setVariedadesMaestro,especiesMaestro=[],setEspeciesMaestro,obtentoresData=[],viverosData=[],setViveros,can,tiposAnexoPersist,setTiposAnexoPersist,tiposContratoPersist,setTiposContratoPersist,usuarioActual={}}){
+  // Diálogos de la app: no bloquean la página como window.prompt. Una acción que escribe
+  // el contrato con lo que tenía al preguntar revisa antes que no haya cambiado.
+  const dataActual = useUltimo(data);
+  const huellaContrato = (id) => huella((dataActual.current||[]).find(x=>x&&x.id===id));
   const [vista,setVista]=useState("tabla");
   const [sel,setSel]=useState(null);
   const [sec,setSec]=useState("empresa");
@@ -8405,6 +8410,32 @@ Retención: ${e.pctAntes} % → ${e.pctDespues} %.
           {can&&<button onClick={()=>eliminar(r.id)} style={{background:C.dangerBg,border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,color:C.danger,fontWeight:600}}>🗑 Eliminar</button>}
         </div>
 
+        {/* Firmas y anexos: lo que la app ya registra, en un solo lugar (src/osiris/estadoFirmas.js).
+            No es un circuito de aprobación: quién marca cada firma y en qué orden no está definido. */}
+        {(()=>{ const ef=estadoFirmasContrato(r); const chip=(ok)=>({fontSize:11,borderRadius:20,padding:"3px 10px",fontWeight:600,
+            background:ok?C.verdeBg:C.amBg,color:ok?C.verde:C.am});
+          const ra=ef.resumenAnexos;
+          return(
+          <section aria-label="Firmas y anexos" data-testid="estado-firmas" style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",marginBottom:14}}>
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              <strong style={{fontSize:12,color:C.sl,marginRight:4}}>Firmas</strong>
+              {ef.firmas.map(f=>(
+                <span key={f.quien} style={chip(f.hecho)}>{f.hecho?"✓":"⏳"} {f.quien==="Licenciado"?`Licenciado (${f.nombre})`:"Osiris"}: {f.hecho?"firmado":"pendiente"}</span>
+              ))}
+              <span style={chip(ef.documento)}>{ef.documento?"📎 Contrato adjunto":"Sin documento adjunto"}</span>
+              <span style={{fontSize:11,color:C.sl}}>
+                Anexos: {ra.activos} activo{ra.activos===1?"":"s"} · {ra.firmadosAmbos} con ambas firmas
+                {ra.conFirmaPendiente?` · ${ra.conFirmaPendiente} con firma pendiente`:""}
+                {ra.sinFirmasRegistradas?` · ${ra.sinFirmasRegistradas} sin firmas registradas`:""}
+                {ra.retirados?` · ${ra.retirados} retirado${ra.retirados===1?"":"s"}`:""}
+              </span>
+            </div>
+            {ef.observaciones.length>0&&<ul style={{margin:"6px 0 0",paddingLeft:18,fontSize:11,color:C.am}}>
+              {ef.observaciones.map((o,i)=><li key={i}>{o}</li>)}
+            </ul>}
+            <div style={{fontSize:10,color:C.muted2,marginTop:4}}>Quién marca cada firma y en qué orden no está definido en la app; se muestra lo registrado.</div>
+          </section>); })()}
+
         <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
           {SECCIONES_CT.map(s=>(
             <button key={s.id} onClick={()=>setSec(s.id)}
@@ -8729,14 +8760,16 @@ Retención: ${e.pctAntes} % → ${e.pctDespues} %.
                     };
                     // Un anexo con documento o con plantaciones vinculadas NO se borra:
                     // se retira y queda inactivo, con su documento y su historial.
-                    const eliminarExtra = () => {
+                    const eliminarExtra = async () => {
                       const actual = (Array.isArray(r.anexosExtra)?r.anexosExtra:[])[idxExtra];
                       if(tieneRespaldo(actual)){
-                        const motivo = window.prompt(
+                        const hAntes = huellaContrato(r.id);
+                        const motivo = await pedirTexto(
                           `${label} tiene documento o plantaciones vinculadas. No se elimina: queda retirado, conservando el documento y el historial.
 
-Motivo del retiro:`, "");
+Motivo del retiro:`, "", {titulo:"Retirar anexo", etiqueta:"Motivo del retiro", aceptar:"Retirar"});
                         if(motivo===null) return;
+                        if(huellaContrato(r.id)!==hAntes){ await avisarDesactualizado("El contrato"); return; }
                         const extras = Array.isArray(r.anexosExtra)?[...r.anexosExtra]:[];
                         extras[idxExtra] = retirarAnexo(actual,{motivo, usuario:usuarioActual?.nombre||usuarioActual?.email||"", fecha:new Date().toISOString()});
                         upd(r.id, "anexosExtra", extras);
@@ -9484,12 +9517,14 @@ Motivo del retiro:`, "");
                           </td>
                           <td style={{padding:"6px 8px",textAlign:"center"}}>
                             {/* P2 · La baja conserva el registro: nunca se elimina la fila. */}
-                            {can&&!esBaja(p)&&<button onClick={()=>{
-                              const motivo = window.prompt(
+                            {can&&!esBaja(p)&&<button onClick={async()=>{
+                              const hAntes = huellaContrato(r.id);
+                              const motivo = await pedirTexto(
                                 `Dar de baja la plantación "${p.especie} · ${p.variedad}".\n\n${AVISO_BAJA_SIN_EFECTO}\n\nEl registro se conserva y se puede reactivar.\n\nMotivo de la baja:`,
-                                ""
+                                "", {titulo:"Dar de baja la plantación", etiqueta:"Motivo de la baja", aceptar:"Dar de baja"}
                               );
                               if(motivo===null) return;
+                              if(huellaContrato(r.id)!==hAntes){ await avisarDesactualizado("El contrato"); return; }
                               const next = (r.plantaciones||[]).map(x=>x.id===p.id
                                 ? darDeBajaPlantacion(x,{motivo, usuario:usuarioActual?.nombre||usuarioActual?.email||"", fecha:new Date().toISOString()})
                                 : x);
@@ -10187,7 +10222,7 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                               el registro retirado; aca un registro retirado si debe
                               ofrecer reactivacion, con los terminos conservados. */}
                           {hayRegistroVigente(r)
-                            ? <button disabled={!can||!puedeDesactivar(r,{puedeEditar:can}).puede} onClick={()=>{
+                            ? <button disabled={!can||!puedeDesactivar(r,{puedeEditar:can}).puede} onClick={async()=>{
                                 const pm = puedeDesactivar(r,{puedeEditar:can});
                                 if(!pm.puede){ window.alert(pm.motivo); return; }
                                 const ident = identidadDe(usuarioActual);
@@ -10215,12 +10250,15 @@ ${res.resumen.yaEstabanEnRevision} ya estaba(n) esperando revisión y no se repi
                                     "aplicado ("+act.motivo.replace(/\*\*/g,"")+")\n\n"+
                                     "El registro, sus terminos y su historial se conservan, con constancia de la baja.\n\n"
                                   : "Desactivar devuelve importes a la base.\n\n";
-                                const motivo = window.prompt(
+                                const hAntes = huellaContrato(r.id);
+                                const motivo = await pedirTexto(
                                   encabezado+lineas+
                                   "\n\nFilas que bajan: "+pd.filasQueBajan+
                                   "\nSe deja de aplicar: US$ "+Math.abs(pd.diferencia).toFixed(2)+
-                                  "\n\n¿Por que se retira? (obligatorio)");
+                                  "\n\n¿Por que se retira? (obligatorio)", "",
+                                  {titulo:"Retirar el registro de reajuste", etiqueta:"Motivo (obligatorio)", aceptar:"Continuar", obligatorio:true});
                                 if(!motivo||!motivo.trim()) return;
+                                if(huellaContrato(r.id)!==hAntes){ await avisarDesactualizado("El contrato"); return; }
                                 const ok = window.confirm(enConflicto
                                   ? "¿Confirmas retirar el registro? Los importes no cambian: la configuracion antigua sigue operando."
                                   : nadaAplicado
