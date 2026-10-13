@@ -715,7 +715,13 @@ omitida) y los Excel las nombran y rotulan el total "INCOMPLETO". `toUSD` devuel
 `null` (no 0) si la fuente no trae la moneda. Tests: `src/__tests__/sinParidad.test.js`,
 `scripts/e2e/sin-paridad.mjs`.
 
-#### Capital por vencer de créditos (oct-2026)
+#### Capital por vencer de créditos (oct-2026) — SUPERADO, no integrar
+
+**Superado (13-10-2026):** `main` reemplazó el modelo de créditos (`src/creditos.js`:
+contratos, pagos registrados, conciliaciones, TC al corte). Este cálculo es del modelo
+anterior y queda excluido de la integración; la deuda vigente sale de `valorizarCreditos` +
+`analisisCartera`. Ver `docs/estado-rama-2026-10.md` §3. Registro histórico:
+
 
 `capitalPendienteCreditos(creditos, corteISO)` alimenta el KPI del Dashboard (6
 sociedades consolidadas; JV aparte) y Créditos ("Capital por vencer", "Por

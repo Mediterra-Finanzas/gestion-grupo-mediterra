@@ -212,6 +212,16 @@ Fuente única: `maestro_tc`, con la política `maestro_tc_v1` (`src/tc/conversio
 
 ## 3. KPI de deuda
 
+> **SUPERADO (13-10-2026) — no se integra.** Este cálculo (`capitalPendienteCreditos`,
+> `verificarLeasing`; commits `30ecf58` y `476560e`) se escribió sobre el modelo de créditos
+> de `3a9d33e` (marca `pagado`, `f_venc`, `cuota`). `main` lo reemplazó después por
+> `src/creditos.js` (`d867f27`, `0ed9a51`, `b5dd6cc`): contratos con calendario, pagos
+> registrados, conciliaciones y TC al corte. El cálculo de esta sección no conoce los créditos
+> tipo «contrato» ni los pagos registrados. **Queda excluido de toda propuesta de integración**;
+> la deuda se toma de `valorizarCreditos` + `analisisCartera` de `src/creditos.js` (así lo usa
+> la franja ejecutiva de la rama de diseño). Lo que sigue queda como registro histórico.
+
+
 Con datos **ficticios** (créditos por defecto) y corte al 07-10-2026:
 
 | Concepto | US$ |
@@ -912,7 +922,7 @@ El "💾 Respaldo" v3 de la rama (saneado) no está publicado: no se cuenta como
 | Grupo | Commits (orden) | Depende de |
 |---|---|---|
 | Fechas y semanal | `0c1de08` → `cb46698`, `ee5eeb0`, `95f071d` → `8a020f6` → `a69ca01` | `cuotasPrestamosEmpresa`, `semanaEnMes`, `fechaLocal`, `posicionSemana`, `hoyISOlocal` |
-| Créditos (KPI) | `30ecf58` → `476560e` | `fechaLocal` (`ee5eeb0`) |
+| ~~Créditos (KPI)~~ **excluido** | ~~`30ecf58` → `476560e`~~ | superado por `src/creditos.js` de `main` (§3); no se propone |
 | Tipo de cambio | `1d1ac3a` → `cab4009` → `0644207` | `cuentasSinParidad` (`1d1ac3a`) |
 | Respaldo | `7b8e350` → `af6571f` | `armarRespaldoDescargable` |
 | Independientes | `e26cce2` (ErrorBoundary), `6407e6d` (Dashboard = Consolidado), `55a26d1` (rótulos), `d54c779` (auto-v4, inactivo), **`3302695` (permisos)** | — |

@@ -6,6 +6,9 @@
 #             cuentas sin paridad visibles, documentos y pruebas.
 #   Etapa 2 = la rama completa (agrega cab4009 + 0644207: conversión de saldos con maestro_tc).
 # El prototipo (prototipo/) no entra al build en ninguna etapa y NO se propone integrarlo.
+# SUPERADO (13-10-2026): el "KPI de capital" (30ecf58, 476560e) quedó superado por
+# src/creditos.js de main y NO se propone integrar (docs/estado-rama-2026-10.md §3). Esta
+# receta es de la base 3a9d33e; una integración nueva parte de main vigente sin esos commits.
 #
 # Uso:  bash scripts/integracion/armar-etapa1.sh <carpeta-destino>
 # Después: cd <carpeta>; ln -s <repo>/node_modules; CI=true npx react-scripts build; suite jest; e2e.
