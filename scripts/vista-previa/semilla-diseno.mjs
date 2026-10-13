@@ -125,5 +125,23 @@ export function storeDiseno(hoy = new Date()) {
   st.maestro_tc = { updated_at: hace(0.3), value: { 'USD-CLP': [{ fecha: dia(-2), valor: 950, fuente: 'manual' }] } };
   st.nominas_v2_done = { value: JSON.stringify({ migrado: true }), updated_at: hace(0.3) };
   st.nominas_osiris = { updated_at: hace(0.3), value: JSON.stringify({ nominas: [nom('NOMP', 3, 'preparada', 41), nom('NOMR', 2, 'aprobada1', 40), nom('NOMA', 1, 'aprobada', 39)] }) };
+  // Registro de auditoría FICTICIO (fila `audit_log`): permite probar el listado y
+  // su exportación a Excel. Incluye caracteres que el XML debe escapar (& < > ")
+  // y acentos, para comprobar que llegan intactos al archivo.
+  const ev = (n, horas, usuario, rol, accion, modulo, seccion, descripcion, campo = '', antes = '', despues = '') => ({
+    id: `ev_ficticio_${n}`, timestamp: new Date(hoy.getTime() - horas * 3600e3).toISOString(),
+    usuario, email: `${usuario.split(' ')[0].toLowerCase()}@ejemplo.test`, rol, accion, modulo, seccion, descripcion,
+    registroId: '', campo, valorAnterior: antes, valorNuevo: despues });
+  st.audit_log = { updated_at: hace(0.2), value: { eventos: [
+    ev(1, 50, 'Angelo Huerta', 'admin', 'login', 'sistema', 'acceso', 'Inicio de sesión'),
+    ev(2, 49, 'Carol Ejemplo', 'editor', 'editar', 'finanzas', 'Saldos Bancos', 'Actualizó saldo Banco Ficticio A', 'monto', '80000', '85000'),
+    ev(3, 30, 'Michelle Ejemplo', 'editor', 'crear', 'finanzas', 'Nóminas', 'Creó nómina semana 41 — Osiris'),
+    ev(4, 26, 'Angelo Huerta', 'admin', 'aprobar', 'finanzas', 'Nóminas', 'Aprobó nómina NOMA (1.ª firma)'),
+    ev(5, 20, 'Pablo Ejemplo', 'editor', 'editar', 'finanzas', 'Créditos', 'Tasa & plazo del crédito F1 <ficticio>', 'tasa', '8,5%', '"9,0%"'),
+    ev(6, 12, 'Lucía Ejemplo', 'consulta', 'consultar', 'finanzas', 'Dashboard', 'Revisó el Dashboard'),
+    ev(7, 6, 'Angelo Huerta', 'admin', 'exportar', 'finanzas', 'Flujo Consolidado Waterfall', 'Exportó flujo consolidado waterfall — Temporada 2026-2027'),
+    ev(8, 3, 'Carol Ejemplo', 'editor', 'rechazar', 'rendiciones', 'Por Aprobar', 'Devolvió rendición R-003: falta boleta'),
+    ev(9, 1, 'Angelo Huerta', 'admin', 'cambio_permiso', 'sistema', 'usuarios', 'Cambió permiso de Lucía Ejemplo', 'bancos', 'sin_acceso', 'ver'),
+  ] } };
   return st;
 }

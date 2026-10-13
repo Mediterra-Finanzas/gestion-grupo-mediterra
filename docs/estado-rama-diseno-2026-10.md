@@ -722,19 +722,138 @@ título, con su proporción, a la derecha del texto del título y dentro de la p
 | Reporte Semanal PDF | **Cambiado**: cada página de empresa lleva el logo de esa empresa; portada y páginas del grupo, Mediterra. El formato (PNG/JPEG) se toma de la imagen |
 | Excel de la nómina | **Nuevo**: logo de la empresa de la nómina |
 | Excel consolidado (Waterfall) | **Nuevo**: Mediterra |
-| Excel de Auditoría | **Nuevo**: Mediterra (no ejercitado en navegador: sin eventos en los datos de prueba) |
+| Excel de Auditoría | **Nuevo**: Mediterra (probado el 13-10 con eventos ficticios, ver §6k) |
 | Rendiciones PDF/Excel, Expediente PDF de nómina | Ya traían el logo de su empresa (sin cambio) |
 | Osiris PDF/Excel · PO y reportes de Frisku | Ya traían el de su empresa (sin cambio) |
 | Flujo por empresa y consolidado (`flujoExportExcel.js`), Créditos (conciliación, saldo de deuda), Contabilidad, EEFF, ANF | **Sin logo, pendiente**: se generan con SheetJS (`XLSX.writeFile`), que no inserta imágenes. Agregarlo exige post-procesar el archivo o reservar filas arriba, y el Excel del flujo tiene fórmulas verificadas con recálculo real: va como cambio aparte |
 
 Observación previa, sin tocar: en el Reporte Semanal la página que la tabla de compromisos agrega
 sola al continuar (p. 3 con los datos de prueba) no tiene encabezado ni logo. Corregirlo cambia la
-paginación.
+paginación. **Resuelto el 13-10, ver §6k.**
 
 Pruebas (build congelado `main.38465d09.js`, el de la vista previa versión 12; Chromium emulado, datos ficticios): `logoEmpresaExport.test.js` (5) y
 `ajustes-muestra.mjs` con `EXPORTS=semanal,nomina,consolidado` 12/12 (páginas 7 a 13 con el logo de
 su empresa por tamaño de imagen; Excel con el logo correcto byte a byte, sin deformar, y abiertos
 en LibreOffice con el logo visible); jest 1.778/1.778 en UTC y en hora de Chile.
+
+## 6k. Waterfall, Auditoría, continuación del Reporte y propuesta para SheetJS (13-10)
+
+### 1. Perímetro del Waterfall: defecto financiero, corregido en rama aparte
+
+El «Total Consolidado» del Waterfall **no** era el consolidado. Sumaba Allpa Farms Perú al 100 % y
+dejaba fuera Allpa Farms Chile, con el mismo código en `main` (c9c5792). Con datos ficticios
+(Chromium emulado, Supabase falso):
+
+| Temporada 2026-2027 (US$) | Waterfall antes | Consolidado (6) | Diferencia = Allpa Perú al 100 % |
+|---|---|---|---|
+| Total saldo caja | 413.433 | 205.433 | 208.000 (saldo estático del código, no un saldo bancario) |
+| Total flujo del período | 2.528.080 | 1.334.508 | 1.193.572 |
+| Saldo final caja | 2.229.559 | 2.181.662 (= «Cierre 2026-2027» del Consolidado) | 47.897 |
+| Participación controladora | 2.244.938 | 2.232.484 | 12.453 (= 47.897 × 26 %) |
+
+Saldo caja: 85.000 + 31.000 + 0 + 22.000 + 50.000 + 17.433 = 205.433. Antes se sumaban además
+208.000 de Allpa Perú.
+
+En el Excel había dos problemas más. No tiene fórmulas: son 0 fórmulas y todo va como valor fijo,
+así que el archivo no puede divergir de la pantalla por recálculo. La columna extra
+«Participación Controladora» tenía un único valor (2.244.938, el saldo final atribuible) puesto en
+la fila «Total Flujo del Período». Además, la pantalla no avisaba el saldo INCOMPLETO de Frisku:
+tiene una cuenta EUR sin TC.
+
+Distinción contable/gerencial: el consolidado contable (IFRS 10 + IAS 28) no suma línea a línea a
+las JV. La vista gerencial de caja puede mostrarlas, pero aparte. La corrección no excluye Allpa:
+la muestra a la derecha del total, al 100 %, rotulada «JV · no suma», y suma una JV solo si en el
+Consolidado se activó su inclusión proporcional (entonces va escalada a su %, sin aplicar el %
+dos veces en la participación controladora).
+
+**Rama aparte `claude/waterfall-perimetro`** (desde `main` c9c5792, commit 98815a0). No está en
+esta rama ni en la vista previa. Contiene `src/__tests__/waterfallPerimetro.test.js` (4) y la
+verificación en navegador sobre su build: el total coincide con el Consolidado en saldo inicial
+(205.433) y en cierre (2.181.662), y el Excel lleva las mismas columnas que la pantalla. La
+inclusión proporcional quedó probada solo con la prueba unitaria.
+
+**Queda pendiente y no se corrigió (requiere tu decisión).** El Waterfall no cuadra
+aritméticamente en una temporada iniciada: «Total Saldo Caja» es el saldo de HOY y «Total Flujo
+del Período» suma la temporada completa (Jul–Jun), pero el saldo final acumula solo desde el mes
+en curso. 2026-2027, 6 sociedades: 205.433 + 1.334.508 = 1.539.941 ≠ 2.181.662. La diferencia,
+−641.721, es el flujo de Jul–Sep-26, que ya está dentro del saldo bancario. En 2025-2026, ya
+cerrada, el saldo final muestra el saldo de hoy. Opciones:
+(a) flujo del período = solo meses desde hoy, con una fila aparte «flujo ya transcurrido»;
+(b) saldo inicial = saldo al inicio de la temporada (requiere un saldo histórico que hoy no se
+guarda).
+
+### 2. Excel de Auditoría con eventos ficticios
+
+`semilla-diseno.mjs` agrega la fila `audit_log` con 9 eventos ficticios: textos con `& < > "` y
+acentos, usuarios ficticios y correos `@ejemplo.test`. La app suma 1 propio (el ingreso), así que
+el botón dice «📥 Exportar Excel (10)». Resultado sobre el build final `main.a45f034c.js`:
+10 eventos en pantalla = 10 filas en el Excel, los textos especiales llegan intactos, logo de
+Mediterra byte a byte, y LibreOffice lo abre con el logo visible. La vista previa también trae
+estos eventos.
+
+### 3. Reporte Semanal: encabezado y logo en las páginas de continuación
+
+Un envoltorio de `doc.autoTable`, solo dentro de `reporte_generarPDF`, hace dos cosas:
+
+- en cada página que la tabla agrega sola, dibuja el encabezado interior con el logo de la sección
+  en curso (Mediterra o la empresa);
+- hace que la tabla retome en 28 mm (antes 14 mm), igual que las páginas con encabezado explícito.
+
+No se tocó ninguna de las 17 tablas.
+
+| Datos ficticios | Antes | Ahora |
+|---|---|---|
+| Páginas | 13 | 13 |
+| Páginas sin encabezado ni logo | p. 3 | ninguna |
+| Página 3 | continuación de Compromisos + Ingresos completos | igual, pero la fila «TOTAL GRUPO · USD 1.613.470» de Ingresos pasa a la p. 4, con su fila de rótulos repetida |
+
+Filas: el contenido sin encabezados ni pies es idéntico palabra por palabra (3.152 palabras). La
+única diferencia es esa fila de rótulos que autoTable repite al empezar la página: 0 filas de datos
+omitidas o duplicadas. Ningún texto queda montado sobre la línea del encabezado.
+
+Control: la misma prueba contra el build anterior falla 3 veces (p. 3 sin logo ni título).
+
+Observación para tu revisión: el total de Ingresos queda solo arriba de la p. 4. Las cifras están
+bien, pero se lee peor. Evitarlo exige reservar espacio para la tabla completa antes de empezarla,
+lo que vuelve a mover la paginación; no lo hice sin tu visto bueno.
+
+Captura: `docs/diseno/muestra/ajustes/reporte-continuacion-antes-despues.png` (izquierda, p. 3
+antes; luego p. 3 y p. 4 ahora).
+
+### 4. Excel SheetJS sin logo: propuesta acotada (NO implementada)
+
+Exportadores afectados: `flujoExportExcel.js` (2), `FinanzasModule.jsx` (Créditos, 2),
+`ContabilidadModule.jsx`, `eeffHelpers.js` (2), `anf/AnfTab.jsx` y `RendicionesModule.jsx`.
+
+Propuesta, sin dependencias nuevas (JSZip ya se carga desde el CDN para los otros Excel):
+
+1. `XLSX.write(wb, {type:'array'})` en vez de `XLSX.writeFile`.
+2. `JSZip.loadAsync`, luego el mismo `agregarLogoHoja` de los Excel armados a mano.
+3. Descargar.
+
+No se toca ninguna celda. Si algo falla, se descarga el archivo sin logo, como hoy.
+
+Prueba de concepto fuera de la app, sobre un Excel de flujo generado por SheetJS (Allpa Farms, 2
+hojas, 1.308 fórmulas en la hoja 1):
+
+- la hoja queda idéntica byte a byte salvo la etiqueta `<drawing>`; el orden del esquema queda
+  válido (después de `ignoredErrors`);
+- fórmulas 1.308 → 1.308;
+- recálculo real en LibreOffice de ambos archivos, con los valores en caché eliminados: 6.432
+  celdas comparadas, 5.851 numéricas, **0 diferencias**;
+- la imagen sigue presente después del recálculo.
+
+Lo que falta decidir antes de implementarlo (por eso no se implementó):
+
+- **Dónde va el logo.** En estos Excel la fila 1 es una banda oscura de título a todo el ancho; no
+  hay un espacio libre arriba. En la prueba, el logo quedó fuera de la primera página. Opciones:
+  (a) sobre la banda, a la derecha y dentro de la primera pantalla, subiendo la altura de la fila 1
+  (cambia solo el formato: una fila más alta no mueve referencias); los JPEG de Allegria y Osiris
+  quedarían como un recuadro blanco sobre la banda;
+  (b) sin logo en estos archivos.
+  Insertar filas arriba **no** es opción: mueve todas las referencias de las fórmulas.
+- **Orden.** Uno por exportador, con su prueba: el Excel del flujo primero, repitiendo
+  `excelRecalcFlujo` (`RECALC=1`) y la comparación pantalla-Excel de `regresion-empresas`.
 
 ## 7. Archivos
 

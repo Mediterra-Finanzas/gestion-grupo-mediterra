@@ -12216,6 +12216,21 @@ async function reporte_generarPDF(opts) {
   const doc = new jsPDF({orientation:"portrait", unit:"mm", format:"a4"});
   const fechaStr = new Date().toLocaleDateString("es-CL", {weekday:"long", year:"numeric", month:"long", day:"numeric"});
 
+  // Páginas de continuación: las agrega autoTable sola cuando una tabla no cabe.
+  // Antes quedaban sin encabezado ni logo y la tabla seguía desde 14 mm. Ahora
+  // llevan el encabezado de las páginas interiores con el logo de la sección en
+  // curso (Mediterra o la empresa) y la tabla retoma en 28 mm, donde empiezan
+  // las páginas con encabezado explícito: el encabezado (0–22 mm) no tapa filas.
+  // Solo cambia dónde parte la tabla en la página que sigue; filas y cifras no.
+  let logoSeccion = logo;
+  const autoTableBase = doc.autoTable.bind(doc);
+  doc.autoTable = (o = {}) => autoTableBase({ ...o,
+    margin: { ...(o.margin || {}), top: 28 },
+    didDrawPage: (d) => {
+      if(d.pageNumber > 1) _pdfAddHeader(doc, semana, fechaStr, false, logoSeccion);
+      if(o.didDrawPage) o.didDrawPage(d);
+    } });
+
   let yPos = 42; // después del header
 
   // ─── PÁGINA 1: Resumen Ejecutivo CONSOLIDADO ───
@@ -12810,6 +12825,7 @@ async function reporte_generarPDF(opts) {
     // Siempre saltar a nueva página PORTRAIT para cada empresa (compacto: 1 página por empresa)
     // Las páginas de una empresa llevan SU logo; las del grupo, el de Mediterra.
     const logoEmp = (await reporte_loadLogoEmpresa(emp.nombre)) || logo;
+    logoSeccion = logoEmp;
     doc.addPage("a4", "portrait");
     _pdfAddHeader(doc, semana, fechaStr, false, logoEmp);
     yPos = 28;

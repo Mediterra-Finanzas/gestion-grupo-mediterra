@@ -33,7 +33,7 @@ let ok = 0, fallos = 0;
 const check = (n, c, x = '') => { c ? ok++ : fallos++; console.log(`${c ? '✓' : '✗ FALLA'}  ${n}${x ? '  — ' + x : ''}`); };
 // SECCIONES=exportaciones,especies,nominas (por defecto todas) · EXPORTS=semanal,osiris,po (por defecto todas)
 const SECC = (process.env.SECCIONES || 'exportaciones,especies,nominas,franja').split(',');
-const EXP = (process.env.EXPORTS || 'osiris,semanal,po,nomina,consolidado').split(',');
+const EXP = (process.env.EXPORTS || 'osiris,semanal,po,nomina,consolidado,auditoria').split(',');
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
 
 // Datos ficticios para el PDF de PO (Frisku): un cliente y una nota de cobro.
@@ -113,6 +113,15 @@ async function exportar(url, dir) {
     await p.locator('tr', { hasText: 'Osiris' }).filter({ hasText: /V°B°|Revisi/i }).first().getByRole('button', { name: /Editar|Ver/ }).first().click(); await p.waitForTimeout(2000);
     out.nominaXlsx = await descargar(p, () => p.getByTestId('barra-nomina').getByRole('button', { name: 'Exportar Excel' }).click(), `${dir}/nomina-osiris.xlsx`);
   }
+  if (EXP.includes('auditoria')) {
+    // Finanzas → Auditoría (eventos FICTICIOS de la semilla) → Exportar Excel (N)
+    await irModulo(p, 'finanzas');
+    await p.locator('main').getByRole('button', { name: /🔍 Auditoría/ }).first().click(); await p.waitForTimeout(2500);
+    const btn = p.getByRole('button', { name: /Exportar Excel \(\d+\)/ });
+    out.auditoriaN = Number(/\((\d+)\)/.exec(await btn.innerText())[1]);
+    out.auditoriaHabilitado = await btn.isEnabled();
+    out.auditoriaXlsx = await descargar(p, () => btn.click(), `${dir}/auditoria.xlsx`);
+  }
   if (EXP.includes('po')) {
   // Frisku → Liquidaciones → PO → Ver → PDF
   await irModulo(p, 'frisku');
@@ -152,6 +161,30 @@ const ahora = await exportar(process.env.APP_URL, `${OUT}/exportaciones-ahora`);
 const antes = process.env.ANTES_URL ? await exportar(process.env.ANTES_URL, `${OUT}/exportaciones-antes`) : null;
 
 const { tamanoJpeg } = await import('../../src/diseno/logoExport.js');
+// Palabras del PDF por página con su caja (pt). Encabezado = franja superior a 22 mm; pie = últimos 14 mm.
+const MMPT = 72 / 25.4;
+function palabrasPDF(f) {
+  const x = sh('pdftotext', ['-bbox', f, '-']);
+  const res = []; let pag = 0, alto = 0;
+  for (const l of x.split('\n')) {
+    const pg = /<page width="[\d.]+" height="([\d.]+)"/.exec(l); if (pg) { pag++; alto = +pg[1]; continue; }
+    const m = /<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">([^<]*)<\/word>/.exec(l);
+    if (m) res.push({ pag, alto, y0: +m[2], y1: +m[4], t: m[5] });
+  }
+  return res;
+}
+// Se quita el encabezado solo donde lo hay (en el PDF anterior las páginas de continuación no
+// lo tenían y sus primeras filas estaban a 14 mm: esas filas SÍ son contenido).
+function contenidoSinMarcos(f) {
+  const ws = palabrasPDF(f);
+  const conEnc = new Set(ws.filter(w => w.y1 <= 21 * MMPT && w.t === 'Reporte').map(w => w.pag));
+  return ws.filter(w => !(conEnc.has(w.pag) && w.y1 <= 21 * MMPT) && w.y1 <= w.alto - 14 * MMPT)
+    .map(w => w.t.replace(/\d{1,2}:\d{2}(:\d{2})?/, 'HH:MM'));
+}
+function difBolsa(a, b) {
+  const c = new Map(); a.forEach(t => c.set(t, (c.get(t) || 0) + 1)); b.forEach(t => c.set(t, (c.get(t) || 0) - 1));
+  return [...c].filter(([, n]) => n).map(([t, n]) => `${t} ${n > 0 ? 'falta ' + n : 'sobra ' + -n}`);
+}
 const PROP = { osirisPdf: 2127 / 774, semanalPdf: 269 / 152, poPdf: 153 / 93 };
 const PDFS = ['osirisPdf', 'semanalPdf', 'poPdf'].filter(k => ahora[k]);
 for (const k of PDFS) {
@@ -162,8 +195,25 @@ for (const k of PDFS) {
   if (antes) {
     const a = imagenes(antes[k]).filter(i => Math.abs(i.ancho / i.alto - PROP[k]) < 0.02);
     console.log(`   antes: ${a.map(i => `p${i.pag} ${i.xppi}×${i.yppi} ppi (deformación ${((i.xppi / i.yppi - 1) * 100).toFixed(0)} %)`).join(', ')}`);
+    if (k === 'semanalPdf') {
+      // Las páginas de continuación ahora llevan encabezado y la tabla retoma en 28 mm (antes 14):
+      // la paginación puede cambiar. Se informa y se exige el MISMO contenido, palabra por palabra,
+      // sin contar encabezados ni pies de página (ni una fila omitida ni duplicada).
+      console.log(`   semanalPdf: páginas ${paginas(antes[k])} → ${paginas(ahora[k])}`);
+      const ca = contenidoSinMarcos(antes[k]), cb = contenidoSinMarcos(ahora[k]);
+      // Única diferencia admitida: la fila de rótulos de columna que autoTable REPITE al empezar
+      // una página nueva (no es una fila de datos). Debe sobrar completa, las 4 palabras igual.
+      const ROTULO = ['Semana(s)', 'Concepto', 'Monto', 'USD'];
+      const sobra = (t) => cb.filter(x => x === t).length - ca.filter(x => x === t).length;
+      const nRot = sobra('Semana(s)');
+      const dif = difBolsa(ca.concat(...Array(Math.max(0, nRot)).fill(ROTULO)), cb);
+      console.log(`   semanalPdf: rótulos de columna repetidos por cambio de página: ${nRot}`);
+      check(`semanalPdf: mismas filas de datos que antes (${cb.length} palabras sin encabezados ni pies; ninguna omitida ni duplicada)`,
+        ca.length > 0 && nRot >= 0 && ROTULO.every(t => sobra(t) === nRot) && !dif.length, dif.slice(0, 8).join(' · '));
+    } else {
     check(`${k}: mismas páginas que antes`, paginas(ahora[k]) === paginas(antes[k]), `${paginas(antes[k])} → ${paginas(ahora[k])}`);
     check(`${k}: mismo texto que antes (cifras incluidas)`, texto(ahora[k]) === texto(antes[k]));
+    }
   }
 }
 if (ahora.osirisXlsx) {
@@ -217,13 +267,34 @@ if (ahora.semanalPdf) {
     const porEmpresa = res.filter(r => r.emp !== '(grupo)');
     check('semanalPdf: cada página de empresa lleva el logo de ESA empresa', porEmpresa.length >= 6 && porEmpresa.every(r => r.ok),
       porEmpresa.map(r => `p${r.pg} ${r.emp} ${r.ok ? '✓' : '✗'}`).join(' · '));
-    // Las páginas que agrega sola la tabla al continuar (sin encabezado) no llevan logo: ya era así.
+    // Toda página lleva encabezado y logo, también las que agrega la tabla al continuar (13-10).
     const sinEncabezado = res.filter(r => !imgs.some(i => i.pag === r.pg)).map(r => r.pg);
-    check('semanalPdf: las páginas del grupo CON encabezado llevan el logo de Mediterra', res.filter(r => r.emp === '(grupo)' && !sinEncabezado.includes(r.pg)).every(r => r.ok));
-    console.log(`   observación: páginas de continuación de tabla sin encabezado ni logo (previo): ${sinEncabezado.join(', ') || 'ninguna'}`);
+    check('semanalPdf: TODAS las páginas llevan logo (también las de continuación de tabla)', !sinEncabezado.length, `sin logo: ${sinEncabezado.join(', ') || 'ninguna'}`);
+    check('semanalPdf: las páginas del grupo llevan el logo de Mediterra', res.filter(r => r.emp === '(grupo)').every(r => r.ok));
+    // Sin superposición: en cada página interior el texto está o dentro del encabezado (hasta 21 mm)
+    // o bajo su línea (desde 22,4 mm); y el encabezado dice «Reporte Semanal de Flujo de Caja».
+    const pw = palabrasPDF(ahora.semanalPdf).filter(w => w.pag > 1);
+    const cruzan = pw.filter(w => w.y1 > 21 * MMPT && w.y0 < 22.4 * MMPT);
+    const pags = [...new Set(pw.map(w => w.pag))];
+    const sinTitulo = pags.filter(pg => !pw.filter(w => w.pag === pg && w.y1 <= 21 * MMPT).map(w => w.t).join(' ').includes('Reporte Semanal de Flujo de Caja'));
+    check('semanalPdf: ninguna página interior tiene texto montado sobre la línea del encabezado', !cruzan.length, cruzan.slice(0, 5).map(w => `p${w.pag} «${w.t}» ${(w.y0 / MMPT).toFixed(1)} mm`).join(' · '));
+    check('semanalPdf: todas las páginas interiores llevan el título del encabezado', !sinTitulo.length, `sin título: ${sinTitulo.join(', ') || 'ninguna'}`);
     check('semanalPdf: logos de empresa sin deformar (resolución x = y)', imgs.filter(i => i.xppi && i.yppi).every(i => Math.abs(i.xppi - i.yppi) <= Math.max(1, 0.01 * i.yppi)));
   }
-  for (const [k, archivo, nombre] of [['nominaXlsx', 'osiris-logo.jpg', 'nómina Osiris'], ['consolidadoXlsx', 'med.png', 'consolidado del grupo']]) {
+  if (ahora.auditoriaXlsx) {
+    // Filas exportadas = las que indica el botón; los textos ficticios llegan intactos (incluidos & < > ").
+    const JSZip = require(JSZIP.replace(/dist\/jszip\.min\.js$/, ''));
+    const z = await JSZip.loadAsync(fs.readFileSync(ahora.auditoriaXlsx));
+    const hoja = await z.file('xl/worksheets/sheet1.xml').async('string');
+    const filas = [...hoja.matchAll(/<row r="(\d+)"/g)].map(m => Number(m[1])).filter(r => r >= 5);
+    const des = (t) => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    const textos = [...hoja.matchAll(/<t>([^<]*)<\/t>/g)].map(m => des(m[1]));
+    check('auditoriaXlsx: botón habilitado con eventos ficticios', ahora.auditoriaHabilitado && ahora.auditoriaN >= 9, `N=${ahora.auditoriaN}`);
+    check(`auditoriaXlsx: ${ahora.auditoriaN} eventos en pantalla = ${filas.length} filas en el Excel`, filas.length === ahora.auditoriaN);
+    const esperados = ['Tasa & plazo del crédito F1 <ficticio>', '"9,0%"', 'Aprobó nómina NOMA (1.ª firma)', 'Devolvió rendición R-003: falta boleta', 'Cambió permiso de Lucía Ejemplo'];
+    check('auditoriaXlsx: textos con & < > " y acentos llegan intactos', esperados.every(t => textos.includes(t)), esperados.filter(t => !textos.includes(t)).join(' · '));
+  }
+  for (const [k, archivo, nombre] of [['nominaXlsx', 'osiris-logo.jpg', 'nómina Osiris'], ['consolidadoXlsx', 'med.png', 'consolidado del grupo'], ['auditoriaXlsx', 'med.png', 'registro de auditoría del grupo']]) {
     if (!ahora[k]) continue;
     const JSZip = require(JSZIP.replace(/dist\/jszip\.min\.js$/, ''));
     const z = await JSZip.loadAsync(fs.readFileSync(ahora[k]));
