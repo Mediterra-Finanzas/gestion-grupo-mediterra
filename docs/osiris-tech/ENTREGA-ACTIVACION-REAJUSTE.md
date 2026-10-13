@@ -7,10 +7,50 @@ respaldada y vista previa fila por fila. Ningún contrato queda activado por est
 |---|---|
 | **Candidato** | `osiris/activacion-reajuste` |
 | **Versión de recuperación** | `osiris/recuperacion-compatible` |
-| **Base de ambas** | `9d90ed2c4efcba953957ab324717754d5d267ad7` (= `main` publicado) |
+| **Base de ambas** | `c9c579206bcb613bdc5aad61d01480ee01f5760a` (`origin/main` vigente al 2026-10-08) |
 | Diferencia entre las dos | **una línea**: `ACTIVACIONES_NUEVAS_HABILITADAS` |
 
 ---
+
+## 0 · Límites de esta entrega, a la vista
+
+Tres cosas que esta entrega **no** hace, y conviene leer antes que cualquier otra sección. Las
+tres están medidas y desarrolladas más abajo; acá quedan juntas para que no haya que buscarlas.
+
+**1 · Las reglas "emisión" y "pago" no son activables.** De las cuatro reglas de fecha, dos
+resuelven su fecha desde un campo editable del cobro, y para esas la activación exige la fecha
+**y** su respaldo. Una `fechaEst` sola es una estimación, no la fecha efectiva de emisión; y el
+respaldo de una emisión es su antecedente de facturación, que por la Regla 4 protege la fila y la
+saca del recálculo. Las dos condiciones se excluyen, así que `activar()` rechaza siempre esas dos
+reglas, diciendo temporada por temporada qué falta. Medido por fuerza bruta: **0 de 256**
+combinaciones de antecedentes producen una fecha sellable y **0 de 128** intentos son aceptados.
+Las dos reglas deterministas (`inicioPeriodoServicio`, `finPeriodoServicio`) funcionan normalmente.
+Impacto sobre datos reales: **cero** — el snapshot no tiene ninguna activación ni ninguna regla
+declarada. Si el grupo necesita anclar a la emisión real, hace falta una fecha efectiva de emisión
+con respaldo propio, distinta de la estimada: es diseño de otra entrega.
+
+**2 · La protección conservada no congela hectáreas ni períodos.** Lo que conserva es la
+protección de la Regla 4 cuando se vacía o se corrige un antecedente de cobro: el importe no
+vuelve al recálculo por eso. No toca nada más. Siguen moviendo importes, por decisión expresa y con
+cifra medida sobre el caso de 41,97 há × US$ 3.000 al 2 %:
+
+| Palanca | Efecto |
+|---|---|
+| `rcCohortes` 41,97 → 50 há | 655.240,69 → **780.606,02** (+125.365,33) |
+| `fechaTermino` 2031-06-30 → 2033-06-30 (5 → 7 filas) | 655.240,69 → **936.050,61** (+280.809,92) |
+| `haCobrar` 41,97 → 30 há sobre una fila protegida | 1.072.974,92 → **1.037.064,92** (−35.910,00) |
+
+Las tres son datos operativos y quedan editables. `haCobrar` merece el subrayado: baja una fila
+protegida sin tocar la protección, porque es un override de hectáreas y la Regla 4 nunca lo cubrió.
+
+**3 · Levantar la protección requiere una entrega aparte.** Nada de este paquete la quita: ninguna
+escritura la pierde, ni una que la borre a propósito, y no hay función ni control que lo haga. Eso
+es deliberado — devolver una fila protegida al recálculo mueve importes y necesita su propio flujo,
+con vista previa y confirmación. Hoy, si una fila quedó protegida y la protección ya no
+corresponde, **no hay manera de corregirlo dentro de la aplicación**. Lo mismo vale para los ocho
+términos del antecedente y la base por hectárea de un contrato con registro de activación: quedan
+bloqueados mientras el registro exista, incluso retirado.
+
 
 ## 1 · Las reglas que el paquete sostiene
 
@@ -677,20 +717,47 @@ incompatibilidad.
 La comparación usa `fixturesReajuste.js`, **idéntico en las dos ramas**: una diferencia de
 importes solo puede venir del código.
 
-## 4 · Orden de despliegue propuesto
+## 4 · Secuencia de publicación y certificación
 
-Ninguno de estos pasos está autorizado todavía.
+Ninguno de estos pasos está autorizado todavía. El orden no es una preferencia: sin un deployment
+de recuperación compatible y **certificado**, cualquier rollback del candidato sería una pérdida
+económica silenciosa, porque volver a `9d90ed2` devuelve a la base las activaciones que existan.
 
-| Paso | Qué se despliega | Qué habilita | Recuperación de ESE paso |
+**Regla de certificación, innegociable:** se certifica con **datos sintéticos aislados**. Ningún
+contrato real se activa para probar, ni en producción ni en ningún entorno conectado a producción.
+Lo que se comprueba contra producción es de **sólo lectura**.
+
+| Paso | Qué pasa | Cómo se certifica | Rollback de ese paso |
 |---|---|---|---|
-| **1** | **Versión de recuperación** (`osiris/recuperacion-compatible`) | Nada nuevo: el motor sabe leer activaciones, pero no se puede crear ninguna. Los importes no cambian, porque no hay activaciones en los datos | Volver al deployment de `9d90ed2`. Es seguro **solo mientras no exista ninguna activación**, y en este paso no puede existir |
-| **2** | **Certificar** ese deployment en vivo: que calcula igual y que rechaza crear activaciones | — | Igual que el paso 1 |
-| **3** | **Candidato** (`osiris/activacion-reajuste`) | Se pueden crear activaciones | Volver al deployment del paso 1, **ya certificado**: conserva el cálculo de lo activado |
-| **4** | Activar un contrato concreto, con autorización propia | Ese contrato reajusta | Desactivar, que es una operación económica con su propia vista previa y confirmación |
+| **1** | Push de la **recuperación** y deployment | — | Redeploy del SHA anterior de `origin/main` |
+| **2** | **Certificación de la recuperación**, tres comprobaciones | (a) el marcador de build y el SHA del deployment coinciden con el identificador autorizado; (b) **lectura**: los importes de los contratos reales son los mismos que antes del deployment, comparados contra la medición registrada (57 filas de royalty comercial, 23 contratos, delta cero); (c) en el **entorno aislado** y sobre un contrato **sintético**: el motor calcula una activación sellada igual que el candidato y la creación de activaciones queda rechazada dentro de la acción | Igual que el paso 1 |
+| **3** | Push del **candidato** y deployment | El mismo (a) y (b) del paso 2. Y en el entorno aislado, sobre contratos sintéticos: las cuatro guardas, el rechazo de las reglas por fila, y la protección conservada con guardado y recarga | Redeploy del deployment del paso 1, **ya certificado**: conserva el cálculo de lo que esté activado |
+| **4** | **Activar un contrato real**, uno por uno | Autorización propia para cada uno. Vista previa fila por fila y confirmación explícita, con la diferencia medida contra el importe actual | Desactivar, que es una operación económica con su propia vista previa, motivo y confirmación |
 
-**La regla que ordena todo esto:** no se habilitan activaciones productivas (paso 3) hasta que
-el paso 2 esté hecho y autorizado. Sin un deployment de recuperación compatible y certificado,
-cualquier rollback sería una pérdida económica silenciosa.
+El paso 3 no se habilita hasta que el 2 esté hecho y autorizado. El paso 4 no se habilita por esta
+autorización: necesita la suya.
+
+### Lo que hay que mirar al desplegar, y no es de Osiris
+
+`origin/main` avanzó **98 commits** desde la base en que se construyó este paquete, todos de otros
+carriles: Finanzas, Nóminas, Créditos, Saldos y Tareas. El paquete se integró sobre esa base y el
+solape de archivos es **cero** — ninguno de los 13 archivos que toca Osiris fue tocado por esos 98
+commits, y el merge no tuvo conflictos. Pero el deployment es uno solo: publicar el candidato
+**publica también** lo que esos carriles dejaron en `origin/main`. La ventana de despliegue se
+acuerda con quien tenga verificaciones pendientes ahí, no se decide desde este carril.
+
+Tres cosas más que tocan a otros carriles:
+
+- **`CLAUDE.md` es el único archivo compartido que este paquete modifica** (la regla 10 de revisión
+  independiente). Otros carriles también escriben ahí; la regla se agregó al final de la lista de
+  reglas, sin tocar las nueve anteriores, para que un merge paralelo no choque.
+- **Vercel despliega solo desde `origin/main`.** Empujar una rama que monta `App.jsx` crea un
+  Preview que es la aplicación **en vivo contra producción**: si se quiere un deployment de prueba
+  de la recuperación sin exponerlo, hay que crearlo con el paso de build ignorado y desplegar por
+  SHA, no empujando la rama sin más.
+- La fila `osiris` de `calendario_data` es exclusiva de este módulo: ningún otro carril escribe
+  ahí, así que el paso 4 no interfiere con los demás. Lo que sigue abierto y es del grupo, no de
+  Osiris, es la clave anónima y el RLS pendiente sobre `calendario_data`.
 
 ## 5 · Impacto medido sobre la copia de los 23 contratos reales
 
