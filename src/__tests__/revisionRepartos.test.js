@@ -23,7 +23,7 @@ describe('repartos semanales sospechosos (sintético)', () => {
   const de = (clave, idx) => f.find(x => x.clave === clave && x.idx === idx);
   test('semilla calculada: S1 = calculado + otra semana → propone quitar S1', () => {
     const x = de('egr_fijo::Arriendo Oficina', 6);
-    expect(x.tipo).toBe('semilla_calculada');
+    expect(x.tipo).toBe('semilla_calculada_probable');
     expect([x.antes, x.despues, x.quitar]).toEqual([3700, 1000, '_sem0']);
   });
   test('mes en cero por clic: propone volver al calculado', () => {
@@ -40,6 +40,11 @@ describe('repartos semanales sospechosos (sintético)', () => {
     expect(de('egr_fijo::Otro', 6).tipo).toBe('posible_semilla_calculada');
     const g = analizarRepartosSemanales({ E: { _proyOverrides: { 'egr_fijo::Arriendo Oficina': { 6: { _sem0: 2600, _sem2: 1000 } } } } }, baseDe, MESES_65);
     expect(g.map(x => `${x.tipo} ${x.antes} ${x.despues}`)).toEqual(['posible_semilla_calculada 3600 1000']);
+  });
+  test('S1 y S4 con valor: ambigua, se presentan las dos alternativas sin elegir', () => {
+    const g = analizarRepartosSemanales({ E: { _proyOverrides: { 'egr_fijo::Arriendo Oficina': { 6: { _sem0: 2700, _sem3: 1000 } } } } }, baseDe, MESES_65);
+    expect(g.map(x => `${x.tipo} ${x.antes} ${x.despues}`)).toEqual(['ambigua_s1_s4 3700 null']);
+    expect(g[0].accion).toMatch(/quitar S1 deja 1000; quitar S4 deja 2700/);
   });
   test('una sola semana o valor numérico: no se lista', () => {
     expect(de('egr_fijo::Arriendo Oficina', 7)).toBeUndefined();
@@ -61,13 +66,14 @@ const archivo = process.env.FINANZAS_JSON;
     if (Array.isArray(v)) v = v[0]?.value ?? v[0];
     if (typeof v === 'string') v = JSON.parse(v);
     const empresas = buildEmpresas(v.allegria_params || {}, v.allegria_comision_arandanos || { cobros: [] });
-    // Calculado solo donde se puede saber fuera de la app: Allegria Foods y
-    // líneas sin fórmula inyectada. El resto queda «a comparar en pantalla».
+    // Calculado solo donde se puede saber fuera de la app. El resto queda «a comparar en pantalla».
     const baseDe = (emp, cat, et, idx) => {
       const e = empresas[emp]; if (!e) return null;
       const l = (e.sections.find(s => s.cat === cat)?.lines || []).find(x => x.label === et);
       if (!l || l._fuenteCreditos) return null;
-      if (l.formula && emp !== 'Allegria Foods') return null;
+      // Solo Allegria Foods se arma igual que en la pantalla (buildAllegria);
+      // en las otras empresas la pantalla inyecta cálculos que aquí no están.
+      if (emp !== 'Allegria Foods') return null;
       return Number(l.proy?.[idx]) || 0;
     };
     const filas = analizarRepartosSemanales(v.finanzas_real || {}, baseDe, MESES_65);

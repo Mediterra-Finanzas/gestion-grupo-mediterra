@@ -863,8 +863,10 @@ calendarios que sumen 100%) y marca `ingresoSinEgreso` cuando el cliente
 proyecta caja y alguno de los tres egresos no proyecta nada (un costo de fruta
 en 0 porque el productor YA está pagado, realizado ≥ base, no cuenta). Sin
 kilos o FOB, el Excel proyecta igual los programas y saldos (base 0), como la
-app; lo mismo en cerezas, con el aviso `avisosCerezas` (qué falta y qué no se
-proyecta) en pantalla y en el Excel. Efecto sobre datos entregados:
+app; lo mismo en cerezas, con el aviso `avisosCerezas` en pantalla y en el
+Excel. El aviso dice exactamente qué se proyecta y qué no: con kilos y sin FOB
+la estimación US$/kg SÍ se proyecta, y con liquidación definitiva la
+liquidación SÍ se proyecta. Efecto sobre datos entregados:
 `supabase/consulta_ciruelas_parametros.sql` y `FINANZAS_JSON=<export>` en
 `ciruelasFlujo.test.js`. Conectar no es validar: conservar los parámetros propios y avisar lo que
 falta no hace completa la proyección. Se muestra en el
@@ -979,9 +981,11 @@ arrastre de Créditos y el Reporte Semanal. Semana ISO del DÍA en hora local
 (antes se usaba la hora del reloj y desde el domingo a mediodía saltaba a la
 semana siguiente). Si la semana ISO no está entre las 4 del mes calendario
 (Oct 26-31 es la S44, que el flujo pone en noviembre), se usa la 1ª semana del
-mes en los días 1-7 y la ÚLTIMA en el resto, la misma regla de
-`ubicarFechaFlujo`. Antes quedaba en la 1ª: del 26 al 31 de octubre no se veía
-el saldo banco ni el atrasado. Prueba en navegador con reloj y zona horaria de
+mes en los días 1-7 y la ÚLTIMA en el resto. Antes quedaba en la 1ª: del 26
+al 31 de octubre no se veía el saldo banco ni el atrasado. `ubicarFechaFlujo`
+(vencimientos de Créditos) usa la MISMA función: antes numeraba semanas de
+domingo a sábado, así que un vencimiento en domingo caía en la semana
+siguiente y en 2027 todo quedaba una semana adelante de la semana en curso. Prueba en navegador con reloj y zona horaria de
 Chile: `scripts/e2e/semana-en-curso.mjs`.
 
 **Repartos posiblemente duplicados en producción** (escritos con 7492ca1, que

@@ -44,8 +44,15 @@ export function analizarRepartosSemanales(finanzasReal, baseDe = () => null, mes
           return;
         }
         if (noCero.length < 2) return;
+        if (sem[0] && sem[3]) {
+          // Con 7492ca1 caben los dos orígenes: S1 = calculado copiado (y S4
+          // escrito) o S4 = manual copiado (y S1 escrito). No se elige.
+          fila("ambigua_s1_s4", `S1 y S4 con valor: pudo copiarse el calculado a S1${base !== null ? ` (hoy ${r2(base)})` : ""} o el manual anterior a S4.`,
+            "S1 o S4", null, `Decidir: quitar S1 deja ${r2(suma - sem[0])}; quitar S4 deja ${r2(suma - sem[3])}; o dejar como está.`);
+          return;
+        }
         if (sem[0] && base !== null && Math.abs(sem[0] - base) < 0.01) {
-          fila("semilla_calculada", `S1 = valor calculado del mes (${r2(base)}) y hay otras semanas: firma de 7492ca1.`,
+          fila("semilla_calculada_probable", `S1 = valor calculado del mes (${r2(base)}) y hay otras semanas: firma probable de 7492ca1.`,
             "_sem0", suma - sem[0], "Quitar S1 deja solo lo escrito por semana.");
           return;
         }

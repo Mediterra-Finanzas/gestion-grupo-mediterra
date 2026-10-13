@@ -17,7 +17,7 @@ import path from 'path';
 import os from 'os';
 import { execFileSync } from 'child_process';
 import * as XLSX from 'xlsx-js-style';
-import { calcAllegria, buildEmpresas, diagnosticoCiruelas, avisosCiruelas, avisosCerezas } from '../FinanzasModule.jsx';
+import { calcAllegria, buildEmpresas, diagnosticoCiruelas, avisosCiruelas, avisosCerezas, avisoFrutaSinVolumen } from '../FinanzasModule.jsx';
 import { exportarFlujoEmpresa } from '../flujoExportExcel.js';
 import { MESES, mesIdxActual } from '../horizonte.js';
 import { MODELO_VERSION } from '../programas.js';
@@ -119,6 +119,26 @@ describe('ciruelas: datos faltantes', () => {
     expect(dg.ingresoSinEgreso).toBe(false);
   });
 
+  // El aviso de fruta sin volumen dice lo que el motor hace (hallazgo de la
+  // revisión de 2f881a0: afirmaba que nada de eso se proyectaba).
+  test('aviso sin volumen: kilos sin FOB proyectan la estimación US$/kg; con definitiva se proyecta la liquidación', () => {
+    const prog = [{ id: 'pc', lado: 'cliente', contraparte: 'C', kilos: 0, v: MODELO_VERSION,
+      cuotas: [{ id: 'q', mes: M(1), modalidad: 'monto', monto: 80000, estado: 'vigente', v: MODELO_VERSION, realizaciones: [], sustituye: [] }] }];
+    const kgSinFob = { kg: 100000, fob_usd_kg: 0, anticipos_cliente: [{ id: 'e', mes: M(3), usd_kg: 0.5, v: MODELO_VERSION, realizaciones: [] }],
+      anticipos_productor: [], dist_mat: [], dist_srv: [], programas: prog, mes_liquidacion: '', mes_saldo_productor: '' };
+    const r1 = calcAllegria({ [SK]: { cerezas: kgSinFob } });
+    expect(r1.ing.cerezas[corte + 3]).toBe(50000);
+    const a1 = avisoFrutaSinVolumen(kgSinFob, 'Cerezas', SK);
+    expect(a1).toMatch(/faltan FOB US\$\/kg\. Se proyectan: programas por contraparte, saldos a favor, estimaciones por US\$\/kg \(sobre los kilos cargados\)/);
+    expect(a1).not.toMatch(/NO se proyectan:[^.]*estimaciones/);
+    const conDef = { ...kgSinFob, kg: 0, anticipos_cliente: [], mes_liquidacion: M(4), liq_definitiva_cliente: { total: 250000 } };
+    const r2 = calcAllegria({ [SK]: { cerezas: conDef } });
+    expect(r2.ing.cerezas[corte + 4]).toBe(170000);
+    const a2 = avisoFrutaSinVolumen(conDef, 'Cerezas', SK);
+    expect(a2).toMatch(/Se proyectan: [^.]*liquidación definitiva del cliente/);
+    expect(a2).toMatch(/NO se proyectan: materiales, servicios, estimaciones por US\$\/kg, saldo del productor/);
+  });
+
   test('calendario de materiales que no suma 100%', () => {
     const cir = { ...ciruelasCompleta, dist_mat: [{ mes: M(1), pct: 60 }] };
     expect(diagnosticoCiruelas(cir, SK).faltantes.some(f => f.includes('suma 60%'))).toBe(true);
@@ -192,7 +212,7 @@ correr('ciruelas: Excel recalculado = app', () => {
     expect(r.ing.cerezas.reduce((a, v) => a + v, 0)).toBe(80000);   // lo ya cobrado no se vuelve a proyectar
     const av = avisosCerezas(p);
     expect(av.length).toBe(1);
-    expect(av[0]).toMatch(/Cerezas 2026-2027: faltan kilos y FOB US\$\/kg\. Se proyectan solo los programas/);
+    expect(av[0]).toMatch(/Cerezas 2026-2027: faltan kilos y FOB US\$\/kg\. Se proyectan: programas por contraparte, saldos a favor\. NO se proyectan: materiales, servicios, estimaciones por US\$\/kg/);
     const PARAMS = { paramsAllegria: p, allegraComisionArandanos: { cobros: [] } };
     const emp = buildEmpresas(p, PARAMS.allegraComisionArandanos)['Allegria Foods'];
     const file = path.join(OUT, 'cer0.xlsx');

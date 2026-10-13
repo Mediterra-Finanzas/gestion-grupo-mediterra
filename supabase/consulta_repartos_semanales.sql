@@ -40,14 +40,15 @@ select empresa, clave as linea,
        to_char(date '2026-04-01' + make_interval(months => idx), 'Mon-YY') as mes, idx,
        s1, s2, s3, s4, total_actual,
        case when semanas_con_valor = 0 then 'mes_en_cero (clic sin escribir, c9c5792)'
+            when coalesce(s1,0) <> 0 and coalesce(s4,0) <> 0 then 'ambigua: S1 = calculado copiado o S4 = manual copiado'
             when coalesce(s4,0) <> 0 then 'posible_semilla_manual: S4 = valor mensual anterior?'
             else 'posible_semilla_calculada: S1 = valor calculado?' end as senal,
        case when semanas_con_valor = 0 then 'quitar el reparto (vuelve al mensual o calculado)'
+            when coalesce(s1,0) <> 0 and coalesce(s4,0) <> 0 then 'decidir: quitar S1, quitar S4 o dejar'
             when coalesce(s4,0) <> 0 then 'quitar S4'
             else 'quitar S1' end as propuesta,
-       case when semanas_con_valor = 0 then null
-            when coalesce(s4,0) <> 0 then total_actual - s4
-            else total_actual - s1 end as total_si_se_aprueba,
+       case when coalesce(s1,0) <> 0 then total_actual - s1 end as total_si_quita_s1,
+       case when coalesce(s4,0) <> 0 then total_actual - s4 end as total_si_quita_s4,
        reparto ? '_sinFecha' as tiene_sinfecha_no_publicado
 from x
 where semanas_con_valor = 0

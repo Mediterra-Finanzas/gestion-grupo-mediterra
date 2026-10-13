@@ -217,6 +217,18 @@ describe('semana en curso · fin de mes y domingos', () => {
     expect(pos(2027, 1, 1)).toBe('Jan-27 0 S01');     // semana ISO 53 de 2026
     expect(pos(2027, 1, 4)).toBe('Jan-27 0 S01');
   });
+  test('los vencimientos de Créditos usan la MISMA semana (domingo y 2027)', () => {
+    const cr = (uid, f) => ({ uid, n: 1, empresa: 'Allegria Foods', acreedor: 'Banco ' + uid, tipo_inst: 'Banco',
+      monto: 1000, f_venc: f, cuota: 1000, tipo_cr: 'Bullet', pagado: false, control_desde: '2026-10-01' });
+    jest.useFakeTimers('modern'); jest.setSystemTime(new Date(2026, 9, 12, 12));
+    try {
+      const e = aplicarCreditosAEmpresas(buildEmpresas({}, { cobros: [] }), [cr('D', '2026-10-18'), cr('F', '2027-02-10')]);
+      const l = e['Allegria Foods'].sections.flatMap(x => x.lines).find(x => x.label === 'Pago Préstamos - Total');
+      expect(l._semProy[6]).toEqual([0, 0, 1000, 0]);            // domingo 18-10 → S42 (semana ISO que cierra ese día)
+      expect(l._semProy[10]).toEqual([0, 1000, 0, 0]);           // miércoles 10-02-2027 → S06 = 2ª de febrero
+      expect(posicionSemanaFecha(2027, 2, 8).semIdx).toBe(1);    // el lunes 08-02-2027 es la misma semana
+    } finally { jest.useRealTimers(); }
+  });
   test('el reporte usa la misma regla: domingo a las 15:00 y 29-10 marcan bien el atrasado', () => {
     const empresas = buildEmpresas({}, { cobros: [] });
     const sec = empresas['Allegria Foods'].sections.find(s => s.lines.some(l => l.label === 'Arriendo Oficina'));

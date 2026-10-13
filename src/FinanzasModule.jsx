@@ -714,9 +714,10 @@ export function diagnosticoCiruelas(p, sk = "") {
   const relevante = kg > 0 || fob > 0 || ingreso > 0 || costo > 0 || materiales > 0 || servicios > 0;
   return { faltantes, ingreso, costo, materiales, servicios, egresosEnCero, ingresoSinEgreso, relevante, completo: faltantes.length === 0 };
 }
-// Cerezas sin kilos o FOB con programas o saldos a favor: se proyecta solo lo
-// que no depende del volumen (cuotas por contraparte, saldos a favor y lo ya
-// realizado); estimaciones US$/kg, liquidación, materiales y servicios no.
+// Cerezas sin kilos o FOB con programas o saldos a favor. El texto dice EXACTAMENTE
+// lo que hace calcAllegria en esa rama: base de presupuesto 0, estimaciones
+// US$/kg sobre los kilos cargados, liquidación solo si hay una definitiva, y
+// materiales y servicios fuera.
 export function avisoFrutaSinVolumen(p, fruta, sk) {
   if (!p) return null;
   const kg = Number(p.kg) || 0, fob = Number(p.fob_usd_kg) || 0;
@@ -725,7 +726,14 @@ export function avisoFrutaSinVolumen(p, fruta, sk) {
   const saldos = Array.isArray(p.saldos_favor) ? p.saldos_favor.length : 0;
   if (!progs && !saldos) return null;
   const falta = [kg === 0 ? "kilos" : null, fob === 0 ? "FOB US$/kg" : null].filter(Boolean).join(" y ");
-  return `ℹ ${fruta} ${sk}: faltan ${falta}. Se proyectan solo los programas por contraparte y los saldos a favor; las estimaciones por US$/kg, la liquidación de la fruta, materiales y servicios NO se proyectan hasta cargarlos.`;
+  const defCli = !!(p.liq_definitiva_cliente && Number(p.liq_definitiva_cliente.total));
+  const defProd = !!(p.liq_definitiva_productor && Number(p.liq_definitiva_productor.total));
+  const si = ["programas por contraparte", "saldos a favor"];
+  const no = ["materiales", "servicios"];
+  (kg !== 0 ? si : no).push("estimaciones por US$/kg" + (kg !== 0 ? " (sobre los kilos cargados)" : ""));
+  (defCli ? si : no).push(defCli ? "liquidación definitiva del cliente" : "liquidación del cliente (sin definitiva, su base es 0)");
+  (defProd ? si : no).push(defProd ? "liquidación definitiva del productor" : "saldo del productor (sin definitiva, su base es 0)");
+  return `ℹ ${fruta} ${sk}: faltan ${falta}. Se proyectan: ${si.join(", ")}. NO se proyectan: ${no.join(", ")}.`;
 }
 export function avisosCerezas(paramsAllegria) {
   return Object.keys(paramsAllegria || {}).sort()
@@ -831,13 +839,6 @@ const MES_ABR_TO_EN = {
 };
 const MES_ABR_NUM = {Ene:1,Feb:2,Mar:3,Abr:4,May:5,Jun:6,Jul:7,Ago:8,Sep:9,Oct:10,Nov:11,Dic:12};
 
-// Semana (misma numeración que semanaDeDate) de una fecha ISO leída como
-// texto, sin zona horaria.
-function semanaDeISO(p) {
-  const t = Date.UTC(p.y, p.m-1, p.d), j1 = Date.UTC(p.y, 0, 1);
-  const week = Math.ceil(((t-j1)/86400000 + new Date(j1).getUTCDay() + 1)/7);
-  return `S${String(week).padStart(2,"0")}`;
-}
 // Posición "hoy" en el flujo: misma regla que FlujoEmpresa (mes actual y
 // semana en curso), para que un vencido arrastrado caiga en la semana desde
 // la que arranca el saldo semanal.
@@ -847,8 +848,8 @@ function semanaDeISO(p) {
 // mediodía redondeaba a la semana siguiente. Si la semana ISO del día no está
 // en las 4 semanas del mes calendario (fin o inicio de mes: Oct 26-31 es la
 // S44, que el flujo pone en noviembre), se usa la primera semana del mes en los
-// días 1-7 y la ÚLTIMA en el resto: la misma regla con que `ubicarFechaFlujo`
-// ubica una fecha. Antes quedaba en la 1ª semana y el saldo semanal y el
+// días 1-7 y la ÚLTIMA en el resto. `ubicarFechaFlujo` usa esta misma función
+// para ubicar cualquier fecha (vencimientos de Créditos). Antes quedaba en la 1ª semana y el saldo semanal y el
 // reporte trataban como futuras semanas que ya habían pasado.
 export function posicionSemanaFecha(y, m, d) {
   const mes = `${MN[m-1]}-${String(y).slice(2)}`;
@@ -870,16 +871,16 @@ function posicionHoyFlujo() {
   return posicionSemanaFecha(hoy.getFullYear(), hoy.getMonth() + 1, hoy.getDate());
 }
 // {idx, semIdx} de una fecha ISO en el horizonte del flujo (idx −1 = fuera).
-// Si la semana no está en SEMANAS_MES del mes, usa la última (regla histórica).
+// MISMA regla que la semana en curso (posicionSemanaFecha). Antes usaba una
+// numeración con semanas de domingo a sábado: un vencimiento en domingo caía
+// en la semana siguiente y en 2027 todo quedaba una semana adelante de la
+// semana en curso.
 function ubicarFechaFlujo(iso) {
   if (iso === hoyISO()) return posicionHoyFlujo();
   const p = partesISO(iso);
   if (!p) return { idx:-1, semIdx:0 };
-  const mes = `${MN[p.m-1]}-${String(p.y).slice(2)}`;
-  const sems = SEMANAS_MES[mes] || [];
-  let semIdx = 0;
-  if (sems.length) { const i = sems.indexOf(semanaDeISO(p)); semIdx = i >= 0 ? i : sems.length-1; }
-  return { idx: mIdx(mes), semIdx };
+  const r = posicionSemanaFecha(p.y, p.m, p.d);
+  return { idx: r.idx, semIdx: r.semIdx };
 }
 // Cache por (lista de créditos, empresa, día): la misma lista se consulta
 // muchas veces por render (fila, sub-filas, semanas).

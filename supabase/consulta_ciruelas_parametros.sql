@@ -11,26 +11,28 @@ select t.key as temporada,
        nullif(c->>'mes_liquidacion','') as mes_liq_cliente,
        nullif(c->>'mes_saldo_productor','') as mes_saldo_productor,
        (select string_agg(coalesce(a->>'mes','sin mes')||' '||coalesce(a->>'usd_kg','')||(case when a->>'cerrado'='true' then ' cerrado' else '' end), ' | ')
-          from jsonb_array_elements(coalesce(c->'anticipos_cliente','[]'::jsonb)) a) as anticipos_cliente,
+          from jsonb_array_elements((case when jsonb_typeof(c->'anticipos_cliente')='array' then c->'anticipos_cliente' else '[]'::jsonb end)) a) as anticipos_cliente,
        (select string_agg(coalesce(a->>'mes','sin mes')||' '||coalesce(a->>'usd_kg','')||(case when a->>'cerrado'='true' then ' cerrado' else '' end), ' | ')
-          from jsonb_array_elements(coalesce(c->'anticipos_productor','[]'::jsonb)) a) as anticipos_productor,
+          from jsonb_array_elements((case when jsonb_typeof(c->'anticipos_productor')='array' then c->'anticipos_productor' else '[]'::jsonb end)) a) as anticipos_productor,
        (select string_agg(coalesce(d->>'mes','')||' '||coalesce(d->>'pct','')||'%', ' | ')
-          from jsonb_array_elements(coalesce(c->'dist_mat','[]'::jsonb)) d) as dist_mat,
+          from jsonb_array_elements((case when jsonb_typeof(c->'dist_mat')='array' then c->'dist_mat' else '[]'::jsonb end)) d) as dist_mat,
        (select string_agg(coalesce(d->>'mes','')||' '||coalesce(d->>'pct','')||'%', ' | ')
-          from jsonb_array_elements(coalesce(c->'dist_srv','[]'::jsonb)) d) as dist_srv,
-       jsonb_array_length(coalesce(c->'programas','[]'::jsonb)) as n_programas,
-       jsonb_array_length(coalesce(c->'saldos_favor','[]'::jsonb)) as n_saldos_favor,
+          from jsonb_array_elements((case when jsonb_typeof(c->'dist_srv')='array' then c->'dist_srv' else '[]'::jsonb end)) d) as dist_srv,
+       jsonb_array_length((case when jsonb_typeof(c->'programas')='array' then c->'programas' else '[]'::jsonb end)) as n_programas,
+       jsonb_array_length((case when jsonb_typeof(c->'saldos_favor')='array' then c->'saldos_favor' else '[]'::jsonb end)) as n_saldos_favor,
        f.updated_at
 from f
 cross join lateral jsonb_each(coalesce(f.v->'allegria_params','{}'::jsonb)) t
 cross join lateral (select t.value->'ciruelas' as c) x
 where c is not null and jsonb_typeof(c) = 'object'
-  and (coalesce((c->>'kg')::numeric,0) <> 0 or coalesce((c->>'fob_usd_kg')::numeric,0) <> 0
-       or jsonb_array_length(coalesce(c->'programas','[]'::jsonb)) > 0
-       or jsonb_array_length(coalesce(c->'anticipos_cliente','[]'::jsonb)) > 0
-       or jsonb_array_length(coalesce(c->'anticipos_productor','[]'::jsonb)) > 0
-       or jsonb_array_length(coalesce(c->'dist_mat','[]'::jsonb)) > 0
-       or jsonb_array_length(coalesce(c->'dist_srv','[]'::jsonb)) > 0)
+  and (coalesce(case when (c->>'kg') ~ '^\s*-?[0-9]+(\.[0-9]+)?\s*$' then (c->>'kg')::numeric end, 0) <> 0
+       or coalesce(case when (c->>'fob_usd_kg') ~ '^\s*-?[0-9]+(\.[0-9]+)?\s*$' then (c->>'fob_usd_kg')::numeric end, 0) <> 0
+       or nullif(c->>'kg','') is not null or nullif(c->>'fob_usd_kg','') is not null
+       or jsonb_array_length((case when jsonb_typeof(c->'programas')='array' then c->'programas' else '[]'::jsonb end)) > 0
+       or jsonb_array_length((case when jsonb_typeof(c->'anticipos_cliente')='array' then c->'anticipos_cliente' else '[]'::jsonb end)) > 0
+       or jsonb_array_length((case when jsonb_typeof(c->'anticipos_productor')='array' then c->'anticipos_productor' else '[]'::jsonb end)) > 0
+       or jsonb_array_length((case when jsonb_typeof(c->'dist_mat')='array' then c->'dist_mat' else '[]'::jsonb end)) > 0
+       or jsonb_array_length((case when jsonb_typeof(c->'dist_srv')='array' then c->'dist_srv' else '[]'::jsonb end)) > 0)
 order by t.key;
 
 -- Para CUANTIFICAR el efecto (costo de fruta, materiales y servicios de ciruelas
