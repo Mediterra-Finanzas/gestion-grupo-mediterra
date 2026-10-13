@@ -40,6 +40,9 @@ const LIMITES = {
   envio:   { max: 60, ventanaMs: 60 * 60e3, bloqueoMs: 30 * 60e3 },
 };
 const TOPES = { asunto: 200, mensaje: 8000, destNotif: 25, destInforme: 10 };
+// Una identidad de envío se usa UNA vez en 24 h: reintentar el mismo envío no lo duplica.
+const IDEM = { tipo: "idem", max: 1, ventanaMs: 24 * 3600e3, bloqueoMs: 0 };
+const ID_ENVIO = /^[A-Za-z0-9._-]{8,80}$/;
 
 const norm = (e) => String(e == null ? "" : e).trim().toLowerCase();
 const parse = (v) => { if (typeof v !== "string") return v; try { return JSON.parse(v); } catch (e) { return null; } };
@@ -67,6 +70,10 @@ function usuarioPorEmail(usuarios, email) {
   if (usuarios.filter((x) => x && x.nombre === u.nombre).length !== 1) return null;
   return u;
 }
+// Huella de la credencial vigente: la sesión queda atada a ESE PIN. Si el PIN cambia, o
+// hay un código provisorio emitido (que inhabilita el PIN anterior, igual que el login),
+// la sesión deja de valer en el siguiente envío. No revela nada del hash (HMAC con secreto).
+const huellaCred = (cred, secret) => crypto.createHmac("sha256", secret).update(`${cred.salt}:${cred.hash}`).digest("hex").slice(0, 32);
 const tieneModulo = (u, mod) => !!u && (u.rol === "admin" || (Array.isArray(u.modulos) && u.modulos.includes(mod)));
 
 // ── Sesión firmada (HMAC con secreto del servidor) ──
@@ -124,6 +131,16 @@ function crearCorreo(deps) {
     if (!r || r.permitido !== true) { responder(res, 429, { error: "demasiados_intentos" }); return false; }
     return true;
   }
+  // Consume la identidad del envío JUSTO antes de enviar. Repetida → «ya procesado», sin enviar.
+  // Si después el SMTP falla, la respuesta lo dice (reintento:"nuevo") y el navegador
+  // reintenta con otra identidad: el servidor sabe que ese intento no salió.
+  async function unaVez(clave, res, duplicado) {
+    let r;
+    try { r = await limitador.golpe(`idem:${clave}`, IDEM, ahora()); }
+    catch (e) { responder(res, 503, { error: "no_disponible" }); return false; }
+    if (!r || r.permitido !== true) { responder(res, duplicado.status, duplicado.body); return false; }
+    return true;
+  }
   async function enviar(cuenta, para, asunto, texto, html) {
     const r = await transporte.enviar({ cuenta, para, asunto: sinSaltos(asunto).slice(0, TOPES.asunto), texto, html });
     log({ evento: "correo_enviado", cuenta, n: para.length });
@@ -141,7 +158,9 @@ function crearCorreo(deps) {
     const body = (req.body && typeof req.body === "object") ? req.body : (parse(req.body) || {});
     const accion = body.accion;
     const ip = String((req.headers && (req.headers["x-forwarded-for"] || "")) || "").split(",")[0].trim() || "sin-ip";
-    let filas;
+    let filas, consumido = false;
+    const idEnvio = typeof body.idEnvio === "string" ? body.idEnvio : "";
+    const YA = { status: 200, body: { success: true, duplicado: true } };
     const cargar = async () => { if (!filas) filas = await leerFilas(); return filas; };
 
     try {
@@ -152,9 +171,9 @@ function crearCorreo(deps) {
         const { usuarios, pins } = await cargar();
         const u = usuarioPorEmail(usuarios, body.email);
         const cred = u && pins ? parse(pins[`${u.nombre}_h`]) : null;
-        const vigente = cred && cred.salt && cred.hash && cred.pol === "6dig";
+        const vigente = cred && cred.salt && cred.hash && cred.pol === "6dig" && !(pins && pins[`${u.nombre}_temp`]);
         if (!u || !vigente || typeof body.pin !== "string" || !verificarHash(body.pin, cred)) return responder(res, 401, { error: "credenciales" });
-        const t = firmar({ cap: CAP, email: norm(u.email), nombre: u.nombre, iat: ahora(), exp: ahora() + SESION_HORAS * 3600e3 }, secret);
+        const t = firmar({ cap: CAP, email: norm(u.email), nombre: u.nombre, cf: huellaCred(cred, secret), iat: ahora(), exp: ahora() + SESION_HORAS * 3600e3 }, secret);
         return responder(res, 200, { ok: true }, { "Set-Cookie": cookieSesion(t) });
       }
       if (accion === "cerrar") return responder(res, 200, { ok: true }, { "Set-Cookie": cookieBorrar() });
@@ -168,16 +187,26 @@ function crearCorreo(deps) {
         const temp = u && pins ? parse(pins[`${u.nombre}_temp`]) : null;
         const valido = u && temp && temp.salt && temp.hash && temp.exp && ahora() <= temp.exp
           && /^\d{6}$/.test(String(body.codigo || "")) && verificarHash(String(body.codigo), temp);
-        if (valido) { const p = PLANTILLAS.codigo_provisorio(u, String(body.codigo)); await enviar("mediterra", [u.email], p.asunto, p.texto); }
+        if (!ID_ENVIO.test(idEnvio)) return responder(res, 400, { error: "id_envio" });
+        if (valido) {
+          if (!(await unaVez(`codigo:${norm(u.email)}:${idEnvio}`, res, { status: 202, body: { aceptado: true } }))) return;
+          consumido = true;
+          const p = PLANTILLAS.codigo_provisorio(u, String(body.codigo)); await enviar("mediterra", [u.email], p.asunto, p.texto);
+        }
         return responder(res, 202, { aceptado: true });                // misma respuesta siempre
       }
 
       // ── 3. Todo lo demás exige sesión vigente ──
       const ses = verificarToken(leerCookie(req), secret, ahora());
       if (!ses) return responder(res, 401, { error: "sin_sesion" });
-      const { usuarios } = await cargar();
+      const { usuarios, pins } = await cargar();
       const yo = usuarioPorEmail(usuarios, ses.email);
       if (!yo || yo.nombre !== ses.nombre) return responder(res, 401, { error: "sin_sesion" });   // desactivado o cambiado
+      const credAhora = pins ? parse(pins[`${yo.nombre}_h`]) : null;
+      if (!credAhora || !credAhora.salt || !credAhora.hash || pins[`${yo.nombre}_temp`] || huellaCred(credAhora, secret) !== ses.cf)
+        return responder(res, 401, { error: "sin_sesion" });                                     // PIN cambiado o reseteado
+      if (accion !== "reporte_diario" && !ID_ENVIO.test(idEnvio)) return responder(res, 400, { error: "id_envio" });
+      const idem = `${norm(yo.email)}:${idEnvio}`;
       if (!(await limitar(`envio:${norm(yo.email)}`, LIMITES.envio, res))) return;
 
       if (accion === "notificacion") {
@@ -186,12 +215,14 @@ function crearCorreo(deps) {
         if (!para.length || para.length > TOPES.destNotif) return responder(res, 400, { error: "destinatarios" });
         if (para.some((e) => !esEmail(e) || !internos.has(norm(e)))) return responder(res, 403, { error: "destinatario_no_permitido" });
         if (!body.asunto || body.html) return responder(res, 400, { error: "contenido" });
+        if (!(await unaVez(idem, res, YA))) return; consumido = true;
         await enviar("mediterra", para, body.asunto, textoPlano(body.mensaje, TOPES.mensaje));
         return responder(res, 200, { success: true });
       }
       if (accion === "bienvenida") {
         if (yo.rol !== "admin") return responder(res, 403, { error: "no_autorizado" });
         if (!esEmail(body.email) || !/^\d{4,6}$/.test(String(body.pin || ""))) return responder(res, 400, { error: "contenido" });
+        if (!(await unaVez(idem, res, YA))) return; consumido = true;
         const p = PLANTILLAS.bienvenida({ nombre: body.nombre, email: String(body.email).trim(), pin: String(body.pin), rol: body.rol || "" });
         await enviar("mediterra", [String(body.email).trim()], p.asunto, p.texto);
         return responder(res, 200, { success: true });
@@ -201,6 +232,7 @@ function crearCorreo(deps) {
         const para = listaEmails(body.para);
         if (!para.length || para.length > TOPES.destInforme || para.some((e) => !esEmail(e))) return responder(res, 400, { error: "destinatarios" });
         if (!body.asunto || body.html) return responder(res, 400, { error: "contenido" });
+        if (!(await unaVez(idem, res, YA))) return; consumido = true;
         await enviar("osiris", para, body.asunto, textoPlano(body.mensaje, 20000));
         return responder(res, 200, { success: true });
       }
@@ -211,6 +243,8 @@ function crearCorreo(deps) {
         if (ej.estado === "enviado") return responder(res, 409, { error: "ya_enviado" });
         const para = (ej.destinatarios_snapshot || []).map((d) => d && d.email).filter(esEmail);
         if (!para.length) return responder(res, 400, { error: "destinatarios" });
+        // Una ejecución se envía una vez, aunque la respuesta se pierda y se reintente.
+        if (!(await unaVez(`reporte:${ej.id || body.ejecucionId}${body.intento ? "#" + String(body.intento).slice(0, 4) : ""}`, res, { status: 409, body: { error: "ya_enviado" } }))) return; consumido = true;
         const { asunto, html, texto } = deps.armarReporte(ej);          // misma plantilla que el cron
         const r = await enviar("allegria", para, asunto, texto, html);
         return responder(res, 200, { success: true, method: "smtp", messageId: r && r.messageId });
@@ -218,9 +252,11 @@ function crearCorreo(deps) {
       return responder(res, 400, { error: "accion_no_permitida" });
     } catch (e) {
       log({ evento: "correo_error", accion, motivo: String((e && e.message) || e).slice(0, 80) });
-      return responder(res, 502, { error: "no_enviado" });             // genérico: sin detalles del SMTP
+      // genérico: sin detalles del SMTP. Si la identidad ya se consumió, este intento NO salió
+      // y el reintento debe llevar otra (si no, se informaría «ya procesado» sin haber salido).
+      return responder(res, 502, consumido ? { error: "no_enviado", reintento: "nuevo" } : { error: "no_enviado" });
     }
   };
 }
 
-module.exports = { crearCorreo, verificarHash, verificarToken, firmar, COOKIE, COOKIE_PATH, LIMITES, TOPES, CAP };
+module.exports = { crearCorreo, verificarHash, verificarToken, firmar, huellaCred, COOKIE, COOKIE_PATH, LIMITES, TOPES, CAP, IDEM };

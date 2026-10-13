@@ -40,7 +40,7 @@ async function abrir() {
   await ctx.route(/vercel\.app|open\.er-api\.com|mindicador\.cl|frankfurter\.app|emailjs/, r => r.abort());
   const p = await ctx.newPage();
   const avisos = [];
-  p.on('dialog', d => { avisos.push(`${d.type()}: ${d.message().slice(0, 300)}`); d.type() === 'prompt' ? d.accept('RESTAURAR') : d.accept(); });
+  p.on('dialog', d => { avisos.push(`${d.type()}: ${d.message().slice(0, 3000)}`); d.type() === 'prompt' ? d.accept('RESTAURAR') : d.accept(); });
   const errores = []; p.on('pageerror', e => errores.push(String(e).slice(0, 160)));
   if (process.env.VER_CONSOLA) p.on('console', m => { const t = m.text(); if (/persist:main|main/.test(t)) console.log('   [consola]', t.slice(0, 200)); });
   await p.goto(process.env.APP_URL);
@@ -67,6 +67,10 @@ st.pins.value = { ...st.pins.value, 'Angelo Huerta_h': CRED_NUEVA };            
 st.pins.updated_at = new Date().toISOString();
 st.main.value = { ...st.main.value, estados: {}, comentarios: {}, tareasExtra: [] };         // daño
 st.main.updated_at = new Date().toISOString();
+// Cambio de ACCESO posterior al respaldo: Carol queda desactivada y con perfil consulta.
+const usuariosHoy = leer(st, 'usuarios');
+const carolHoy = (usuariosHoy || []).find(u => u.nombre === 'Carol Machuca');
+if (carolHoy) { carolHoy.desactivado = true; carolHoy.rol = 'consulta'; st.usuarios.value = usuariosHoy; st.usuarios.updated_at = new Date().toISOString(); }
 
 // 3. Restaurar
 s = await abrir();
@@ -88,6 +92,10 @@ check('4. reabrir: el PIN VIGENTE sigue sirviendo (no se revirtió la credencial
 // 5. Datos restaurados y codificación
 const m = leer(st, 'main');
 check('5. Tareas restauradas (estados, comentarios, tarea extra)', m?.estados?.m3?.estadoResp === 'verde' && m?.comentarios?.m3 === 'comentario restaurable (ficticio)' && (m?.tareasExtra || []).some(t => t.id === 'x1'));
+const carolTras = (leer(st, 'usuarios') || []).find(u => u.nombre === 'Carol Machuca');
+check('5c. el respaldo NO reactiva a la persona desactivada después ni le devuelve el perfil', !!carolHoy && !!carolTras && carolTras.desactivado === true && carolTras.rol === 'consulta');
+check('5d. main.usuarios (espejo) tampoco trae a Carol activa', !(m?.usuarios || []).some(u => u.nombre === 'Carol Machuca' && !u.desactivado));
+check('5e. el aviso lista la diferencia de acceso no aplicada, sin credenciales', /Diferencias de acceso NO aplicadas/.test(msg) && /Carol Machuca/.test(msg) && !/"hash"|salt/.test(msg));
 check('5b. main sigue como OBJETO y finanzas como TEXTO', typeof st.main.value === 'object' && typeof st.finanzas.value === 'string', `main ${typeof st.main.value} · finanzas ${typeof st.finanzas.value}`);
 
 // 6. Editar y guardar: un comentario nuevo en Tareas

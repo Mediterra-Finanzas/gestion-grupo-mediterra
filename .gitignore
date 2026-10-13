@@ -69,3 +69,7 @@ decisiones*.json
 *.tar
 *.tar.gz
 *.tgz
+# Alcance verificado (13-10-2026): en el árbol y en todo el historial el único comprimido fue
+# files.zip; los expedientes ZIP se arman en el navegador y no pasan por git. Para versionar
+# uno legítimo: `git add -f <ruta>` y agregar la ruta a PERMITIDOS en
+# src/__tests__/sinArchivosSensibles.test.js (revisión explícita).

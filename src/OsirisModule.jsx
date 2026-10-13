@@ -6,6 +6,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import HomeEjecutivo from "./ux/HomeEjecutivo";
 import { theme } from "./theme";
+import { enviarAccion } from "./emailHelper";
 import { snapshotOsiris, isDirty as osirisIsDirty } from "./data/osirisDirty";
 import { ubicacionMenuEstado, anclaVisible, ANCHO_MENU_ESTADO } from "./osiris/menuEstado";
 import { catalogoFenologicoCombinado, estadoFenologicoVigente, laboresDeEstado } from "./osiris/fenologia";
@@ -5736,32 +5737,15 @@ ${inf.proximaVisitaFecha?`<div class="section"><h2>Próxima Visita</h2><div clas
     });
     const emailAsunto = asuntoCorreoInforme(inf);
 
-    try {
-      // Acción del servidor: exige sesión con el módulo Osiris (api/_correo.js).
-      const res = await fetch("/api/send-email", {
-        method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({accion:"informe_osiris", para:to, asunto:emailAsunto, mensaje:emailBody})
-      });
-      if(!res.ok && res.status < 500) { console.warn("[Email] el servidor rechazó el informe:", res.status); return false; }   // sin respaldo: sería saltarse el control
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      console.log(`[Email] ✅ Enviado a ${to}`);
-      if(linkInforme) {
-        setData(prev=>({...prev, informes:(prev.informes||[]).map(i=>i.id===inf.id?{...i,linkInforme,fechaEnvio:new Date().toISOString().slice(0,10)}:i)}));
-      }
-      return true;
-    } catch(smtpErr) {
-      console.warn("[Email] SMTP falló:", smtpErr.message);
-      try {
-        for(const email of emails.split(',').map(e=>e.trim()).filter(Boolean)) {
-          await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-            method:"POST", headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({service_id:"service_ahuerta",template_id:"template_notif_tarea",user_id:"bwCBq7JXlEwCTzWNe",
-              template_params:{to_email:email,name:"Osiris Plant Management",subject:emailAsunto,message:emailBody}})
-          });
-        }
-        return true;
-      } catch(e) { console.error("Error:", e); alert("Error al enviar: "+e.message); return false; }
-    }
+    // Acción del servidor: exige sesión con el módulo Osiris (api/_correo.js). Sin respaldo
+    // por EmailJS: si no sale, queda en «correos sin enviar» y se reintenta sin duplicar;
+    // la fecha de envío del informe se marca recién cuando el servidor confirma.
+    const marcarEnviado = () => { if(linkInforme) setData(prev=>({...prev, informes:(prev.informes||[]).map(i=>i.id===inf.id?{...i,linkInforme,fechaEnvio:new Date().toISOString().slice(0,10)}:i)})); };
+    const r = await enviarAccion("informe_osiris", {para:to, asunto:emailAsunto, mensaje:emailBody},
+      {descripcion:`Informe ${inf.id||""} → ${to}`, alEnviar: marcarEnviado});
+    if(!r.success){ alert(r.estado==="rechazado" ? "El servidor rechazó el envío del informe." : "El informe no se envió. Quedó en «correos sin enviar» para reintentarlo."); return false; }
+    console.log(`[Email] ✅ Enviado a ${to}`);
+    return true;
   }
 
   // ── UI Helpers ──

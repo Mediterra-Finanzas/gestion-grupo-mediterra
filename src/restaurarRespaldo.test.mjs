@@ -62,10 +62,55 @@ ok('5. motivos: sello, legado, permiso', /sello/.test(motivoFallo(400, 'MEDITERR
   ok('7. main (objeto hoy) se escribe como OBJETO', typeof f('main').value === 'object' && f('main').value.estados.m3.estadoResp === 'verde');
   ok('7b. finanzas (texto hoy) se escribe como TEXTO', typeof f('finanzas').value === 'string' && JSON.parse(f('finanzas').value).a === 1);
   ok('7c. una fila que hoy no existe se crea como objeto', typeof f('nueva').value === 'object');
-  ok('8. pins: la credencial vigente NO se revierte', f('pins').value['Angelo Huerta_h'] === 'cred-NUEVA');
-  ok('8b. pins: se agrega la credencial que hoy falta', f('pins').value['Carol Machuca_h'] === 'cred-carol-respaldo');
+  ok('8. pins: la credencial vigente NO se revierte (la fila no se escribe)', !f('pins'));
+  ok('8b. pins NO se escribe desde el respaldo: tampoco se recupera la credencial que hoy falta', !f('pins'));
+  ok('8c. y la diferencia se informa por nombre, sin la credencial', JSON.stringify(plan.accesos).includes('Carol Machuca') && !JSON.stringify(plan.accesos).includes('cred-carol-respaldo') && !JSON.stringify(plan.accesos).includes('cred-NUEVA'));
   const r2 = await restaurarFilas({ version: 'x', tablas: {} }, async () => { throw new Error('no debía escribir'); }, { actuales: {} });
   ok('9. archivo no aceptado: no escribe nada y el mensaje lo dice', r2.invalido && /NO aceptado/.test(mensajeRestauracion(r2, '')));
+}
+
+// ── oct-2026: un respaldo no reactiva personas ni recupera permisos, aprobadores o credenciales ──
+{
+  const U_RESP = [
+    { nombre: 'Ex Usuaria', email: 'ex@ejemplo.test', rol: 'admin', modulos: ['finanzas', 'osiris'] },          // hoy desactivada
+    { nombre: 'Carol Machuca', email: 'cmachuca@ejemplo.test', rol: 'admin', modulos: ['finanzas', 'tareas'], tabPermisos: { finanzas: { flujo: 'editar' } } },
+    { nombre: 'Borrada', email: 'borrada@ejemplo.test', rol: 'editor', modulos: ['tareas'] } ];
+  const U_HOY = [
+    { nombre: 'Ex Usuaria', email: 'ex@ejemplo.test', rol: 'consulta', modulos: [], desactivado: true },
+    { nombre: 'Carol Machuca', email: 'cmachuca@ejemplo.test', rol: 'editor', modulos: ['tareas'], tabPermisos: { finanzas: { flujo: 'ver' } } },
+    { nombre: 'Nueva', email: 'nueva@ejemplo.test', rol: 'editor', modulos: ['tareas'] } ];
+  const bk = { version: 'Mediterra Hub Backup v1', tablas: {
+    usuarios: { data: U_RESP },
+    pins: { data: { 'Ex Usuaria_h': 'cred-ex-RESPALDO', 'Carol Machuca_h': 'cred-carol-vieja', 'Borrada_h': 'cred-borrada' } },
+    permisos_facultades: { data: { rendPagar: ['ex@ejemplo.test'] } },
+    rendiciones_config: { data: { valorKm: 300, aprobadores: { 'Carol Machuca': 'ex@ejemplo.test' } } },
+    main: { data: { estados: { m3: { estadoResp: 'verde' } }, usuarios: U_RESP } },
+    finanzas: { data: { a: 1 } } } };
+  const act = {
+    usuarios: { value: U_HOY }, pins: { value: { 'Carol Machuca_h': 'cred-carol-HOY' } },
+    permisos_facultades: { value: { rendPagar: ['angelo@ejemplo.test'] } },
+    rendiciones_config: { value: { valorKm: 250, aprobadores: { 'Carol Machuca': 'angelo@ejemplo.test' } } },
+    main: { value: { estados: {}, usuarios: U_HOY } }, finanzas: { value: { a: 0 } } };
+  const plan = prepararRestauracion(bk, act);
+  const f = (id) => plan.filas.find((x) => x.id === id);
+  ok('10. usuarios, pins y facultades NO se escriben', !f('usuarios') && !f('pins') && !f('permisos_facultades'));
+  ok('10b. los datos de negocio sí: finanzas y Tareas', f('finanzas').value.a === 1 && f('main').value.estados.m3.estadoResp === 'verde');
+  ok('10c. main.usuarios (espejo que siembra la fila usuarios) queda con los accesos de HOY', JSON.stringify(f('main').value.usuarios) === JSON.stringify(U_HOY));
+  ok('10d. Rendiciones: se restaura su configuración (valor km) pero los aprobadores quedan los de hoy', f('rendiciones_config').value.valorKm === 300 && f('rendiciones_config').value.aprobadores['Carol Machuca'] === 'angelo@ejemplo.test');
+  const txt = plan.accesos.flatMap((a) => a.diferencias).join('\n');
+  ok('11. se informa que la persona desactivada sigue desactivada', /Ex Usuaria: hoy desactivada; el respaldo la tiene activa \(sigue desactivada\)/.test(txt));
+  ok('11b. se informan perfil, módulos y permisos por pestaña distintos (no aplicados)', /Carol Machuca: .*perfil hoy «editor», en el respaldo «admin».*módulos: el respaldo agregaría finanzas.*permisos por pestaña distintos/.test(txt));
+  ok('11c. quien está en el respaldo y hoy no existe no se recrea; quien existe hoy se conserva', /Borrada: está en el respaldo y hoy no existe \(no se recrea\)/.test(txt) && /Nueva: existe hoy y no está en el respaldo \(se conserva\)/.test(txt));
+  ok('11d. credenciales: solo nombres, ningún valor', /credencial que solo existe en el respaldo \(no se recupera\): Borrada, Ex Usuaria/.test(txt) && /distinta.*: Carol Machuca/.test(txt) && !/cred-/.test(JSON.stringify(plan.accesos)));
+  ok('11e. aprobadores distintos informados', /1 asignación\(es\) de aprobador distintas: Carol Machuca/.test(txt));
+  const r = await restaurarFilas(bk, async () => resp(201), { actuales: act });
+  const msg = mensajeRestauracion(r, '2026-09-30');
+  ok('12. el aviso final lista los accesos no aplicados y no muestra credenciales', /Diferencias de acceso NO aplicadas/.test(msg) && /Ex Usuaria/.test(msg) && !/cred-/.test(msg), msg.split('\n').length + ' líneas');
+  const vacio = prepararRestauracion({ version: 'Mediterra Hub Backup v1', tablas: { usuarios: { data: U_RESP }, pins: { data: { 'X_h': 'c' } } } }, {});
+  ok('13. si hoy la fila de accesos no existe, tampoco se restaura sola: queda para revisión', !vacio.filas.length && vacio.accesos.every((a) => /hoy no existe/.test(a.diferencias[0])));
+  const escritas = [];
+  await restaurarFilas(bk, async (id) => { escritas.push(id); return resp(201); });
+  ok('14. sin estado actual (ruta antigua) tampoco se escriben accesos', !escritas.includes('usuarios') && !escritas.includes('pins') && !escritas.includes('permisos_facultades'));
 }
 
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');

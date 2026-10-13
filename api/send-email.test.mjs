@@ -4,7 +4,7 @@ import { createRequire } from 'module';
 import crypto from 'crypto';
 import fs from 'fs';
 const require = createRequire(import.meta.url);
-const { crearCorreo, firmar, CAP, COOKIE } = require('./_correo.js');
+const { crearCorreo, firmar, huellaCred, CAP, COOKIE } = require('./_correo.js');
 
 let fallos = 0, n = 0;
 const ok = (nombre, c, x = '') => { n++; console.log(`${c ? 'OK ' : 'FALLA'} ${nombre}${x ? ' — ' + x : ''}`); if (!c) fallos++; };
@@ -27,7 +27,7 @@ const pins = {
   'Michelle Garcia_h': cred('555666'), 'Ex Usuario_h': cred('777888'),
   'Legado Cuatro_h': JSON.parse(JSON.stringify(cred('1234'))).replace('"pol":"6dig"', '"pol":"4dig"'),
   'Carol Machuca_temp': cred('654321', { exp: AHORA + 30 * 60e3 }),
-  'Angelo Huerta_temp': cred('999000', { exp: AHORA - 60e3 }),          // vencido
+  'Legado Cuatro_temp': cred('999000', { exp: AHORA - 60e3 }),          // vencido
 };
 const EJ = { id: 'ej1', empresa_id: 'emp1', estado: 'pendiente', asunto: 'Informe diario (ficticio)',
   snapshot: { clientes: [{ cliente_nombre: 'Cliente ficticio', kg_recibido: 10, kg_procesado: 8 }], total_kg_recibido: 10, total_kg_procesado: 8 },
@@ -35,20 +35,24 @@ const EJ = { id: 'ej1', empresa_id: 'emp1', estado: 'pendiente', asunto: 'Inform
 
 function entorno({ secret = SECRET, limiteRoto = false, smtpFalla = false } = {}) {
   const enviados = [], cuentas = new Map();
-  const handler = crearCorreo({
-    leerFilas: async () => ({ usuarios, pins }),
-    transporte: { async enviar(m) { if (smtpFalla) throw new Error('535 5.7.3 Authentication unsuccessful [detalle interno del SMTP]'); enviados.push(m); return { messageId: `<sim-${enviados.length}>` }; } },
+  const e = { enviados, pins: { ...pins }, usuarios: usuarios.map(u => ({ ...u })), reloj: AHORA, smtpFalla };
+  e.handler = crearCorreo({
+    leerFilas: async () => ({ usuarios: e.usuarios, pins: e.pins }),
+    transporte: { async enviar(m) { if (e.smtpFalla) throw new Error('535 5.7.3 Authentication unsuccessful [detalle interno del SMTP]'); enviados.push(m); return { messageId: `<sim-${enviados.length}>` }; } },
     limitador: { async golpe(clave, regla) { if (limiteRoto) throw new Error('rpc caída'); const c = (cuentas.get(clave) || 0) + 1; cuentas.set(clave, c); return { permitido: c <= regla.max }; } },
     leerEjecucion: async ({ empresaId, ejecucionId }) => (empresaId === 'emp1' && ejecucionId === 'ej1' ? EJ : ejecucionId === 'ej-enviado' ? { ...EJ, estado: 'enviado' } : null),
     armarReporte: require('./_reporteDiarioEmail.js').emailDesdeSnapshot,
-    cfg: { secret, origenes: [ORIGEN] }, ahora: () => AHORA,
+    cfg: { secret, origenes: [ORIGEN] }, ahora: () => e.reloj,
   });
-  return { handler, enviados };
+  return e;
 }
+const CON_ID = new Set(['notificacion', 'bienvenida', 'informe_osiris', 'codigo_provisorio']);
+let nId = 0;
 async function pedir(env, body, { origin = ORIGEN, cookie = '', method = 'POST', ip = '10.0.0.1' } = {}) {
   const res = { statusCode: 0, headers: {}, cuerpo: null,
     setHeader(k, v) { this.headers[k.toLowerCase()] = v; }, status(c) { this.statusCode = c; return this; },
     json(b) { this.cuerpo = b; return this; }, end() { return this; } };
+  if (body && CON_ID.has(body.accion) && !('idEnvio' in body)) body = { ...body, idEnvio: `prueba-${++nId}-envio` };
   await env.handler({ method, headers: { origin, cookie, 'x-forwarded-for': ip }, body }, res);
   return res;
 }
@@ -89,7 +93,7 @@ async function sesion(env, email, pin) { const r = await pedir(env, { accion: 's
 {
   const e = entorno();
   const { cookie: cA } = await sesion(e, 'ahuerta@grupomediterra.cl', '482913');
-  const { cookie: cC } = await sesion(e, 'cmachuca@grupomediterra.cl', '111222', { ip: '10.0.0.2' });
+  const { cookie: cC } = await sesion(e, 'mgarcia@grupomediterra.cl', '555666', { ip: '10.0.0.2' });   // editor, no admin
   let r = await pedir(e, { accion: 'notificacion', para: ['cmachuca@grupomediterra.cl'], asunto: 'Tarea', mensaje: 'texto' });
   ok('7. notificación sin cookie → 401', r.statusCode === 401 && e.enviados.length === 0);
   const forjada = `${COOKIE}=${firmar({ cap: CAP, email: 'ahuerta@grupomediterra.cl', nombre: 'Angelo Huerta', exp: AHORA + 1e6 }, 'otro-secreto')}`;
@@ -144,10 +148,74 @@ async function sesion(env, email, pin) { const r = await pedir(env, { accion: 's
   let r = await pedir(e, { accion: 'codigo_provisorio', email: 'cmachuca@grupomediterra.cl', codigo: '654321', para: 'atacante@externo.test' });
   ok('14. código vigente → 202 y envío SOLO a la casilla registrada', r.statusCode === 202 && e.enviados.length === 1 && e.enviados[0].para.join() === 'cmachuca@grupomediterra.cl' && /654321/.test(e.enviados[0].texto));
   const r1 = await pedir(e, { accion: 'codigo_provisorio', email: 'cmachuca@grupomediterra.cl', codigo: '000000' });
-  const r2 = await pedir(e, { accion: 'codigo_provisorio', email: 'ahuerta@grupomediterra.cl', codigo: '999000' });
+  const r2 = await pedir(e, { accion: 'codigo_provisorio', email: 'legado@ejemplo.test', codigo: '999000' });
   const r3 = await pedir(e, { accion: 'codigo_provisorio', email: 'nadie@ejemplo.test', codigo: '123456' });
   ok('14b. código incorrecto, vencido o correo inexistente → no envía nada', e.enviados.length === 1);
   ok('14c. y la respuesta es idéntica en los cuatro casos (no revela qué correos existen)', [r, r1, r2, r3].every(x => x.statusCode === 202 && JSON.stringify(x.cuerpo) === '{"aceptado":true}'));
+}
+// ── Revocación de la sesión: PIN cambiado, código provisorio, desactivación, cierre, 12 h ──
+{
+  const e = entorno();
+  let { r, cookie } = await sesion(e, 'ahuerta@grupomediterra.cl', '482913');
+  const env = (c = cookie) => pedir(e, { accion: 'notificacion', para: ['mgarcia@grupomediterra.cl'], asunto: 'x', mensaje: 'y' }, { cookie: c });
+  ok('R1. con sesión vigente se envía', (await env()).statusCode === 200 && e.enviados.length === 1);
+  e.pins['Angelo Huerta_h'] = cred('135790');
+  r = await env();
+  ok('R2. cambió el PIN después de abrir la sesión → 401 en el siguiente envío, sin enviar', r.statusCode === 401 && e.enviados.length === 1);
+  ({ cookie } = await sesion(e, 'ahuerta@grupomediterra.cl', '135790'));
+  ok('R2b. con el PIN nuevo se vuelve a abrir sesión y se envía', (await env(cookie)).statusCode === 200 && e.enviados.length === 2);
+  e.pins['Angelo Huerta_temp'] = cred('246810', { exp: AHORA + 45 * 60e3 });
+  ok('R3. el admin emitió un código provisorio (PIN anterior inhabilitado) → 401', (await env(cookie)).statusCode === 401 && e.enviados.length === 2);
+  r = (await sesion(e, 'ahuerta@grupomediterra.cl', '135790')).r;
+  ok('R3b. y con ese código pendiente no se puede abrir sesión con el PIN anterior', r.statusCode === 401);
+  r = (await sesion(e, 'cmachuca@grupomediterra.cl', '111222')).r;
+  ok('R3c. (Carol tiene un código provisorio pendiente: tampoco abre sesión con su PIN)', r.statusCode === 401);
+  const e2 = entorno();
+  const s2 = await sesion(e2, 'mgarcia@grupomediterra.cl', '555666');
+  e2.usuarios.find(u => u.nombre === 'Michelle Garcia').desactivado = true;
+  r = await pedir(e2, { accion: 'notificacion', para: ['ahuerta@grupomediterra.cl'], asunto: 'x', mensaje: 'y' }, { cookie: s2.cookie });
+  ok('R4. persona desactivada después de abrir la sesión → 401, sin enviar', r.statusCode === 401 && e2.enviados.length === 0);
+  const e3 = entorno();
+  const s3 = await sesion(e3, 'ahuerta@grupomediterra.cl', '482913');
+  e3.reloj = AHORA + 12 * 3600e3 + 1;
+  r = await pedir(e3, { accion: 'notificacion', para: ['mgarcia@grupomediterra.cl'], asunto: 'x', mensaje: 'y' }, { cookie: s3.cookie });
+  ok('R5. a las 12 h la sesión vence → 401', r.statusCode === 401 && e3.enviados.length === 0);
+  r = await pedir(e3, { accion: 'cerrar' });
+  const sc = String(r.headers['set-cookie'] || '');
+  ok('R6. cerrar sesión borra la cookie (Max-Age=0, misma ruta, HttpOnly)', r.statusCode === 200 && /Max-Age=0/.test(sc) && /Path=\/api\/send-email/.test(sc) && /HttpOnly/.test(sc));
+  const sinHuella = `${COOKIE}=${firmar({ cap: CAP, email: 'ahuerta@grupomediterra.cl', nombre: 'Angelo Huerta', iat: AHORA, exp: AHORA + 1e6 }, SECRET)}`;
+  ok('R7. una sesión emitida antes de esta versión (sin huella del PIN) ya no vale', (await env(sinHuella)).statusCode === 401);
+}
+// ── Reintento sin duplicar: identidad de envío ──
+{
+  const e = entorno();
+  const { cookie } = await sesion(e, 'ahuerta@grupomediterra.cl', '482913');
+  const env = (id, extra = {}) => pedir(e, { accion: 'notificacion', para: ['mgarcia@grupomediterra.cl'], asunto: 'x', mensaje: 'y', idEnvio: id, ...extra }, { cookie });
+  let r = await env(null);
+  ok('I0. sin identidad de envío → 400', r.statusCode === 400 && r.cuerpo.error === 'id_envio' && e.enviados.length === 0);
+  const a = await env('envio-0001'), b = await env('envio-0001');
+  ok('I1. el mismo envío reintentado (la respuesta se perdió) sale UNA vez; el reintento dice «ya procesado»', a.statusCode === 200 && b.statusCode === 200 && b.cuerpo.duplicado === true && e.enviados.length === 1);
+  const simult = await Promise.all(Array.from({ length: 5 }, () => env('envio-0002')));
+  ok('I2. cinco reintentos simultáneos del mismo envío → un solo correo', e.enviados.length === 2 && simult.filter(x => x.cuerpo.duplicado).length === 4);
+  r = await env('envio-0003', { para: ['victima@externo.test'] });
+  const r2 = await env('envio-0003');
+  ok('I3. un envío rechazado (403) no gasta su identidad: corregido, sale con la misma', r.statusCode === 403 && r2.statusCode === 200 && !r2.cuerpo.duplicado && e.enviados.length === 3);
+  e.smtpFalla = true;
+  r = await env('envio-0004');
+  ok('I4. SMTP falla → 502 y avisa que el intento NO salió (reintento con otra identidad)', r.statusCode === 502 && r.cuerpo.reintento === 'nuevo' && e.enviados.length === 3);
+  e.smtpFalla = false;
+  const rMismo = await env('envio-0004'), rNuevo = await env('envio-0004.1');
+  ok('I4b. con la misma identidad el servidor no reenvía; con la siguiente sí, una vez', rMismo.cuerpo.duplicado === true && rNuevo.statusCode === 200 && !rNuevo.cuerpo.duplicado && e.enviados.length === 4);
+  const { cookie: cM } = await sesion(e, 'mgarcia@grupomediterra.cl', '555666');
+  r = await pedir(e, { accion: 'notificacion', para: ['ahuerta@grupomediterra.cl'], asunto: 'x', mensaje: 'y', idEnvio: 'envio-0001' }, { cookie: cM });
+  ok('I5. la identidad es por persona: otra persona con el mismo id sí envía', r.statusCode === 200 && !r.cuerpo.duplicado && e.enviados.length === 5);
+  const c1 = await pedir(e, { accion: 'codigo_provisorio', email: 'cmachuca@grupomediterra.cl', codigo: '654321', idEnvio: 'codigo-0001' });
+  const c2 = await pedir(e, { accion: 'codigo_provisorio', email: 'cmachuca@grupomediterra.cl', codigo: '654321', idEnvio: 'codigo-0001' });
+  ok('I6. código provisorio reintentado → un solo correo, misma respuesta 202', c1.statusCode === 202 && c2.statusCode === 202 && e.enviados.length === 6);
+  const { cookie: cO } = await sesion(e, 'operador@ejemplo.test', '333444');
+  const d1 = await pedir(e, { accion: 'reporte_diario', empresaId: 'emp1', ejecucionId: 'ej1' }, { cookie: cO });
+  const d2 = await pedir(e, { accion: 'reporte_diario', empresaId: 'emp1', ejecucionId: 'ej1' }, { cookie: cO });
+  ok('I7. reporte diario reintentado (la ejecución aún figura pendiente) → un solo envío, el segundo 409', d1.statusCode === 200 && d2.statusCode === 409 && e.enviados.length === 7);
 }
 // ── Límite de intentos, fallas y errores ──
 {

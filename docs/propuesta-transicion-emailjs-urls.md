@@ -19,10 +19,11 @@ Cada fase necesita tu autorización.
 - La app lo usa como respaldo cuando falla el SMTP: códigos provisorios, bienvenida (con el PIN),
   notificaciones, respaldo diario e informe de Osiris.
 
-**Hecho en la rama `claude/auditoria-funcional`, sin desplegar.** La app ya no recurre a EmailJS
-cuando el servidor **rechaza** un envío (400/401/403/404/409/429): solo lo hace ante una falla de
-red o del servidor (5xx). Así el control del servidor no se esquiva desde la propia app. Esto no
-cierra el relé: cualquiera con la clave pública puede seguir usando EmailJS directamente.
+**Hecho en la rama `claude/auditoria-funcional`, sin desplegar (13-10, tercera tanda).** La app
+ya no usa EmailJS en ningún caso, tampoco ante una falla de red o un 5xx. Lo que no sale queda
+visible en «correos sin enviar», con reintento que no duplica. Esto adelanta E-2 y la parte de
+código de E-3. **No cierra el relé**: con la clave pública cualquiera puede seguir usando EmailJS
+directamente. Eso se cierra solo con E-1 y E-4 en el panel.
 
 | Fase | Qué | Efecto sobre usos legítimos | Requiere |
 |---|---|---|---|
