@@ -427,7 +427,7 @@ async function fetchMindicadorSerie(indicador, fechaDDMMYYYY) {
   }));
 }
 
-// Actualiza pares ?-CLP usando mindicador. Solo soporta USD, EUR contra CLP.
+// Actualiza pares ?-CLP usando mindicador: USD, EUR y UF contra CLP.
 export async function actualizarTCMindicador(fecha = null) {
   const f = fecha || fechaISO();
   const [yyyy, mm, dd] = f.split("-");
@@ -441,6 +441,14 @@ export async function actualizarTCMindicador(fecha = null) {
     const euro = await fetchMindicadorSerie("euro", ddmmyyyy);
     if (euro.length) updates["EUR-CLP"] = euro;
   } catch (e) { console.warn("[TC mindicador EUR]", e.message); }
+  // UF en CLP (par "UF-CLP"). Fuente oficial: Banco Central de Chile, que la
+  // publica a más tardar el día 9 con los valores del 10 al 9 del mes
+  // siguiente; mindicador.cl la toma del Banco Central. Los créditos en UF la
+  // usan por fecha (valor publicado del día o, a futuro, hipótesis).
+  try {
+    const uf = await fetchMindicadorSerie("uf", ddmmyyyy);
+    if (uf.length) updates["UF-CLP"] = uf;
+  } catch (e) { console.warn("[TC mindicador UF]", e.message); }
   return updates;
 }
 

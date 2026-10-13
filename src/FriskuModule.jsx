@@ -1413,7 +1413,7 @@ function TipoCambioEditor({tcData, setTcData, monedas, canEdit}) {
     }
     const valor = Number(nuevoTC.valor);
     if(isNaN(valor) || valor <= 0) { alert("Valor inválido"); return; }
-    if(!/^[A-Z]{3}-[A-Z]{3}$/.test(nuevoTC.par)) { alert("Par debe ser formato 'USD-CLP'"); return; }
+    if(!/^[A-Z]{2,3}-[A-Z]{3}$/.test(nuevoTC.par)) { alert("Par debe ser formato 'USD-CLP' (o 'UF-CLP')"); return; }
     setTcData(prev => ({
       ...prev,
       [nuevoTC.par]: mergeTCSerie(prev[nuevoTC.par], [{fecha:nuevoTC.fecha, valor, fuente:"manual"}])

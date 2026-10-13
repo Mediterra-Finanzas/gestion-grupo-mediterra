@@ -32,13 +32,17 @@ const pintar = (p = params(), props = {}) =>
 
 test('muestra acordado, cobrado, pendiente y el total por cobrar (540.000)', () => {
   pintar();
-  verTexto(/Queda por cobrar: \$540,000/);
-  verTexto(/Queda por pagar: \$352,000/);
+  // El resumen del lado sale de resumenLado (src/programas.js): saldo total =
+  // anticipos pendientes + liquidación.
+  verTexto(/Saldo económico pendiente \(por cobrar\)\$540,000/);
+  verTexto(/Saldo económico pendiente \(por pagar\)\$352,000/);
+  verTexto(/Total calendarizado\$540,000/);
   verTexto(/Acordado \$100,000/);                    // acordado cliente
   verTexto(/Cobrado \$60,000Pendiente \$40,000/);    // cobrado y pendiente cliente
   verTexto(/Pagado \$70,000Pendiente \$30,000/);     // pagado y pendiente productor
-  verTexto(/Liquidación final: \$500,000/);
-  verTexto(/Saldo productor: \$322,000/);
+  verTexto(/Liquidación \(Mar-27\)\$500,000/);
+  verTexto(/\$322,000/);                            // saldo al productor
+  verTexto(/· dentro del horizonte\$40,000/);        // cubeta temporal
 });
 
 test('lista la realización con su fecha y dice que no es comprobable sin saldos', () => {
@@ -105,18 +109,35 @@ test('no deja borrar un anticipo con cobros registrados', () => {
   expect(setParams).not.toHaveBeenCalled();
 });
 
-test('avisa del sobre-anticipo sin compensarlo solo', () => {
+test('distingue el exceso de compromisos del excedente real', () => {
+  // Venta 600.000, cobrado 400.000 y 300.000 de calendario pendiente: el
+  // calendario se pasa en 100.000, pero NO hay plata cobrada de más.
   const p = params({ anticipos_cliente:[{ id:"a1", mes:"Oct-26", usd_kg:0.70, realizaciones:[{ id:"r1", fecha:"2026-08-10", usd:400000 }] }] });
   pintar(p);
-  verTexto(/Sobre-anticipo: \$100,000 por sobre la venta/);
-  verTexto(/NO se compensa solo/);
+  verTexto(/Exceso de compromisos del calendario\$100,000/);
+  verTexto(/no crea ninguna obligación/);
+  expect(texto()).not.toMatch(/Excedente real/);        // no hay sobrepago
+  expect(texto()).not.toMatch(/Excedente de anticipos/); // el rótulo mezclado se retiró
+});
+
+test('el excedente real aparece solo cuando se cobró por sobre la base', () => {
+  const p = params({ anticipos_cliente:[{ id:"a1", mes:"Oct-26", usd_kg:0.70,
+    realizaciones:[{ id:"r1", fecha:"2026-08-10", usd:700000 }] }] });   // venta 600.000
+  pintar(p);
+  verTexto(/Excedente real \(cobrado por sobre la base\)\$100,000/);
+  verTexto(/solo con respaldo/);
 });
 
 test('marca el pendiente vencido y ofrece reprogramarlo a mano', () => {
   const p = params({ anticipos_cliente:[{ id:"a1", mes:"Jul-26", usd_kg:0.10, realizaciones:[] }] });
-  pintar(p);           // hoy = Sep-26 → Jul-26 está vencido
+  pintar(p);           // Jul-26 quedó antes del mes en curso
+  // El mes de destino es el mes en curso, así que se calcula: fijarlo a mano
+  // hacía fallar el test al cambiar de mes.
+  const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const hoy = new Date();
+  const mesHoy = `${MN[hoy.getMonth()]}-${String(hoy.getFullYear()).slice(2)}`;
   verTexto(/vencido: Jul-26 ya pasó/);
-  verTexto(/reprogramar a Sep-26/);
+  verTexto(new RegExp(`reprogramar a ${mesHoy}`));
   verTexto(/No se da por cobrado ni se mueve solo/);
 });
 
@@ -190,9 +211,13 @@ describe('formato de los campos de parámetros', () => {
     fireEvent.blur(input);
   };
 
+  // Los valores escritos son DISTINTOS del valor que ya tiene el campo: escribir
+  // el mismo texto que ya está no es un cambio y no emite nada (se comprueba
+  // aparte, abajo). Antes este caso tapaba el resultado: 'fob_usd_kg' ya venía
+  // en 0,6, así que escribir «0,6» no probaba el formato.
   test.each([
-    ['FOB US$/kg', 'fob_usd_kg', '0.6', 0.6],
-    ['FOB US$/kg', 'fob_usd_kg', '0,6', 0.6],
+    ['FOB US$/kg', 'fob_usd_kg', '0.45', 0.45],
+    ['FOB US$/kg', 'fob_usd_kg', '0,45', 0.45],
     ['Materiales US$/kg', 'mat_usd_kg', '0.178', 0.178],
     ['Servicios US$/kg', 'srv_usd_kg', '1.2', 1.2],
     ['Desc. exportadora', 'desc_exp_pct', '6.5', 6.5],
@@ -201,6 +226,30 @@ describe('formato de los campos de parámetros', () => {
     render(<ParamsFruta seasonKey="2026-2027" fruta="cerezas" params={params()} setParams={g.set}/>);
     escribir(etiqueta, texto);
     expect(g.leer()["2026-2027"].cerezas[campo]).toBe(esperado);
+  });
+
+  // Escrituras sin cambio efectivo: entrar a un campo y salir sin tocar nada, o
+  // reescribir el mismo valor, NO puede generar un guardado. Cada uno de esos
+  // eventos reescribía la fila `finanzas` completa (~4,4 MB) por tabular.
+  test('entrar y salir de un campo sin escribir no guarda nada', () => {
+    const g = guardar();
+    render(<ParamsFruta seasonKey="2026-2027" fruta="cerezas" params={params()} setParams={g.set}/>);
+    const lbl = screen.getByText('FOB US$/kg');
+    const input = lbl.parentElement.querySelector('input');
+    fireEvent.focus(input);
+    fireEvent.blur(input);
+    expect(g.leer()).toBeNull();
+  });
+
+  test('reescribir el mismo valor tampoco guarda', () => {
+    const g = guardar();
+    render(<ParamsFruta seasonKey="2026-2027" fruta="cerezas" params={params()} setParams={g.set}/>);
+    escribir('FOB US$/kg', '0,6');   // el campo ya vale 0,6
+    expect(g.leer()).toBeNull();
+    // Y cambiarlo de verdad sí guarda, para que la prueba de arriba no pase por
+    // un campo que simplemente no funciona.
+    escribir('FOB US$/kg', '0,61');
+    expect(g.leer()["2026-2027"].cerezas.fob_usd_kg).toBe(0.61);
   });
 
   test('KG a exportar sí acepta separador de miles', () => {

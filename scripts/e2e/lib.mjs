@@ -4,9 +4,11 @@ import { instalarFake, PIN, EMAIL } from './fake.mjs';
 
 export const BASE = process.env.APP_URL || 'http://127.0.0.1:4173';
 
-export async function abrirApp(store, { log = () => {} } = {}) {
+export async function abrirApp(store, { log = () => {}, ctxOpts = {} } = {}) {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
-  const ctx = await browser.newContext({ viewport: { width: 1800, height: 1150 }, acceptDownloads: true });
+  // ctxOpts permite, por ejemplo, grabar video del recorrido sin tocar el
+  // resto de las pruebas.
+  const ctx = await browser.newContext({ viewport: { width: 1800, height: 1150 }, acceptDownloads: true, ...ctxOpts });
   await instalarFake(ctx, store, log);
   const page = await ctx.newPage();
   page.on('pageerror', e => console.log('  [pageerror]', String(e).slice(0, 200)));

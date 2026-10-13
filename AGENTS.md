@@ -108,7 +108,7 @@ Sub-tabs dentro de FinanzasModule:
 1. **Dashboard** — KPIs grupo
 2. **Flujo Empresas** — flujo de caja proyectado por empresa + consolidado
 3. **Saldos Bancos** — saldos por banco/cuenta
-4. **Créditos** — créditos por empresa, cuotas, renovaciones
+4. **Créditos** — registro por empresa (contrato con calendario, registro simple, socio), 📅 pagos por vencimiento, 📊 Análisis CFO, 🧮 Simular prepago, Saldo por Mes
 5. **Nóminas** — nóminas de pago semanales con workflow autorización. **Expediente Digital (Fases 0-6, jun-2026)**: respaldo documental por línea (bucket privado `nominas-docs` + URLs firmadas; helpers en `friskuHelpers.js` y `expedienteHelpers.js`), soft-delete de líneas/documentos/nóminas (nunca borrado físico: `estadoLinea`/`doc.estado`/`estadoNomina="inactiva"`), hash SHA-256 por documento, semáforo 🟢/🔴 + % cobertura por nómina, documento interno autogenerado para líneas de empresas relacionadas (`emp_rel_clp`/`emp_rel_usd`: correlativo `DI-{COD}-{AAAA}-{NNNNN}` + UUID + PDF), trazabilidad (`nomina.historial[]` + `window.auditLog` en transiciones), Vista Auditoría (`AuditoriaNominaModal`), validación de respaldo obligatorio al avanzar a "revision" (`VALIDACION_RESPALDO`, exime `anticipos`), y "Descargar Expediente" (ZIP resumen + documentos). La impresión incluye cobertura, respaldos por línea y anexos.
 6. **Reporte Semanal** — PDF ejecutivo del flujo grupo
 7. **Auditoría** — log de cambios
@@ -143,14 +143,145 @@ Esta lógica está implementada en:
 
 **IMPORTANTE**: no romper esta lógica en cambios futuros. Si necesitas modificar el cálculo, hay logs de debug históricos comentados que ayudan a diagnosticar.
 
-#### Sublines de "Préstamos" — caso especial
+#### Créditos — una sola fuente de verdad (oct-2026)
 
-Las líneas con `formula:true` y "Préstamos" en el label:
-- Cuotas calculadas automáticamente desde `creditosData` (módulo Créditos)
-- `proy[i]` ya incluye las cuotas mensuales
-- `calcPrestamosSemanasEmpresa()` calcula las cuotas por semana exacta
-- Las sublines visibles vienen de `calcPrestamosDesglose()` (por acreedor)
-- Mantienen consistencia con el módulo Créditos: una sola fuente de verdad
+`src/creditos.js` (puro, testeado con `node src/creditos.test.mjs`) calcula el
+calendario de cada crédito, aplica los pagos y entrega al flujo SOLO lo
+pendiente. Pantalla (mensual y semanal), consolidado, reporte semanal y Excel
+leen de ahí vía `flujoCredEmpresa()` / `aplicarCreditosAEmpresas()` en
+`FinanzasModule.jsx`.
+
+Tipos de registro (conviven, sin migración forzada):
+
+- **legacy** (`tipo_credito` vacío o "banco"): 1 fila = 1 vencimiento con `cuota`
+  total (o cuotas mensuales `f_inicio`→`f_venc`). No separa capital de interés:
+  va como **"sin desglose"** hasta que se cargue `desglose:{capital,interes,cargos}`
+  (botón "Desglosar cuota" en 📅 Pagos). Nunca se inventa la división.
+- **socio**: tabla de `creditoSocio.js` (interés efectivo compuesto).
+- **contrato**: calendario generado (cuota fija, capital constante, bullet con
+  intereses periódicos, capital+interés al vencimiento; gracia; tasa fija o
+  variable = referencia hipótesis + margen; base Act/360, Act/365 o 30/360;
+  cargos por cuota y únicos) o **calendario manual** del acreedor.
+- `renovaciones` siguen alimentando la línea "Renovaciones".
+
+Reglas que no hay que romper:
+
+- `total = capital + intereses + otros cargos (+ sin desglose)`.
+- **Pagos** en `c.pagos[]` con fecha, desglose y `vencKey` (`uid@AAAA-MM-DD`).
+  No se borran ni editan: se anulan con motivo. El saldo de capital baja solo
+  por capital pagado. Un pago "sin desglose" se imputa cargos → intereses →
+  capital (art. 1595 CC). `pagado:true` antiguo = pagado sin registro.
+- **Créditos** no se borran: `anulado:true` con motivo; no se puede anular uno
+  con pagos vigentes. Cada crédito tiene `uid` (los `n` históricos se repetían).
+- **Vencido impago confirmado** (fecha < hoy, saldo por pagar) se arrastra al
+  **mes y semana en curso** del flujo con aviso y su fecha original.
+- **Por conciliar**: cuota vencida ANTES de `control_desde` (fecha desde la que
+  el crédito se controla en la app; legacy no la tiene, un alta nueva la fija)
+  y sin pago registrado. NO entra a la deuda confirmada ni al flujo; se informa
+  aparte con su impacto potencial. Se concilia registrando el pago real o con
+  `confirmarImpaga` (exige respaldo; anulable con motivo en `c.conciliaciones`).
+- **Fechas** ISO leídas como texto: `new Date("2027-01-01")` en Chile caía en
+  diciembre.
+- **Pago Préstamos - Total** y **Renovaciones** tienen `_fuenteCreditos`: no se
+  editan en el flujo. Un valor manual ANTIGUO sigue aplicando hasta decidir mes a
+  mes en Créditos → 🔎 Conciliación ("Usar Créditos" lo retira; "Mantener" exige
+  motivo). Cada decisión queda en `realData[emp]._resolucionesCreditos`
+  (`handleConciliarOverrideCredito`, una sola escritura). `_semProy` da la semana
+  exacta: celda, subtotal, flujo neto y saldo semanal leen lo mismo.
+- **Cuota sin desglosar** (legacy): fuera del saldo de capital identificado,
+  dentro del servicio de deuda. `desglose` exige respaldo contractual.
+- **Tasa variable** = referencia (hipótesis constante) + margen: su interés se
+  marca como proyección (`v.tasaVariable`, columna aparte en servicio de deuda).
+- Moneda ≠ USD sin `tc_flujo` (moneda por 1 US$) **no entra** al flujo y se avisa.
+- **Prepago**: `simularPrepago` no modifica nada; `aplicarPrepago` registra el
+  pago (capital + devengado + comisión) y, en contratos, un evento en
+  `c.prepagos[]` que recalcula el calendario (anular el pago lo revierte).
+  Sin tasa, base o condición de prepago → dato faltante / hipótesis explícita.
+- `handleSaveCreditos` devuelve el resultado real y revierte el estado local
+  si el servidor no confirma (si no, un pago reintentado se duplicaba).
+- **Nóminas ↔ Créditos**: una línea guarda `creditoVinculo {uid, vencKey}`
+  (vincular NO paga). "Confirmar pago efectivo" solo con la nómina "aprobada" y
+  permiso de Créditos; registra el pago con `origen.clave = nomina:<id>:<línea>`
+  vía `registrarPagoIdempotente` (reintentar no duplica). Anular desde la línea
+  = `anularPago` con motivo. El estado de la línea se LEE de Créditos.
+- Registrar un pago NO escribe en el flujo real (ingreso manual, sin conciliación).
+- **Conciliación con el acreedor** (`conciliacionAcreedores`): por empresa+acreedor+
+  moneda ORIGINAL, capital app al corte (pagos con fecha ≤ corte) vs capital
+  informado (`creditos_saldos_informados` en el blob finanzas, con respaldo,
+  anulables). Intereses/cargos/sin clasificar/por conciliar van APARTE y nunca se
+  suman al capital; si existen → "conciliación incompleta". Diferencia EXACTA y
+  tolerancia por moneda (`creditos_config.tolerancias`, inicial CLP 1, USD/EUR/PEN
+  0,01, UF 0,0001) que SOLO absorbe redondeo: con cualquier dato/respaldo/desglose faltante el
+  estado es "incompleta". US$ con el TC DE LA FECHA DE CORTE (nunca posterior).
+  "Ver movimientos" = `movimientosCapitalAlCorte` (los intereses no tocan el capital).
+- **Escenario "incl. por conciliar"** (`escenarioPorConciliar`): fila morada en el
+  flujo. Un valor manual vigente NO excluye cuotas automáticamente: solo las
+  vinculadas en `realData[emp]._coberturasManual` (con nota; reemplazar = anular la
+  anterior). Sin cobertura definida → se suman como "posible superposición" y el
+  escenario es PROVISIONAL.
+- **Saldos al corte** (`saldosAlCorte`): única fuente de Análisis CFO, Saldo por Mes y
+  KPI/tablas de la pestaña Créditos (fila "Hoy" = Análisis). Capital y sin
+  clasificar separados; avisos compartidos (`AvisosValorizacion`): incompleto (sin
+  TC), ESTIMADO (TC declarado), TC > 7 días, UF futura = hipótesis.
+- **UF**: par `UF-CLP` en Maestros (mindicador `uf`, Banco Central; manual prevalece).
+  `ufPorFecha` valoriza cada pago/vencimiento con la UF de su fecha (si ya está
+  publicada para esa fecha exacta, aunque sea futura, se usa y NO es hipótesis); sin
+  valor publicado = última UF al corte, rotulada hipótesis (sin IPC). Montos en UF con
+  4 decimales (`decimalesMoneda`); el resto al centavo. Panel `ContrasteUF` en
+  Conciliación (descarga automática de UF: pendiente de prueba en vivo).
+- **Abrir no modifica**: hasta una acción explícita en Créditos, el auto-guardado
+  escribe los créditos tal como se cargaron (sin los `uid` agregados en memoria) y sin
+  claves nuevas (`valoresCreditosBlob`). Test: `scripts/e2e/apertura-sin-cambios.mjs`.
+- **Vista previa** con datos simulados: `scripts/vista-previa/` (armar.mjs + servir.mjs;
+  Supabase simulado en el navegador, tiempo real bloqueado). La vista previa de Vercel
+  apunta a PRODUCCIÓN: no usarla para probar acciones. Pauta: `docs/creditos-pauta-revision.md`.
+- **Respaldo real en la vista previa LOCAL** (`docs/creditos-respaldo-local.md`): "Cargar
+  respaldo real…" guarda en IndexedDB una copia ORIGINAL intacta (texto + SHA-256) y una de
+  TRABAJO; PIN reales no se cargan; exporta operaciones (`scripts/vista-previa/diff.js`) y
+  detalle CSV. El Artifact no lo ofrece. Aplicar en producción = operaciones con
+  verificación de "antes", nunca restaurar filas: `docs/creditos-aplicar-conciliacion.md`.
+  Script asistido `scripts/conciliacion/aplicar.mjs` (ensayo → decisiones firmadas → aplicar):
+  PATCH condicionado por `updated_at` (atómico), dependencias bloqueantes, duplicados con
+  decisión individual, verificación y auditoría. HOY solo acepta destinos locales (rechaza
+  `*.supabase.co`); probado con `scripts/conciliacion/prueba.mjs` (Postgres+PostgREST locales).
+  Propuestas NO aplicadas: `propuesta-trigger-version.sql` (versión generada por la base) y
+  `propuesta-sellos.sql` (impide que una sesión con datos antiguos deshaga lo aplicado).
+- **Excel**: hoja "Servicio deuda" (individual y consolidado) con capital +
+  intereses + cargos + sin desglosar = servicio; + ajuste manual = línea; control
+  contra la hoja del flujo. Usa `line._compCred` (lo anota `aplicarCreditosAEmpresas`).
+- **Monedas**: `valorizarCreditos` anota `_tc` (Maestros `maestro_tc` a la fecha de
+  corte, manual prevalece; si no, `tc_flujo` declarado = hipótesis; si no, sin TC).
+  `_tc` NO se persiste (`handleSaveCreditos` aplica `sinValorizacion`).
+- **Guardado de Nóminas comprueba la respuesta** (`ejecutarGuardado` → `resumirGuardado`: `{ok, motivo: conflicto|sello|http|red|bloqueada, empresas…}`; `dbSaveNominas` ya no existe):
+  si falla, aviso `AvisoGuardadoNominas` (qué pasó, si hay que recargar), la edición se conserva, copia en
+  localStorage (`mediterra_nominas_sin_guardar`, no se re-aplica sola), los refrescos de 30 s / visibilidad
+  no pisan cambios sin confirmar y cerrar la pestaña pide confirmación. Las transiciones de estado guardan
+  ANTES de notificar/auditar (`confirmarTransicion`); si falla, vuelve al estado anterior sin correos.
+  Test: `scripts/e2e/nomina-guardado.mjs`.
+- **Guardado CONDICIONADO de Nóminas** (rama, sin desplegar; `docs/nominas-guardado-condicionado.md`): por fila
+  `nominas_<empresa>`, PATCH condicionado a `updated_at` leído; fila nueva con POST sin `merge-duplicates` (409 =
+  ya existe → releer y combinar). Fusión a tres bandas en `src/nominasPersistencia.js` (cabecera campo a campo,
+  líneas por id); mismo campo/línea, transición o anulación = conflicto con resolución explícita. Carga por
+  empresa `ok`/`inexistente`/`error` (con error no se crea ni guarda en esa empresa). Respuesta perdida → relee
+  y verifica, sin duplicar. Un refresco fallido conserva lo ya cargado (`aplicarRefresco`). Riesgo abierto:
+  sesiones con código anterior escriben sin condición hasta recargar. Tests: `node src/nominasPersistencia.test.mjs`,
+  `scripts/e2e/nomina-condicionado.mjs`.
+- **Versión obligatoria (SQL NO aplicado en producción)** (`docs/nominas-version-obligatoria.md`): función
+  `nominas_guardar(id, valor, versión|null)` + trigger `trg_nominas_exigir_version` que rechaza a la llave pública (rol de
+  conexión o JWT) cualquier otra escritura de `nominas_<empresa>`. **La app de la rama ya guarda nóminas SOLO por la
+  función** (`src/nominasTransporteRpc.js`): desplegarla exige la PARTE 1 aplicada antes. Activación con pausa
+  coordinada y trigger ANTES del despliegue: `docs/nominas-activacion.md`. `scripts/e2e/fake.mjs` emula la función y la
+  regla del trigger (activa por defecto). Pruebas: `scripts/nominas-cas/prueba.mjs` (SQL) y
+  `scripts/e2e/nomina-base-real.mjs` (navegador contra Postgres+PostgREST locales con el SQL tal cual).
+  Consultas de lectura pendientes en producción (listado único V/D/R/P): `docs/consultas-pendientes-produccion.md`.
+- **"📤 Restaurar" comprueba cada fila** (`src/restaurarRespaldo.js`): informa restauradas y fallidas con su motivo;
+  ante un resultado parcial dice "RESTAURACIÓN PARCIAL" (nunca éxito). Tests: `node src/restaurarRespaldo.test.mjs`,
+  `scripts/e2e/restaurar-parcial.mjs` (navegador contra base local con el trigger). Observación NO corregida: restaura
+  las filas objeto como texto JSON (comportamiento previo).
+  Respaldos existentes (solo lectura, sin contenido): `supabase/consulta_respaldos_existentes.sql`.
+- **Anular nómina/línea con pago vigente** → `ResolverPagosVinculados`: conservar
+  (`anotarPago`) o anular el pago, con motivo; si Créditos no confirma, no se anula.
+- Revisión previa al merge y verificación del prepago: `docs/creditos-revision-pre-merge.md`.
 
 #### Bug histórico arreglado (no volver a romper)
 
@@ -308,7 +439,10 @@ git push origin main
 ## Pendientes operativos
 
 - Revisar quota Supabase mediterra-calendario (Pro plan, renovación mid-May 2026)
-- RLS Supabase mediterra-calendario (vulnerabilidad de seguridad pendiente de fix sequential)
+- RLS Supabase mediterra-calendario (vulnerabilidad de seguridad pendiente de fix sequential). Verificado 2026-10-02:
+  RLS ACTIVO en `calendario_data` pero con políticas abiertas a `anon` (leer/crear/modificar/BORRAR todo salvo
+  `backup*`/`main_pre_restore*`). Propuesta NO aplicada para quitar DELETE/TRUNCATE: fase D del plan de seguridad (rama `claude/seguridad-main-pins`; puntero en `docs/seguridad-quitar-delete-anon.md`).
+- Nóminas: guardado condicionado a la versión leída — implementado en la rama (vía `nominas_guardar`), sin desplegar: `docs/nominas-guardado-condicionado.md`, activación `docs/nominas-activacion.md`.
 - Módulo EEFF (Etapa 1: carga balance + P&L con análisis comparativo Real vs Ppto vs Año Anterior) — esperar Excel de plantilla de Angelo
 
 ## Estructura típica de un archivo de módulo
