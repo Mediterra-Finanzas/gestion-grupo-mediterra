@@ -147,7 +147,17 @@ function Avisos({ avisos }) {
 // una lectura fallida dice «no disponible», nunca cero. Sin mínimo proyectado.
 const usd = (x) => `US$ ${Math.round(Number(x) || 0).toLocaleString("es-CL")}`;
 const fechaCorta = (iso) => { if (!iso) return ""; const [y, m, d] = String(iso).slice(0, 10).split("-"); return `${d}-${m}-${y}`; };
-function BloqueEjecutivo({ testid, titulo, estado, onReintentar, onAbrir, abrir, children, valor, incompleto }) {
+const hora = (d) => (d ? new Date(d).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", hour12: false }) : "");
+// Hora de la lectura y, si la última actualización falló, el aviso con los datos que se siguen mostrando.
+function Vigencia({ bloque, testid }) {
+  if (!bloque) return null;
+  const err = (bloque.errores || [])[0];
+  return <>
+    {bloque.leidoEn && <Linea testid={`${testid}-leido`}>Cifras leídas a las {hora(bloque.leidoEn)}</Linea>}
+    {err && bloque.leidoEn && <Linea testid={`${testid}-desactualizado`} tono={COL.aviso}>No se pudo actualizar a las {hora(err.en)}: se muestran las cifras de las {hora(bloque.leidoEn)}.</Linea>}
+  </>;
+}
+function BloqueEjecutivo({ testid, titulo, estado, onReintentar, onAbrir, abrir, children, valor, incompleto, aparte }) {
   return (
     <div data-testid={testid} style={{ ...tarjeta, padding: `${ESP.m}px ${ESP.l}px`, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: ESP.s, alignItems: "baseline" }}>
@@ -166,6 +176,16 @@ function BloqueEjecutivo({ testid, titulo, estado, onReintentar, onAbrir, abrir,
           <span data-cifra style={{ fontSize: 26, fontWeight: 800, color: COL.texto, fontVariantNumeric: "tabular-nums" }}>{valor}</span>
           {incompleto && <span data-testid={`${testid}-incompleto`} style={{ fontSize: TXT.rotulo, fontWeight: 800, color: COL.aviso, letterSpacing: .5 }}>INCOMPLETO</span>}
         </div>
+        {aparte && (
+          // Cifra propia, en un recuadro aparte: se ve junto a la deuda pero no se suma a ella.
+          <div data-testid={aparte.testid} style={{ border: `1px dashed ${aparte.tono === "aviso" ? COL.aviso : COL.borde}`, borderRadius: 8, padding: `${ESP.xs}px ${ESP.s}px`, margin: `${ESP.xs}px 0` }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: ESP.s, flexWrap: "wrap" }}>
+              <span style={{ fontSize: TXT.rotulo, fontWeight: 800, color: aparte.tono === "aviso" ? COL.aviso : COL.texto2, letterSpacing: .5, textTransform: "uppercase" }}>{aparte.rotulo}</span>
+              <span data-cifra-aparte style={{ fontSize: 18, fontWeight: 800, color: aparte.tono === "aviso" ? COL.aviso : COL.texto2, fontVariantNumeric: "tabular-nums" }}>{aparte.valor}</span>
+            </div>
+            <div style={{ fontSize: TXT.chico, color: COL.texto2 }}>{aparte.detalle}</div>
+          </div>
+        )}
         {children}
       </>}
       {estado !== "ok" && estado !== "cargando" && estado !== "error" && children}
@@ -176,15 +196,21 @@ const Linea = ({ children, tono, testid }) => <div data-testid={testid} style={{
 
 function FranjaEjecutiva({ ejecutiva, onAbrirModulo, compacta }) {
   if (!ejecutiva) return null;
-  const { caja, deuda, perimetro = [], fuera = [], reintentar } = ejecutiva;
+  const { caja, deuda, perimetro = [], fuera = [], actualizar, actualizando } = ejecutiva;
+  const reintentar = actualizar;
   const corte = deuda?.corte || (caja ? new Date().toISOString().slice(0, 10) : "");
   return (
     <section data-testid="franja-ejecutiva" aria-label="Posición del grupo">
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: `${ESP.xs}px ${ESP.m}px`, marginBottom: ESP.s }}>
         <Rotulo>Posición del grupo</Rotulo>
-        <span data-testid="franja-contexto" style={{ fontSize: TXT.chico, color: COL.texto2 }}>
+        <span data-testid="franja-contexto" style={{ fontSize: TXT.chico, color: COL.texto2, flex: "1 1 320px" }}>
           US$ · {perimetro.length} sociedades consolidadas línea a línea ({perimetro.join(", ")}) · fuera del perímetro, sin sumar: {fuera.join(", ")}
         </span>
+        <button data-testid="franja-actualizar" onClick={actualizar} disabled={actualizando} aria-busy={actualizando || undefined}
+          style={{ minHeight: 32, padding: `0 ${ESP.m}px`, borderRadius: 8, border: `1px solid ${COL.borde}`, background: COL.superficie, color: COL.texto,
+            fontSize: TXT.chico, fontWeight: 600, cursor: actualizando ? "wait" : "pointer", fontFamily: FUENTE }}>
+          {actualizando ? "Actualizando…" : "Actualizar"}
+        </button>
       </div>
       <div style={{ display: "grid", gap: compacta ? ESP.s : ESP.m, gridTemplateColumns: compacta ? "1fr" : "repeat(auto-fit, minmax(300px, 1fr))" }}>
         {caja && (
@@ -197,22 +223,29 @@ function FranjaEjecutiva({ ejecutiva, onAbrirModulo, compacta }) {
               {caja.sinTC.length > 0 && <Linea testid="ejec-caja-sintc" tono={COL.aviso}>
                 {caja.sinTC.length} cuenta{caja.sinTC.length > 1 ? "s" : ""} sin tipo de cambio guardado no suma{caja.sinTC.length > 1 ? "n" : ""}: {caja.sinTC.map(c => `${c.empresa} · ${c.banco} ${c.moneda}`).join("; ")}</Linea>}
               {caja.sinSaldo.length > 0 && <Linea testid="ejec-caja-sinsaldo" tono={COL.aviso}>Sin saldo vigente: {caja.sinSaldo.join(", ")}</Linea>}
+              <Vigencia bloque={caja} testid="ejec-caja"/>
             </>}
           </BloqueEjecutivo>
         )}
         {deuda && (
-          <BloqueEjecutivo testid="ejec-deuda" titulo="Capital pendiente de créditos" estado={deuda.estado} onReintentar={reintentar}
-            onAbrir={() => onAbrirModulo("finanzas", "creditos")} abrir="Créditos ›" valor={usd(deuda.capital)} incompleto={deuda.incompleto}>
-            {deuda.estado === "sin_datos" && <Linea testid="ejec-deuda-sindatos" tono={COL.aviso}>No hay créditos guardados en Finanzas: no se muestra una cifra.</Linea>}
+          <BloqueEjecutivo testid="ejec-deuda" titulo="Capital pendiente de créditos (confirmado)" estado={deuda.estado} onReintentar={reintentar}
+            onAbrir={() => onAbrirModulo("finanzas", "creditos")} abrir="Créditos ›" valor={usd(deuda.capital)} incompleto={deuda.incompleto}
+            aparte={deuda.estado === "ok" ? {
+              testid: "ejec-deuda-porconciliar", rotulo: "Por conciliar · NO incluido", valor: usd(deuda.porConciliar),
+              detalle: deuda.porConciliar > 0
+                ? `${deuda.cuotasPorConciliar} cuota${deuda.cuotasPorConciliar === 1 ? "" : "s"} vencida${deuda.cuotasPorConciliar === 1 ? "" : "s"} sin pago registrado: no se da por pagada ni por deuda confirmada hasta conciliarla en Créditos.`
+                : "Sin cuotas por conciliar.",
+              tono: deuda.porConciliar > 0 ? "aviso" : null } : null}>
+            {deuda.estado === "sin_datos" && <><Linea testid="ejec-deuda-sindatos" tono={COL.aviso}>No hay créditos guardados en Finanzas: no se muestra una cifra.</Linea><Vigencia bloque={deuda} testid="ejec-deuda"/></>}
             {deuda.estado === "ok" && <>
               <Linea testid="ejec-deuda-corte">Al {fechaCorta(deuda.corte)} · TC de Maestros a esa fecha · capital, sin intereses</Linea>
               {deuda.sinDesglose > 0 && <Linea>Además, cuotas sin desglose (pueden incluir intereses): {usd(deuda.sinDesglose)}</Linea>}
               {deuda.vencido > 0 && <Linea tono={COL.peligro}>Vencido impago (incluido): {usd(deuda.vencido)}</Linea>}
-              {deuda.porConciliar > 0 && <Linea testid="ejec-deuda-porconciliar" tono={COL.aviso}>Por conciliar, no incluido: {usd(deuda.porConciliar)} ({deuda.cuotasPorConciliar} cuota{deuda.cuotasPorConciliar === 1 ? "" : "s"})</Linea>}
               {deuda.sinTC.length > 0 && <Linea testid="ejec-deuda-sintc" tono={COL.aviso}>
                 {deuda.sinTC.length} crédito{deuda.sinTC.length > 1 ? "s" : ""} sin tipo de cambio{deuda.tcExiste === false ? " (Maestros sin tipos de cambio)" : ""} no suma{deuda.sinTC.length > 1 ? "n" : ""}: {deuda.sinTC.map(c => `${c.empresa} · ${c.acreedor} ${c.moneda}`).join("; ")}</Linea>}
               {deuda.tcAntiguo.length > 0 && <Linea testid="ejec-deuda-tcantiguo" tono={COL.aviso}>TC con antigüedad sobre el aviso: {deuda.tcAntiguo.map(c => `${c.moneda} al ${fechaCorta(c.fecha)}`).filter((x, i, a) => a.indexOf(x) === i).join(", ")}</Linea>}
               {deuda.fuera.capital > 0 && <Linea>Fuera del perímetro, no suma: {usd(deuda.fuera.capital)} ({deuda.fuera.empresas.join(", ")})</Linea>}
+              <Vigencia bloque={deuda} testid="ejec-deuda"/>
             </>}
           </BloqueEjecutivo>
         )}

@@ -672,6 +672,44 @@ afectado): `ajustes-muestra` (franja + nóminas) 45/45; `inicio-consulta` 7/7; `
 UTC y en hora de Chile (nuevas: `lecturaInicioSinEfectos` 5, `resumenEjecutivo` 4). No probado en
 Safari, Firefox ni dispositivos reales.
 
+## 6i. Puntos acotados del 13-10 (segunda tanda) — pruebas terminadas; pendiente tu revisión visual
+
+Sin integrar ramas, sin merge ni despliegue. Grupo 2 sin tocar.
+
+**Lectura de la franja: una vez por sesión** (`crearCacheConsulta` / `consultaSesion` en
+`src/diseno/lecturaConsulta.js`). `finanzas`, `finanzas_bancos` y `maestro_tc` se consultan una
+vez por sesión (con el lector de consulta: solo GET, sin tocar el guardado) y se reutilizan al
+volver al inicio. Peticiones simultáneas de la misma fila comparten la misma lectura. Botón
+**Actualizar** (fuerza una lectura nueva; deshabilitado mientras lee). Cada bloque dice «Cifras
+leídas a las HH:MM»; si una actualización falla se conservan las cifras anteriores con su hora y
+se avisa «No se pudo actualizar a las HH:MM: se muestran las cifras de las HH:MM»; si la primera
+lectura falla, «no disponible» con Reintentar. Una lectura fallida no se reintenta sola al
+volver. Al cerrar sesión la caché se vacía. Rendiciones y nóminas se siguen leyendo en cada
+visita (filas chicas y contadores que deben estar al día).
+
+**Por conciliar junto a la deuda.** El bloque se rotula «Capital pendiente de créditos
+(confirmado)» y lleva un recuadro propio «POR CONCILIAR · NO INCLUIDO US$ …» con la explicación
+(cuotas vencidas sin pago registrado: ni pagadas ni deuda confirmada hasta conciliarlas en
+Créditos). Se muestra siempre, también en cero. El cálculo sigue siendo el de `creditos.js`.
+
+**Prueba de concurrencia** (`compensacionConcurrencia.test.js`, también en la rama funcional):
+reloj fijo y servidor con versiones propias; un caso de contenido idéntico (reintento
+idempotente: `ok`, `sinCambios`, el servidor y su versión no cambian) y dos de cambios distintos
+(otra persona aplica la misma compensación; otra edición del blob): conflicto y nada se pisa.
+Control con dos mutaciones temporales del contrato (revertidas): sin la detección de reintento
+falla el caso idéntico; si el conflicto adelanta la versión, fallan los dos casos distintos.
+
+**Rama funcional** (`68fa831`): borrador en conflicto conservado al salir y volver a Finanzas, y
+revisión de sus grupos contra `main` c9c5792 (su documento, §7.1 y §7.2).
+
+**Pruebas** (build congelado `main.4292f55d.js`, Chromium emulado, datos ficticios; solo lo
+afectado): `ajustes-muestra` sección franja 36/36 (incluye caché: dos regresos al inicio sin
+volver a leer `finanzas`, «Actualizar» lee una vez cada fila y cambia la hora, doble clic = una
+lectura, actualización fallida conserva cifras y avisa, primera lectura fallida = no disponible);
+`inicio-consulta` 8/8; `muestra-ejecutiva` 65/65; `hub-navegacion` 77/77; `aislamiento` OK; jest
+1.773/1.773 en UTC y en hora de Chile (nuevas: `cacheConsulta` 4; `compensacionConcurrencia`
+reescrita, 6). No probado en Safari, Firefox ni dispositivos reales.
+
 ## 7. Archivos
 
 Nuevos: `src/diseno/{tokens.js,useClaseVentana.js,resumenInicio.js,Navegacion.jsx,Inicio.jsx}`,

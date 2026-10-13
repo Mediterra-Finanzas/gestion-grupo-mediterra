@@ -45,10 +45,11 @@ function storeConPO() {
   return st;
 }
 
-async function sesion(url, [w, h, tactil], email, st = storeConPO()) {
+async function sesion(url, [w, h, tactil], email, st = storeConPO(), antes = null) {
   st.__dialogosApp = true;
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: tactil, deviceScaleFactor: 1, timezoneId: 'America/Santiago', acceptDownloads: true });
   await instalarFake(ctx, st);
+  if (antes) await antes(ctx);   // rutas que deben regir desde la PRIMERA lectura
   await ctx.route(/open\.er-api\.com|mindicador\.cl|frankfurter\.app|emailjs/, r => r.abort());
   await ctx.route(/\/rest\/v1\/(?!calendario_data)[a-z_]+/, r => r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.abort());
   await ctx.routeWebSocket(/realtime\/v1\/websocket/, () => {});
@@ -324,12 +325,19 @@ if (SECC.includes('franja')) {
     check(`${tam} · deuda = la de analisisCartera valorizada (${usdTxt(deuda.capital)})`, (await cifra(p, 'ejec-deuda')) === usdTxt(deuda.capital), await cifra(p, 'ejec-deuda'));
     const txtDeuda = await p.getByTestId('ejec-deuda').innerText();
     // La cuota vencida sin pago registrado queda POR CONCILIAR en el modelo vigente (no se da por impaga sin confirmar).
-    check(`${tam} · deuda: corte de hoy, TC de Maestros, por conciliar (aparte) y fuera del perímetro a la vista`,
-      txtDeuda.includes(`Al ${hoyISO.split('-').reverse().join('-')}`) && /TC de Maestros/.test(txtDeuda) && txtDeuda.includes(`Por conciliar, no incluido: ${usdTxt(deuda.porConciliar)} (1 cuota)`) && deuda.porConciliar === 400000
+    const pc = p.getByTestId('ejec-deuda-porconciliar');
+    check(`${tam} · por conciliar: cifra propia junto a la deuda, rotulada NO incluido, y no sumada al capital`,
+      (await pc.count()) === 1 && /POR CONCILIAR · NO INCLUIDO/i.test(await pc.innerText())
+      && (await pc.locator('[data-cifra-aparte]').innerText()) === usdTxt(400000) && deuda.porConciliar === 400000
+      && (await cifra(p, 'ejec-deuda')) === usdTxt(deuda.capital) && deuda.capital === 1200000, (await pc.innerText()).replace(/\s+/g, ' '));
+    check(`${tam} · deuda: corte de hoy, TC de Maestros y fuera del perímetro a la vista`,
+      txtDeuda.includes(`Al ${hoyISO.split('-').reverse().join('-')}`) && /TC de Maestros/.test(txtDeuda) && /\(confirmado\)/.test(txtDeuda)
       && txtDeuda.includes(`Fuera del perímetro, no suma: ${usdTxt(300000)} (Allpa Farms)`), txtDeuda.replace(/\s+/g, ' ').slice(0, 220));
     check(`${tam} · deuda completa (el crédito en CLP tiene TC): sin INCOMPLETO`, (await p.getByTestId('ejec-deuda-incompleto').count()) === 0 && !deuda.incompleto);
     check(`${tam} · sin mínimo proyectado ni cifra fija del Dashboard`, !/[Mm]ínimo|8\.355\.763/.test(await fr.innerText()));
     check(`${tam} · franja sin desborde`, (await desborde(p)) <= 1);
+    check(`${tam} · hora de lectura a la vista en caja y deuda`, /Cifras leídas a las \d{2}:\d{2}/.test(await p.getByTestId('ejec-caja-leido').innerText())
+      && /Cifras leídas a las \d{2}:\d{2}/.test(await p.getByTestId('ejec-deuda-leido').innerText()));
     await fr.screenshot({ path: `${OUT}/${tam}-franja-ejecutiva.png` });
     await p.screenshot({ path: `${OUT}/${tam}-inicio-cfo-franja.png` });
     if (tam === 'computador') {
@@ -337,6 +345,40 @@ if (SECC.includes('franja')) {
       check('computador · «Créditos ›» abre Finanzas en Créditos', /Créditos/.test(await p.locator('main').innerText()) && (await p.getByTestId('franja-ejecutiva').count()) === 0);
     }
     check(`${tam} · franja: sin errores ni diálogos del navegador`, !s.errores.length && !s.nativos.length, [...s.errores, ...s.nativos].join(' | '));
+    await s.ctx.close();
+  }
+  // Caché por sesión: volver al inicio no vuelve a leer la fila `finanzas`; «Actualizar» sí.
+  {
+    const st = storeDiseno();
+    const s = await sesion(process.env.APP_URL, [1440, 900, false], 'ahuerta@grupomediterra.cl', st);
+    const p = s.page;
+    const gets = []; p.on('request', r => { const m = /id=eq\.([^&]+)/.exec(r.url()); if (m && r.method() === 'GET') gets.push(decodeURIComponent(m[1])); });
+    const n = (id) => gets.filter(x => x === id).length;
+    const base = { fin: n('finanzas') };
+    for (let k = 0; k < 2; k++) {   // ida y vuelta a un módulo que NO es Finanzas
+      await irModulo(p, 'tareas'); await p.getByTestId('nav-inicio').click(); await p.waitForTimeout(1500);
+    }
+    check('caché: dos regresos al inicio no vuelven a pedir la fila finanzas (ni bancos ni TC)', n('finanzas') === base.fin && n('finanzas_bancos') === 0 && n('maestro_tc') === 0,
+      `GET finanzas extra: ${n('finanzas') - base.fin}`);
+    const antes = await p.getByTestId('ejec-caja-leido').innerText();
+    await p.waitForTimeout(61000);   // para que la hora de la lectura nueva sea distinta
+    await p.getByTestId('franja-actualizar').click(); await p.waitForTimeout(2000);
+    check('«Actualizar» vuelve a leer finanzas, bancos y TC una vez cada una', n('finanzas') === base.fin + 1 && n('finanzas_bancos') === 1 && n('maestro_tc') === 1,
+      `finanzas +${n('finanzas') - base.fin} · bancos ${n('finanzas_bancos')} · tc ${n('maestro_tc')}`);
+    const despues = await p.getByTestId('ejec-caja-leido').innerText();
+    check('«Actualizar» cambia la hora de lectura', despues !== antes, `${antes} → ${despues}`);
+    // Doble clic: una sola lectura (el botón se deshabilita y la caché deduplica)
+    const f0 = n('finanzas');
+    await p.getByTestId('franja-actualizar').dblclick(); await p.waitForTimeout(2000);
+    check('doble clic en «Actualizar»: una sola lectura', n('finanzas') === f0 + 1, `+${n('finanzas') - f0}`);
+    // Una actualización que falla conserva las cifras anteriores y lo dice
+    const cajaAntes = await cifra(p, 'ejec-caja');
+    await s.ctx.route(/id=eq\.finanzas_bancos/, r => r.request().method() === 'GET' ? r.fulfill({ status: 503, body: '{}' }) : r.fallback());
+    await p.getByTestId('franja-actualizar').click(); await p.waitForTimeout(2000);
+    check('actualización fallida: se conservan las cifras anteriores, con su hora, y se avisa', (await cifra(p, 'ejec-caja')) === cajaAntes
+      && /No se pudo actualizar a las \d{2}:\d{2}: se muestran las cifras de las \d{2}:\d{2}/.test(await p.getByTestId('ejec-caja-desactualizado').innerText()));
+    await p.getByTestId('franja-ejecutiva').screenshot({ path: `${OUT}/franja-actualizacion-fallida.png` });
+    check('caché: sin errores ni diálogos del navegador', !s.errores.length && !s.nativos.length, [...s.errores, ...s.nativos].join(' | '));
     await s.ctx.close();
   }
   // Permisos: Carol (Dashboard sin acceso) no ve la franja; la socia (consulta, ve Dashboard/Bancos/Créditos) sí.
@@ -348,10 +390,10 @@ if (SECC.includes('franja')) {
   // Error de lectura: bancos no se leen → caja «no disponible» con Reintentar; la deuda sigue.
   {
     const st = storeDiseno();
-    const s = await sesion(process.env.APP_URL, [1440, 900, false], 'ahuerta@grupomediterra.cl', st);
-    await s.ctx.route(/id=eq\.finanzas_bancos/, r => r.request().method() === 'GET' ? r.fulfill({ status: 503, body: '{}' }) : r.fallback());
-    await s.page.getByTestId('nav-modulo-finanzas').click(); await s.page.waitForTimeout(2500);
-    await s.page.getByTestId('nav-inicio').click(); await s.page.waitForTimeout(2500);
+    // La PRIMERA lectura de bancos falla (sin datos anteriores en la sesión).
+    const s = await sesion(process.env.APP_URL, [1440, 900, false], 'ahuerta@grupomediterra.cl', st,
+      (ctx) => ctx.route(/id=eq\.finanzas_bancos/, r => r.request().method() === 'GET' ? r.fulfill({ status: 503, body: '{}' }) : r.fallback()));
+    await s.page.waitForTimeout(1500);
     check('error: caja «no disponible» con Reintentar (nunca cero); deuda con su cifra', (await s.page.getByTestId('ejec-caja-error').count()) === 1
       && (await s.page.getByTestId('ejec-caja').locator('[data-cifra]').count()) === 0 && (await s.page.getByTestId('ejec-deuda').locator('[data-cifra]').count()) === 1);
     await s.page.getByTestId('franja-ejecutiva').screenshot({ path: `${OUT}/franja-error-caja.png` });

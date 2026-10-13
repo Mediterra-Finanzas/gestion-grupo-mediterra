@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import OsirisModule from "./OsirisModule.jsx";
 import FinanzasModule, { EMPRESAS_KEYS_ALL, EMPRESAS_KEYS_CONSOLIDADO, EMPRESAS_FUERA_CONSOLIDADO, pestanasVisiblesFinanzas, filasNominasConsulta } from "./FinanzasModule.jsx";
 import { cajaEjecutiva, deudaEjecutiva } from "./diseno/resumenEjecutivo.js";
-import { lectorConsulta } from "./diseno/lecturaConsulta.js";
+import { lectorConsulta, consultaSesion } from "./diseno/lecturaConsulta.js";
 import AllegriaModule from "./AllegriaModule.jsx";
 import FriskuComercialModule from "./FriskuComercialModule.jsx";
 import ContabilidadModule from "./ContabilidadModule.jsx";
@@ -1978,27 +1978,36 @@ export default function App(){
   const veEjecutiva = pestFin.includes("dashboard") && (pestFin.includes("bancos") || pestFin.includes("creditos"));
   const veCajaEjec = veEjecutiva && pestFin.includes("bancos");
   const veDeudaEjec = veEjecutiva && pestFin.includes("creditos");
-  const [ejecHub,setEjecHub]=useState({caja:{estado:"cargando"},deuda:{estado:"cargando"}});
-  const cargarEjecHub=useCallback(async()=>{
-    setEjecHub({caja:{estado:"cargando"},deuda:{estado:"cargando"}});
-    const leer = (id)=>lectorConsulta.fila(id).then(r=>({ok:true,r}),e=>({ok:false,e}));
+  const [ejecHub,setEjecHub]=useState({caja:{estado:"cargando"},deuda:{estado:"cargando"},actualizando:false});
+  // Lectura de CONSULTA reutilizada por sesión (consultaSesion): volver al inicio no
+  // vuelve a pedir la fila `finanzas` (varios MB). «Actualizar» fuerza una lectura
+  // nueva. Si falla, quedan las cifras anteriores con su hora y el aviso del error.
+  const cargarEjecHub=useCallback(async(forzar=false)=>{
+    setEjecHub(prev=>({...prev, actualizando:true}));
+    const leer = (id)=>consultaSesion.leer(id,{forzar});
     const [ban, fin, tc] = await Promise.all([veCajaEjec?leer("finanzas_bancos"):null, veDeudaEjec?leer("finanzas"):null, veDeudaEjec?leer("maestro_tc"):null]);
-    const caja = !veCajaEjec ? null : !ban.ok ? {estado:"error"}
-      : {estado:"ok", ...cajaEjecutiva(ban.r.valor?.saldos||{}, EMPRESAS_KEYS_CONSOLIDADO)};
+    // Una fila sirve si tiene datos (aunque la última actualización haya fallado).
+    const tieneDatos = (e)=>e && e.datos!==undefined;
+    const errorDe = (...es)=>es.filter(e=>e && e.estado==="error").map(e=>({fila:e.id, en:e.errorEn, error:e.error}));
+    const masAntigua = (...es)=>es.filter(Boolean).map(e=>e.leidoEn).filter(Boolean).sort((a,b)=>a-b)[0] || null;
+    let caja = null;
+    if(veCajaEjec){
+      caja = !tieneDatos(ban) ? {estado:"error", errores:errorDe(ban)}
+        : {estado:"ok", ...cajaEjecutiva(ban.datos.valor?.saldos||{}, EMPRESAS_KEYS_CONSOLIDADO), leidoEn: ban.leidoEn, errores: errorDe(ban)};
+    }
     let deuda = null;
     if(veDeudaEjec){
-      if(!fin.ok || !tc.ok) deuda = {estado:"error"};
+      if(!tieneDatos(fin) || !tieneDatos(tc)) deuda = {estado:"error", errores:errorDe(fin, tc)};
       else {
-        const cred = fin.r.valor?.creditos_data;
+        const cred = fin.datos.valor?.creditos_data;
+        const meta = { leidoEn: masAntigua(fin, tc), errores: errorDe(fin, tc) };
         // Sin créditos guardados no se muestra la lista por defecto del código como deuda vigente.
-        deuda = (!Array.isArray(cred) || !cred.length) ? {estado:"sin_datos"}
-          : {estado:"ok", ...deudaEjecutiva(cred, tc.r.valor||{}, EMPRESAS_KEYS_CONSOLIDADO, EMPRESAS_FUERA_CONSOLIDADO), tcExiste: tc.r.existe};
+        deuda = (!Array.isArray(cred) || !cred.length) ? {estado:"sin_datos", ...meta}
+          : {estado:"ok", ...deudaEjecutiva(cred, tc.datos.valor||{}, EMPRESAS_KEYS_CONSOLIDADO, EMPRESAS_FUERA_CONSOLIDADO), tcExiste: tc.datos.existe, ...meta};
       }
     }
-    if(ban && !ban.ok) console.warn("[Inicio] saldos no leídos:", ban.e);
-    if(fin && !fin.ok) console.warn("[Inicio] créditos no leídos:", fin.e);
-    if(tc && !tc.ok) console.warn("[Inicio] maestro_tc no leído:", tc.e);
-    setEjecHub({caja, deuda});
+    [ban, fin, tc].filter(e=>e && e.estado==="error").forEach(e=>console.warn(`[Inicio] ${e.id} no leída:`, e.error));
+    setEjecHub({caja, deuda, actualizando:false});
   // eslint-disable-next-line
   },[veCajaEjec, veDeudaEjec]);
   useEffect(()=>{
@@ -2909,6 +2918,7 @@ export default function App(){
     }
     setUsuarioActual(null);
     setModuloActivo(null);
+    consultaSesion.olvidar();   // la próxima persona no hereda cifras leídas en esta sesión
     sessionStorage.removeItem('mediterra_usuario');
     sessionStorage.removeItem('mediterra_modulo');
     // E1.5 auth dual: limpiar sesión Supabase de Osiris.
@@ -4572,7 +4582,7 @@ Equipo Mediterra`);
       )}
       {marco(
         <Inicio clase={claseVentana} usuario={uNav} vista={vistaInicio} soloRendiciones={soloRendicionesNav}
-          ejecutiva={veEjecutiva ? { ...ejecHub, reintentar: cargarEjecHub, perimetro: EMPRESAS_KEYS_CONSOLIDADO, fuera: EMPRESAS_FUERA_CONSOLIDADO } : null}
+          ejecutiva={veEjecutiva ? { ...ejecHub, actualizar: ()=>cargarEjecHub(true), perimetro: EMPRESAS_KEYS_CONSOLIDADO, fuera: EMPRESAS_FUERA_CONSOLIDADO } : null}
           tareas={tareasNav} rend={rendNav} nominas={nomNav} puedeRendir={puedeRendirActual}
           modulos={modulosNav.map(m => m.id === "finanzas"
             ? { ...m, accesos: pestanasFinNav.map(t => ({ id: t.id, label: t.label.replace(/^\S+\s/, "") })) } : m)}

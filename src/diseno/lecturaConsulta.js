@@ -73,3 +73,42 @@ export function crearLectorConsulta({ fetchImpl, url = SUPA_URL, key = SUPA_KEY 
 }
 
 export const lectorConsulta = crearLectorConsulta();
+
+// ═══════════════════════════════════════════════════════════════════
+// CACHÉ DE CONSULTA POR SESIÓN (franja ejecutiva del inicio).
+//
+// La fila `finanzas` pesa varios MB: no se vuelve a pedir cada vez que se regresa
+// al inicio. Cada fila se consulta UNA vez por sesión y se reutiliza; solo se
+// vuelve a leer cuando la persona pide «Actualizar» (forzar). Mientras una lectura
+// está en vuelo, otra petición de la misma fila recibe la misma promesa (sin
+// duplicar). Si una actualización falla, se conservan los datos anteriores con su
+// hora y se informa el error; nunca se reemplazan por ceros. Una lectura que falló
+// no se reintenta sola al volver: se reintenta con el botón.
+//
+// Usa el lector de consulta (solo GET): ninguna de estas lecturas toca el guardado.
+// ═══════════════════════════════════════════════════════════════════
+export function crearCacheConsulta({ leerFila, ahora = () => new Date() } = {}) {
+  const entradas = new Map();
+  function leer(id, { forzar = false } = {}) {
+    const e = entradas.get(id);
+    if (e && e.enVuelo) return e.enVuelo;
+    if (e && !forzar && (e.estado === "ok" || e.estado === "error")) return Promise.resolve(e);
+    const p = leerFila(id).then(
+      (datos) => { const n = { id, estado: "ok", datos, leidoEn: ahora(), error: null, errorEn: null, enVuelo: null }; entradas.set(id, n); return n; },
+      (err) => {
+        const prev = entradas.get(id) || {};
+        const n = { id, estado: "error", datos: prev.datos, leidoEn: prev.leidoEn || null,
+          error: String((err && err.message) || err), errorEn: ahora(), enVuelo: null };
+        entradas.set(id, n); return n;
+      });
+    entradas.set(id, { ...(e || { id, estado: "cargando" }), enVuelo: p });
+    return p;
+  }
+  return {
+    leer,
+    estado: (id) => { const e = entradas.get(id); return e ? { ...e, enVuelo: !!e.enVuelo } : null; },
+    olvidar: () => entradas.clear(),    // al cerrar sesión: el siguiente usuario no hereda nada
+  };
+}
+
+export const consultaSesion = crearCacheConsulta({ leerFila: (id) => lectorConsulta.fila(id) });

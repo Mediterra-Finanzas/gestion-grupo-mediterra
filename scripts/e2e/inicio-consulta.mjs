@@ -82,9 +82,10 @@ check('inicio: «Requiere tu decisión» visible', (await page.getByTestId('deci
 const enInicio = de('inicio');
 check('inicio: solo lecturas (GET), ninguna escritura', enInicio.length > 0 && escrituras('inicio').length === 0,
   [...new Set(enInicio.map(p => `${p.metodo} ${p.id}`))].join(', '));
-check('inicio: consulta rendiciones, nóminas y (franja) finanzas, bancos y maestro_tc, solo con GET',
-  ['rendiciones', 'finanzas', 'finanzas_bancos', 'maestro_tc'].every(id => enInicio.some(p => p.id === id)) && enInicio.some(p => /^nominas_/.test(p.id)),
+check('inicio: consulta rendiciones y nóminas; la franja NO vuelve a leer finanzas, bancos ni TC (ya leídos en esta sesión)',
+  enInicio.some(p => p.id === 'rendiciones') && enInicio.some(p => /^nominas_/.test(p.id)) && !enInicio.some(p => ['finanzas', 'finanzas_bancos', 'maestro_tc'].includes(p.id)),
   [...new Set(enInicio.map(p => p.id))].join(', '));
+check('la franja leyó finanzas una sola vez en la sesión (al entrar)', de('login').filter(p => p.id === 'finanzas').length === 1);
 await page.screenshot({ path: `${OUT}/2-inicio.png` });
 
 fase = 'vuelta';
