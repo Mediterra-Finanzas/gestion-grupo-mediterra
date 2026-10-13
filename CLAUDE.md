@@ -863,7 +863,10 @@ calendarios que sumen 100%) y marca `ingresoSinEgreso` cuando el cliente
 proyecta caja y alguno de los tres egresos no proyecta nada (un costo de fruta
 en 0 porque el productor YA está pagado, realizado ≥ base, no cuenta). Sin
 kilos o FOB, el Excel proyecta igual los programas y saldos (base 0), como la
-app. Conectar no es validar: conservar los parámetros propios y avisar lo que
+app; lo mismo en cerezas, con el aviso `avisosCerezas` (qué falta y qué no se
+proyecta) en pantalla y en el Excel. Efecto sobre datos entregados:
+`supabase/consulta_ciruelas_parametros.sql` y `FINANZAS_JSON=<export>` en
+`ciruelasFlujo.test.js`. Conectar no es validar: conservar los parámetros propios y avisar lo que
 falta no hace completa la proyección. Se muestra en el
 panel de ciruelas y viaja al Excel (`avisosCiruelas`, individual y consolidado).
 No hay bloqueo automático: no se activa el mes de liquidación mientras falten
@@ -969,6 +972,24 @@ Reglas actuales (`totalMesOverride`, `semillaSemanal`, `aplicarEdicionSemana`,
   son las de Créditos y programas, que no se tocan.
 - **Sublíneas y conceptos agregados** que solo tienen mensual no se editan por
   semana (hay que dejar primero el mensual en 0, explícitamente).
+
+**Semana en curso** (`posicionSemanaFecha`, `posicionHoyFlujo`): UNA regla para
+la columna destacada y el saldo banco de la vista semanal, el atrasado, el
+arrastre de Créditos y el Reporte Semanal. Semana ISO del DÍA en hora local
+(antes se usaba la hora del reloj y desde el domingo a mediodía saltaba a la
+semana siguiente). Si la semana ISO no está entre las 4 del mes calendario
+(Oct 26-31 es la S44, que el flujo pone en noviembre), se usa la 1ª semana del
+mes en los días 1-7 y la ÚLTIMA en el resto, la misma regla de
+`ubicarFechaFlujo`. Antes quedaba en la 1ª: del 26 al 31 de octubre no se veía
+el saldo banco ni el atrasado. Prueba en navegador con reloj y zona horaria de
+Chile: `scripts/e2e/semana-en-curso.mjs`.
+
+**Repartos posiblemente duplicados en producción** (escritos con 7492ca1, que
+copiaba el mensual a S4 o S1 al cargar la primera semana): consulta de solo
+lectura `supabase/consulta_repartos_semanales.sql` y comparación con el
+calculado en `src/revisionRepartos.js` (`FINANZAS_JSON=<export> ...
+revisionRepartos.test.js`). Lista firmas y propone el antes/después; no corrige
+nada.
 
 **Reporte Semanal** (`reporte_getMovimientos4Semanas`), mismas reglas de fecha:
 

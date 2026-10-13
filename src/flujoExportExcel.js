@@ -1311,7 +1311,12 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
   seasonKeys.forEach(sk => {
     const p = paramsAll[sk]?.cerezas; if (!p) return;
     const kg = Number(p.kg)||0, fob = Number(p.fob_usd_kg)||0;
-    if (kg===0 || fob===0) return;
+    // Igual que calcAllegria (y que ciruelas): sin kilos o FOB, los programas
+    // por contraparte y los saldos a favor se proyectan igual (base 0); los
+    // calendarios de materiales y servicios no (no hay volumen).
+    const sinVolumen = kg===0 || fob===0;
+    const hayProgOSaldo = (Array.isArray(p.programas) && p.programas.length) || (Array.isArray(p.saldos_favor) && p.saldos_favor.length);
+    if (sinVolumen && !hayProgOSaldo) return;
     const desc = Number(p.desc_exp_pct)||0, matU = Number(p.mat_usd_kg)||0, srvU = Number(p.srv_usd_kg)||0;
     const rH = r; const kgC=ref(rH,2), fobC=ref(rH,3), descC=ref(rH,4), matC=ref(rH,5), srvC=ref(rH,6);
     cerezasKgCell[sk] = kgC;
@@ -1344,6 +1349,7 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
       saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'cerezas',
       modeloVersion:p.modelo_version || 1, decisionesSinFecha:p.decisiones_sin_fecha || {},
     });
+    if (sinVolumen) return;
     // materiales (dist_mat) → MT: kg×matUSD×pct/100
     (p.dist_mat||[]).forEach(d => {
       const pct = Number(d.pct)||0; const rD=r; const pC=ref(rD,3);

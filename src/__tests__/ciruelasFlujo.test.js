@@ -17,7 +17,7 @@ import path from 'path';
 import os from 'os';
 import { execFileSync } from 'child_process';
 import * as XLSX from 'xlsx-js-style';
-import { calcAllegria, buildEmpresas, diagnosticoCiruelas, avisosCiruelas } from '../FinanzasModule.jsx';
+import { calcAllegria, buildEmpresas, diagnosticoCiruelas, avisosCiruelas, avisosCerezas } from '../FinanzasModule.jsx';
 import { exportarFlujoEmpresa } from '../flujoExportExcel.js';
 import { MESES, mesIdxActual } from '../horizonte.js';
 import { MODELO_VERSION } from '../programas.js';
@@ -168,6 +168,60 @@ correr('ciruelas: Excel recalculado = app', () => {
     expect(errores).toEqual([]);
   });
 
+  // Cerezas sin kilos ni FOB (mismo defecto que ciruelas): un programa de
+  // cliente con una cuota vigente y otra ya cobrada (histórica), y un programa
+  // de productor con una cuota vigente. El Excel debe proyectar lo mismo que
+  // la app y el archivo debe decir qué falta.
+  test('cerezas sin kilos ni FOB, con programas: Excel = app y aviso de faltantes', () => {
+    fs.mkdirSync(OUT, { recursive: true });
+    const cer = { kg: 0, fob_usd_kg: 0, desc_exp_pct: 0, mat_usd_kg: 0, srv_usd_kg: 0,
+      anticipos_cliente: [], mes_liquidacion: '', anticipos_productor: [], mes_saldo_productor: '',
+      dist_mat: [], dist_srv: [],
+      programas: [
+        { id: 'pc1', lado: 'cliente', contraparte: 'Cliente Sintético', kilos: 0, v: MODELO_VERSION,
+          cuotas: [
+            { id: 'cc1', mes: M(1), modalidad: 'monto', monto: 80000, estado: 'vigente', v: MODELO_VERSION, realizaciones: [], sustituye: [] },
+            { id: 'cc0', mes: M(0), modalidad: 'monto', monto: 30000, estado: 'vigente', v: MODELO_VERSION, sustituye: [],
+              realizaciones: [{ id: 'rc0', fecha: '2026-09-15', usd: 30000 }] }] },
+        { id: 'pp1', lado: 'productor', contraparte: 'Productor Sintético', kilos: 0, v: MODELO_VERSION,
+          cuotas: [{ id: 'cp1', mes: M(2), modalidad: 'monto', monto: 45000, estado: 'vigente', v: MODELO_VERSION, realizaciones: [], sustituye: [] }] }] };
+    const p = { [SK]: { cerezas: cer, ciruelas: ciruelasCompleta } };
+    const r = calcAllegria(p);
+    expect(r.ing.cerezas[corte + 1]).toBe(80000);
+    expect(r.cost.cerezas[corte + 2]).toBe(45000);
+    expect(r.ing.cerezas.reduce((a, v) => a + v, 0)).toBe(80000);   // lo ya cobrado no se vuelve a proyectar
+    const av = avisosCerezas(p);
+    expect(av.length).toBe(1);
+    expect(av[0]).toMatch(/Cerezas 2026-2027: faltan kilos y FOB US\$\/kg\. Se proyectan solo los programas/);
+    const PARAMS = { paramsAllegria: p, allegraComisionArandanos: { cobros: [] } };
+    const emp = buildEmpresas(p, PARAMS.allegraComisionArandanos)['Allegria Foods'];
+    const file = path.join(OUT, 'cer0.xlsx');
+    exportarFlujoEmpresa({ emp, empName: 'Allegria Foods', saldoIni: 0, fileName: file, params: PARAMS, avisos: av });
+    const wb0 = XLSX.readFile(file, { cellFormula: true });
+    wb0.SheetNames.forEach(nm => Object.keys(wb0.Sheets[nm]).forEach(a => {
+      const c = wb0.Sheets[nm][a]; if (a[0] !== '!' && c && c.f) { delete c.v; delete c.w; }
+    }));
+    const sc = path.join(OUT, 'cer0__sc.xlsx'); XLSX.writeFile(wb0, sc, { bookType: 'xlsx' });
+    const rcDir = path.join(OUT, 'rcc0'); fs.rmSync(rcDir, { recursive: true, force: true }); fs.mkdirSync(rcDir);
+    execFileSync('soffice', ['--headless', '--norestore', '-env:UserInstallation=file:///tmp/lo_cir',
+      '--convert-to', 'xlsx:Calc MS Excel 2007 XML', '--outdir', rcDir, sc], { stdio: 'pipe', timeout: 300000 });
+    const wb = XLSX.readFile(path.join(rcDir, 'cer0__sc.xlsx'));
+    const ws = wb.Sheets[wb.SheetNames.find(n => n !== 'Parametros' && n !== 'Servicio deuda')];
+    const col = {};
+    Object.keys(ws).filter(k => /^[A-Z]+3$/.test(k)).forEach(k => { col[ws[k].v] = k.replace(/\d+$/, ''); });
+    let vistas = 0;
+    [['Anticipo Cerezas', r.ing.cerezas], ['Costo Fruta Exportación', r.cost.cerezas],
+     ['Liquidación Ciruelas', r.ing.ciruelas], ['Costo Fruta Ciruelas', r.cost.ciruelas]].forEach(([et, app]) => {
+      const fila = Object.keys(ws).filter(k => /^A\d+$/.test(k) && ws[k].v === et).map(k => Number(k.slice(1)))[0];
+      if (!fila) { expect(`${et} ${app.reduce((a, v) => a + Math.abs(v), 0)}`).toBe(`${et} 0`); return; }
+      vistas++;
+      MESES.forEach((m, i) => expect(`${et} ${m}=${Math.round(Number(ws[`${col[m]}${fila}`]?.v ?? 0))}`).toBe(`${et} ${m}=${Math.round(app[i])}`));
+    });
+    expect(vistas).toBe(4);
+    const textos = Object.values(ws).filter(c => c && c.t === 's').map(c => String(c.v));
+    expect(textos.some(t => t.includes('Cerezas 2026-2027: faltan kilos y FOB'))).toBe(true);
+  });
+
   // Hallazgo de la revisión de 55bc762: sin kilos/FOB, la app proyectaba la
   // cuota vigente del productor y el Excel la omitía (0).
   test('sin kilos ni FOB, con una cuota vigente del productor: Excel = app', () => {
@@ -209,3 +263,35 @@ correr('ciruelas: Excel recalculado = app', () => {
     expect(vioCosto).toBe(true);
   });
 });
+
+// Efecto de conectar ciruelas sobre los datos ENTREGADOS (solo lectura):
+// FINANZAS_JSON=<archivo con el `value` de la fila finanzas>. Escribe, por
+// temporada y mes, las tres líneas de egreso nuevas (las que antes no llegaban
+// al flujo) y el ingreso de ciruelas, que no cambia. Separado a propósito de
+// la vista semanal, que no cambia ningún total mensual.
+const archivoFin = process.env.FINANZAS_JSON;
+(archivoFin ? describe : describe.skip)('ciruelas: efecto sobre los datos entregados', () => {
+  test('egresos nuevos de ciruelas por mes', () => {
+    let v = JSON.parse(fs.readFileSync(archivoFin, 'utf8'));
+    if (typeof v === 'string') v = JSON.parse(v);
+    if (Array.isArray(v)) v = v[0]?.value ?? v[0];
+    if (typeof v === 'string') v = JSON.parse(v);
+    const p = v.allegria_params || {};
+    const r = calcAllegria(p);
+    const filas = [['mes', 'liquidacion_ciruelas (sin cambio)', 'costo_fruta_ciruelas (nuevo)', 'materiales_ciruelas (nuevo)', 'servicios_ciruelas (nuevo)', 'efecto_neto_flujo']];
+    let tot = 0;
+    MESES.forEach((m, i) => {
+      const nuevo = r.cost.ciruelas[i] + r.mat.ciruelas[i] + r.srv.ciruelas[i];
+      if (!nuevo && !r.ing.ciruelas[i]) return;
+      tot += nuevo;
+      filas.push([m, r.ing.ciruelas[i], r.cost.ciruelas[i], r.mat.ciruelas[i], r.srv.ciruelas[i], -nuevo].map(x => typeof x === 'number' ? Math.round(x * 100) / 100 : x));
+    });
+    const av = [...avisosCerezas(p), ...avisosCiruelas(p)];
+    const out = process.env.OUT_DIR || path.join(os.tmpdir(), 'efecto-ciruelas');
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(path.join(out, 'efecto-ciruelas.csv'), filas.map(f => f.join(';')).join('\n') + `\nTOTAL;;;;;${-Math.round(tot * 100) / 100}\n\nAVISOS\n${av.join('\n')}\n`);
+    console.log(`efecto neto de ciruelas en el flujo: ${-Math.round(tot)} → ${path.join(out, 'efecto-ciruelas.csv')}`);
+    expect(Number.isFinite(tot)).toBe(true);
+  });
+});
+

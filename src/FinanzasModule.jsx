@@ -714,6 +714,23 @@ export function diagnosticoCiruelas(p, sk = "") {
   const relevante = kg > 0 || fob > 0 || ingreso > 0 || costo > 0 || materiales > 0 || servicios > 0;
   return { faltantes, ingreso, costo, materiales, servicios, egresosEnCero, ingresoSinEgreso, relevante, completo: faltantes.length === 0 };
 }
+// Cerezas sin kilos o FOB con programas o saldos a favor: se proyecta solo lo
+// que no depende del volumen (cuotas por contraparte, saldos a favor y lo ya
+// realizado); estimaciones US$/kg, liquidación, materiales y servicios no.
+export function avisoFrutaSinVolumen(p, fruta, sk) {
+  if (!p) return null;
+  const kg = Number(p.kg) || 0, fob = Number(p.fob_usd_kg) || 0;
+  if (kg !== 0 && fob !== 0) return null;
+  const progs = Array.isArray(p.programas) ? p.programas.length : 0;
+  const saldos = Array.isArray(p.saldos_favor) ? p.saldos_favor.length : 0;
+  if (!progs && !saldos) return null;
+  const falta = [kg === 0 ? "kilos" : null, fob === 0 ? "FOB US$/kg" : null].filter(Boolean).join(" y ");
+  return `ℹ ${fruta} ${sk}: faltan ${falta}. Se proyectan solo los programas por contraparte y los saldos a favor; las estimaciones por US$/kg, la liquidación de la fruta, materiales y servicios NO se proyectan hasta cargarlos.`;
+}
+export function avisosCerezas(paramsAllegria) {
+  return Object.keys(paramsAllegria || {}).sort()
+    .map(sk => avisoFrutaSinVolumen(paramsAllegria[sk]?.cerezas, "Cerezas", sk)).filter(Boolean);
+}
 // Avisos de ciruelas para el Excel de Allegria Foods (subtítulo y pie).
 export function avisosCiruelas(paramsAllegria) {
   const out = [];
@@ -824,14 +841,33 @@ function semanaDeISO(p) {
 // Posición "hoy" en el flujo: misma regla que FlujoEmpresa (mes actual y
 // semana en curso), para que un vencido arrastrado caiga en la semana desde
 // la que arranca el saldo semanal.
+// Posición de una fecha (año, mes 1-12, día, en hora LOCAL del usuario) en las
+// semanas del flujo. Semana ISO (lunes a domingo) calculada sobre el día, sin
+// la hora: antes la fórmula usaba la hora del reloj y desde el domingo a
+// mediodía redondeaba a la semana siguiente. Si la semana ISO del día no está
+// en las 4 semanas del mes calendario (fin o inicio de mes: Oct 26-31 es la
+// S44, que el flujo pone en noviembre), se usa la primera semana del mes en los
+// días 1-7 y la ÚLTIMA en el resto: la misma regla con que `ubicarFechaFlujo`
+// ubica una fecha. Antes quedaba en la 1ª semana y el saldo semanal y el
+// reporte trataban como futuras semanas que ya habían pasado.
+export function posicionSemanaFecha(y, m, d) {
+  const mes = `${MN[m-1]}-${String(y).slice(2)}`;
+  const t = Date.UTC(y, m-1, d);
+  const dow = (new Date(t).getUTCDay() + 6) % 7;          // 0 = lunes
+  const jueves = t + (3 - dow) * 86400000;
+  const yJ = new Date(jueves).getUTCFullYear();
+  const week = 1 + Math.floor((jueves - Date.UTC(yJ, 0, 1)) / (7 * 86400000));
+  const semanaISO = `S${String(week).padStart(2,"0")}`;
+  const sems = SEMANAS_MES[mes] || [];
+  let semIdx = sems.indexOf(semanaISO);
+  if (semIdx < 0) semIdx = sems.length ? (d <= 7 ? 0 : sems.length - 1) : 0;
+  return { mes, idx: mIdx(mes), semIdx, semana: sems[semIdx] || semanaISO };
+}
+// Posición "hoy" en el flujo: la misma para FlujoEmpresa (columna destacada,
+// saldo semanal, atrasado), el arrastre de Créditos y el Reporte Semanal.
 function posicionHoyFlujo() {
   const hoy = new Date();
-  const mes = `${MN[hoy.getMonth()]}-${String(hoy.getFullYear()).slice(2)}`;
-  const jan1 = new Date(hoy.getFullYear(),0,4);
-  const week = 1+Math.round(((hoy-jan1)/86400000-3+((jan1.getDay()+6)%7))/7);
-  const sems = SEMANAS_MES[mes] || [];
-  const si = sems.indexOf(`S${String(week).padStart(2,"0")}`);
-  return { idx: mIdx(mes), semIdx: si >= 0 ? si : 0 };
+  return posicionSemanaFecha(hoy.getFullYear(), hoy.getMonth() + 1, hoy.getDate());
 }
 // {idx, semIdx} de una fecha ISO en el horizonte del flujo (idx −1 = fuera).
 // Si la semana no está en SEMANAS_MES del mes, usa la última (regla histórica).
@@ -2554,6 +2590,11 @@ export function ParamsFruta({seasonKey,fruta,params,setParams,saldosBancos=null,
               {mesesSel.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
             <ResumenLado r={resProd} esCli={false} C={C} $$={$$} mesLiq={p.mes_saldo_productor||""}/>
+            {fruta==="cerezas"&&avisoFrutaSinVolumen(p, "Cerezas", seasonKey)&&(
+              <div data-testid="aviso-cerezas-sin-volumen" style={{fontSize:9,color:C.warning,marginTop:8,lineHeight:1.5}}>
+                {avisoFrutaSinVolumen(p, "Cerezas", seasonKey)}
+              </div>
+            )}
             {fruta==="ciruelas"&&(()=>{
               const dg = diagnosticoCiruelas(p, seasonKey);
               if(!dg.relevante) return null;
@@ -6213,12 +6254,8 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
   const isMonthOpen=mes=>openMonth[mes]!==false;
 
   // ── Semana ISO actual (ej: "S16") ─────────────────────────────
-  const semanaHoy = useMemo(()=>{
-    const hoy = new Date();
-    const jan1 = new Date(hoy.getFullYear(),0,4);
-    const week = 1+Math.round(((hoy-jan1)/86400000-3+((jan1.getDay()+6)%7))/7);
-    return `S${String(week).padStart(2,"0")}`;
-  },[]);
+  // Columna de la semana en curso (misma regla que Créditos y el Reporte Semanal).
+  const semanaHoy = useMemo(()=>posicionHoyFlujo().semana,[]);
   // Mes actual exacto ej "Apr-26" — evita mostrar saldo banco en años futuros con misma semana
   const mesHoyLabel = useMemo(()=>{
     const hoy = new Date();
@@ -6252,11 +6289,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
 
   // Semana actual dentro del mes en curso (índice 0-3)
   // Usa semanaHoy + mesHoyLabel para ser consistente con la columna destacada
-  const semIdxActual = useMemo(()=>{
-    const sems = SEMANAS_MES[mesHoyLabel] || [];
-    const idx = sems.indexOf(semanaHoy);
-    return idx >= 0 ? idx : 0;
-  },[mesHoyLabel, semanaHoy]);
+  const semIdxActual = useMemo(()=>posicionHoyFlujo().semIdx,[]);
 
   // ── Valor proyectado efectivo (base + override) ────────────────
   // Si override es objeto {_sem0,_sem1,_sem2,_sem3}: suma SOLO las semanas definidas por el usuario
@@ -15716,7 +15749,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
                     const mesX=`${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][hoyX.getMonth()]}-${String(hoyX.getFullYear()).slice(2)}`;
                     const notasSaldo=notasSaldoInicial(saldosBancos, empTab, {hoy:hoyX, mesLabel:mesX, fallback:empresas[empTab]?.saldo_ini});
                     const avisoSaldo=saldosBancos?avisoSaldoIncompleto(saldoBancoEmpresaUSD(saldosBancos,empTab)):null;
-                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}, avisos:[...avisosDeEmpresa(realData, empresasConOverridesMain, empTab, {creditos:creditosVal, empresasBase:empresas}), ...(empTab==="Allegria Foods"?avisosCiruelas(params):[]), ...(avisoSaldo?[avisoSaldo]:[])], notasSaldo});
+                    const f=exportarFlujoEmpresa({emp, empName:empTab, saldoIni, params:{paramsAF, paramsIF, paramsAS, paramsAP, paramsAllegria:params, allegraComisionArandanos}, avisos:[...avisosDeEmpresa(realData, empresasConOverridesMain, empTab, {creditos:creditosVal, empresasBase:empresas}), ...(empTab==="Allegria Foods"?[...avisosCerezas(params), ...avisosCiruelas(params)]:[]), ...(avisoSaldo?[avisoSaldo]:[])], notasSaldo});
                     setEmpExportMsg("✓ "+f);
                   }catch(e){ console.error(e); setEmpExportMsg("✗ Error al exportar"); }
                   setTimeout(()=>setEmpExportMsg(null),5000);
@@ -15797,7 +15830,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
           {/* Consolidado */}
           {empTab==="_consolidado"&&accesoCompletoEmpresas&&(
             <Consolidado empresas={empresas} saldosBancos={saldosBancos} realData={realData} addedLinesGlobal={addedLinesGlobal} subLinesGlobal={subLines}
-              creditosData={creditosVal} avisosExtraPorEmp={{"Allegria Foods":avisosCiruelas(params)}}
+              creditosData={creditosVal} avisosExtraPorEmp={{"Allegria Foods":[...avisosCerezas(params), ...avisosCiruelas(params)]}}
               paramsPart={paramsPart} onSaveParamsPart={puedoEdit("flujo")?handleSaveParamsPart:null}
               escenarioNombre={escActivo ? (escenarios.find(e=>e.id===escActivo)?.name || "Escenario") : null}/>
           )}

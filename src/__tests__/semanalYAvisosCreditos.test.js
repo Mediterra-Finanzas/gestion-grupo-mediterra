@@ -15,7 +15,7 @@ import os from 'os';
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
 import * as XLSX from 'xlsx-js-style';
-import { CeldaEditable, semillaSemanal, aplicarEdicionSemana, cambioAlCargarSemana, totalMesOverride, saldoSemanal, reporte_armarDatosEmpresa, reporte_calcKPIsGrupo, reporte_textoIncompleto, buildEmpresas, buildEmpresasConOverrides, aplicarCreditosAEmpresas,
+import { CeldaEditable, posicionSemanaFecha, semillaSemanal, aplicarEdicionSemana, cambioAlCargarSemana, totalMesOverride, saldoSemanal, reporte_armarDatosEmpresa, reporte_calcKPIsGrupo, reporte_textoIncompleto, buildEmpresas, buildEmpresasConOverrides, aplicarCreditosAEmpresas,
   avisosDeEmpresa, avisosCreditosEmpresa, claveLinea } from '../FinanzasModule.jsx';
 import { exportarFlujoEmpresa } from '../flujoExportExcel.js';
 
@@ -192,6 +192,45 @@ describe('reporte semanal · sin fecha, atrasado y totales completos', () => {
     const meses = k.compromisosConsolidados.map(x => x.mes.slice(0, 6));
     const iDic = meses.lastIndexOf('Dic 26'), iEne = meses.indexOf('Ene 27');
     expect(iDic).toBeGreaterThanOrEqual(0); expect(iEne).toBeGreaterThan(iDic);
+  });
+});
+
+// Semana en curso: una sola regla (flujo, Créditos y Reporte Semanal). Semana
+// ISO del DÍA (sin la hora) y, si esa semana no está entre las 4 del mes
+// calendario, 1ª semana en los días 1-7 y última en el resto.
+describe('semana en curso · fin de mes y domingos', () => {
+  const pos = (y, m, d) => { const r = posicionSemanaFecha(y, m, d); return `${r.mes} ${r.semIdx} ${r.semana}`; };
+  test('semana normal y domingo (el domingo cierra la semana ISO)', () => {
+    expect(pos(2026, 10, 14)).toBe('Oct-26 2 S42');
+    expect(pos(2026, 10, 18)).toBe('Oct-26 2 S42');   // domingo
+    expect(pos(2026, 10, 19)).toBe('Oct-26 3 S43');   // lunes siguiente
+  });
+  test('fin de mes: la semana ISO es de otro mes → última semana del mes calendario', () => {
+    expect(pos(2026, 10, 26)).toBe('Oct-26 3 S43');   // S44 en el flujo es de noviembre
+    expect(pos(2026, 10, 29)).toBe('Oct-26 3 S43');
+    expect(pos(2026, 10, 31)).toBe('Oct-26 3 S43');
+    expect(pos(2026, 11, 30)).toBe('Nov-26 3 S47');
+    expect(pos(2026, 12, 31)).toBe('Dec-26 3 S51');
+  });
+  test('inicio de mes', () => {
+    expect(pos(2026, 11, 1)).toBe('Nov-26 0 S44');    // domingo de la S44
+    expect(pos(2027, 1, 1)).toBe('Jan-27 0 S01');     // semana ISO 53 de 2026
+    expect(pos(2027, 1, 4)).toBe('Jan-27 0 S01');
+  });
+  test('el reporte usa la misma regla: domingo a las 15:00 y 29-10 marcan bien el atrasado', () => {
+    const empresas = buildEmpresas({}, { cobros: [] });
+    const sec = empresas['Allegria Foods'].sections.find(s => s.lines.some(l => l.label === 'Arriendo Oficina'));
+    const real = { 'Allegria Foods': { _proyOverrides: { [claveLinea(sec.cat, 'Arriendo Oficina')]: { 6: { _sem0: 10, _sem1: 20, _sem2: 30, _sem3: 40 } } } } };
+    const ver = (fecha) => {
+      jest.useFakeTimers('modern'); jest.setSystemTime(fecha);
+      try {
+        return reporte_armarDatosEmpresa('Allegria Foods', real, empresas, null, 0, '', 950, {}, {})
+          .compromisos.filter(x => x.label === 'Arriendo Oficina' && x.mes.startsWith('Oct 26')).map(x => x.mes);
+      } finally { jest.useRealTimers(); }
+    };
+    expect(ver(new Date(2026, 9, 18, 15, 0))).toEqual(['Oct 26 S1 (atrasado)', 'Oct 26 S2 (atrasado)', 'Oct 26 S3', 'Oct 26 S4']);
+    expect(ver(new Date(2026, 9, 18, 9, 0))).toEqual(['Oct 26 S1 (atrasado)', 'Oct 26 S2 (atrasado)', 'Oct 26 S3', 'Oct 26 S4']);
+    expect(ver(new Date(2026, 9, 29, 12, 0))).toEqual(['Oct 26 S1 (atrasado)', 'Oct 26 S2 (atrasado)', 'Oct 26 S3 (atrasado)', 'Oct 26 S4']);
   });
 });
 
