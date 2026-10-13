@@ -146,18 +146,19 @@ describe('monedas y TC', () => {
     expect(r.resumen.consolidado.sinTC.map(s => s.creditoId)).toEqual(['D']);
     const t = tablasReporte(r);
     expect(t.avisos.join(' ')).toMatch(/crédito D \(N° 4\) · Frisku Foods · Banco Perú Demo · PEN/);
-    expect(t.resumen.filas.some(f => /TOTAL GENERAL en USD \(INCOMPLETO/.test(f.celdas.empresa))).toBe(true);
+    expect(t.resumen.filas.some(f => /TOTAL GENERAL en USD · cartera al corte \(INCOMPLETO/.test(f.celdas.empresa))).toBe(true);
     const filaPEN = t.resumen.filas.find(f => f.tipo === 'dato' && f.celdas.moneda === 'PEN');
     expect(filaPEN.celdas.usdCapital).toBeNull();
     expect(formatoCelda(null, { tipo: 'usd' }, 'PEN')).toBe('sin TC');
     // Empresa con TODOS sus créditos sin TC: su total USD es «sin TC», nunca 0
     const totFrisku = t.resumen.filas.find(f => /^Total Frisku Foods en USD/.test(f.celdas.empresa));
+    expect(totFrisku.celdas.empresa).toMatch(/INCOMPLETO/); expect(totFrisku.celdas.advertencias).toMatch(/sin tipo de cambio al corte \(1\)/);
     expect(totFrisku.celdas.usdCapital).toBeNull();
   });
   test('nunca se suman monedas distintas: un total por moneda + uno en USD', () => {
     const t = tablasReporte(r);
     const totales = t.resumen.filas.filter(f => f.tipo === 'total');
-    totales.filter(f => f.moneda !== 'USD' || !/en USD/.test(f.celdas.empresa)).forEach(f => expect(f.celdas.empresa).toMatch(new RegExp(`· ${f.moneda}$`)));
+    totales.filter(f => f.moneda !== 'USD' || !/en USD/.test(f.celdas.empresa)).forEach(f => expect(f.celdas.empresa).toMatch(new RegExp(`· ${f.moneda} · cartera al corte`)));
     const clp = r.resumen.consolidado.monedas.CLP;
     expect(clp.capitalPendiente).toBe(95000000);
     // USD del consolidado = Σ capital USD de los créditos con TC (CLP/955, UF, EUR declarado)
@@ -167,9 +168,9 @@ describe('monedas y TC', () => {
   });
   test('TC declarado en el crédito queda rotulado como hipótesis; los TC usados con fecha y fuente', () => {
     const t = tablasReporte(r);
-    expect(t.avisos.join(' ')).toMatch(/TC declarado en el crédito.*E EUR 0.85 al 01-09-2026/);
+    expect(t.avisos.join(' ')).toMatch(/TC declarado en el crédito \(hipótesis\).*E EUR 0.85 al 01-09-2026/);
     const clp = t.tcUsados.find(x => x.moneda === 'CLP');
-    expect(clp).toMatchObject({ tc: 955, fecha: '10-10-2026' }); expect(clp.fuente).toMatch(/manual/);
+    expect(clp).toMatchObject({ tc: 955, fecha: '10-10-2026', unidad: 'CLP por 1 US$' }); expect(clp.fuente).toMatch(/manual/);
     expect(t.tcUsados.find(x => x.moneda === 'UF').par).toMatch(/triangulado/);
   });
   test('capital confirmado y por conciliar van separados', () => {
@@ -199,7 +200,7 @@ describe('perímetro: consolidado = 6 sociedades; JV aparte', () => {
     const r2 = rep({ empresas: ['Integrity Farms'] });
     const t = tablasReporte(r2, { alcance: 'empresa', empresa: 'Integrity Farms' });
     expect(t.logo).toBe('/integrity-logo.png');
-    expect(t.resumen.filas.filter(f => f.tipo === 'total').map(f => f.celdas.empresa)).toEqual(['Total Integrity Farms · USD', 'Total Integrity Farms en USD']);
+    expect(t.resumen.filas.filter(f => f.tipo === 'total').map(f => f.celdas.empresa)).toEqual(['Total Integrity Farms · USD · cartera al corte', 'Total Integrity Farms en USD · cartera al corte']);
   });
 });
 
@@ -211,10 +212,11 @@ describe('subtotales junto a las filas que resumen', () => {
     filas.forEach(f => {
       if (f.tipo === 'dato') { grupo.push(f); return; }
       if (f.tipo !== 'subtotal') return;
-      const emp = f.celdas.empresa.replace(/^Subtotal /, '').replace(/ · [A-Z]+$/, '');
+      const emp = f.celdas.empresa.replace(/^Subtotal /, '').replace(/ · [A-Z]+ · .*$/, '');
       const datos = grupo.filter(g => g.celdas.empresa === emp && g.moneda === f.moneda);
       expect(datos.length).toBe(f.celdas._n);
-      expect(datos.reduce((s, g) => s + (g.celdas[campo] || 0), 0)).toBeCloseTo(f.celdas[campo], 2);
+      // «No determinable» no suma (es texto): el subtotal solo suma capital determinado
+      expect(datos.reduce((s, g) => s + (typeof g.celdas[campo] === 'number' ? g.celdas[campo] : 0), 0)).toBeCloseTo(typeof f.celdas[campo] === 'number' ? f.celdas[campo] : 0, 2);
       expect(grupo.every(g => g.celdas.empresa === emp && g.moneda === f.moneda)).toBe(true);   // sin filas ajenas entre medio
       grupo = [];
     });
@@ -229,5 +231,90 @@ describe('permisos: empresas autorizadas también en el reporte', () => {
   });
   test('lista vacía o null = sin restricción (misma regla que getEmpresasPermitidasUsuario)', () => {
     expect(rep({}, { empresasPermitidas: [] }).creditos.length).toBe(rep().creditos.length);
+  });
+});
+
+// ── Ajustes de presentación (oct-2026, 2.ª ronda) ─────────────────────
+import { NO_DETERMINABLE, CAUSAS, COMO_LEER, textoTC } from '../reporteCreditos';
+describe('capital no determinable y causas de información incompleta', () => {
+  const r = rep(), t = tablasReporte(r);
+  const filaCred = (id) => t.creditos.filas.find(f => f.tipo === 'dato' && f.celdas.creditoId === id).celdas;
+  test('sin desglose: «No determinable: sin desglose», nunca 0; el monto va en «Sin desglose»', () => {
+    expect(credito(r, 'B3').capitalEstado).toBe('no_determinable');
+    expect(filaCred('B3').capitalPendiente).toBe(NO_DETERMINABLE);
+    expect(filaCred('B3').usdCapital).toBe(NO_DETERMINABLE);
+    expect(filaCred('B3').sinDesglosePendiente).toBe(550000);
+    expect(formatoCelda(NO_DETERMINABLE, { tipo: 'monto' }, 'USD')).toBe(NO_DETERMINABLE);
+    // Un crédito con capital desglosado sigue mostrando su número
+    expect(filaCred('A').capitalPendiente).toBeCloseTo(174088.89, 2); expect(filaCred('A').determinacion).toBe('Determinado');
+    // Grupo con capital no determinable y nada determinado: tampoco 0 (Mediterra USD = B3 sin desglose + B4 por conciliar)
+    const medUSD = t.resumen.filas.find(f => f.tipo === 'dato' && f.celdas.empresa === 'Mediterra' && f.moneda === 'USD').celdas;
+    expect(medUSD.capitalPendiente).toBe(NO_DETERMINABLE); expect(medUSD.usdCapital).toBe(NO_DETERMINABLE);
+    // Todo por conciliar: 0 confirmado es correcto, pero se rotula
+    expect(filaCred('B1').determinacion).toBe('Sin saldo confirmado: todo por conciliar');
+  });
+  test('capital, sin desglose y por conciliar van destacados y contiguos', () => {
+    ['resumen', 'creditos'].forEach(k => {
+      const ks = t[k].columnas.map(c => c.k), i = ks.indexOf('capitalPendiente');
+      expect(ks.slice(i, i + 3)).toEqual(['capitalPendiente', 'sinDesglosePendiente', 'porConciliarTotal']);
+      expect(t[k].columnas.slice(i, i + 3).every(c => c.destacar)).toBe(true);
+    });
+  });
+  test('son categorías EXCLUYENTES (cuotas y componentes disjuntos): se comprueba en cada crédito', () => {
+    vigentes.forEach(c => {
+      const e = estadoCredito(alCorte(c, CORTE_PRUEBA), CORTE_PRUEBA);
+      // cada cuota está en un solo lado: confirmada o por conciliar
+      const conf = e.vencimientos.filter(v => !v.porConciliar), pc = e.vencimientos.filter(v => v.porConciliar);
+      expect(conf.length + pc.length).toBe(e.vencimientos.length);
+      // dentro de lo confirmado, capital y sin desglose son componentes distintos de la misma cuota
+      const suma = conf.reduce((s, v) => s + v.pendiente.capital + v.pendiente.sinDesglose + v.pendiente.interes + v.pendiente.cargos, 0);
+      expect(suma).toBeCloseTo(e.pendienteTotal, 2);
+      expect(pc.reduce((s, v) => s + v.pendienteTotal, 0)).toBeCloseTo(e.porConciliarTotal, 2);
+    });
+    // y aun así el reporte no los suma entre sí: no existe una columna «capital + sin desglose + por conciliar»
+    expect(t.resumen.columnas.some(c => /capital \+ sin desglose \+ por conciliar/i.test(c.t))).toBe(false);
+  });
+  test('el TOTAL GENERAL advierte TODAS las causas, con su conteo', () => {
+    const tot = t.resumen.filas.find(f => /^TOTAL GENERAL en USD/.test(f.celdas.empresa)).celdas;
+    expect(tot.empresa).toMatch(/INCOMPLETO/);
+    ['sin_desglose', 'por_conciliar', 'sin_tc', 'tc_hipotesis', 'tc_desactualizado'].forEach(k => expect(tot.advertencias).toContain(CAUSAS[k]));
+    expect(tot.advertencias).toMatch(/cuotas sin desglose \(2\)/); expect(tot.advertencias).toMatch(/por conciliar \(no confirmadas\) \(2\)/);
+    // un total sin causas no lleva el rótulo
+    expect(t.resumen.filas.find(f => /^Total Integrity Farms en USD/.test(f.celdas.empresa)).celdas.empresa).not.toMatch(/INCOMPLETO/);
+    // cada causa tiene su aviso con los créditos que la tienen
+    expect(t.avisos.join(' ')).toMatch(/Capital no determinable.*crédito B3 \(N° 36\).*crédito B2 \(N° 31\)/);
+  });
+});
+describe('UF con unidades, pares y ejemplo aritmético', () => {
+  const t = tablasReporte(rep()), uf = t.tcUsados.find(x => x.moneda === 'UF');
+  test('UF por US$ = USD-CLP ÷ UF-CLP, con fecha y fuente de cada par; mismo valor que creditos.js', () => {
+    expect(uf.unidad).toBe('UF por 1 US$');
+    expect(uf.pares.map(p => [p.par, p.valor, p.unidad, p.fecha, p.fuente])).toEqual([
+      ['USD-CLP', 955, 'CLP por 1 US$', '2026-10-10', 'manual'], ['UF-CLP', 40131.84, 'CLP por 1 UF', '2026-10-09', 'mindicador']]);
+    expect(uf.tcExacto).toBeCloseTo(955 / 40131.84, 12);
+    const f = credito(rep(), 'F'); expect(f.usd.capitalPendiente).toBe(Math.round(500 * 40131.84 / 955 * 100) / 100);
+  });
+  test('el ejemplo divide y cuadra al centavo con el TC mostrado', () => {
+    const { monto, tc, usd } = uf.ejemploNum;
+    expect(Math.round(monto / tc * 100) / 100).toBe(usd);
+    expect(usd).toBe(21011.43);
+    expect(textoTC(uf)).toMatch(/500,0000 UF ÷ 0,02379657 UF\/US\$ = US\$ 21\.011,43/);
+    expect(textoTC(uf)).toMatch(/USD-CLP 955,00 CLP por 1 US\$ \(10-10-2026, manual\) · UF-CLP 40\.131,84 CLP por 1 UF \(09-10-2026, mindicador\)/);
+  });
+  test('los demás TC también: importe ÷ TC = US$', () => {
+    t.tcUsados.forEach(x => { expect(Math.round(x.ejemploNum.monto / x.ejemploNum.tc * 100) / 100).toBe(x.ejemploNum.usd); });
+  });
+});
+describe('rango = movimientos; corte = saldos', () => {
+  const t = tablasReporte(rep({ desde: '2026-10-01', hasta: '2026-12-31' }));
+  test('el encabezado lo dice (pantalla, Excel y PDF usan el mismo encabezado)', () => {
+    expect(t.encabezado.find(([k]) => k === 'Cómo leer')[1]).toBe(COMO_LEER);
+  });
+  test('subtotales de cartera vs subtotales del rango, rotulados', () => {
+    expect(t.creditos.filas.filter(f => f.tipo === 'subtotal').every(f => /cartera al corte \(todo el crédito, no solo el rango\)/.test(f.celdas.empresa))).toBe(true);
+    expect(t.cuotas.filas.filter(f => f.tipo === 'subtotal').every(f => /solo filas del rango/.test(f.celdas.empresa))).toBe(true);
+    expect(t.pagos.filas.filter(f => f.tipo === 'subtotal').every(f => /solo filas del rango/.test(f.celdas.empresa))).toBe(true);
+    expect(t.resumen.filas.filter(f => f.tipo !== 'dato' && f.tipo !== 'seccion').every(f => /cartera al corte/.test(f.celdas.empresa))).toBe(true);
+    expect(t.resumen.titulo).toMatch(/el rango no los cambia/);
   });
 });

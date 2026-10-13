@@ -15,6 +15,7 @@ export function compararTabla(ws, tabla) {
     for (let j = 0; j < tabla.columnas.length; j++) {
       const col = tabla.columnas[j], esp = f.celdas[col.k], v = valorExcel(ws.getCell(fCab + 1 + i, j + 1).value);
       if (typeof esp === 'number') { if (typeof v !== 'number' || Math.abs(v - esp) > 1e-6) return `fila ${i + 1} «${col.t}»: Excel ${v} ≠ ${esp}`; }
+      else if (typeof esp === 'string' && (col.tipo === 'monto' || col.tipo === 'usd')) { if (v !== esp) return `fila ${i + 1} «${col.t}»: ${v} ≠ ${esp}`; }
       else if (esp === null && col.tipo === 'usd') { if (v !== 'sin TC') return `fila ${i + 1} «${col.t}»: ${v} ≠ sin TC`; }
       else if (col.tipo === 'texto' && esp != null && String(v) !== String(esp)) return `fila ${i + 1} «${col.t}»: ${v} ≠ ${esp}`;
       else if (col.tipo === 'fecha' && esp && v !== esp) return `fila ${i + 1} «${col.t}»: ${v} ≠ ${esp}`;
@@ -43,7 +44,9 @@ export function verificarPDF(fp, rep, T) {
   out.push([`PDF: cada cuota y cada pago una sola vez (+ referencias pago→cuota) (${rep.cuotas.length} cuotas, ${rep.pagos.length} pagos)`, !malCuotas.length && !malPagos.length, [...malCuotas, ...malPagos].join(' ')]);
   out.push([`PDF: título y corte en todas las páginas (${paginas.length})`, paginas.every(pg => pg.includes(T.titulo) && pg.includes(rep.corte.split('-').reverse().join('-')))]);
   // Encabezado de tabla repetido: toda página que continúa una tabla empieza con su fila de títulos.
-  const sinCab = paginas.slice(1).filter(pg => !/ID crédito|Empresa\s+Perímetro/.test(pg)).length;
+  // Texto en orden de lectura (sin -layout): los títulos de columna en dos líneas no se mezclan con las filas.
+  const crudas = execFileSync('pdftotext', [fp, '-'], { encoding: 'utf8' }).split('\f').filter(x => x.trim()).map(x => x.replace(/\s+/g, ' '));
+  const sinCab = crudas.slice(1).filter(pg => !(pg.includes('Moneda') && /Perímetro|Empresa \(deudora\)|ID cuota|ID pago/.test(pg))).length;
   out.push([`PDF: encabezado de columnas repetido en cada página`, sinCab === 0]);
   if (rep.creditos.some(c => !c.tc)) out.push([`PDF: créditos sin TC identificados y total INCOMPLETO`, /SIN TC/.test(txt) && /INCOMPLETO/.test(txt)]);
   if (!rep.creditos.length) out.push([`PDF: resultado vacío rotulado`, (txt.match(/Sin resultados para los filtros elegidos/g) || []).length === 4]);

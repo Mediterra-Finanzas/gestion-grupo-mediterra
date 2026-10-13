@@ -88,7 +88,29 @@ datos reales, producción.
 `docs/ejemplos/creditos-reportes/`: consolidado, consolidado oct–dic con filtro de estados, Osiris,
 Allegria Service (CLP + renovación), Frisku (PEN sin TC → INCOMPLETO) y vacío, en Excel y PDF, más tres capturas.
 
+## Ajustes de presentación (2.ª ronda, sin cambiar creditos.js)
+
+1. **Capital no determinable.** Un crédito cuyo pendiente está todo en cuotas sin desglose muestra
+   «No determinable: sin desglose» en vez de 0 (pantalla, Excel y PDF). Un grupo con capital no
+   determinable cuyo capital determinado suma 0 también. Columna «Determinación del capital»:
+   Determinado / Parcial / No determinable / Sin saldo confirmado: todo por conciliar.
+   Capital confirmado, Sin desglose y Por conciliar van juntos y destacados.
+   **Exclusión comprobada** (prueba): cada cuota es confirmada o por conciliar, nunca ambas; dentro de lo
+   confirmado, capital y sin desglose son componentes distintos de la misma cuota. Aun así el reporte no
+   los suma entre sí, porque lo sin desglose puede traer capital, intereses y cargos mezclados.
+   Los totales listan TODAS las causas, con su conteo: capital no determinable, por conciliar, sin TC,
+   TC declarado (hipótesis), TC con más de 7 días, pagos que no calzan con una cuota, cuotas marcadas
+   pagadas sin registro y contratos con datos faltantes.
+2. **UF.** Unidades explícitas («UF por 1 US$»), los dos pares con su fecha y fuente y un ejemplo:
+   500 UF ÷ 0,02379657 UF/US$ = US$ 21.011,43 (= 500 UF × 40.131,84 CLP/UF ÷ 955 CLP/US$).
+   Los pares se leen con `ufPorFecha` de creditos.js y se muestran solo si reproducen exactamente el
+   TC con el que se calculó. El TC se muestra con los decimales necesarios para que la división cuadre al
+   centavo (el módulo lo rotula con 6 decimales, 0,023797, y con eso la división daría 21.011,05).
+3. **Descarga con perfil «ver»:** se mantiene, limitada a sus empresas autorizadas; la pantalla lo dice.
+4. **Rango vs corte:** «El rango filtra movimientos; la fecha de corte determina saldos», en pantalla y en
+   el encabezado de Excel y PDF. Cada subtotal dice si es «cartera al corte» (todo el crédito) o
+   «solo filas del rango».
+
 ## Decisiones pendientes
 
-1. Si un usuario con Créditos en «ver» debe poder descargar (hoy sí, porque ya ve los mismos datos en pantalla). Si se quiere separar, sería una facultad nueva y no la creé.
-2. La columna «TC» para UF se expresa como UF por US$ (0,0238), igual que el módulo. Si prefieres CLP por UF y CLP por US$ por separado, es solo presentación.
+1. Descarga con perfil «ver»: se mantiene por ahora (decisión del 13-10-2026), sin facultad nueva.

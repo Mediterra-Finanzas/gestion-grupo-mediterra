@@ -10,10 +10,12 @@
 // así las pruebas y los archivos de ejemplo usan exactamente el mismo código.
 // Logos: se dibujan con su proporción natural dentro de una caja (nunca se estiran).
 // ═══════════════════════════════════════════════════════════════════
-import { formatoCelda } from './reporteCreditos.js';
+import { formatoCelda, textoTC, NO_DETERMINABLE } from './reporteCreditos.js';
 
 const TEAL = [15, 118, 110], TEAL_VL = [204, 251, 241], GRIS = [102, 102, 102], OSC = [51, 51, 51];
 const FILL_SUB = [240, 244, 248], FILL_TOT = [226, 232, 240], FILL_SEC = [204, 251, 241];
+// Capital confirmado / sin desglose / por conciliar: columnas destacadas, una junto a otra.
+const DEST_CAB = [180, 83, 9], DEST_CEL = [254, 243, 199];
 const hex = (rgb) => rgb.map(x => x.toString(16).padStart(2, '0')).join('').toUpperCase();
 
 // Caja de logo: ancho×alto máximos → tamaño con la proporción natural.
@@ -77,9 +79,10 @@ function encabezadoHoja(wb, ws, T, logo, titulo, nCols) {
     ws.getCell(fila, 3).value = v; ws.getCell(fila, 3).font = { size: 9 }; fila++;
   });
   if (T.tcUsados.length) {
-    ws.getCell(fila, 1).value = 'Tipos de cambio usados'; ws.getCell(fila, 1).font = { bold: true, size: 9 };
-    ws.getCell(fila, 3).value = T.tcUsados.map(x => `${x.moneda}: ${x.tc} por US$ · ${x.fecha} · ${x.fuente} · ${x.par}`).join('  |  ');
-    ws.getCell(fila, 3).font = { size: 9 }; fila++;
+    T.tcUsados.forEach((x, i) => {
+      ws.getCell(fila, 1).value = i ? '' : 'Tipos de cambio usados'; ws.getCell(fila, 1).font = { bold: true, size: 9 };
+      ws.getCell(fila, 3).value = textoTC(x); ws.getCell(fila, 3).font = { size: 9 }; fila++;
+    });
   }
   T.avisos.forEach(a => { const c = ws.getCell(fila, 1); c.value = '⚠ ' + a; c.font = { size: 9, color: { argb: 'FF9A3412' } }; fila++; });
   return fila + 1;
@@ -90,7 +93,7 @@ function tablaHoja(ws, tabla, fila0, { autoFiltro = false } = {}) {
   tabla.columnas.forEach((col, i) => {
     const c = cab.getCell(i + 1); c.value = col.t;
     c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 9 }; c.alignment = { wrapText: true, vertical: 'middle', horizontal: 'center' };
-    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + hex(TEAL) } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + hex(col.destacar ? DEST_CAB : TEAL) } };
   });
   cab.height = 30;
   const filaCab = fila; fila++;
@@ -107,6 +110,9 @@ function tablaHoja(ws, tabla, fila0, { autoFiltro = false } = {}) {
       c.value = v === undefined ? null : v;
       c.font = { size: 9, bold: f.tipo !== 'dato' };
       if (f.tipo !== 'dato') c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + hex(f.tipo === 'total' ? FILL_TOT : f.tipo === 'seccion' ? FILL_SEC : FILL_SUB) } };
+      else if (col.destacar) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + hex(DEST_CEL) } };
+      if (v === NO_DETERMINABLE) { c.font = { ...c.font, italic: true, color: { argb: 'FFB45309' } }; c.alignment = { horizontal: 'right' }; }
+      if (col.k === 'advertencias' || col.k === 'empresa') c.alignment = { wrapText: true, vertical: 'top' };
       if (f.tipo === 'total') c.border = { top: { style: 'thin', color: { argb: 'FF' + hex(TEAL) } } };
     });
     fila++;
@@ -130,7 +136,7 @@ export function libroExcel(T, { ExcelJS, logo = null, generado = '' }) {
     let fila = encabezadoHoja(wb, ws, T, logo, `${sub}${generado ? ' · generado ' + generado : ''}`, nCols);
     let primeraCab = null;
     tablas.forEach((t, i) => {
-      if (tablas.length > 1) { const c = ws.getCell(fila, 1); c.value = t.titulo; c.font = { bold: true, size: 11, color: { argb: 'FF' + hex(TEAL) } }; fila++; }
+      { const c = ws.getCell(fila, 1); c.value = t.titulo; c.font = { bold: true, size: 11, color: { argb: 'FF' + hex(TEAL) } }; fila++; }
       const r = tablaHoja(ws, t, fila, { autoFiltro: tablas.length === 1 });
       if (primeraCab === null) primeraCab = r.filaCab;
       fila = r.fin;
@@ -145,7 +151,7 @@ export function libroExcel(T, { ExcelJS, logo = null, generado = '' }) {
 // ── PDF ──────────────────────────────────────────────────────────────
 // Columnas que van al PDF (el Excel lleva todas). Se omiten solo las que el ancho de
 // A4 apaisado no admite; ninguna cifra de saldo, conciliación o TC se omite.
-const PDF_OMITIR = { creditos: ['perimetro', 'desembolso', 'nPagos'], cuotas: [], pagos: [] };
+const PDF_OMITIR = { creditos: ['perimetro', 'desembolso', 'nPagos', 'tipo'], cuotas: [], pagos: [] };
 export function documentoPDF(T, { JsPDF, logo = null, generado = '' }) {
   const doc = new JsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), m = 10;
@@ -166,7 +172,7 @@ export function documentoPDF(T, { JsPDF, logo = null, generado = '' }) {
   let y = ALTO_CAB + 3;
   doc.setFontSize(8); doc.setTextColor(...OSC);
   const lineas = [...T.encabezado.map(([k, v]) => `${k}: ${v}`),
-    ...(T.tcUsados.length ? ['Tipos de cambio usados: ' + T.tcUsados.map(x => `${x.moneda} ${x.tc} por US$ (${x.fecha}, ${x.fuente})`).join(' · ')] : [])];
+    ...T.tcUsados.map((x, i) => `${i ? '' : 'Tipos de cambio usados: '}${textoTC(x)}`)];
   lineas.forEach(l => { doc.splitTextToSize(l, W - 2 * m).forEach(t => { doc.text(t, m, y); y += 3.6; }); });
   if (T.avisos.length) { doc.setTextColor(154, 52, 18); T.avisos.forEach(a => doc.splitTextToSize('⚠ ' + a, W - 2 * m).forEach(t => { doc.text(t.replace('⚠', '!'), m, y); y += 3.6; })); }
   y += 2;
@@ -183,7 +189,11 @@ export function documentoPDF(T, { JsPDF, logo = null, generado = '' }) {
       headStyles: { fillColor: TEAL, textColor: 255, fontStyle: 'bold', halign: 'center', valign: 'middle' },
       columnStyles: Object.fromEntries(cols.map((c, i) => [i, { halign: ['monto', 'usd', 'entero'].includes(c.tipo) ? 'right' : 'left' }])),
       didParseCell: (d) => {
+        const col = cols[d.column.index];
+        if (d.section === 'head' && col && col.destacar) d.cell.styles.fillColor = DEST_CAB;
         if (d.section !== 'body' || !tabla.filas.length) return;
+        if (col && col.destacar && tabla.filas[d.row.index] && tabla.filas[d.row.index].tipo === 'dato') d.cell.styles.fillColor = DEST_CEL;
+        if (d.cell.raw === NO_DETERMINABLE) { d.cell.styles.fontStyle = 'italic'; d.cell.styles.textColor = DEST_CAB; }
         const f = tabla.filas[d.row.index]; if (!f || f.tipo === 'dato') return;
         d.cell.styles.fontStyle = 'bold';
         d.cell.styles.fillColor = f.tipo === 'total' ? FILL_TOT : f.tipo === 'seccion' ? FILL_SEC : FILL_SUB;

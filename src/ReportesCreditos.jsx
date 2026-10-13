@@ -9,7 +9,7 @@
 // ═══════════════════════════════════════════════════════════════════
 import React, { useMemo, useState } from 'react';
 import { theme } from './theme';
-import { construirReporte, tablasReporte, formatoCelda, ESTADOS_CREDITO, ESTADOS_CUOTA, TIPOS_PAGO, EMPRESAS_LINEA, EMPRESAS_JV } from './reporteCreditos.js';
+import { construirReporte, tablasReporte, formatoCelda, textoTC, NO_DETERMINABLE, ESTADOS_CREDITO, ESTADOS_CUOTA, TIPOS_PAGO, EMPRESAS_LINEA, EMPRESAS_JV } from './reporteCreditos.js';
 import { libroExcel, documentoPDF, nombreArchivo, cargarExcelJS, cargarJsPDF, cargarLogo, descargarBlob } from './reporteCreditosExport.js';
 import { hoyISO } from './creditos.js';
 
@@ -40,15 +40,17 @@ function Tabla({ tabla, testid }) {
   return (
     <div style={{ overflowX: 'auto', border: `1px solid ${C.border}`, borderRadius: 8, background: C.card }}>
       <table data-testid={testid} style={{ borderCollapse: 'collapse', width: '100%', fontSize: 11 }}>
-        <thead><tr>{tabla.columnas.map(c => <th key={c.k} style={{ position: 'sticky', top: 0, background: C.accent2, color: '#fff', padding: '6px 8px', textAlign: 'center', fontWeight: 700, whiteSpace: 'nowrap' }}>{c.t}</th>)}</tr></thead>
+        <caption style={{ captionSide: 'top', textAlign: 'left', padding: '8px 10px', fontWeight: 700, color: C.accent2, fontSize: 12 }}>{tabla.titulo}</caption>
+        <thead><tr>{tabla.columnas.map(c => <th key={c.k} style={{ position: 'sticky', top: 0, background: c.destacar ? '#b45309' : C.accent2, color: '#fff', padding: '6px 8px', textAlign: 'center', fontWeight: 700, whiteSpace: 'nowrap' }}>{c.t}</th>)}</tr></thead>
         <tbody>
           {!tabla.filas.length && <tr><td colSpan={tabla.columnas.length} style={{ padding: 12, fontStyle: 'italic', color: C.muted }}>Sin resultados para los filtros elegidos.</td></tr>}
           {tabla.filas.map((f, i) => (
             <tr key={i} data-tipo={f.tipo} style={{ background: fondo(f.tipo), fontWeight: f.tipo === 'dato' ? 400 : 700, borderTop: `1px solid ${C.border}` }}>
               {tabla.columnas.map(c => {
                 const v = formatoCelda(f.celdas[c.k], c, f.moneda);
-                return <td key={c.k} data-k={c.k} style={{ padding: '4px 8px', textAlign: ['monto', 'usd', 'entero'].includes(c.tipo) ? 'right' : 'left', whiteSpace: c.tipo === 'texto' ? 'normal' : 'nowrap',
-                  color: v === 'sin TC' || v === 'SIN TC' ? C.danger : C.text }}>{v}</td>;
+                return <td key={c.k} data-k={c.k} style={{ padding: '4px 8px', textAlign: ['monto', 'usd', 'entero'].includes(c.tipo) ? 'right' : 'left', whiteSpace: c.tipo === 'texto' || v === NO_DETERMINABLE ? 'normal' : 'nowrap',
+                  background: c.destacar && f.tipo === 'dato' ? '#fef3c7' : undefined, fontStyle: v === NO_DETERMINABLE ? 'italic' : undefined,
+                  color: v === 'sin TC' || v === 'SIN TC' ? C.danger : v === NO_DETERMINABLE ? '#b45309' : C.text }}>{v}</td>;
               })}
             </tr>
           ))}
@@ -142,8 +144,9 @@ export default function ReportesCreditos({ creditos = [], empresasPermitidas = n
           </div>
         </div>
         <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
-          <b>Dos fechas distintas.</b> La <b>fecha de corte</b> fija el saldo de deuda (cuentan los pagos con fecha efectiva hasta ese día; una cuota está vencida si vence antes) y el tipo de cambio.
-          El <b>rango del detalle</b> solo elige qué cuotas (por <b>fecha de vencimiento</b>) y qué pagos (por <b>fecha efectiva</b>) se listan; no cambia el saldo.
+          <b>El rango filtra movimientos; la fecha de corte determina saldos.</b> La <b>fecha de corte</b> fija el saldo de deuda de toda la cartera filtrada (cuentan los pagos con fecha efectiva hasta ese día; una cuota está vencida si vence antes) y el tipo de cambio.
+          El <b>rango del detalle</b> solo elige qué cuotas (por <b>fecha de vencimiento</b>) y qué pagos (por <b>fecha efectiva</b>) se listan. Los totales rotulados «cartera al corte» son de todo el crédito; los rotulados «solo filas del rango», de las filas listadas.
+          <br/><span data-testid="rep-alcance-descarga">Pantalla y descargas incluyen solo tus empresas autorizadas (con créditos en esta consulta: {empresasDisponibles.length ? empresasDisponibles.join(', ') : 'ninguna'}).</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
           {alcance === 'consolidado' && <Chips testid="rep-f-empresas" titulo="Empresa (deudora)" nota="En el modelo la empresa del crédito ES el deudor: no hay un campo «deudor» aparte, así que hay un solo filtro."
@@ -163,7 +166,7 @@ export default function ReportesCreditos({ creditos = [], empresasPermitidas = n
       <div data-testid="rep-encabezado" style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, fontSize: 11, lineHeight: 1.6 }}>
         <div style={{ fontSize: 14, fontWeight: 800, color: C.accent2, marginBottom: 4 }}>{T.titulo}</div>
         {T.encabezado.map(([k, v]) => <div key={k}><b>{k}:</b> {v}</div>)}
-        {T.tcUsados.length > 0 && <div><b>Tipos de cambio usados:</b> {T.tcUsados.map(x => `${x.moneda} ${x.tc} por US$ (${x.fecha}, ${x.fuente})`).join(' · ')}</div>}
+        {T.tcUsados.length > 0 && <div data-testid="rep-tc"><b>Tipos de cambio usados:</b>{T.tcUsados.map(x => <div key={x.moneda + x.tcTexto} style={{ paddingLeft: 12 }}>{textoTC(x)}</div>)}</div>}
         {T.avisos.map((a, i) => <div key={i} style={{ color: '#9a3412' }}>⚠ {a}</div>)}
         <div style={{ marginTop: 4, color: C.muted }}>{rep.resumen.conteos.creditos} créditos · {rep.resumen.conteos.cuotas} cuotas · {rep.resumen.conteos.pagos} pagos</div>
       </div>

@@ -19,7 +19,7 @@ import path from 'path';
 import { createRequire } from 'module';
 import { chromium } from '/home/user/gestion-grupo-mediterra/node_modules/playwright/index.mjs';
 import { instalarFake, nuevoStore, PIN } from './fake.mjs';
-import { construirReporte, tablasReporte, formatoCelda } from '../../src/reporteCreditos.js';
+import { construirReporte, tablasReporte, formatoCelda, textoTC, NO_DETERMINABLE } from '../../src/reporteCreditos.js';
 import { CREDITOS_PRUEBA, CORTE_PRUEBA, TC_PRUEBA } from '../../src/reporteCreditos.datosPrueba.js';
 import { compararLibro, verificarPDF, dimImagen } from '../creditos/verificar-archivos.mjs';
 
@@ -120,9 +120,43 @@ async function verificarDescargas(p, rep, T, nombre) {
   const enc = await p.getByTestId('rep-encabezado').innerText();
   check('consolidado · encabezado: corte, rango y empresa deudora', T.encabezado.every(([k, v]) => enc.includes(`${k}: ${v}`)), enc.split('\n')[2]);
   check('consolidado · aviso de crédito sin TC y total INCOMPLETO', /crédito D \(N° 4\)/.test(enc) && /INCOMPLETO/.test(await p.getByTestId('rep-tabla-resumen').innerText()));
-  check('consolidado · JV aparte, «no se suma al consolidado»', /Total JV en USD · no se suma al consolidado/.test(await p.getByTestId('rep-tabla-resumen').innerText()));
+  check('consolidado · JV aparte, «no se suma al consolidado»', /Total JV en USD · cartera al corte · no se suma al consolidado/.test(await p.getByTestId('rep-tabla-resumen').innerText()));
   await cuadraPantalla(p, T, 'consolidado');
+  // Ajustes de presentación: capital no determinable, UF explicada, rango vs corte
+  await p.getByTestId('rep-ver-creditos').click();
+  const filaB3 = await p.getByTestId('rep-tabla-creditos').locator('tr', { hasText: 'B3' }).first().innerText();
+  check('ajuste 1 · B3 muestra «No determinable: sin desglose» en vez de 0', filaB3.includes(NO_DETERMINABLE) && filaB3.includes('550.000,00'));
+  const ths = await p.getByTestId('rep-tabla-creditos').locator('th').allInnerTexts();
+  const iCap = ths.indexOf('Capital pendiente confirmado');
+  check('ajuste 1 · capital, sin desglose y por conciliar contiguos', ths[iCap + 1] === 'Sin desglose (capital no determinable)' && ths[iCap + 2] === 'Por conciliar (no confirmado)', ths.slice(iCap, iCap + 3).join(' | '));
+  const totTxt = await (async () => { await p.getByTestId('rep-ver-resumen').click(); return p.getByTestId('rep-tabla-resumen').locator('tr', { hasText: 'TOTAL GENERAL en USD' }).innerText(); })();
+  check('ajuste 1 · el TOTAL GENERAL en USD advierte todas las causas', ['cuotas sin desglose (2)', 'por conciliar (no confirmadas) (2)', 'sin tipo de cambio al corte (1)', 'TC declarado en el crédito (hipótesis) (1)', 'TC con más de 7 días al corte (1)'].every(x => totTxt.includes(x)), totTxt.replace(/\s+/g, ' ').slice(0, 200));
+  const tcTxt = await p.getByTestId('rep-tc').innerText();
+  check('ajuste 2 · UF con unidades, pares y división', tcTxt.includes(textoTC(T.tcUsados.find(x => x.moneda === 'UF'))) && /500,0000 UF ÷ 0,02379657 UF\/US\$ = US\$ 21\.011,43/.test(tcTxt));
+  check('ajuste 4 · «el rango filtra movimientos; la fecha de corte determina saldos»', /El rango filtra movimientos; la fecha de corte determina saldos/.test(await p.getByTestId('creditos-reportes').innerText()));
   await verificarDescargas(p, rep, T, 'consolidado');
+  {
+    const x = fs.readdirSync(OUT).find(f => f.startsWith('consolidado__') && f.endsWith('.xlsx'));
+    const rb = new ExcelJS.Workbook(); await rb.xlsx.load(fs.readFileSync(path.join(OUT, x)));
+    const txt = []; rb.worksheets.forEach(ws => ws.eachRow(r => r.eachCell(c => txt.push(String(c.value)))));
+    const t = txt.join('\n');
+    check('ajustes en el Excel · No determinable, UF explicada, «Cómo leer», rótulos cartera/rango', t.includes(NO_DETERMINABLE) && t.includes('UF-CLP 40.131,84 CLP por 1 UF')
+      && t.includes('El rango solo filtra los MOVIMIENTOS') && t.includes('cartera al corte (todo el crédito, no solo el rango)') && t.includes('solo filas del rango'));
+  }
+  // ── Recorrido 2: una empresa y un acreedor con rango de vencimientos ──
+  await chip(p, 'rep-f-empresas', 'Osiris'); await p.waitForTimeout(200); await chip(p, 'rep-f-acreedores', 'Banco Demo');
+  await p.getByTestId('rep-desde').fill('2026-10-01'); await p.getByTestId('rep-hasta').fill('2027-01-31'); await p.waitForTimeout(400);
+  await p.getByTestId('rep-ver-cuotas').click();
+  await p.screenshot({ path: `${OUT}/05-empresa-acreedor-rango.png`, fullPage: true });
+  const fR = { empresas: ['Osiris'], acreedores: ['Banco Demo'], estadosCredito: [], estadosCuota: [], tiposPago: [], desde: '2026-10-01', hasta: '2027-01-31' };
+  const repR = construirReporte(CREDITOS_PRUEBA, fR, { corte: CORTE_PRUEBA, tcData: TC_PRUEBA }), TR = tablasReporte(repR, { alcance: 'consolidado' });
+  check('recorrido 2 · cuotas A@2026-10-10 y A@2027-01-10; pagos pA3 (hasta el corte) y pA4 (posterior)', repR.cuotas.map(q => q.cuotaId).join(',') === 'A@2026-10-10,A@2027-01-10' && repR.pagos.map(p => p.pagoId).join(',') === 'pA3,pA4');
+  check('recorrido 2 · el saldo del crédito A no cambia con el rango', repR.creditos[0].capitalPendiente === rep.creditos.find(c => c.creditoId === 'A').capitalPendiente);
+  await cuadraPantalla(p, TR, 'recorrido 2');
+  await verificarDescargas(p, repR, TR, 'empresa-acreedor-rango');
+  await p.getByTestId('rep-desde').fill(''); await p.getByTestId('rep-hasta').fill('');
+  await p.getByTestId('rep-f-acreedores').getByRole('button', { name: 'quitar' }).click();
+  await p.getByTestId('rep-f-empresas').getByRole('button', { name: 'quitar' }).click(); await p.waitForTimeout(300);
   // ── 2. Filtros combinados ──
   await p.getByTestId('rep-ver-cuotas').click();
   await chip(p, 'rep-f-empresas', 'Osiris'); await chip(p, 'rep-f-estado-cuota', 'Vencida'); await chip(p, 'rep-f-estado-cuota', 'Por conciliar');
@@ -166,6 +200,7 @@ async function verificarDescargas(p, rep, T, nombre) {
   const s = await sesion('gerente.osiris@ejemplo.cl'), p = s.p;
   await abrirReportes(p);
   await p.screenshot({ path: `${OUT}/04-restringido-osiris.png`, fullPage: true });
+  check('ajuste 3 · el perfil «ver» descarga, limitado a sus empresas (aviso en pantalla)', /solo tus empresas autorizadas \(con créditos en esta consulta: Osiris\)/.test(await p.getByTestId('rep-alcance-descarga').innerText()));
   const empresasChips = await p.getByTestId('rep-f-empresas').getByRole('button').allInnerTexts();
   check('restringido · el filtro de empresa ofrece solo Osiris', JSON.stringify(empresasChips.filter(t => t !== 'quitar')) === '["Osiris"]', empresasChips.join(','));
   const visibles = CREDITOS_PRUEBA.filter(c => c.empresa === 'Osiris');
