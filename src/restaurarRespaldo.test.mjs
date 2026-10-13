@@ -1,5 +1,5 @@
 // node src/restaurarRespaldo.test.mjs — restauración con respuestas comprobadas.
-import { restaurarFilas, mensajeRestauracion, motivoFallo } from './restaurarRespaldo.js';
+import { restaurarFilas, mensajeRestauracion, motivoFallo, validarRespaldo, prepararRestauracion } from './restaurarRespaldo.js';
 
 let fallos = 0;
 const ok = (n, c, x = '') => { console.log(`${c ? 'OK ' : 'FALLA'} ${n}${x ? ' — ' + x : ''}`); if (!c) fallos++; };
@@ -42,6 +42,31 @@ const valores = {};
 await restaurarFilas(backup, async (id, value) => { valores[id] = value; return resp(201); });
 ok('4. el valor enviado es el mismo que enviaba el botón antes', valores.nominas_osiris === '{"nominas":[]}' && valores.finanzas === '{"a":1}');
 ok('5. motivos: sello, legado, permiso', /sello/.test(motivoFallo(400, 'MEDITERRA_SELLO: x')) && /solo lectura/.test(motivoFallo(400, 'MEDITERRA_NOMINAS_LEGADO')) && /sin permiso/.test(motivoFallo(401, '')));
+
+// ── oct-2026: formatos aceptados, codificación de cada fila y credenciales vigentes ──
+{
+  ok('6. versión desconocida se rechaza', !validarRespaldo({ version: 'otra', tablas: { a: { data: {} } } }).ok);
+  ok('6b. sin tablas / tablas vacías se rechaza', !validarRespaldo({ version: 'Mediterra Hub Backup v1' }).ok && !validarRespaldo({ version: 'Mediterra Hub Backup v1', tablas: {} }).ok);
+  ok('6c. id inválido o fila backup_ se rechaza', !validarRespaldo({ version: 'Mediterra Hub Backup v1', tablas: { 'a b': { data: {} } } }).ok
+    && !validarRespaldo({ version: 'Mediterra Hub Backup v1', tablas: { backup_x: { data: {} } } }).ok);
+  ok('6d. fila sin data se rechaza', !validarRespaldo({ version: 'Mediterra Hub Backup v1', tablas: { main: {} } }).ok);
+  const bk = { version: 'Mediterra Hub Backup v1', tablas: {
+    main: { data: { estados: { m3: { estadoResp: 'verde' } } } },
+    finanzas: { data: { a: 1 } },
+    nueva: { data: { b: 2 } },
+    pins: { data: { 'Angelo Huerta_h': 'cred-vieja', 'Carol Machuca_h': 'cred-carol-respaldo' } } } };
+  const actuales = { main: { value: { estados: {} } }, finanzas: { value: '{"a":0}' },
+    pins: { value: { 'Angelo Huerta_h': 'cred-NUEVA' } } };
+  const plan = prepararRestauracion(bk, actuales);
+  const f = (id) => plan.filas.find((x) => x.id === id);
+  ok('7. main (objeto hoy) se escribe como OBJETO', typeof f('main').value === 'object' && f('main').value.estados.m3.estadoResp === 'verde');
+  ok('7b. finanzas (texto hoy) se escribe como TEXTO', typeof f('finanzas').value === 'string' && JSON.parse(f('finanzas').value).a === 1);
+  ok('7c. una fila que hoy no existe se crea como objeto', typeof f('nueva').value === 'object');
+  ok('8. pins: la credencial vigente NO se revierte', f('pins').value['Angelo Huerta_h'] === 'cred-NUEVA');
+  ok('8b. pins: se agrega la credencial que hoy falta', f('pins').value['Carol Machuca_h'] === 'cred-carol-respaldo');
+  const r2 = await restaurarFilas({ version: 'x', tablas: {} }, async () => { throw new Error('no debía escribir'); }, { actuales: {} });
+  ok('9. archivo no aceptado: no escribe nada y el mensaje lo dice', r2.invalido && /NO aceptado/.test(mensajeRestauracion(r2, '')));
+}
 
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

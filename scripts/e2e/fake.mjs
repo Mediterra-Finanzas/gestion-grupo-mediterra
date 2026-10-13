@@ -139,6 +139,16 @@ export async function instalarFake(context, store, log = () => {}) {
       if (x === 'red') return route.abort('failed');
       if (x) return route.fulfill({ status: x.status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(x.body || {}) });
     }
+    if (metodo === 'GET' && !id && /select=id/.test(url.search)) {
+      // Lectura de todas las filas (respaldo y restauración). Como en el servidor: excluye
+      // las filas backup_* cuando se pide id=not.like.backup_*; nunca las claves internas.
+      const excluirBackups = /id=not\.like\.backup_/.test(decodeURIComponent(url.search));
+      const filas = Object.keys(store).filter(k => !k.startsWith('__') && store[k] && typeof store[k] === 'object' && 'value' in store[k])
+        .filter(k => !(excluirBackups && k.startsWith('backup_')))
+        .map(k => ({ id: k, value: store[k].value, updated_at: store[k].updated_at }));
+      log(`GET   (todas) → ${filas.length} filas`);
+      return json(filas);
+    }
     if (metodo === 'GET') {
       const f = id ? store[id] : null;
       log(`GET   ${id} → ${f ? 'fila' : 'vacío'}`);

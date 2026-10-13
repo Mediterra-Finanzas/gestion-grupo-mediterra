@@ -36,6 +36,23 @@ const reciente = new Date(Date.now() - 86400000).toISOString();
     `tras B: ${conB ? 'evento B guardado' : 'evento B NO guardado'}; tras A: ${ev.length} eventos, evento B ${ev.some(e => e.descripcion === 'evento de la sesión B') ? 'presente' : 'AUSENTE'}`);
   await A.ctx.close(); await B.ctx.close();
 }
+// A3 · cuatro sesiones disparan eventos en el MISMO instante (el envío sale a los 5 s,
+// también a la vez): no se pierde ni se duplica ninguno.
+{
+  const st = nuevoStore(); st.audit_log = { value: { eventos: [] }, updated_at: new Date().toISOString() };
+  const S = []; for (let i = 0; i < 4; i++) S.push(await sesion(st));
+  await new Promise(r => setTimeout(r, 7000));                 // que pasen los envíos del ingreso
+  const t0 = Date.now() + 1500;
+  await Promise.all(S.map((x, i) => x.p.evaluate(([t, i]) => new Promise(ok => setTimeout(() => {
+    for (let k = 0; k < 3; k++) window.auditLog('editar', { descripcion: `simultaneo s${i} e${k}` }); ok();
+  }, t - Date.now())), [t0, i])));
+  await new Promise(r => setTimeout(r, 12000));
+  const ev = eventos(st).filter(e => /^simultaneo /.test(e.descripcion || ''));
+  const ids = ev.map(e => e.id);
+  hecho('A3 · cuatro sesiones simultáneas: se pierden o duplican eventos', ev.length !== 12 || new Set(ids).size !== ids.length,
+    `esperados 12, guardados ${ev.length}, distintos ${new Set(ids).size}`);
+  for (const x of S) await x.ctx.close();
+}
 // A2
 {
   const st = nuevoStore(); st.audit_log = { value: { eventos: Array.from({ length: 5 }, (_, i) => ({ id: `ev_${i}`, timestamp: reciente, accion: 'editar', descripcion: `evento previo ${i}` })) }, updated_at: new Date().toISOString() };

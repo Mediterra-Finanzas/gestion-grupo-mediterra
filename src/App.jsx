@@ -10,6 +10,7 @@ import { theme as C } from "./theme";
 import { ensureSupabaseSession, clearOsirisSession, getOsirisAccessToken, refreshOsirisSession } from "./data/supabase-auth";
 import { installGuard, USE_GUARD, pollRow } from "./guardClient";
 import { persist, construirAvisoDesde } from "./persistencia/instancia.js";
+import { agregarEventosAtomico } from "./persistencia/auditoriaAtomica.js";
 import { crearUsuariosStore } from "./permisos/permisosUsuariosStore.js";
 import { crearAplicadorUsuarios } from "./permisos/usuariosGlue.js";
 import AvisoPersistencia from "./AvisoPersistencia.jsx";
@@ -19,7 +20,7 @@ import { crearResolucionConflicto } from "./persistencia/conflictoFila.js";
 import { hashPin, verifyPin, pinNuevoValido, normalizarCelular } from "./pinHash";
 
 import { credencialPreservada } from "./data/credencialPreservada";
-import { restaurarFilas, mensajeRestauracion } from './restaurarRespaldo.js';
+import { restaurarFilas, mensajeRestauracion, validarRespaldo } from './restaurarRespaldo.js';
 // ═══════════════════════════════════════════════════════════════════
 // ErrorBoundary: captura crash por archivos obsoletos tras deploy
 // En vez de pantalla blanca, muestra botón de actualizar
@@ -315,31 +316,17 @@ function filtrarRetencionAudit(eventos) {
   return eventos.filter(e => { const t = new Date(e && e.timestamp); return isNaN(t.getTime()) || t >= cutoff; });
 }
 
-async function auditSave(eventos) {
-    const limpios = filtrarRetencionAudit(eventos);
-    const res = await fetch(`${SUPA_URL}/rest/v1/calendario_data`, {
-      method: "POST",
-      headers: {
-        apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`,
-        "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
-      },
-      body: JSON.stringify({ id: "audit_log", value: { eventos: limpios }, updated_at: new Date().toISOString() })
-    });
-    if (!res.ok) throw new Error(`auditSave HTTP ${res.status}`);
-}
-
 // Buffer global: evita race conditions acumulando eventos y grabando cada 5s
 window._auditBuffer = window._auditBuffer || [];
 window._auditAllEvents = window._auditAllEvents || null; // cargados desde Supabase
 window._auditFlushTimer = null;
 
-// Cada envío vuelve a LEER el registro y agrega los eventos nuevos por id. Antes se
-// leía una sola vez por pestaña y se reescribía esa copia: con dos sesiones abiertas,
-// cada envío de una borraba los eventos que la otra había guardado entretanto
-// (reproducido en navegador). Si la lectura o la escritura fallan, los eventos vuelven
-// al búfer y se reintentan: no se pierden ni se escribe un registro incompleto.
-// Queda una ventana de milisegundos entre leer y escribir en la que dos envíos
-// simultáneos pueden pisarse; cerrarla exige una tabla de solo inserción (propuesta).
+// Cada envío agrega los eventos nuevos POR ID con una escritura condicionada a la
+// versión leída (src/persistencia/auditoriaAtomica.js): dos sesiones que escriben a la
+// vez no se borran eventos (una gana, la otra relee y reintenta) y reintentar no
+// duplica. Antes se leía una vez por pestaña y se reescribía esa copia, y una lectura
+// fallida reemplazaba el registro entero (reproducido en navegador). Si no se confirma,
+// los eventos vuelven al búfer y se reintenta más tarde.
 let _auditEnvio = null;
 async function auditFlush() {
   if(window._auditBuffer.length === 0) return;
@@ -348,11 +335,7 @@ async function auditFlush() {
   window._auditBuffer = [];
   _auditEnvio = (async () => {
     try {
-      const servidor = await auditLoad();
-      const ids = new Set(servidor.map(e => e && e.id));
-      const todos = [...servidor, ...nuevos.filter(e => !ids.has(e.id))];
-      await auditSave(todos);
-      window._auditAllEvents = todos;
+      await agregarEventosAtomico({ fetchImpl: (...a) => fetch(...a), url: SUPA_URL, key: SUPA_KEY, nuevos, filtrar: filtrarRetencionAudit });
     } catch (e) {
       console.error("Auditoría: no se guardó, se reintenta en el próximo envío:", e);
       window._auditBuffer = [...nuevos, ...window._auditBuffer];
@@ -1626,11 +1609,19 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
                 if(code !== "RESTAURAR") { alert("Restauración cancelada."); return; }
                 try {
                   const text = await file.text();
-                  const backup = JSON.parse(text);
-                  if(!backup.tablas || !backup.version) {
-                    alert("❌ Archivo inválido. No es un respaldo de Mediterra Hub.");
-                    return;
-                  }
+                  let backup;
+                  try { backup = JSON.parse(text); } catch { alert("❌ El archivo no es JSON válido. No se escribió nada."); return; }
+                  const val = validarRespaldo(backup);
+                  if(!val.ok) { alert(`❌ Archivo de respaldo NO aceptado. No se escribió nada.\n\n${val.errores.slice(0,10).join("\n")}`); return; }
+                  // Estado de HOY en el servidor: cada fila se reescribe con su misma
+                  // codificación y las credenciales vigentes (fila pins) se conservan.
+                  // Si no se puede leer, no se restaura nada (regla 9).
+                  const resAct = await fetch(`${SUPA_URL}/rest/v1/calendario_data?select=id,value,updated_at&id=not.like.backup_*`,{
+                    headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`}, cache:"no-store" });
+                  if(!resAct.ok) throw new Error(`no se pudo leer el estado actual (HTTP ${resAct.status}); no se restauró nada`);
+                  const filasAct = await resAct.json();
+                  if(!Array.isArray(filasAct)) throw new Error("respuesta inesperada al leer el estado actual; no se restauró nada");
+                  const actuales = Object.fromEntries(filasAct.map(f=>[f.id,{value:f.value,updated_at:f.updated_at}]));
                   // Cada fila se comprueba: se informa cuáles quedaron y cuáles no
                   // (src/restaurarRespaldo.js). Nunca "exitoso" ante un resultado parcial.
                   const r = await restaurarFilas(backup, (id, value) => fetch(`${SUPA_URL}/rest/v1/calendario_data`,{
@@ -1638,7 +1629,7 @@ function HubScreen({ usuario, modulosPermitidos, onSelectModulo, onLogout, onCam
                     headers:{apikey:SUPA_KEY,Authorization:`Bearer ${SUPA_KEY}`,
                       "Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
                     body:JSON.stringify({id, value, updated_at:new Date().toISOString()})
-                  }));
+                  }), { actuales });
                   if(r.fallidas.length) console.error("[Restaurar] filas NO restauradas:", r.fallidas);
                   alert(mensajeRestauracion(r, backup.fecha));
                   window.location.reload();

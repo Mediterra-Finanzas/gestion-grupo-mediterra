@@ -61,3 +61,11 @@ auditoria_*.json
 auditoria_*.txt
 auditoria.jsonl
 decisiones*.json
+
+# Archivos comprimidos y volcados: pueden traer .env, respaldos o PIN (files.zip, sep-2026).
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
