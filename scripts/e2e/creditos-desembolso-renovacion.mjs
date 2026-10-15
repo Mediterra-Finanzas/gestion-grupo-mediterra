@@ -15,11 +15,13 @@
    2. Registro simple renovable (Osiris): cuota 1.050.000 al 31-dic-26
       (capital 1.000.000 + interés 50.000), renovación 1.000.000 Dic-26 al 10%
       con cuotas Jun-27 Solo Interés y Dic-27 Capital+Interés.
-      antigua → extension (pagados / pendientes / capitalizados) →
-      pago_y_nuevo (+ ya recibidos) → parcial 600.000 pagados →
-      vuelta a extensión → 2ª renovación ENCADENADA (origen = última cuota de la
-      1ª; nace propuesta, luego confirmada) → pago en una cuota de la 2ª (no se
-      puede anular) → anular pago y las dos renovaciones. Tras cada guardado:
+      Una renovación confirmada guardada es de solo lectura: cada modalidad se
+      registra anulando la anterior (con motivo) y agregando otra.
+      antigua → extension pagados / pendientes / capitalizados → pago_y_nuevo
+      (+ ya recibidos) → parcial 600.000 pagados → extensión base + renovación
+      ENCADENADA (origen = última cuota de la base; nace propuesta, luego
+      confirmada) → pago en una cuota de la encadenada (no se puede anular; la
+      base tampoco, es su origen) → anular el pago y las dos renovaciones. Tras cada guardado:
       flujo en pantalla y Excel de la empresa RECALCULADO con LibreOffice, mes a
       mes, más la hoja "Servicio deuda".
 
@@ -308,6 +310,8 @@ check('1t Anulado el 2º tramo: Ingresos Financiamiento Nov-26 = 400.000', aprox
 check('1u Pago Préstamos sin cambio en todo el recorrido', JSON.stringify(fl['Pago Préstamos - Total']) === pagoAntes);
 
 // ═══ 2. REGISTRO SIMPLE RENOVABLE (Osiris) ═════════════════════════════
+// Una renovación confirmada guardada es de solo lectura: cada modalidad nueva se
+// registra anulando la anterior (con motivo) y agregando otra.
 console.log('\n── 2. Renovaciones (Osiris) ──');
 const leerOsiris = async () => {
   const f = await leerFlujo('Osiris');
@@ -315,22 +319,20 @@ const leerOsiris = async () => {
   return { f, pago: g('Pago Préstamos - Total', 'Dec-26'), ing: g('Ingreso Renovación', 'Dec-26'), ingTot: totalLinea(f, 'Ingreso Renovación'),
     jun: g('Renovaciones', 'Jun-27'), dic: g('Renovaciones', 'Dec-27'), jun28: g('Renovaciones', 'Jun-28'), dic28: g('Renovaciones', 'Dec-28'), renTot: totalLinea(f, 'Renovaciones') };
 };
-const fmt = (o) => `Pago Dec-26 ${o.pago} · Ingreso Ren. ${o.ing} (total ${o.ingTot}) · Renov. Jun-27 ${o.jun} / Dec-27 ${o.dic} / Jun-28 ${o.jun28} / Dec-28 ${o.dic28} (total ${o.renTot})`;
+const fmt = (o) => `Pago Dec-26 ${o.pago} · Ingreso Ren. Dec-26 ${o.ing} (total ${o.ingTot}) · Renov. Jun-27 ${o.jun} / Dec-27 ${o.dic} / Jun-28 ${o.jun28} / Dec-28 ${o.dic28} (total ${o.renTot})`;
 const avisoFlujo = async () => (await page.locator('[data-aviso-creditos-desembolso-renovacion]').count()) ? page.locator('[data-aviso-creditos-desembolso-renovacion]').innerText() : '';
 const renN = (i) => credStore('e2e-renov').renovaciones[i];
-const ren0 = () => renN(0);
 const ultimoHist = () => { const h = credStore('e2e-renov').historial || []; return h[h.length - 1] || {}; };
 const caso = async (nombre, esperado, { excel = true, fotoMes = 'Jun-27' } = {}) => {
   const o = await leerOsiris();
   console.log(`   ${nombre}: ${fmt(o)}`);
   const claves = Object.keys(esperado);
-  const ok = claves.every(k => aprox(o[k] ?? 0, esperado[k]));
-  check(`${nombre}: ${claves.map(k => `${k} ${esperado[k]}`).join(' · ')}`, ok, fmt(o));
+  check(`${nombre}: ${claves.map(k => `${k} ${esperado[k]}`).join(' · ')}`, claves.every(k => aprox(o[k] ?? 0, esperado[k])), fmt(o));
   await fotoFlujo(`flujo-osiris-${nombre}`, fotoMes);
   if (excel) await compararExcel(`osiris-${nombre}`, o.f);
   return o;
 };
-const saldoCapitalDetalle = async () => { await abrirDetalle('Banco Renov E2E'); const s = await kpiModal('Saldo capital'); return s; };
+const saldoCapitalDetalle = async () => { await abrirDetalle('Banco Renov E2E'); return kpiModal('Saldo capital'); };
 
 let o = await caso('antigua', { pago: 1050000, ingTot: 1000000, jun: 50000, dic: 1050000 });
 let av = await avisoFlujo();
@@ -340,13 +342,11 @@ async function abrirEdicion() {
   await irACreditos();
   await page.locator('tr', { hasText: 'Banco Renov E2E' }).first().locator('button[title="Editar condiciones"]').click();
   await page.waitForTimeout(700);
-  const box = page.locator('[data-renovacion-modalidad="0"]');
-  await box.waitFor({ timeout: 10000 });
-  return box;
+  await page.locator('[data-renovacion-modalidad="0"]').waitFor({ timeout: 10000 });
 }
 const boxRen = (ri) => page.locator(`[data-renovacion-modalidad="${ri}"]`);
-// tarjeta completa de la renovación (encabezado con «Anular…» + fieldset con las condiciones)
-const cardRen = (ri) => boxRen(ri).locator('xpath=ancestor::fieldset[1]/..');
+// tarjeta completa de la renovación: el div más cercano que contiene su encabezado
+const cardRen = (ri) => boxRen(ri).locator(`xpath=ancestor::div[./div/div[normalize-space(.)="Renovación ${ri + 1}"]][1]`);
 async function guardarForm() {
   const nAl = alertas.length;
   await page.getByRole('button', { name: /💾 Guardar/ }).click();
@@ -355,246 +355,251 @@ async function guardarForm() {
 }
 const modalAbierto = async () => (await page.locator('[data-renovacion-modalidad="0"]').count()) > 0;
 const cancelarForm = async () => { if (await modalAbierto()) { await page.getByRole('button', { name: /^Cancelar$/ }).last().click().catch(() => {}); await page.waitForTimeout(500); } };
-const selIntereses = (ri = 0) => page.locator(`[data-renovacion-intereses="${ri}"]`);
-const selOrigen = (ri = 0) => page.locator(`[data-renovacion-origen="${ri}"]`);
+const selIntereses = (ri) => page.locator(`[data-renovacion-intereses="${ri}"]`);
+const selOrigen = (ri) => page.locator(`[data-renovacion-origen="${ri}"]`);
+const textoOrigen = (ri) => selOrigen(ri).evaluate(s => s.options[s.selectedIndex]?.text || '').catch(() => '');
 async function escribirNumero(loc, valor) { await loc.click(); await page.waitForTimeout(60); await loc.fill(String(valor)); await loc.evaluate(e => e.blur()); await page.waitForTimeout(120); }
-// índice de los <select> de tipo de cuota dentro de la tarjeta de una renovación
-const idxSelectsTipo = (ri) => cardRen(ri).evaluate(card => [...card.querySelectorAll('select')].map((s, i) => [...s.options].some(o => o.text === 'Capital+Interés') && !s.closest('[data-renovacion-modalidad]') ? i : -1).filter(i => i >= 0));
-const idxSelectsMes = (ri) => cardRen(ri).evaluate(card => [...card.querySelectorAll('select')].map((s, i) => [...s.options].some(o => o.text === 'Dic') ? i : -1).filter(i => i >= 0));
+const idxSel = (ri, fn) => cardRen(ri).evaluate((card, src) => { const f = new Function('s', 'return ' + src); return [...card.querySelectorAll('select')].map((s, i) => f(s) ? i : -1).filter(i => i >= 0); }, fn);
+const SEL_TIPO = "[...s.options].some(o => o.text === 'Capital+Interés') && !s.closest('[data-renovacion-modalidad]')";
+const SEL_MES = "[...s.options].some(o => o.text === 'Dic')";
+async function anularRen(ri, motivo) {
+  respuestaPrompt = motivo;
+  const nAl = alertas.length;
+  await cardRen(ri).getByRole('button', { name: /Anular/ }).first().click();
+  await page.waitForTimeout(300);
+  respuestaPrompt = 'prueba e2e';
+  return alertas.slice(nAl);
+}
+// Agrega una renovación con el formulario (ya abierto). Devuelve su índice.
+async function agregarRen({ modalidad, estado = 'si', intereses, monto = 1000000, ingreso, cuotas }) {
+  const ri = await page.locator('[data-renovacion-modalidad]').count();
+  await page.getByRole('button', { name: /\+ Agregar renovación/ }).click();
+  await page.waitForTimeout(300);
+  const b = boxRen(ri), c = cardRen(ri);
+  await b.locator('select').nth(0).selectOption(modalidad);
+  await b.locator('select').nth(1).selectOption(estado);
+  await page.waitForTimeout(150);
+  if (intereses) await selIntereses(ri).selectOption(intereses);
+  await escribirNumero(c.locator('input[placeholder="Ej: 500000"]'), monto);
+  if (ingreso) {
+    const im = await idxSel(ri, SEL_MES);
+    await c.locator('select').nth(im[0]).selectOption(ingreso[0]);
+    await escribirNumero(c.locator('input[placeholder="2026"]').first(), ingreso[1]);
+  }
+  for (let k = 0; k < cuotas.length; k++) { await c.getByRole('button', { name: /\+ Agregar cuota/ }).click(); await page.waitForTimeout(120); }
+  const it = await idxSel(ri, SEL_TIPO), imes = (await idxSel(ri, SEL_MES)).slice(-cuotas.length);
+  const anios = c.locator('input[placeholder="2026"]'), nA = await anios.count();
+  for (let k = 0; k < cuotas.length; k++) {
+    await c.locator('select').nth(it[k]).selectOption(cuotas[k][0]);
+    await c.locator('select').nth(imes[k]).selectOption(cuotas[k][1]);
+    await escribirNumero(anios.nth(nA - cuotas.length + k), cuotas[k][2]);
+  }
+  await page.waitForTimeout(250);
+  return ri;
+}
+const CUOTAS_27 = [['Solo Interés', 'Jun', 2027], ['Capital+Interés', 'Dic', 2027]];
 
-// ── extension + Confirmada sobre la renovación antigua: rechazos y luego pagados
-let box = await abrirEdicion();
-check('2b Formulario: renovación antigua rotulada "Registro antiguo"', /Registro antiguo/.test(await box.innerText()));
-await box.locator('select').nth(0).selectOption('extension');
-await box.locator('select').nth(1).selectOption('si');
+// ── R1: la renovación ANTIGUA pasa a extensión + pagados (rechazos primero)
+await abrirEdicion();
+let b0 = boxRen(0), c0 = cardRen(0);
+check('2b Formulario: renovación antigua rotulada "Registro antiguo"', /Registro antiguo/.test(await b0.innerText()));
+await b0.locator('select').nth(0).selectOption('extension');
+await b0.locator('select').nth(1).selectOption('si');
 await page.waitForTimeout(250);
-const optsOrigen = await selOrigen(0).locator('option').allInnerTexts().catch(() => []);
-check('2c Vencimiento que se renueva = SELECT con los vencimientos; por defecto 31/12/2026 · $1,050,000', (await selOrigen(0).count()) === 1
-  && /31\/12\/2026/.test(await selOrigen(0).evaluate(s => s.options[s.selectedIndex]?.text || '')), optsOrigen.join(' | '));
+check('2c Extensión: sin Mes/Año de ingreso; nota "el interés corre desde el vencimiento que se renueva (31/12/2026)"', (await page.locator('[data-renovacion-interes-desde="0"]').count()) === 1
+  && /31\/12\/2026/.test(await page.locator('[data-renovacion-interes-desde="0"]').innerText()) && (await c0.locator('select').count()) >= 1);
+check('2d Origen = SELECT con los vencimientos; por defecto 31/12/2026 · $1,050,000', /31\/12\/2026/.test(await textoOrigen(0)), await textoOrigen(0));
 let al = await guardarForm();
-check('2d Sin "Intereses y cargos": guardar se rechaza con aviso y no escribe', al.some(a => /intereses/i.test(a)) && ren0().modalidad === undefined && await modalAbierto(), al[0]);
+check('2e Sin "Intereses y cargos": rechazado con aviso, no escribe', al.some(a => /intereses/i.test(a)) && renN(0).modalidad === undefined && await modalAbierto(), al[0]);
 await selIntereses(0).selectOption('pagados');
-const tipos0 = await idxSelectsTipo(0);
-const selsCard0 = cardRen(0).locator('select');
-const iCap = (await Promise.all(tipos0.map(async i => [i, await selsCard0.nth(i).inputValue()]))).find(([, val]) => val === 'Capital+Interés')[0];
-await selsCard0.nth(iCap).selectOption('Solo Interés');
+const it0 = await idxSel(0, SEL_TIPO);
+const iCap = (await Promise.all(it0.map(async i => [i, await c0.locator('select').nth(i).inputValue()]))).find(([, x]) => x === 'Capital+Interés')[0];
+await c0.locator('select').nth(iCap).selectOption('Solo Interés');
 al = await guardarForm();
-check('2e Sin cuota "Capital+Interés": guardar se rechaza con aviso y no escribe', al.some(a => /Capital\+Inter/.test(a)) && ren0().modalidad === undefined && await modalAbierto(), al[0]);
-await selsCard0.nth(iCap).selectOption('Capital+Interés');
-// monto mayor que el capital disponible: rechazado
-await escribirNumero(cardRen(0).locator('input[placeholder="Ej: 500000"]'), 1200000);
+check('2f Sin cuota "Capital+Interés": rechazado con aviso, no escribe', al.some(a => /Capital\+Inter/.test(a)) && renN(0).modalidad === undefined, al[0]);
+await c0.locator('select').nth(iCap).selectOption('Capital+Interés');
+await escribirNumero(c0.locator('input[placeholder="Ej: 500000"]'), 1200000);
 al = await guardarForm();
-check('2f Monto 1.200.000 > capital disponible 1.000.000: rechazado con aviso y no escribe', al.some(a => /supera/i.test(a)) && ren0().modalidad === undefined, al[0]);
-await escribirNumero(cardRen(0).locator('input[placeholder="Ej: 500000"]'), 1000000);
-const prev0 = await cardRen(0).innerText();
-check('2g Vista previa de cuotas con el modelo: $50,000 (Jun-27) y $1,050,000 (Dic-27)', /\$50,000/.test(prev0) && /\$1,050,000/.test(prev0));
-await boxRen(0).scrollIntoViewIfNeeded();
+check('2g Monto 1.200.000 > capital disponible 1.000.000: rechazado con aviso, no escribe', al.some(a => /supera/i.test(a)) && renN(0).modalidad === undefined, al[0]);
+await escribirNumero(c0.locator('input[placeholder="Ej: 500000"]'), 1000000);
+const prev0 = await c0.innerText();
+check('2h Vista previa (modelo): $50,000 y $1,050,000', /\$50,000/.test(prev0) && /\$1,050,000/.test(prev0));
+await b0.scrollIntoViewIfNeeded();
 await foto(page, '06-form-renovacion-extension-pagados');
 al = await guardarForm();
-check('2h Extensión + pagados: guardado sin avisos', al.length === 0 && !(await modalAbierto()), al.join(' | '));
-check('2i Store: extension · confirmada · pagados · origen 2026-12-31 (venc_origen_key)', ren0().modalidad === 'extension' && ren0().confirmada === true && ren0().intereses === 'pagados'
-  && ren0().venc_origen === '2026-12-31' && !!ren0().venc_origen_key, JSON.stringify({ m: ren0().modalidad, c: ren0().confirmada, i: ren0().intereses, vo: ren0().venc_origen, k: ren0().venc_origen_key }));
-check('2j Historial: "extension · confirmada · intereses pagados"', /ren\.1: extension · confirmada · intereses pagados · 1000000/.test(ultimoHist().detalle || ''), ultimoHist().detalle);
+check('2i R1 extensión + pagados guardada sin avisos', al.length === 0 && !(await modalAbierto()), al.join(' | '));
+check('2j Store R1: extension · confirmada · pagados · origen 2026-12-31 (venc_origen_key con el uid)', renN(0).modalidad === 'extension' && renN(0).confirmada === true && renN(0).intereses === 'pagados'
+  && renN(0).venc_origen === '2026-12-31' && /^e2e-renov@/.test(renN(0).venc_origen_key || ''), JSON.stringify({ i: renN(0).intereses, vo: renN(0).venc_origen, k: renN(0).venc_origen_key }));
+check('2k Historial: "ren.1: extension · confirmada · intereses pagados · 1000000"', /ren\.1: extension · confirmada · intereses pagados · 1000000/.test(ultimoHist().detalle || ''), ultimoHist().detalle);
 o = await caso('extension-pagados', { pago: 50000, ingTot: 0, jun: 50000, dic: 1050000 });
 await abrirDetalle('Banco Renov E2E');
 let det = await page.locator('table').filter({ hasText: '31/12/2026' }).first().innerText().catch(() => '');
-check('2k Detalle: 31/12/2026 con "1,000,000.00 renovado sin caja"; sin pagos; Saldo capital 1,000,000.00', /1,000,000\.00 renovado sin caja/.test(det) && !(credStore('e2e-renov').pagos || []).length
+check('2l Detalle: 31/12/2026 "1,000,000.00 renovado sin caja"; sin pagos; Saldo capital 1,000,000.00', /1,000,000\.00 renovado sin caja/.test(det) && !(credStore('e2e-renov').pagos || []).length
   && /^\$1,000,000\.00$/.test(await kpiModal('Saldo capital') || ''), await kpiModal('Saldo capital'));
 await foto(page, '07-detalle-extension-renovado-sin-caja');
 await cerrarModal();
 
-// ── Estado bloqueado en una renovación confirmada guardada; desmarcar "renovable" bloqueado
-box = await abrirEdicion();
-check('2l Renovación confirmada guardada: Estado deshabilitado', await box.locator('select').nth(1).isDisabled());
+// ── Solo lectura de una confirmada guardada; desmarcar "renovable" bloqueado
+await abrirEdicion();
+b0 = boxRen(0); c0 = cardRen(0);
+const ro = [await b0.locator('select').nth(0).isDisabled(), await b0.locator('select').nth(1).isDisabled(), await selOrigen(0).isDisabled(), await selIntereses(0).isDisabled(),
+  await c0.locator('input[placeholder="Ej: 500000"]').isDisabled()];
+check('2m Confirmada guardada: modalidad, estado, origen, intereses y monto deshabilitados + aviso data-renovacion-bloqueada', ro.every(Boolean) && (await page.locator('[data-renovacion-bloqueada="0"]').count()) === 1, ro.join(','));
+await b0.scrollIntoViewIfNeeded();
+await foto(page, '06b-form-renovacion-confirmada-solo-lectura');
 const chkRenov = page.locator('label', { hasText: 'Crédito Renovable' }).locator('input[type=checkbox]');
 let nAl = alertas.length;
 await chkRenov.click();
 await page.waitForTimeout(300);
-check('2m Desmarcar "Crédito Renovable" con renovaciones guardadas: aviso y sigue marcado', alertas.length > nAl && await chkRenov.isChecked(), alertas.slice(nAl)[0]);
+check('2n Desmarcar "Crédito Renovable" con renovaciones guardadas: aviso y sigue marcado', alertas.length > nAl && await chkRenov.isChecked(), alertas.slice(nAl)[0]);
+// Edición forzada de un campo bloqueado (por el DOM): guardar() debe rechazarla
+await b0.locator('select').nth(0).evaluate(s => { s.disabled = false; });
+await b0.locator('select').nth(0).selectOption('pago_y_nuevo').catch(() => {});
+await page.waitForTimeout(200);
+al = await guardarForm();
+check('2n2 Cambiar por fuera la modalidad de una confirmada guardada: guardar() la rechaza y no escribe', al.length > 0 && renN(0).modalidad === 'extension', al[0] || '(sin aviso)');
+await cancelarForm();
 
-// ── extension + pendientes
-await selIntereses(0).selectOption('pendientes');
-await guardarForm();
-check('2n Store: intereses pendientes', ren0().intereses === 'pendientes');
+// ── R2: anular R1 + extensión con intereses PENDIENTES
+await abrirEdicion();
+al = await anularRen(0, 'pasa a intereses pendientes (e2e)');
+let ri = await agregarRen({ modalidad: 'extension', intereses: 'pendientes', cuotas: CUOTAS_27 });
+check(`2o R${ri + 1}: origen por defecto 31/12/2026 (R1 anulada no ofrece cuotas)`, /31\/12\/2026/.test(await textoOrigen(ri)), await textoOrigen(ri));
+al = await guardarForm();
+check(`2p Store: R1 anulada con motivo; R${ri + 1} extension · pendientes confirmada`, renN(0).anulada === true && renN(ri).intereses === 'pendientes' && renN(ri).confirmada === true && al.length === 0, al.join(' | '));
+check('2q Historial: registra "ren.1: ANULADA (...)" y la nueva', /ren\.1: ANULADA \(pasa a intereses pendientes/.test(ultimoHist().detalle || '') && /ren\.2: extension · confirmada · intereses pendientes/.test(ultimoHist().detalle || ''), ultimoHist().detalle);
 o = await caso('extension-pendientes', { pago: 0, ingTot: 0, jun: 100000, dic: 1050000 });
 await abrirDetalle('Banco Renov E2E');
 det = await page.locator('table').filter({ hasText: '31/12/2026' }).first().innerText().catch(() => '');
-check('2o Detalle: 31/12/2026 "Renovada (sin caja)"; Saldo capital 1,000,000.00', /Renovada \(sin caja\)/.test(det) && /^\$1,000,000\.00$/.test(await kpiModal('Saldo capital') || ''), await kpiModal('Saldo capital'));
+check('2r Detalle: 31/12/2026 "Renovada (sin caja)"; Saldo capital 1,000,000.00', /Renovada \(sin caja\)/.test(det) && /^\$1,000,000\.00$/.test(await kpiModal('Saldo capital') || ''), await kpiModal('Saldo capital'));
 await foto(page, '08-detalle-extension-pendientes');
 await cerrarModal();
 
-// ── extension + capitalizados
-box = await abrirEdicion();
-await selIntereses(0).selectOption('capitalizados');
-await guardarForm();
+// ── R3: extensión con intereses CAPITALIZADOS
+await abrirEdicion();
+await anularRen(ri, 'pasa a capitalizados (e2e)');
+ri = await agregarRen({ modalidad: 'extension', intereses: 'capitalizados', cuotas: CUOTAS_27 });
+const prevCap = await cardRen(ri).innerText();
+al = await guardarForm();
+check(`2s R${ri + 1} extensión capitalizados guardada; vista previa $52,500 / $1,102,500`, renN(ri).intereses === 'capitalizados' && al.length === 0 && /\$52,500/.test(prevCap) && /\$1,102,500/.test(prevCap), al.join(' | '));
 o = await caso('extension-capitalizados', { pago: 0, ingTot: 0, jun: 52500, dic: 1102500 });
 await abrirDetalle('Banco Renov E2E');
 const kCap = await kpiModal('Saldo capital'), kInt = await kpiModal('Intereses pendientes');
-check('2p Capitalizados (hoy, antes del 31/12/2026): Saldo capital 1,000,000.00; el 50.000 sigue como interés', /^\$1,000,000\.00$/.test(kCap || ''), `${kCap} · intereses ${kInt}`);
-check('2q Capitalizados: sin pagos registrados', !(credStore('e2e-renov').pagos || []).length);
+check('2t Capitalizados (hoy, antes del 31/12/2026): Saldo capital 1,000,000.00 (el 50.000 sigue como interés)', /^\$1,000,000\.00$/.test(kCap || ''), `${kCap} · intereses ${kInt}`);
 await cerrarModal();
 
-// ── pago_y_nuevo (misma renovación confirmada)
-box = await abrirEdicion();
-await box.locator('select').nth(0).selectOption('pago_y_nuevo');
-await page.waitForTimeout(200);
-check('2r Pago y nuevo: sin selector de intereses ni de origen', (await selIntereses(0).count()) === 0 && (await selOrigen(0).count()) === 0);
-await guardarForm();
-check('2s Store/historial: pago_y_nuevo · confirmada', ren0().modalidad === 'pago_y_nuevo' && /ren\.1: pago_y_nuevo · confirmada/.test(ultimoHist().detalle || ''), ultimoHist().detalle);
+// ── R4: PAGO Y NUEVO (exige mes/año de ingreso)
+await abrirEdicion();
+await anularRen(ri, 'pasa a pago y nuevo (e2e)');
+ri = await agregarRen({ modalidad: 'pago_y_nuevo', cuotas: CUOTAS_27 });
+al = await guardarForm();
+check(`2u R${ri + 1} pago y nuevo sin mes/año de ingreso: rechazado`, al.length > 0 && !(renN(ri) && renN(ri).modalidad === 'pago_y_nuevo'), al[0]);
+const imI = await idxSel(ri, SEL_MES);
+await cardRen(ri).locator('select').nth(imI[0]).selectOption('Dic');
+await escribirNumero(cardRen(ri).locator('input[placeholder="2026"]').first(), 2026);
+check(`2v R${ri + 1} pago y nuevo: sin selector de intereses ni de origen`, (await selIntereses(ri).count()) === 0 && (await selOrigen(ri).count()) === 0);
+al = await guardarForm();
+check(`2w Store/historial: R${ri + 1} pago_y_nuevo · confirmada`, renN(ri).modalidad === 'pago_y_nuevo' && renN(ri).confirmada === true && al.length === 0 && new RegExp(`ren\\.${ri + 1}: pago_y_nuevo · confirmada`).test(ultimoHist().detalle || ''), `${ultimoHist().detalle} ${al.join(' | ')}`);
 o = await caso('pago-y-nuevo', { pago: 1050000, ingTot: 1000000, ing: 1000000, jun: 50000, dic: 1050000 });
-box = await abrirEdicion();
-await box.locator('input[type=checkbox]').check();
+await abrirEdicion();
+const chkRec = boxRen(ri).locator('input[type=checkbox]');
+check('2x "Ya recibidos" habilitado en la pago y nuevo confirmada guardada', !(await chkRec.isDisabled()));
+await chkRec.check();
 await page.waitForTimeout(200);
-await box.locator('input[type=date]').fill('2026-10-15');
-await box.scrollIntoViewIfNeeded();
+await boxRen(ri).locator('input[type=date]').fill('2026-10-15');
+await boxRen(ri).scrollIntoViewIfNeeded();
 await foto(page, '09-form-renovacion-pago-y-nuevo-recibidos');
-await guardarForm();
-check('2t Store/historial: recibido 2026-10-15', ren0().recibido && ren0().recibido.fecha === '2026-10-15' && /fondos recibidos 2026-10-15/.test(ultimoHist().detalle || ''), ultimoHist().detalle);
+al = await guardarForm();
+check('2y Store/historial: recibido 2026-10-15', renN(ri).recibido && renN(ri).recibido.fecha === '2026-10-15' && /fondos recibidos 2026-10-15/.test(ultimoHist().detalle || '') && al.length === 0, `${ultimoHist().detalle} ${al.join(' | ')}`);
 o = await caso('pago-y-nuevo-recibidos', { pago: 1050000, ingTot: 0, jun: 50000, dic: 1050000 });
 
-// ── parcial 600.000 + pagados (quitando antes "Ya recibidos", con motivo)
-box = await abrirEdicion();
-respuestaPrompt = 'pasa a renovación parcial (e2e)';
-await box.locator('input[type=checkbox]').uncheck();
-respuestaPrompt = 'prueba e2e';
-await page.waitForTimeout(200);
-await box.locator('select').nth(0).selectOption('parcial');
-await page.waitForTimeout(200);
-await selIntereses(0).selectOption('pagados');
-await escribirNumero(cardRen(0).locator('input[placeholder="Ej: 500000"]'), 600000);
-await boxRen(0).scrollIntoViewIfNeeded();
+// ── R5: PARCIAL 600.000 + pagados
+await abrirEdicion();
+await anularRen(ri, 'pasa a parcial (e2e)');
+ri = await agregarRen({ modalidad: 'parcial', intereses: 'pagados', monto: 600000, cuotas: CUOTAS_27 });
+await boxRen(ri).scrollIntoViewIfNeeded();
 await foto(page, '10-form-renovacion-parcial-pagados');
 al = await guardarForm();
-check('2u Store/historial: parcial · confirmada · intereses pagados · 600000; recibido quitado y guardado en recibido_anulados', ren0().modalidad === 'parcial' && Number(ren0().monto) === 600000
-  && ren0().intereses === 'pagados' && !ren0().recibido && (ren0().recibido_anulados || []).length === 1 && /ren\.1: parcial · confirmada · intereses pagados · 600000/.test(ultimoHist().detalle || ''),
-  `${ultimoHist().detalle} ${al.join(' | ')}`);
+check(`2z Store: R${ri + 1} parcial · confirmada · pagados · 600000`, renN(ri).modalidad === 'parcial' && Number(renN(ri).monto) === 600000 && renN(ri).intereses === 'pagados' && al.length === 0, al.join(' | '));
 o = await caso('parcial-600-pagados', { pago: 450000, ingTot: 0, jun: 30000, dic: 630000 });
 
-// ── vuelve a extensión pagados 1.000.000 (base de la renovación encadenada)
-box = await abrirEdicion();
-await box.locator('select').nth(0).selectOption('extension');
-await page.waitForTimeout(200);
-await selIntereses(0).selectOption('pagados');
-await escribirNumero(cardRen(0).locator('input[placeholder="Ej: 500000"]'), 1000000);
+// ── R6 extensión pagados + R7 ENCADENADA (origen = última cuota de R6), primero propuesta
+await abrirEdicion();
+await anularRen(ri, 'base para la encadenada (e2e)');
+const rBase = await agregarRen({ modalidad: 'extension', intereses: 'pagados', cuotas: CUOTAS_27 });
 al = await guardarForm();
-check('2v Vuelve a extensión pagados 1.000.000', ren0().modalidad === 'extension' && Number(ren0().monto) === 1000000 && al.length === 0, al.join(' | '));
-
-// ── Renovación 2 ENCADENADA: nace propuesta; su origen es la última cuota de la renovación 1 (Dic-27)
-box = await abrirEdicion();
-await page.getByRole('button', { name: /\+ Agregar renovación/ }).click();
-await page.waitForTimeout(300);
-const b1 = boxRen(1), c1 = cardRen(1);
-await b1.waitFor({ timeout: 5000 });
-check('2w Renovación nueva nace "Propuesta" y con botón "Quitar"', (await b1.locator('select').nth(1).inputValue()) === 'no' && (await c1.getByRole('button', { name: /Quitar/ }).count()) === 1);
-await b1.locator('select').nth(0).selectOption('pago_y_nuevo');
-await page.waitForTimeout(150);
-check('2x "Ya recibidos" deshabilitado mientras la renovación es Propuesta', await b1.locator('input[type=checkbox]').isDisabled());
-await b1.locator('select').nth(0).selectOption('extension');
-await page.waitForTimeout(150);
-await selIntereses(1).selectOption('pagados');
-await escribirNumero(c1.locator('input[placeholder="Ej: 500000"]'), 1000000);
-const mesesIdx = await idxSelectsMes(1);
-const sels1 = c1.locator('select');
-await sels1.nth(mesesIdx[0]).selectOption('Dic');                       // Mes Ingreso
-const anios1 = c1.locator('input[placeholder="2026"]');
-await escribirNumero(anios1.nth(0), 2027);                              // Año Ingreso
-for (let k = 0; k < 2; k++) { await c1.getByRole('button', { name: /\+ Agregar cuota/ }).click(); await page.waitForTimeout(150); }
-const tipos1 = await idxSelectsTipo(1);
-const meses1 = await idxSelectsMes(1);                                  // [mesIngreso, mesCuota1, mesCuota2]
-await sels1.nth(tipos1[0]).selectOption('Solo Interés');
-await sels1.nth(meses1[1]).selectOption('Jun');
-await escribirNumero(anios1.nth(1), 2028);
-await sels1.nth(tipos1[1]).selectOption('Capital+Interés');
-await sels1.nth(meses1[2]).selectOption('Dic');
-await escribirNumero(anios1.nth(2), 2028);
-await page.waitForTimeout(300);
-const origTxt1 = await selOrigen(1).evaluate(s => s.options[s.selectedIndex]?.text || '').catch(() => '');
-check('2y Renovación 2: el origen por defecto es la última cuota de la renovación 1 (Dic-27, $1,050,000, "renovación 1")', /12\/2027/.test(origTxt1) && /1,050,000/.test(origTxt1) && /renovación 1/.test(origTxt1), origTxt1);
-const prev1 = await c1.innerText();
-check('2z Vista previa renovación 2: $50,000 (Jun-28) y $1,050,000 (Dic-28)', /\$50,000/.test(prev1) && /\$1,050,000/.test(prev1));
-await b1.scrollIntoViewIfNeeded();
-await foto(page, '11-form-renovacion-2-encadenada-propuesta');
+check(`2A R${rBase + 1} extensión pagados (base) guardada`, renN(rBase).confirmada === true && al.length === 0, al.join(' | '));
+await abrirEdicion();
+const rCad = await agregarRen({ modalidad: 'extension', estado: 'no', intereses: 'pagados', cuotas: [['Solo Interés', 'Jun', 2028], ['Capital+Interés', 'Dic', 2028]] });
+const oCad = await textoOrigen(rCad);
+check(`2B R${rCad + 1}: origen por defecto = última cuota de R${rBase + 1} (12/2027 · $1,050,000 · renovación ${rBase + 1})`, /12\/2027/.test(oCad) && /1,050,000/.test(oCad) && new RegExp(`renovación ${rBase + 1}`).test(oCad), oCad);
+const prevCad = await cardRen(rCad).innerText();
+check(`2C Vista previa R${rCad + 1}: $50,000 (Jun-28) y $1,050,000 (Dic-28)`, /\$50,000/.test(prevCad) && /\$1,050,000/.test(prevCad));
+await boxRen(rCad).scrollIntoViewIfNeeded();
+await foto(page, '11-form-renovacion-encadenada-propuesta');
 al = await guardarForm();
-check('2A Renovación 2 guardada como propuesta', renN(1) && renN(1).confirmada === false && renN(1).modalidad === 'extension' && al.length === 0, al.join(' | '));
+check(`2D R${rCad + 1} guardada como propuesta`, renN(rCad).confirmada === false && al.length === 0, al.join(' | '));
 o = await caso('encadenada-propuesta', { pago: 50000, ingTot: 0, jun: 50000, dic: 1050000, jun28: 0, dic28: 0 }, { excel: false, fotoMes: 'Dec-27' });
 av = await avisoFlujo();
-check('2B Propuesta: aviso en la pantalla del flujo "propuesta(s) NO se proyectan"', /propuesta\(s\) NO se proyectan/.test(av), av.slice(0, 200));
+check('2E Propuesta: aviso en la pantalla del flujo "propuesta(s) NO se proyectan"', /propuesta\(s\) NO se proyectan/.test(av), av.slice(0, 200));
 await fotoFlujo('12-flujo-osiris-propuesta-con-aviso', 'Dec-26');
-// confirmar la renovación 2
-box = await abrirEdicion();
-await boxRen(1).locator('select').nth(1).selectOption('si');
+await abrirEdicion();
+await boxRen(rCad).locator('select').nth(1).selectOption('si');
 await page.waitForTimeout(200);
 al = await guardarForm();
-check('2C Renovación 2 confirmada (extensión, origen Dic-27 de la renovación 1)', renN(1).confirmada === true && /2027-12/.test(renN(1).venc_origen || '') && al.length === 0, `${renN(1).venc_origen} ${renN(1).venc_origen_key} ${al.join(' | ')}`);
+check(`2F R${rCad + 1} confirmada (origen Dic-27 de R${rBase + 1})`, renN(rCad).confirmada === true && /^2027-12/.test(renN(rCad).venc_origen || '') && al.length === 0, `${renN(rCad).venc_origen} ${al.join(' | ')}`);
 o = await caso('encadenada', { pago: 50000, ingTot: 0, jun: 50000, dic: 50000, jun28: 50000, dic28: 1050000 }, { fotoMes: 'Jun-28' });
 const sCad = await saldoCapitalDetalle();
-check('2D Encadenada: Saldo capital 1,000,000.00 (sin duplicar)', /^\$1,000,000\.00$/.test(sCad || ''), sCad);
+check('2G Encadenada: Saldo capital 1,000,000.00 (sin duplicar)', /^\$1,000,000\.00$/.test(sCad || ''), sCad);
 await foto(page, '13-detalle-encadenada');
 
-// ── Pago en una cuota de la renovación 2 → no se puede anular esa renovación
-const filaJun28 = page.locator('tr', { hasText: '/06/2028' }).first();
-await filaJun28.getByRole('button', { name: /💵 Pagar/ }).click();
+// ── Pago en una cuota de la encadenada → no se puede anular; tampoco la base (origen de otra)
+await page.locator('tr', { hasText: '/06/2028' }).first().getByRole('button', { name: /💵 Pagar/ }).click();
 await page.waitForTimeout(300);
 await inputTras(page, 'Fecha efectiva').fill('2026-10-15');
 await ponerNumero(page, 'Intereses', '50000');
 await page.getByRole('button', { name: /💾 Registrar pago/ }).click();
 await page.waitForTimeout(1800);
 const pagosR = (credStore('e2e-renov').pagos || []).filter(p => !p.anulado);
-check('2E Pago de 50.000 registrado en la cuota Jun-28 de la renovación 2', pagosR.length === 1 && /@R1@/.test(pagosR[0].vencKey || ''), JSON.stringify(pagosR.map(p => p.vencKey)));
+check(`2H Pago de 50.000 en la cuota Jun-28 de R${rCad + 1}`, pagosR.length === 1 && new RegExp(`@R${rCad}@`).test(pagosR[0].vencKey || ''), JSON.stringify(pagosR.map(p => p.vencKey)));
 await cerrarModal();
 const antesAnular = JSON.stringify(credStore('e2e-renov').renovaciones);
-box = await abrirEdicion();
-respuestaPrompt = 'intento con pago (e2e)';
-nAl = alertas.length;
-await cardRen(1).getByRole('button', { name: /Anular/ }).first().click();
-await page.waitForTimeout(300);
-respuestaPrompt = 'prueba e2e';
-check('2F0 Renovación confirmada con pagos: condiciones bloqueadas (data-renovacion-bloqueada, fieldset deshabilitado)', (await page.locator('[data-renovacion-bloqueada="1"]').count()) === 1
-  && await boxRen(1).locator('select').nth(0).isDisabled());
-await cardRen(1).scrollIntoViewIfNeeded();
+await abrirEdicion();
+al = await anularRen(rCad, 'intento con pago (e2e)');
+check(`2I Anular R${rCad + 1} con un pago en sus cuotas: aviso y no queda anulada`, al.some(a => /pago/i.test(a)) && !/Anulada ·/.test(await cardRen(rCad).innerText()), al[0]);
+al = await anularRen(rBase, 'intento con dependiente (e2e)');
+check(`2J Anular R${rBase + 1} cuya cuota es origen de R${rCad + 1}: aviso y no queda anulada`, al.some(a => /renueva una cuota de esta/.test(a)) && !/Anulada ·/.test(await cardRen(rBase).innerText()), al[0]);
+await cardRen(rCad).scrollIntoViewIfNeeded();
 await foto(page, '13b-form-renovacion-con-pago-bloqueada');
-check('2F Anular renovación con pago en sus cuotas: aviso y no queda marcada', alertas.length > nAl && /pago/i.test(alertas.slice(nAl)[0] || '') && !/Anulada ·/.test(await cardRen(1).innerText()), alertas.slice(nAl)[0]);
-respuestaPrompt = 'intento con dependiente (e2e)';
-nAl = alertas.length;
-await cardRen(0).getByRole('button', { name: /Anular/ }).first().click();
-await page.waitForTimeout(300);
-respuestaPrompt = 'prueba e2e';
-check('2F2 Anular la renovación 1 cuya cuota es origen de la 2 (vigente): aviso y no queda marcada', alertas.length > nAl && /renueva una cuota de esta/.test(alertas.slice(nAl)[0] || '') && !/Anulada ·/.test(await cardRen(0).innerText()), alertas.slice(nAl)[0]);
 await cancelarForm();
-check('2G Nada cambió en el servidor', JSON.stringify(credStore('e2e-renov').renovaciones) === antesAnular);
+check('2K Nada cambió en el servidor', JSON.stringify(credStore('e2e-renov').renovaciones) === antesAnular);
 
-// ── Anular el pago, luego la renovación 2 y la 1 (con motivo)
+// ── Anular el pago y luego las dos renovaciones vigentes
 await abrirDetalle('Banco Renov E2E');
 respuestaPrompt = 'pago de prueba (e2e)';
 await page.locator('tr', { hasText: '15/10/2026' }).getByRole('button', { name: /Anular/ }).first().click();
 await page.waitForTimeout(1800);
 respuestaPrompt = 'prueba e2e';
-check('2H Pago anulado con motivo (queda en el historial)', (credStore('e2e-renov').pagos || []).every(p => p.anulado));
+check('2L Pago anulado con motivo', (credStore('e2e-renov').pagos || []).every(p => p.anulado));
 await cerrarModal();
-box = await abrirEdicion();
-respuestaPrompt = 'segunda renovación no aprobada (e2e)';
-await cardRen(1).getByRole('button', { name: /Anular/ }).first().click();
-await page.waitForTimeout(300);
-respuestaPrompt = 'el banco no aprobó la renovación (e2e)';
-await cardRen(0).getByRole('button', { name: /Anular/ }).first().click();
-await page.waitForTimeout(300);
-respuestaPrompt = 'prueba e2e';
-const txtA0 = await cardRen(0).innerText(), txtA1 = await cardRen(1).innerText();
-check('2I Formulario: las dos muestran "Anulada · motivo"', /Anulada · el banco no aprobó la renovación \(e2e\)/.test(txtA0) && /Anulada · segunda renovación no aprobada \(e2e\)/.test(txtA1));
-await cardRen(0).scrollIntoViewIfNeeded();
+await abrirEdicion();
+await anularRen(rCad, 'segunda renovación no aprobada (e2e)');
+await anularRen(rBase, 'el banco no aprobó la renovación (e2e)');
+check('2M Formulario: "Anulada · motivo" en las dos', /Anulada · segunda renovación no aprobada/.test(await cardRen(rCad).innerText()) && /Anulada · el banco no aprobó/.test(await cardRen(rBase).innerText()));
+await cardRen(rBase).scrollIntoViewIfNeeded();
 await foto(page, '14-form-renovaciones-anuladas');
 al = await guardarForm();
-check('2J Store: las 2 renovaciones conservadas como anuladas con motivo, usuario y fecha', [0, 1].every(i => renN(i).anulada === true && !!renN(i).motivoAnulacion && !!renN(i).anuladaPor && !!renN(i).anuladaTs)
-  && credStore('e2e-renov').renovaciones.length === 2, al.join(' | '));
-check('2K Historial: la última entrada registra las dos ANULADA (motivo)', /ren\.1: ANULADA \(el banco no aprobó/.test(ultimoHist().detalle || '') && /ren\.2: ANULADA \(segunda/.test(ultimoHist().detalle || ''), ultimoHist().detalle);
+const rens = credStore('e2e-renov').renovaciones;
+check(`2N Store: las ${rens.length} renovaciones se conservan, todas anuladas con motivo, usuario y fecha`, rens.length === rCad + 1 && rens.every(r => r.anulada === true && r.motivoAnulacion && r.anuladaPor && r.anuladaTs), al.join(' | '));
+check('2O Historial: última entrada con las dos ANULADA (motivo)', /ANULADA \(segunda renovación/.test(ultimoHist().detalle || '') && /ANULADA \(el banco no aprobó/.test(ultimoHist().detalle || ''), ultimoHist().detalle);
 o = await caso('anuladas', { pago: 1050000, ingTot: 0, renTot: 0 });
 const sAn = await saldoCapitalDetalle();
 det = await page.locator('table').filter({ hasText: '31/12/2026' }).first().innerText().catch(() => '');
-check('2L Anuladas: Saldo capital 1,000,000.00 (sin deuda duplicada) y el 31/12/2026 vence completo', /^\$1,000,000\.00$/.test(sAn || '') && /\$1,050,000\.00\s+Pendiente/.test(det.replace(/\t/g, ' ')),
+check('2P Anuladas: Saldo capital 1,000,000.00 (sin deuda duplicada) y el 31/12/2026 vence completo', /^\$1,000,000\.00$/.test(sAn || '') && /\$1,050,000\.00\s+Pendiente/.test(det.replace(/\t/g, ' ')),
   `${sAn} · ${det.split('\n').find(l => /31\/12\/2026/.test(l)) || ''}`);
 await foto(page, '15-detalle-renovaciones-anuladas');
 await cerrarModal();
-check('2M finanzas_real intacto', realIntacto());
+check('2Q finanzas_real intacto', realIntacto());
 check('Sin errores de JavaScript en la página', errores.length === 0, errores.slice(0, 3).join(' | '));
 console.log(`   hosts externos bloqueados (no salieron): ${[...new Set(bloqueados)].join(', ') || 'ninguno'}`);
 fs.writeFileSync(path.join(OUT, 'creditos-final.json'), JSON.stringify(leerFila(store, 'finanzas').creditos_data, null, 2));
