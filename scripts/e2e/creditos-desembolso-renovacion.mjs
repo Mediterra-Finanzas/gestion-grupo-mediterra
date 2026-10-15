@@ -345,7 +345,8 @@ async function abrirEdicion() {
   return box;
 }
 const boxRen = (ri) => page.locator(`[data-renovacion-modalidad="${ri}"]`);
-const cardRen = (ri) => boxRen(ri).locator('xpath=..');
+// tarjeta completa de la renovación (encabezado con «Anular…» + fieldset con las condiciones)
+const cardRen = (ri) => boxRen(ri).locator('xpath=ancestor::fieldset[1]/..');
 async function guardarForm() {
   const nAl = alertas.length;
   await page.getByRole('button', { name: /💾 Guardar/ }).click();
@@ -548,7 +549,17 @@ nAl = alertas.length;
 await cardRen(1).getByRole('button', { name: /Anular/ }).first().click();
 await page.waitForTimeout(300);
 respuestaPrompt = 'prueba e2e';
+check('2F0 Renovación confirmada con pagos: condiciones bloqueadas (data-renovacion-bloqueada, fieldset deshabilitado)', (await page.locator('[data-renovacion-bloqueada="1"]').count()) === 1
+  && await boxRen(1).locator('select').nth(0).isDisabled());
+await cardRen(1).scrollIntoViewIfNeeded();
+await foto(page, '13b-form-renovacion-con-pago-bloqueada');
 check('2F Anular renovación con pago en sus cuotas: aviso y no queda marcada', alertas.length > nAl && /pago/i.test(alertas.slice(nAl)[0] || '') && !/Anulada ·/.test(await cardRen(1).innerText()), alertas.slice(nAl)[0]);
+respuestaPrompt = 'intento con dependiente (e2e)';
+nAl = alertas.length;
+await cardRen(0).getByRole('button', { name: /Anular/ }).first().click();
+await page.waitForTimeout(300);
+respuestaPrompt = 'prueba e2e';
+check('2F2 Anular la renovación 1 cuya cuota es origen de la 2 (vigente): aviso y no queda marcada', alertas.length > nAl && /renueva una cuota de esta/.test(alertas.slice(nAl)[0] || '') && !/Anulada ·/.test(await cardRen(0).innerText()), alertas.slice(nAl)[0]);
 await cancelarForm();
 check('2G Nada cambió en el servidor', JSON.stringify(credStore('e2e-renov').renovaciones) === antesAnular);
 
