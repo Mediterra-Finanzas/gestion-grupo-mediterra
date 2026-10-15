@@ -142,6 +142,34 @@ creditos.forEach((c, i) => { if (!c || !c.renovable) return; N.getRenovaciones(c
   if (obs.length) antiguasObs.push({ empresa: c.empresa, credito: `${c.acreedor || '—'} (${uidDe(c, i)})`, renovacion: ri + 1, mes_ingreso: `${r.mes_ingreso}-${r.anio_ingreso}`, obs });
 }); });
 
+// ── Casos menores pendientes de decisión (no cambian nada; se miden) ─────
+// 1) Créditos ANULADOS cuyas renovaciones antiguas siguen proyectando ingreso.
+const anuladosIngreso = [];
+creditos.forEach((c, i) => {
+  if (!c || !c.anulado) return;
+  N.ingresosRenovacionFlujo(c).filter(x => x.antigua).forEach(x => {
+    const k = ubicar(x.fecha).idx;
+    anuladosIngreso.push({ empresa: c.empresa, credito: `${c.acreedor || '—'} (${uidDe(c, i)})`, moneda: c.moneda || 'USD', renovacion: x.ri + 1,
+      fecha: x.fecha, mes: k >= 0 ? MESES[k] : 'fuera del horizonte', en_flujo: k >= 0 ? r2(x.usd) : 0,
+      usd_convertido: N.factorUSD(c) ? r2(x.monto * N.factorUSD(c)) : null, pasado: x.fecha.slice(0, 7) < HOY.slice(0, 7),
+      motivo_anulacion: c.motivoAnulacion || '' });
+  });
+});
+// 2) Antiguas con mes/año de ingreso que no se puede leer (no entran al flujo ni en main
+//    ni en la rama; Saldo por Mes ya no muestra su tarjeta con etiqueta errónea).
+const ingresoIlegible = [];
+creditos.forEach((c, i) => { if (!c || !c.renovable) return; N.getRenovaciones(c).forEach((r, ri) => {
+  if (!N.renovacionAntigua(r) || !r.monto || !r.mes_ingreso || !r.anio_ingreso) return;
+  if (!N.fechaIngresoAntigua(r)) ingresoIlegible.push({ empresa: c.empresa, credito: `${c.acreedor || '—'} (${uidDe(c, i)})`, renovacion: ri + 1,
+    mes_ingreso: String(r.mes_ingreso), anio_ingreso: JSON.stringify(r.anio_ingreso), monto: r2(r.monto), moneda: c.moneda || 'USD' });
+}); });
+// 3) Créditos con "renovable" desmarcado que guardan renovaciones (sin efecto en el flujo).
+const noRenovableConRen = [];
+creditos.forEach((c, i) => { if (!c || c.renovable) return; const rs = Array.isArray(c.renovaciones) ? c.renovaciones : [];
+  const planos = c.monto_renovacion || (c.cuotas_renovacion || []).length;
+  if (rs.length || planos) noRenovableConRen.push({ empresa: c.empresa, credito: `${c.acreedor || '—'} (${uidDe(c, i)})`, anulado: !!c.anulado,
+    renovaciones: rs.length || 1, anuladas: rs.filter(r => r && r.anulada).length, monto: r2(rs.reduce((a, r) => a + (Number(r && r.monto) || 0), 0) || Number(c.monto_renovacion) || 0) }); });
+
 // ── Control global por empresa (todos los créditos juntos) ─────────────
 const global = empresas.map(emp => {
   const LA = lineas(A, emp, creditos, ingresoBase), LN = lineas(N, emp, creditos, ingresoNuevo);
@@ -159,7 +187,7 @@ L.push(`# Impacto del cambio de renovaciones sobre el respaldo`, '');
 L.push(`- Respaldo: \`${path.basename(archivo)}\` · fecha del respaldo ${resp.fecha || '—'} · SHA-256 \`${sha}\``);
 L.push(`- Fila finanzas: actualizada ${filaFin.updated_at || '—'} · ${creditos.length} créditos · ${nRen} renovaciones (${Object.entries(conteo).map(([k, v]) => `${k}: ${v}`).join(', ') || 'ninguna'})`);
 L.push(`- Código anterior: \`${BASE}\` (${shaBase}) · código nuevo: HEAD ${shaNuevo}${sucio ? ' + cambios sin commit en src/creditos.js' : ''} · corte ${HOY}`);
-L.push(`- Solo lectura: no se conecta a ninguna base; el respaldo no se modifica.`, '');
+L.push(`- Solo lectura: no se conecta a ninguna base; el respaldo no se modifica. Solo se lee \`finanzas.creditos_data\` (ni PIN, ni usuarios, ni nóminas).`, '');
 L.push(`## Renovaciones cuyo cálculo cambia`, '');
 if (!filasRen.length) L.push('**Ninguna.** Ninguna renovación existente cambia sus cuotas ni su efecto en el flujo.', '');
 else {
@@ -181,6 +209,30 @@ L.push('Sin modalidad: conservan el cálculo anterior hasta clasificarlas. Al cl
 if (!antiguasObs.length) L.push('Ninguna con observación.', '');
 antiguasObs.forEach(a => L.push(`- ${a.empresa} · ${a.credito} · ren. ${a.renovacion} · ingreso ${a.mes_ingreso}: ${a.obs.join('; ')}`));
 if (antiguasObs.length) L.push('');
+L.push(`## Casos pendientes de decisión (sin cambios de comportamiento; solo se miden)`, '');
+L.push(`### 1. Créditos anulados con ingreso de renovación antigua que sigue proyectándose`, '');
+if (!anuladosIngreso.length) L.push('**No existe** en este respaldo.', '');
+else {
+  L.push('Hoy (como en main) este ingreso ENTRA al flujo. Si se decidiera dejar de proyectarlo, la diferencia por mes sería la columna "En flujo" con signo negativo.', '');
+  L.push('| Empresa | Crédito | Mon. | Ren. | Mes ingreso | En flujo hoy (monto del registro) | Equivale en US$ | Mes ya pasado | Motivo de anulación |', '|---|---|---|---|---|---|---|---|---|');
+  anuladosIngreso.forEach(a => L.push(`| ${a.empresa} | ${a.credito} | ${a.moneda} | ${a.renovacion} | ${a.mes} | ${$(a.en_flujo)} | ${a.usd_convertido == null ? 'sin TC' : $(a.usd_convertido)} | ${a.pasado ? 'sí' : 'no'} | ${a.motivo_anulacion} |`));
+  const porMes = {}; anuladosIngreso.forEach(a => { if (a.en_flujo) porMes[a.mes] = (porMes[a.mes] || 0) + a.en_flujo; });
+  L.push('', `Total en el flujo: ${$(anuladosIngreso.reduce((s, a) => s + a.en_flujo, 0))} · por mes: ${Object.entries(porMes).map(([m, v]) => `${m} ${$(v)}`).join(' · ') || '—'}`, '');
+}
+L.push(`### 2. Renovaciones antiguas con mes o año de ingreso ilegible`, '');
+if (!ingresoIlegible.length) L.push('**No existe** en este respaldo.', '');
+else {
+  L.push('No entran al flujo (ni en main ni en la rama). Solo cambia Saldo por Mes: main mostraba una tarjeta con etiqueta errónea; la rama no la muestra.', '');
+  ingresoIlegible.forEach(a => L.push(`- ${a.empresa} · ${a.credito} · ren. ${a.renovacion} · mes "${a.mes_ingreso}" · año ${a.anio_ingreso} · ${$(a.monto)} ${a.moneda}`));
+  L.push('');
+}
+L.push(`### 3. Créditos con "renovable" desmarcado que guardan renovaciones`, '');
+if (!noRenovableConRen.length) L.push('**No existe** en este respaldo.', '');
+else {
+  L.push('Sus renovaciones no proyectan nada (ni en main ni en la rama).', '');
+  noRenovableConRen.forEach(a => L.push(`- ${a.empresa} · ${a.credito}${a.anulado ? ' · ANULADO' : ''} · ${a.renovaciones} renovación(es), ${a.anuladas} anulada(s) · monto ${$(a.monto)}`));
+  L.push('');
+}
 L.push(`## Control por empresa (todos los créditos juntos)`, '');
 global.forEach(g => L.push(`- ${g.emp}: ${Object.keys(g.dif).length ? Object.entries(g.dif).map(([k, d]) => `${k} ${d.length} mes(es), neto ${$(d.reduce((a, x) => a + x.dif, 0))}`).join('; ') : 'sin diferencias'}`));
 L.push('');
@@ -188,7 +240,7 @@ L.push('');
 const out = salidaDir || path.join(os.tmpdir(), 'impacto-renovaciones');
 fs.mkdirSync(out, { recursive: true });
 fs.writeFileSync(path.join(out, 'impacto-renovaciones.md'), L.join('\n'));
-fs.writeFileSync(path.join(out, 'impacto-renovaciones.json'), JSON.stringify({ respaldo: { archivo: path.basename(archivo), sha256: sha, fecha: resp.fecha }, base: shaBase, nuevo: shaNuevo, hoy: HOY, renovaciones: filasRen, creditos: creditosConCambio, antiguasConObservacion: antiguasObs, global }, null, 2));
+fs.writeFileSync(path.join(out, 'impacto-renovaciones.json'), JSON.stringify({ respaldo: { archivo: path.basename(archivo), sha256: sha, fecha: resp.fecha }, base: shaBase, nuevo: shaNuevo, hoy: HOY, renovaciones: filasRen, creditos: creditosConCambio, antiguasConObservacion: antiguasObs, anuladosConIngreso: anuladosIngreso, ingresoIlegible, noRenovableConRenovaciones: noRenovableConRen, global }, null, 2));
 console.log(L.join('\n'));
 console.error(`\nInforme: ${path.join(out, 'impacto-renovaciones.md')} (y .json)`);
 fs.rmSync(tmp, { recursive: true, force: true });

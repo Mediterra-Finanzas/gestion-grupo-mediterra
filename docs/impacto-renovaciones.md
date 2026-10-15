@@ -4,10 +4,27 @@ Compara, crédito por crédito, el cálculo de Créditos que corre hoy (`origin/
 el de la rama, sobre un respaldo descargado con **💾 Respaldo**. No se conecta a ninguna
 base ni modifica el archivo. El informe queda fuera del repositorio (lleva datos reales).
 
-```bash
-git fetch origin main
-HOY=2026-10-15 node scripts/impacto/renovaciones.mjs /ruta/backup_mediterra_AAAA-MM-DD.json /ruta/salida
-```
+## Paso a paso en tu equipo (Windows, PowerShell)
+
+No hace falta `npm install` ni abrir la app: solo `git` y `node`.
+
+1. En la app de producción, **💾 Respaldo** (arriba a la derecha del inicio). Guarda el archivo
+   **fuera de la carpeta del repositorio**, por ejemplo `C:\Respaldos\backup_mediterra_2026-10-15.json`.
+   El archivo trae los PIN hasheados: no lo compartas ni lo copies dentro del repositorio
+   (igual `.gitignore` ignora `backup_mediterra_*.json`).
+2. En la carpeta del repositorio:
+   ```powershell
+   git fetch origin main claude/laughing-dijkstra-8665xz
+   git checkout claude/laughing-dijkstra-8665xz
+   git pull origin claude/laughing-dijkstra-8665xz
+   $env:HOY = "2026-10-15"
+   node scripts/impacto/renovaciones.mjs C:\Respaldos\backup_mediterra_2026-10-15.json C:\Respaldos\impacto
+   ```
+3. Abre `C:\Respaldos\impacto\impacto-renovaciones.md`. Si quieres que lo revise, comparte **solo
+   ese archivo** (o su texto): trae empresas, acreedores y montos de créditos, nunca PIN, hashes,
+   usuarios ni nóminas, porque el script lee únicamente `finanzas.creditos_data`.
+
+En bash: `HOY=2026-10-15 node scripts/impacto/renovaciones.mjs /ruta/backup.json /ruta/salida`.
 
 Entrega `impacto-renovaciones.md` y `.json` con:
 
@@ -19,6 +36,12 @@ Entrega `impacto-renovaciones.md` y `.json` con:
 - **Antiguas conservadas con observación**: sin modalidad, conservan el cálculo anterior
   (incluidos sus defectos: ingreso en otra moneda sin convertir, crédito anulado con
   ingreso proyectado) hasta clasificarlas.
+- **Casos pendientes de decisión** (sin cambio de comportamiento, solo medidos):
+  1. créditos ANULADOS cuya renovación antigua sigue proyectando ingreso (monto por mes y
+     total, equivalente en US$, si el mes ya pasó, motivo de anulación);
+  2. renovaciones antiguas con mes o año de ingreso ilegible (no entran al flujo; solo cambia
+     la tarjeta de Saldo por Mes);
+  3. créditos con «renovable» desmarcado que guardan renovaciones.
 - **Control por empresa** con todos los créditos juntos.
 
 Reglas que el informe comprueba:

@@ -62,3 +62,7 @@ auditoria_*.txt
 auditoria.jsonl
 decisiones*.json
 scripts/impacto/salida/
+
+# Respaldos reales: nunca al repositorio (traen PIN hasheados y datos financieros)
+backup_mediterra_*.json
+**/backup_mediterra_*.json

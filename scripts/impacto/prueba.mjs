@@ -23,6 +23,7 @@ const creditos = [
   { ...base, uid: 's-raro', acreedor: 'Banco Raro', renovaciones: [{ ...ren, mes_ingreso: 'Aug' }, { ...ren, anio_ingreso: ' 2026' }] },
   { ...base, uid: 's-mix', acreedor: 'Banco Mixto', renovaciones: [ren, { ...ren, monto: 400000, modalidad: 'extension', confirmada: true, intereses: 'pagados', venc_origen_key: 's-mix@R0@1',
     cuotas: [{ tipo: 'Capital+Interés', mes: 'Jun', anio: 2028 }] }] },
+  { ...base, uid: 's-noren', acreedor: 'Banco NoRen', renovable: false, renovaciones: [{ ...ren, anulada: true, motivoAnulacion: 'x' }] },
   { ...base, uid: 's-ext', acreedor: 'Banco Ext', renovaciones: [{ ...ren, modalidad: 'extension', confirmada: true, intereses: 'pagados', mes_ingreso: 'Feb', anio_ingreso: 2027 }] },
 ];
 const resp = { fecha: '2026-10-15T00:00:00Z', version: 'Mediterra Hub Backup v1', tablas: { finanzas: { data: { creditos_data: creditos }, updated_at: '2026-10-15T00:00:00Z' } } };
@@ -44,6 +45,9 @@ check('Efecto mensual: Pago Préstamos dic-26 −1.000.000, Renovaciones jun-27 
 check('Las antiguas (USD, CLP, anulado) NO aparecen como cambio', !r.creditos.some(c => /s-usd|s-clp|s-anul/.test(c.credito)));
 check('Antiguas con observación: CLP sin convertir y crédito anulado', r.antiguasConObservacion.length === 2
   && r.antiguasConObservacion.some(a => /s-clp/.test(a.credito)) && r.antiguasConObservacion.some(a => /s-anul/.test(a.credito)));
+check('Caso 1: crédito anulado con ingreso antiguo medido (1.000.000 en 2026-12)', r.anuladosConIngreso.length === 1 && r.anuladosConIngreso[0].en_flujo === 1000000 && r.anuladosConIngreso[0].mes === '2026-12');
+check('Caso 2: ingreso ilegible (" 2026") listado; "Aug" no', r.ingresoIlegible.length === 1 && /s-raro/.test(r.ingresoIlegible[0].credito) && r.ingresoIlegible[0].renovacion === 2);
+check('Caso 3: no renovable con renovaciones listado', r.noRenovableConRenovaciones.length === 1 && /s-noren/.test(r.noRenovableConRenovaciones[0].credito));
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);
