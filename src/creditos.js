@@ -420,7 +420,8 @@ export function avisosRenovacion(c, hoy = hoyISO()) {
   if (!c || esAnulado(c) || !c.renovable) return av;
   // Ingreso de un "pago y nuevo" con mes ya pasado y sin registrar como recibido: queda
   // en su mes original (antes del saldo inicial). No se da por recibido ni se arrastra solo.
-  ingresosRenovacion(c).forEach(x => { if (!x.antigua && x.fecha.slice(0, 7) < String(hoy).slice(0, 7))
+  // Un registro antiguo se avisa solo si su ingreso es posterior al inicio del control en la app.
+  ingresosRenovacion(c).forEach(x => { if (x.fecha.slice(0, 7) < String(hoy).slice(0, 7) && (!x.antigua || x.fecha >= controlDesde(c)))
     av.ingresosVencidos.push({ ri: x.ri, acreedor: c.acreedor, empresa: c.empresa, fecha: x.fecha, monto: x.monto }); });
   const plan = planRenovaciones(c);
   getRenovaciones(c).forEach((ren, ri) => {

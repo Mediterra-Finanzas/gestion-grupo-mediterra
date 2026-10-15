@@ -9724,7 +9724,19 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     if(!esSocio && !esContratoF && form.renovable){
       const candidato = candidatoForm();
       const plan = planRenovaciones(candidato);
+      const origRens = editId ? getRenovaciones(creditosVisibles.find(c=>uidCredito(c)===editId)||{}) : [];
+      const CAMPOS_FIJOS = ["modalidad","intereses","venc_origen_key","venc_origen","monto","mes_ingreso","anio_ingreso","tasa_anual","cuotas","confirmada"];
       for(const [ri,ren] of (form.renovaciones||[]).entries()){
+        // Una renovación confirmada ya guardada no se modifica (se anula con motivo). Se
+        // comprueba aquí, en la acción que escribe, no solo con los controles deshabilitados.
+        const og = !ren._nueva && origRens[ri];
+        if(og && og.confirmada===true && !og.anulada){
+          if(!ren.anulada && CAMPOS_FIJOS.some(k=>JSON.stringify(ren[k]??null)!==JSON.stringify(og[k]??null))){
+            alert(`Renovación ${ri+1}: está confirmada y no se modifica. Anúlala con motivo y registra la correcta.`); return;
+          }
+          if(ren.recibido && (!ren.recibido.fecha || ren.recibido.fecha>hoy)){ alert(`Renovación ${ri+1}: indica la fecha (no futura) en que se recibieron los fondos.`); return; }
+          continue;   // sin cambios: ya validada al confirmarla (si quedó incompleta, el aviso lo informa)
+        }
         if(ren.anulada || ren.confirmada!==true){
           if(ren.recibido && ren.confirmada!==true){ alert(`Renovación ${ri+1}: los fondos recibidos solo se registran en una renovación confirmada.`); return; }
           continue;
