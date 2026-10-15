@@ -156,7 +156,7 @@ creditos.forEach((c, i) => {
   });
 });
 // 2) Antiguas con mes/año de ingreso que no se puede leer (no entran al flujo ni en main
-//    ni en la rama; Saldo por Mes ya no muestra su tarjeta con etiqueta errónea).
+//    ni en la rama; el Timeline de Pagos por Acreedor ya no muestra su tarjeta con etiqueta errónea).
 const ingresoIlegible = [];
 creditos.forEach((c, i) => { if (!c || !c.renovable) return; N.getRenovaciones(c).forEach((r, ri) => {
   if (!N.renovacionAntigua(r) || !r.monto || !r.mes_ingreso || !r.anio_ingreso) return;
@@ -222,7 +222,7 @@ else {
 L.push(`### 2. Renovaciones antiguas con mes o año de ingreso ilegible`, '');
 if (!ingresoIlegible.length) L.push('**No existe** en este respaldo.', '');
 else {
-  L.push('No entran al flujo (ni en main ni en la rama). Solo cambia Saldo por Mes: main mostraba una tarjeta con etiqueta errónea; la rama no la muestra.', '');
+  L.push('No entran al flujo (ni en main ni en la rama). Solo cambia el «Timeline de Pagos por Acreedor»: main mostraba una tarjeta de ingreso con etiqueta errónea; la rama no la muestra.', '');
   ingresoIlegible.forEach(a => L.push(`- ${a.empresa} · ${a.credito} · ren. ${a.renovacion} · mes "${a.mes_ingreso}" · año ${a.anio_ingreso} · ${$(a.monto)} ${a.moneda}`));
   L.push('');
 }

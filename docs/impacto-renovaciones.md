@@ -40,7 +40,7 @@ Entrega `impacto-renovaciones.md` y `.json` con:
   1. créditos ANULADOS cuya renovación antigua sigue proyectando ingreso (monto por mes y
      total, equivalente en US$, si el mes ya pasó, motivo de anulación);
   2. renovaciones antiguas con mes o año de ingreso ilegible (no entran al flujo; solo cambia
-     la tarjeta de Saldo por Mes);
+     la tarjeta del «Timeline de Pagos por Acreedor»);
   3. créditos con «renovable» desmarcado que guardan renovaciones.
 - **Control por empresa** con todos los créditos juntos.
 
