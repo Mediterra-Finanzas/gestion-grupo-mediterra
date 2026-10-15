@@ -196,8 +196,8 @@ check('E1 renovación encadenada: capital 1.000.000 (no 2.000.000)', aprox(eE.sa
 check('E1b dic-27 solo interés 50.000; jun-28 50.000; dic-28 1.050.000', aprox(fE.renovaciones.total[dic27], 50000) && aprox(fE.renovaciones.total[iM(2028, 6)], 50000) && aprox(fE.renovaciones.total[iM(2028, 12)], 1050000));
 // E2 dos renovaciones sobre EL MISMO vencimiento: la 2ª solo puede tomar lo que queda (0) → no crea deuda.
 const dobles = { ...base, renovaciones: [R({}), R({ venc_origen: '2026-12-31', cuotas: [{ tipo: 'Capital+Interés', mes: 'Mar', anio: 2028 }] })] };
-check('E2 dos renovaciones sobre el mismo vencimiento: capital 1.000.000 y la 2ª queda como exceso avisado',
-  aprox(estadoCredito(dobles, HOY).saldoCapital, 1000000) && avisosRenovacion(dobles).excesos.length === 1, String(estadoCredito(dobles, HOY).saldoCapital));
+check('E2 dos renovaciones sobre el mismo vencimiento: capital 1.000.000 y la 2ª no se aplica (sin capital disponible) y se avisa',
+  aprox(estadoCredito(dobles, HOY).saldoCapital, 1000000) && avisosRenovacion(dobles).incompletas.length === 1, String(estadoCredito(dobles, HOY).saldoCapital));
 // E3 cuota sin mes: la renovación no se aplica (el capital no desaparece)
 const sinMes = ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados', cuotas: [{ tipo: 'Capital+Interés', mes: 'Sep', anio: 2027 }, { tipo: 'Capital+Interés', mes: '', anio: '' }] });
 check('E3 una cuota sin mes: no se aplica; capital 1.000.000; original completo; avisado',
@@ -217,6 +217,38 @@ check('E6 vencimiento sin desglose capital/interés: no se aplica y se pide el d
 // E7 tramos parciales que superan el capital: rechazados
 let sup = null; try { registrarDesembolsoRecibido(p1, { fecha: '2026-10-14', monto: 500000, tipo: 'parcial' }, 'x', HOY); } catch (e) { sup = e.message; }
 check('E7 parciales que superarían el capital se rechazan (usar "total")', !!sup);
+
+// ═══ F. HALLAZGOS DE LA 3ª REVISIÓN ═════════════════════════════════
+// F1 extensión con intereses "pagados": registrar el pago en caja de esos 50.000 NO anula la renovación.
+const ext = ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados' });
+const extPag = registrarPago(ext, { vencKey: 'rv@2026-12-31', fecha: '2026-12-31', interes: 50000 }, 'x');
+const rF1 = resumen(extPag);
+check('F1 extensión + pago del interés en el origen: la renovación sigue (dic-27 1.050.000), origen saldado, capital 1.000.000',
+  aprox(rF1.vo.pendienteTotal, 0) && aprox(rF1.f.renovaciones.total[dic27], 1050000) && aprox(rF1.e.saldoCapital, 1000000), `${rF1.vo.pendienteTotal} / ${rF1.e.saldoCapital}`);
+// F2 parcial: se pagan en caja 400.000 de capital + 50.000 de interés; se extienden 600.000.
+const par = ren({ monto: 600000, modalidad: 'parcial', confirmada: true, intereses: 'pagados' });
+const parPag = registrarPago(par, { vencKey: 'rv@2026-12-31', fecha: '2026-12-31', capital: 400000, interes: 50000 }, 'x');
+const rF2 = resumen(parPag);
+check('F2 parcial + pago en caja de la parte no renovada: renovación vigente, origen saldado, capital 600.000',
+  aprox(rF2.vo.pendienteTotal, 0) && aprox(rF2.f.renovaciones.total[dic27], 630000) && aprox(rF2.e.saldoCapital, 600000), `${rF2.e.saldoCapital}`);
+// F3 renovación encadenada: pagar el interés de la cuota de origen (R0@1) no apaga la 2ª renovación.
+const encPag = registrarPago(enc, { vencKey: 'rv@R0@1', fecha: '2027-12-28', interes: 50000 }, 'x');
+check('F3 encadenada + pago del interés de la cuota de origen: la 2ª sigue (dic-28 1.050.000), capital 1.000.000',
+  aprox(flujo([encPag], 'Allegria Foods').renovaciones.total[iM(2028, 12)], 1050000) && aprox(estadoCredito(encPag, HOY).saldoCapital, 1000000));
+// F4 clave del origen con un uid que no coincide (alta nueva): se ubica por la fecha guardada.
+const malaClave = ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados', venc_origen_key: 'nundefined@2026-12-31', venc_origen: '2026-12-31' });
+check('F4 clave de origen inexistente con fecha válida: se aplica por fecha', aprox(resumen(malaClave).vo.pendienteTotal, 50000) && aprox(resumen(malaClave).f.renovaciones.total[dic27], 1050000));
+// F5 capitalizados: el flujo y el servicio de deuda NO reclasifican (cada cuota vence después del origen).
+const cap = ren({ modalidad: 'extension', confirmada: true, intereses: 'capitalizados' });
+const fC = flujo([cap], 'Allegria Foods');
+check('F5 capitalizados: servicio de deuda dic-27 = capital 1.050.000 + interés 52.500 (aunque hoy sea antes del origen)',
+  aprox(fC.renovaciones.capital[dic27], 1050000) && aprox(fC.renovaciones.interes[dic27], 52500), `${fC.renovaciones.capital[dic27]} / ${fC.renovaciones.interes[dic27]}`);
+check('F5b capital pendiente medido al 31-mar-27 = 1.050.000 (ya capitalizado)', aprox(saldoCapitalAl([cap], '2027-03-31', HOY).capital, 1050000), String(saldoCapitalAl([cap], '2027-03-31', HOY).capital));
+// F6 Ver movimientos cuadra antes y después del origen, con la línea de capitalización.
+const mvA = movimientosCapitalAlCorte([cap], '2026-11-30'), mvD = movimientosCapitalAlCorte([cap], '2027-01-31');
+check('F6 Ver movimientos cuadra antes (1.000.000) y después (1.050.000) del origen, y explica lo capitalizado',
+  mvA.cuadra && aprox(mvA.capitalApp, 1000000) && mvD.cuadra && aprox(mvD.capitalApp, 1050000) && mvD.movimientos.some(m => /capitalizado/.test(m.tipo) && aprox(m.capital, 50000)),
+  `${mvA.calculado}/${mvA.capitalApp} · ${mvD.calculado}/${mvD.capitalApp}`);
 
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

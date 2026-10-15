@@ -9630,7 +9630,10 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   const RENOVACION_VACIA = ()=>({ monto:"", mes_ingreso:"", anio_ingreso:"", tasa_anual:"", cuotas:[], modalidad:"", confirmada:false });
   const CUOTA_SOCIO_VACIA = ()=>({ fecha_vencimiento:"", modo:"cuota", cuota_total:"", amortizacion:"" });
 
-  function openNew(){ setForm(EMPTY_FORM); setEditId(null); setModal(true); }
+  // El uid del crédito nuevo se fija al abrir el formulario: así el vencimiento de origen
+  // que se elige en una renovación queda con la clave definitiva (no `nundefined@…`).
+  const nuevoUidCredito = ()=>`cr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+  function openNew(){ setForm({...EMPTY_FORM, uid:nuevoUidCredito()}); setEditId(null); setModal(true); }
   function openEdit(c){
     // Migra legacy (1 renovación en campos planos) → array renovaciones
     setForm({...c, monto:String(c.monto), cuota:String(c.cuota), tipo_credito:c.tipo_credito||"banco",
@@ -9671,9 +9674,20 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   // guardada NO se borra: se anula con motivo y queda en el historial, sin efecto.
   const delRen = (ri)=>{
     const ren=(form.renovaciones||[])[ri]; if(!ren) return;
-    if(ren._nueva){ setForm(p=>({...p,renovaciones:(p.renovaciones||[]).filter((_,i)=>i!==ri)})); return; }
+    if(ren._nueva){
+      // Quitarla corre los índices de las siguientes: no si alguna renueva una cuota de esta o de una posterior.
+      const refs = (form.renovaciones||[]).some((r,j)=>j!==ri && !r.anulada && (r.venc_origen_key||"").match(/@R(\d+)@/) && parseInt((r.venc_origen_key||"").match(/@R(\d+)@/)[1])>=ri);
+      if(refs){ alert("No se puede quitar: otra renovación renueva una cuota de esta o de una posterior. Quita o cambia primero el origen de esa renovación."); return; }
+      setForm(p=>({...p,renovaciones:(p.renovaciones||[]).filter((_,i)=>i!==ri)})); return;
+    }
     const pg = pagosEnRenovacion(ri);
     if(pg.length){ alert(`No se puede anular: hay ${pg.length} pago(s) registrado(s) en cuotas de esta renovación. Anula primero esos pagos (con motivo) en el detalle del crédito.`); return; }
+    // Una cuota de esta renovación puede ser el origen de otra renovación vigente: anularla
+    // dejaría a la otra sin origen. Primero se anula la que depende de ella.
+    const planF = planRenovaciones(candidatoForm());
+    const dependientes = (form.renovaciones||[]).map((r,j)=>({r,j})).filter(({r,j})=>j!==ri && !r.anulada &&
+      ((r.venc_origen_key||"").includes(`@R${ri}@`) || ((planF.porRen[j]||{}).key||"").includes(`@R${ri}@`)));
+    if(dependientes.length){ alert(`No se puede anular: la renovación ${dependientes.map(d=>d.j+1).join(", ")} renueva una cuota de esta. Anula primero esa renovación.`); return; }
     const motivo=window.prompt("Motivo para anular esta renovación (queda en el historial; deja de proyectarse y el vencimiento original vuelve a vencer completo):");
     if(motivo===null) return;
     if(!motivo.trim()){ alert("Anular una renovación requiere motivo."); return; }
@@ -9737,7 +9751,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     const maxNLocal = creditosVisibles.reduce((m,c)=> Math.max(m, typeof c.n === 'number' && c.n < 100000 ? c.n : 0), 0);
     const original = editId ? creditosVisibles.find(c=>uidCredito(c)===editId) : null;
     const newN = original ? original.n : (typeof nextCreditId === 'number' ? nextCreditId : (maxNLocal + 1));
-    const uid = original ? uidCredito(original) : `cr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+    const uid = original ? uidCredito(original) : (form.uid || nuevoUidCredito());
     const ts = new Date().toISOString();
     // Desde el alta el crédito se controla en la app: una cuota posterior sin
     // pago registrado es vencida confirmada; las anteriores quedan por conciliar.
@@ -9798,7 +9812,11 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         const {_nueva, _guardada, _confirmadaGuardada, ...x} = r;
         // Se guarda el vencimiento que se renueva: si después cambia el f_venc, el traslado no se mueve solo.
         if(x.confirmada===true && (x.modalidad==="extension"||x.modalidad==="parcial") && !x.venc_origen_key){
-          const o = vencOrigenRenovacion(candidatoForm(), ri); if(o){ x.venc_origen_key = o.key; x.venc_origen = o.fecha; }
+          const o = vencOrigenRenovacion(candidatoForm({...form, uid}), ri); if(o){ x.venc_origen_key = o.key; x.venc_origen = o.fecha; }
+        }
+        // La clave siempre lleva el uid definitivo del crédito (un alta sin uid previo la armaba con otro).
+        if(x.venc_origen_key && !x.venc_origen_key.startsWith(`${uid}@`)){
+          const at = x.venc_origen_key.indexOf("@"); if(at>=0) x.venc_origen_key = `${uid}${x.venc_origen_key.slice(at)}`;
         }
         return x;
       }),
@@ -10423,6 +10441,9 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                           : <button type="button" onClick={()=>delRen(ri)}
                               style={{padding:"3px 10px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>{ren._nueva?"🗑 Quitar":"Anular…"}</button>}
                       </div>
+                      {(()=>{ const bloq = !ren._nueva && ren._confirmadaGuardada && pagosEnRenovacion(ri).length>0;
+                        return bloq ? <div data-renovacion-bloqueada={ri} style={{fontSize:11,color:C.muted,marginBottom:8}}>Renovación confirmada con pagos registrados: sus condiciones no se editan. Para corregirla, anula esos pagos (con motivo) y luego la renovación.</div> : null; })()}
+                      <fieldset disabled={!ren._nueva && ren._confirmadaGuardada && pagosEnRenovacion(ri).length>0} style={{border:0,padding:0,margin:0,minWidth:0}}>
 
                       {/* Modalidad y estado (oct-2026). Sin ellos = registro antiguo. */}
                       {(()=>{
@@ -10602,6 +10623,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                           </div>
                         </div>
                       </div>
+                      </fieldset>
                     </div>
                     );
                   })}
