@@ -1492,8 +1492,10 @@ export function saldosAlCorte(creditos, corte, hoy = hoyISO()) {
       const fechaPago = fp.tipo === 'estimada' ? fp.fecha : v.fecha;
       if (corte > hoy && fechaPago <= corte) return;
       const f = fBase === null ? null : factorVencimiento(c, fechaPago < hoy ? hoy : fechaPago);
-      cap += v.pendiente.capital; sd += v.pendiente.sinDesglose;
-      if (f !== null) { capUSD += v.pendiente.capital * f; sdUSD += v.pendiente.sinDesglose * f;
+      // Interés capitalizado en una renovación: antes de su fecha sigue siendo interés, no capital.
+      const capV = v.pendiente.capital - capitalizadoNoVigenteAl(v, corte);
+      cap += capV; sd += v.pendiente.sinDesglose;
+      if (f !== null) { capUSD += capV * f; sdUSD += v.pendiente.sinDesglose * f;
         if (c._tc && c._tc.porFecha && fechaPago > hoy) { const u = c._tc.porFecha(fechaPago); if (!u || u.hipotesis) ufHipotesis = true; } }
     });
     if (fBase === null) { if (cap + sd + pc > EPS) sinTC.push({ empresa: c.empresa, acreedor: c.acreedor, moneda: c.moneda || 'USD', capital: r2(cap), sinClasificar: r2(sd), porConciliar: r2(pc) }); return; }

@@ -318,5 +318,12 @@ const fEn = ingresosRenovacionFlujo(antEn);
 check('H4 antigua: mes y año leídos como main ("Aug" 2026 → ago-26; " 2026", "2026x" y 26 se excluyen)', fEn.length === 1 && fEn[0].fecha === '2026-08-01', JSON.stringify(fEn.map(x => x.fecha)));
 check('H5 crédito anulado con antigua: se avisa (sigue proyectando como antes)', avisosRenovacion(antAnul, HOY).anuladoConIngreso.length === 1);
 
+// I1 saldosAlCorte (KPI de Créditos, fila "Hoy", Saldo por Mes) = estadoCredito con capitalizados.
+const capI = ren({ modalidad: 'extension', confirmada: true, intereses: 'capitalizados' });
+check('I1 saldosAlCorte: capital 1.000.000 hoy y al 30-nov-26 (antes de capitalizar); 1.050.000 al 31-ene-27',
+  aprox(saldosAlCorte([capI], HOY, HOY).total.capital, 1000000) && aprox(saldosAlCorte([capI], '2026-11-30', HOY).total.capital, 1000000)
+  && aprox(saldosAlCorte([capI], '2027-01-31', HOY).total.capital, 1050000),
+  `${saldosAlCorte([capI], HOY, HOY).total.capital} / ${saldosAlCorte([capI], '2026-11-30', HOY).total.capital} / ${saldosAlCorte([capI], '2027-01-31', HOY).total.capital}`);
+
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);
