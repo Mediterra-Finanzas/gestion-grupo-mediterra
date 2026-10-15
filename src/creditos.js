@@ -422,12 +422,21 @@ export function ingresosRenovacion(c) {
 //    defectos conocidos (moneda ≠ US$, crédito anulado) que el informe de impacto
 //    (scripts/impacto/renovaciones.mjs) lista; se corrigen al clasificarla.
 //  · Renovación con modalidad: ingresosRenovacion × tipo de cambio del flujo.
+// Mes de ingreso de una antigua leído EXACTAMENTE como main (etiqueta "Aug-26"):
+// mes en español o inglés abreviado; año = String(año).slice(2), de dos dígitos.
+const MES_ES_A_EN = { Ene: 'Jan', Feb: 'Feb', Mar: 'Mar', Abr: 'Apr', May: 'May', Jun: 'Jun', Jul: 'Jul', Ago: 'Aug', Sep: 'Sep', Oct: 'Oct', Nov: 'Nov', Dic: 'Dec' };
+const MESES_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export function fechaIngresoAntigua(ren) {
+  const m = MESES_EN.indexOf(MES_ES_A_EN[ren.mes_ingreso] || ren.mes_ingreso) + 1;
+  const yy = String(ren.anio_ingreso).slice(2);
+  return m && /^\d{2}$/.test(yy) ? aISO(2000 + Number(yy), m, 1) : '';
+}
 export function ingresosRenovacionFlujo(c) {
   if (!c) return [];
   const out = [];
   if (c.renovable) getRenovaciones(c).forEach((ren, ri) => {
     if (!renovacionAntigua(ren) || !ren.monto || !ren.mes_ingreso || !ren.anio_ingreso) return;
-    const fecha = fechaIngresoRen(ren); if (!fecha) return;
+    const fecha = fechaIngresoAntigua(ren); if (!fecha) return;
     out.push({ ri, fecha, monto: num(ren.monto), usd: num(ren.monto), antigua: true, acreedor: c.acreedor || '—' });
   });
   const f = factorUSD(c);
@@ -436,13 +445,17 @@ export function ingresosRenovacionFlujo(c) {
 }
 // Lo que hay que mirar en las renovaciones de un crédito (no cambia nada).
 export function avisosRenovacion(c, hoy = hoyISO()) {
-  const av = { antiguas: [], propuestas: [], incompletas: [], excesos: [], ingresosVencidos: [] };
-  if (!c || esAnulado(c) || !c.renovable) return av;
+  const av = { antiguas: [], propuestas: [], incompletas: [], excesos: [], ingresosVencidos: [], anuladoConIngreso: [] };
+  // Crédito anulado: sus renovaciones antiguas siguen proyectando ingreso (como en main).
+  // No se cambia solo: se avisa para decidirlo.
+  if (c && esAnulado(c)) { av.anuladoConIngreso = ingresosRenovacionFlujo(c).filter(x => x.antigua)
+    .map(x => ({ ri: x.ri, acreedor: c.acreedor, empresa: c.empresa, fecha: x.fecha, monto: x.monto, usd: x.usd })); return av; }
+  if (!c || !c.renovable) return av;
   // Ingreso de un "pago y nuevo" con mes ya pasado y sin registrar como recibido: queda
   // en su mes original (antes del saldo inicial). No se da por recibido ni se arrastra solo.
   // Un registro antiguo se avisa solo si su ingreso es posterior al inicio del control en la app.
   ingresosRenovacionFlujo(c).forEach(x => { if (x.fecha.slice(0, 7) < String(hoy).slice(0, 7) && (!x.antigua || x.fecha >= controlDesde(c)))
-    av.ingresosVencidos.push({ ri: x.ri, acreedor: c.acreedor, empresa: c.empresa, fecha: x.fecha, monto: x.monto, usd: x.usd }); });
+    av.ingresosVencidos.push({ ri: x.ri, acreedor: c.acreedor, empresa: c.empresa, fecha: x.fecha, monto: x.monto, usd: x.usd, antigua: !!x.antigua }); });
   const plan = planRenovaciones(c);
   getRenovaciones(c).forEach((ren, ri) => {
     if (ren.anulada) return;

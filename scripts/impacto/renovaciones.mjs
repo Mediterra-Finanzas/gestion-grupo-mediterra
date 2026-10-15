@@ -64,11 +64,15 @@ const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
 const $ = (x) => (Number(x) || 0).toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
 // "Ingreso Renovación" tal como lo arma cada versión de FinanzasModule.
-function ingresoBase(emp, cs) {           // main: c.renovable, monto bruto (sin TC), sin mirar anulados
+// main: c.renovable, monto bruto (sin TC), sin mirar anulados; etiqueta `${MES_ABR_TO_EN[mes]||mes}-${String(año).slice(2)}`.
+const MES_ABR_TO_EN = { Ene: 'Jan', Feb: 'Feb', Mar: 'Mar', Abr: 'Apr', May: 'May', Jun: 'Jun', Jul: 'Jul', Ago: 'Aug', Sep: 'Sep', Oct: 'Oct', Nov: 'Nov', Dic: 'Dec' };
+const MESES_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const ETIQUETAS = MESES.map(m => `${MESES_EN[Number(m.slice(5, 7)) - 1]}-${m.slice(2, 4)}`);
+function ingresoBase(emp, cs) {
   const arr = Z();
   cs.filter(c => c && c.empresa === emp && c.renovable).forEach(c => A.getRenovaciones(c).forEach(ren => {
     if (!ren.monto || !ren.mes_ingreso || !ren.anio_ingreso) return;
-    const i = ubicar(`${ren.anio_ingreso}-${String(MES_ABR_NUM[ren.mes_ingreso] || 0).padStart(2, '0')}-01`).idx;
+    const i = ETIQUETAS.indexOf(`${MES_ABR_TO_EN[ren.mes_ingreso] || ren.mes_ingreso}-${String(ren.anio_ingreso).slice(2)}`);
     if (i >= 0) arr[i] += Number(ren.monto) || 0;
   }));
   return arr;
@@ -108,13 +112,18 @@ creditos.forEach((c, i) => {
     const s = (q, k) => r2(q.reduce((a, v) => a + (Number(v[k]) || 0), 0));
     const cambia = qa.length !== qn.length || qa.some((v, j) => !qn[j] || v.fecha !== qn[j].fecha || Math.abs(v.total - qn[j].total) > 0.005 || Math.abs(v.capital - qn[j].capital) > 0.005);
     const clase = N.renovacionAntigua(ren) ? 'antigua (sin modalidad)' : ren.anulada ? 'anulada' : `${ren.modalidad || '—'} · ${ren.confirmada === true ? 'confirmada' : 'propuesta'}${ren.intereses ? ' · intereses ' + ren.intereses : ''}`;
-    if (cambia || Object.keys(efecto).length) filasRen.push({
+    const ingA = ingresoBase(c.empresa, [{ ...c, renovaciones: rensA.map((r, j) => j === ri ? r : { ...r, monto: 0 }) }]);
+    const ingN = ingresoNuevo(c.empresa, [{ ...c, renovaciones: rensN.map((r, j) => j === ri ? r : { ...r, monto: 0 }) }]);
+    const cambiaIngreso = ingA.some((x, k) => Math.abs(x - ingN[k]) > 0.005);
+    // Solo las que cambian por sí mismas (cuotas o ingreso propios) o están clasificadas
+    // (una clasificada puede mover el vencimiento de otra: ese efecto va en la tabla del crédito).
+    if (cambia || cambiaIngreso || (!N.renovacionAntigua(ren) && Object.keys(efecto).length)) filasRen.push({
       empresa: c.empresa, credito: `${c.acreedor || '—'} (${uidDe(c, i)})`, moneda: c.moneda || 'USD', renovacion: ri + 1, clase,
       venc_original: c.f_venc || c.vencimiento_final || '', mes_ingreso: ren.mes_ingreso && ren.anio_ingreso ? `${ren.mes_ingreso}-${ren.anio_ingreso}` : '',
       cuotas: qn.map(v => v.fecha).join(' · ') || (rensA[ri] ? '(sin cuotas)' : ''),
       capital_antes: s(qa, 'capital'), capital_despues: s(qn, 'capital'),
       interes_antes: s(qa, 'interes'), interes_despues: s(qn, 'interes'), dif_interes: r2(s(qn, 'interes') - s(qa, 'interes')),
-      cuotas_cambian: cambia,
+      cuotas_cambian: cambia, ingreso_cambia: cambiaIngreso,
     });
   });
   if (Object.keys(efecto).length) creditosConCambio.push({ empresa: c.empresa, credito: `${c.acreedor || '—'} (${uidDe(c, i)})`, moneda: c.moneda || 'USD',

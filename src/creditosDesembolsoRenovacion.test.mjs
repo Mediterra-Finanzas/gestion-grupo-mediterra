@@ -312,5 +312,11 @@ check('H2 antigua de un crédito anulado: ingreso como antes (1.000.000)', ingre
 const clasCLP = { ...antCLP, renovaciones: [{ ...antCLP.renovaciones[0], modalidad: 'pago_y_nuevo', confirmada: true }] };
 check('H3 al clasificarla, el ingreso se convierte con el TC (950.000.000 / 950 = 1.000.000)', aprox(ingresosRenovacionFlujo(clasCLP)[0].usd, 1000000));
 
+const antEn = { ...base, uid: 'h-en', renovaciones: [{ monto: 1000000, mes_ingreso: 'Aug', anio_ingreso: 2026, cuotas: [] }, { monto: 5, mes_ingreso: 'Dic', anio_ingreso: ' 2026', cuotas: [] },
+  { monto: 7, mes_ingreso: 'Dic', anio_ingreso: '2026x', cuotas: [] }, { monto: 9, mes_ingreso: 'Dic', anio_ingreso: 26, cuotas: [] }] };
+const fEn = ingresosRenovacionFlujo(antEn);
+check('H4 antigua: mes y año leídos como main ("Aug" 2026 → ago-26; " 2026", "2026x" y 26 se excluyen)', fEn.length === 1 && fEn[0].fecha === '2026-08-01', JSON.stringify(fEn.map(x => x.fecha)));
+check('H5 crédito anulado con antigua: se avisa (sigue proyectando como antes)', avisosRenovacion(antAnul, HOY).anuladoConIngreso.length === 1);
+
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

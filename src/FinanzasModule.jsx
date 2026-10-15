@@ -919,10 +919,11 @@ export function avisosCreditosEmpresa(emp, empNombre, creditos, proyOverrides, r
   // TC de proyección: avisa estimado (TC declarado) y antigüedad > 7 días, con fecha y fuente.
   const tcAvisos = (fc.valorizacion || []).filter(v => v.estimado || v.desactualizado || v.porFecha);
   // Renovaciones antiguas (sin modalidad: se proyectan como siempre) y propuestas (no se proyectan).
-  const ren = { antiguas: [], propuestas: [], incompletas: [], excesos: [], ingresosVencidos: [] };
+  const ren = { antiguas: [], propuestas: [], incompletas: [], excesos: [], ingresosVencidos: [], anuladoConIngreso: [] };
   (Array.isArray(creditos) ? creditos : []).filter(c => c && c.empresa === empNombre).forEach(c => {
     const a = avisosRenovacion(c); ren.antiguas.push(...a.antiguas); ren.propuestas.push(...a.propuestas); ren.incompletas.push(...a.incompletas); ren.excesos.push(...(a.excesos || []));
     ren.ingresosVencidos.push(...(a.ingresosVencidos || []));
+    ren.anuladoConIngreso.push(...(a.anuladoConIngreso || []));
   });
   return { arrastrados: fc.arrastrados, porConciliar: fc.porConciliar, sinTC: fc.sinTC, ovIgnorados, tcAvisos,
     estimados: fc.estimados || [], fueraHorizonte: fc.fueraHorizonte || [],
@@ -949,7 +950,10 @@ export function textosAvisosCreditos(av) {
   if (rn.antiguas.length) out.push(`ℹ Créditos: ${rn.antiguas.length} renovación(es) registrada(s) sin modalidad se proyectan como antes (ingreso + cuotas, sin descontar el vencimiento original): ${rn.antiguas.map(r => `${r.acreedor} ${$$(r.monto)}`).join(" · ")}. Define su modalidad y confírmala.`);
   if (rn.propuestas.length) out.push(`ℹ Créditos: ${rn.propuestas.length} renovación(es) propuesta(s) NO se proyectan hasta confirmarlas: ${rn.propuestas.map(r => `${r.acreedor} ${$$(r.monto)}`).join(" · ")}.`);
   if (rn.incompletas.length) out.push(`⚠ Créditos: ${rn.incompletas.length} renovación(es) confirmada(s) NO se proyectan por datos faltantes: ${rn.incompletas.map(r => `${r.acreedor} (falta ${r.falta})`).join(" · ")}.`);
-  if ((rn.ingresosVencidos || []).length) out.push(`ℹ Créditos: ${rn.ingresosVencidos.length} nuevo(s) desembolso(s) de renovación con mes ya pasado sin registrar como recibido(s) quedan en su mes original, antes del saldo inicial, por ${$$(rn.ingresosVencidos.reduce((a, r) => a + (r.usd || 0), 0))}: ${rn.ingresosVencidos.map(r => `${r.acreedor} ${fmtDate(r.fecha)} ${$$(r.usd)}`).join(" · ")}. Si los fondos llegaron, márcalos "Ya recibidos" en la renovación; si llegarán después, corrige el mes de ingreso. No se dan por recibidos solos.`);
+  const ivN = (rn.ingresosVencidos || []).filter(r => !r.antigua), ivA = (rn.ingresosVencidos || []).filter(r => r.antigua);
+  if (ivN.length) out.push(`ℹ Créditos: ${ivN.length} nuevo(s) desembolso(s) de renovación con mes ya pasado sin registrar como recibido(s) quedan en su mes original, antes del saldo inicial, por ${$$(ivN.reduce((a, r) => a + (r.usd || 0), 0))}: ${ivN.map(r => `${r.acreedor} ${fmtDate(r.fecha)} ${$$(r.usd)}`).join(" · ")}. Si los fondos llegaron, márcalos "Ya recibidos" en la renovación; si llegarán después, corrige el mes de ingreso. No se dan por recibidos solos.`);
+  if (ivA.length) out.push(`ℹ Créditos: ${ivA.length} renovación(es) antigua(s) (sin modalidad) con ingreso en un mes ya pasado quedan en ese mes, antes del saldo inicial (monto del registro, como siempre): ${ivA.map(r => `${r.acreedor} ${fmtDate(r.fecha)} ${$$(r.usd)}`).join(" · ")}. Para corregirlo, clasifícala (modalidad y estado) y, si los fondos llegaron, márcalos "Ya recibidos"; o corrige el mes de ingreso.`);
+  if ((rn.anuladoConIngreso || []).length) out.push(`⚠ Créditos: ${rn.anuladoConIngreso.length} renovación(es) antigua(s) de crédito(s) ANULADO(S) siguen proyectando su ingreso (comportamiento anterior, sin cambios hasta decidirlo): ${rn.anuladoConIngreso.map(r => `${r.acreedor} ${fmtDate(r.fecha)} ${$$(r.usd)}`).join(" · ")}.`);
   if ((rn.excesos || []).length) out.push(`⚠ Créditos: ${rn.excesos.length} renovación(es) extienden más capital del que vencía en la fecha original: ${rn.excesos.map(r => `${r.acreedor} ${$$(r.exceso)} de más`).join(" · ")}. Revisa el monto.`);
   return out;
 }
@@ -7817,7 +7821,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       })()}
 
       {/* ── Créditos: desembolsos pendientes con fecha pasada y renovaciones sin definir ── */}
-      {((avisoCreditos.desembolsosPendientesVencidos||[]).length>0||(avisoCreditos.renovaciones?.antiguas||[]).length>0||(avisoCreditos.renovaciones?.propuestas||[]).length>0||(avisoCreditos.renovaciones?.incompletas||[]).length>0||(avisoCreditos.renovaciones?.excesos||[]).length>0||(avisoCreditos.renovaciones?.ingresosVencidos||[]).length>0)&&(
+      {((avisoCreditos.desembolsosPendientesVencidos||[]).length>0||(avisoCreditos.renovaciones?.antiguas||[]).length>0||(avisoCreditos.renovaciones?.propuestas||[]).length>0||(avisoCreditos.renovaciones?.incompletas||[]).length>0||(avisoCreditos.renovaciones?.excesos||[]).length>0||(avisoCreditos.renovaciones?.ingresosVencidos||[]).length>0||(avisoCreditos.renovaciones?.anuladoConIngreso||[]).length>0)&&(
         <div data-aviso-creditos-desembolso-renovacion style={{background:C.infoBg||C.cardAlt,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",fontSize:11,color:C.text,lineHeight:1.6}}>
           {textosAvisosCreditos({arrastrados:[],estimados:[],fueraHorizonte:[],porConciliar:[],sinTC:[],tcAvisos:[],ovIgnorados:[],
             desembolsosPendientesVencidos:avisoCreditos.desembolsosPendientesVencidos||[], renovaciones:avisoCreditos.renovaciones}).map((t,i)=><div key={i}>{t}</div>)}
@@ -9858,8 +9862,9 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     // existente: se muestra la diferencia mes a mes en el flujo y se exige confirmación.
     if(original){
       const rensO = original.renovable ? getRenovaciones(original) : [];
-      const rensI = getRenovaciones({...item, renovable:true});
-      const cambian = rensO.map((r,i)=>i).filter(i=>renovacionAntigua(rensO[i]) && !renovacionAntigua(rensI[i]||{}));
+      // Pasar a "contrato" o "socio" deja renovaciones:[]: las antiguas DESAPARECEN (también es cambio).
+      const rensI = (item.tipo_credito==="contrato"||item.tipo_credito==="socio") ? [] : getRenovaciones({...item, renovable:true});
+      const cambian = rensO.map((r,i)=>i).filter(i=>renovacionAntigua(rensO[i]) && (!rensI[i] || !renovacionAntigua(rensI[i])));
       if(cambian.length){
         const op = {hoy, ubicar:ubicarFechaFlujo, nMeses:MESES_65.length};
         const fa = flujoCreditosEmpresa(original.empresa,[original],op), fn = flujoCreditosEmpresa(item.empresa,[item],op);
@@ -9868,7 +9873,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
           ["Ingresos Financiamiento",fa.ingresos.total,fn.ingresos.total]];
         const difs=[];
         lin.forEach(([l,a,b])=>MESES_65.forEach((m,i)=>{ const d=(b[i]||0)-(a[i]||0); if(Math.abs(d)>0.005) difs.push(`${l} ${m}: ${$$(a[i]||0)} → ${$$(b[i]||0)} (${d>0?"+":""}${$$(d)})`); }));
-        const txt = `Renovación ${cambian.map(i=>i+1).join(", ")}: era un registro antiguo (sin modalidad) y ahora queda ${cambian.map(i=>rensI[i]?.anulada?"ANULADA":`${MODALIDADES_RENOVACION[rensI[i]?.modalidad]||"sin modalidad"} · ${rensI[i]?.confirmada===true?"confirmada":"propuesta"}`).join(" / ")}.\n\n`+
+        const txt = `Renovación ${cambian.map(i=>i+1).join(", ")}: era un registro antiguo (sin modalidad) y ahora queda ${cambian.map(i=>!rensI[i]?"ELIMINADA (el crédito pasa a otro tipo)":rensI[i]?.anulada?"ANULADA":`${MODALIDADES_RENOVACION[rensI[i]?.modalidad]||"sin modalidad"} · ${rensI[i]?.confirmada===true?"confirmada":"propuesta"}`).join(" / ")}.\n\n`+
           `Esto cambia un registro existente. Efecto en el flujo (US$):\n${difs.length?difs.slice(0,30).join("\n")+(difs.length>30?`\n… y ${difs.length-30} más`:""):"sin cambios en el flujo"}\n\n¿Aplicar el cambio?`;
         if(!window.confirm(txt)) return;
       }
@@ -10216,7 +10221,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                   creds.forEach(c=>{
                     estadoDe(c).vencimientos.forEach(v=>eventos.push({fecha:v.fecha, label:fmtDate(v.fecha), monto:v.total, pend:v.pendienteTotal,
                       estado:v.estado, isRen:v.origen==="renovacion", id:v.key, comp:v}));
-                    ingresosRenovacionFlujo(c).forEach(x=>{
+                    [...ingresosRenovacionFlujo(c).filter(x=>x.antigua), ...ingresosRenovacion(c).filter(x=>!x.antigua)].forEach(x=>{
                       const mesEn=Object.values(MES_A)[Number(x.fecha.slice(5,7))-1];
                       eventos.push({fecha:x.fecha,label:`${mesEn}-${x.fecha.slice(2,4)}`,monto:x.monto,isIngreso:true,id:`ing-${uidCredito(c)}-${x.ri}`});
                     });

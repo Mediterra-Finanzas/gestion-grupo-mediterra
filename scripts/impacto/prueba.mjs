@@ -20,6 +20,9 @@ const creditos = [
   { ...base, uid: 's-clp', acreedor: 'Banco CLP', moneda: 'CLP', tc_flujo: 950, monto: 950000000, cuota: 997500000,
     desglose: { capital: 950000000, interes: 47500000, cargos: 0, respaldo: 'x', usuario: 'x', ts: 'x' }, renovaciones: [{ ...ren, monto: 950000000 }] },
   { ...base, uid: 's-anul', acreedor: 'Banco Anulado', anulado: true, motivoAnulacion: 'x', renovaciones: [ren] },
+  { ...base, uid: 's-raro', acreedor: 'Banco Raro', renovaciones: [{ ...ren, mes_ingreso: 'Aug' }, { ...ren, anio_ingreso: ' 2026' }] },
+  { ...base, uid: 's-mix', acreedor: 'Banco Mixto', renovaciones: [ren, { ...ren, monto: 400000, modalidad: 'extension', confirmada: true, intereses: 'pagados', venc_origen_key: 's-mix@R0@1',
+    cuotas: [{ tipo: 'Capital+Interés', mes: 'Jun', anio: 2028 }] }] },
   { ...base, uid: 's-ext', acreedor: 'Banco Ext', renovaciones: [{ ...ren, modalidad: 'extension', confirmada: true, intereses: 'pagados', mes_ingreso: 'Feb', anio_ingreso: 2027 }] },
 ];
 const resp = { fecha: '2026-10-15T00:00:00Z', version: 'Mediterra Hub Backup v1', tablas: { finanzas: { data: { creditos_data: creditos }, updated_at: '2026-10-15T00:00:00Z' } } };
@@ -30,8 +33,11 @@ const r = JSON.parse(fs.readFileSync(path.join(tmp, 'impacto-renovaciones.json')
 let fallos = 0;
 const check = (n, c, x = '') => { console.log(`${c ? '✓' : '✗ FALLA'}  ${n}${x ? '  — ' + x : ''}`); if (!c) fallos++; };
 const uids = r.renovaciones.map(x => x.credito);
-check('Detecta la extensión clasificada (interés 83.333 → 100.000)', r.renovaciones.length === 1 && /s-ext/.test(uids[0])
-  && Math.round(r.renovaciones[0].interes_antes) === 83333 && r.renovaciones[0].interes_despues === 100000, JSON.stringify(uids));
+const ext = r.renovaciones.find(x => /s-ext/.test(x.credito)) || {};
+check('Detecta la extensión clasificada (interés 83.333 → 100.000)', Math.round(ext.interes_antes) === 83333 && ext.interes_despues === 100000, JSON.stringify(uids));
+check('Lista solo renovaciones que cambian: s-ext y la clasificada de s-mix (no la antigua de s-mix ni las de s-raro)',
+  r.renovaciones.length === 2 && r.renovaciones.some(x => /s-mix/.test(x.credito) && x.renovacion === 2), JSON.stringify(r.renovaciones.map(x => `${x.credito} #${x.renovacion}`)));
+check('Mes "Aug" y año " 2026" de una antigua: igual que main (sin diferencia)', !r.creditos.some(c => /s-raro/.test(c.credito)));
 const ef = (r.creditos.find(c => /s-ext/.test(c.credito)) || {}).efecto || {};
 check('Efecto mensual: Pago Préstamos dic-26 −1.000.000, Renovaciones jun-27 +16.667, Ingreso Renovación feb-27 −1.000.000',
   ef['Pago Préstamos - Total']?.[0]?.dif === -1000000 && Math.round(ef['Renovaciones']?.[0]?.dif) === 16667 && ef['Ingreso Renovación']?.[0]?.dif === -1000000);
