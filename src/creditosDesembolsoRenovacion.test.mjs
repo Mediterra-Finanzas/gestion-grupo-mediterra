@@ -142,8 +142,9 @@ check('B6 desconfirmar: el original vuelve a vencer completo; nada quedó regist
 // B7 — Extender más de lo que vence: no se inventa, se informa
 const r7 = resumen(ren({ monto: 1200000, modalidad: 'extension', confirmada: true, intereses: 'pagados' }));
 // La extensión traslada CAPITAL (o lo sin desglose), nunca el interés del vencimiento original.
-check('B7 exceso: se traslada el capital que vencía (1.000.000), el interés 50.000 sigue en caja y se informa el exceso de 200.000',
-  aprox(r7.vo.renovado, 1000000) && aprox(r7.vo.renovadoExceso, 200000) && aprox(r7.vo.pendienteTotal, 50000));
+check('B7 exceso: se traslada el capital que vencía (1.000.000), el interés 50.000 sigue en caja y el exceso 200.000 se informa SIN crear deuda',
+  aprox(r7.vo.renovado, 1000000) && aprox(r7.vo.renovadoExceso, 200000) && aprox(r7.vo.pendienteTotal, 50000)
+  && aprox(r7.e.saldoCapital, 1000000) && aprox(r7.f.renovaciones.total[dic27], 1050000) && avisosRenovacion(ren({ monto: 1200000, modalidad: 'extension', confirmada: true, intereses: 'pagados' })).excesos.length === 1);
 
 // ═══ C. INTERESES Y CARGOS AL RENOVAR (extensión de 1.000.000; interés original 50.000) ═══
 // Pendientes: el 31-dic-26 no sale nada en caja; los 50.000 se pagan con la 1ª cuota de la
@@ -158,7 +159,11 @@ const rK = resumen(ren({ modalidad: 'extension', confirmada: true, intereses: 'c
 check('C4 capitalizados: nada en caja el 31-dic-26', aprox(rK.vo.pendienteTotal, 0) && aprox(rK.f.prestamos.total[dic26], 0));
 check('C5 capitalizados: jun-27 52.500 y dic-27 1.102.500', aprox(rK.f.renovaciones.total[jun27], 52500) && aprox(rK.f.renovaciones.total[dic27], 1102500),
   `${rK.f.renovaciones.total[jun27]} / ${rK.f.renovaciones.total[dic27]}`);
-check('C6 capitalizados: capital pendiente 1.050.000 (el interés pasó a capital, sin duplicar)', aprox(rK.e.saldoCapital, 1050000));
+// Antes del 31-dic-26 lo capitalizado sigue siendo interés (el banco informa 1.000.000);
+// desde esa fecha es capital: 1.050.000. El total nunca cambia.
+check('C6 capitalizados HOY (antes del 31-dic-26): capital 1.000.000 + interés 50.000 por capitalizar', aprox(rK.e.saldoCapital, 1000000), String(rK.e.saldoCapital));
+const rK2 = estadoCredito(ren({ modalidad: 'extension', confirmada: true, intereses: 'capitalizados' }), '2027-01-15');
+check('C6b capitalizados DESPUÉS del 31-dic-26: capital 1.050.000 (sin duplicar)', aprox(rK2.saldoCapital, 1050000), String(rK2.saldoCapital));
 check('C7 sin tratamiento elegido: no se proyecta y se avisa', sum(resumen(ren({ modalidad: 'extension', confirmada: true })).f.renovaciones.total) === 0
   && avisosRenovacion(ren({ modalidad: 'extension', confirmada: true })).incompletas.length === 1);
 
@@ -179,6 +184,39 @@ check('D3 renovación ANULADA: sin efecto (original completo, sin cuotas ni ingr
 // Movimientos de capital cuadran con la extensión (antes: 2.000.000 calculado vs 1.000.000).
 const mv = movimientosCapitalAlCorte([ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados' })], '2027-01-31');
 check('D4 "Ver movimientos" cuadra con una extensión', mv && mv.cuadra === true, mv ? `${mv.calculado} vs ${mv.capitalApp}` : 'sin resultado');
+
+// ═══ E. HALLAZGOS DE LA 2ª REVISIÓN ═════════════════════════════════
+const R = (o) => ({ monto: 1000000, mes_ingreso: 'Dic', anio_ingreso: 2026, tasa_anual: 10, confirmada: true, modalidad: 'extension', intereses: 'pagados',
+  cuotas: [{ tipo: 'Solo Interés', mes: 'Jun', anio: 2027 }, { tipo: 'Capital+Interés', mes: 'Dic', anio: 2027 }], ...o });
+// E1 renovación de una renovación: la 2ª extiende la última cuota de la 1ª (dic-27).
+const enc = { ...base, renovaciones: [R({}), R({ mes_ingreso: 'Dic', anio_ingreso: 2027, venc_origen_key: 'rv@R0@1',
+  cuotas: [{ tipo: 'Solo Interés', mes: 'Jun', anio: 2028 }, { tipo: 'Capital+Interés', mes: 'Dic', anio: 2028 }] })] };
+const eE = estadoCredito(enc, HOY), fE = flujo([enc], 'Allegria Foods');
+check('E1 renovación encadenada: capital 1.000.000 (no 2.000.000)', aprox(eE.saldoCapital, 1000000), String(eE.saldoCapital));
+check('E1b dic-27 solo interés 50.000; jun-28 50.000; dic-28 1.050.000', aprox(fE.renovaciones.total[dic27], 50000) && aprox(fE.renovaciones.total[iM(2028, 6)], 50000) && aprox(fE.renovaciones.total[iM(2028, 12)], 1050000));
+// E2 dos renovaciones sobre EL MISMO vencimiento: la 2ª solo puede tomar lo que queda (0) → no crea deuda.
+const dobles = { ...base, renovaciones: [R({}), R({ venc_origen: '2026-12-31', cuotas: [{ tipo: 'Capital+Interés', mes: 'Mar', anio: 2028 }] })] };
+check('E2 dos renovaciones sobre el mismo vencimiento: capital 1.000.000 y la 2ª queda como exceso avisado',
+  aprox(estadoCredito(dobles, HOY).saldoCapital, 1000000) && avisosRenovacion(dobles).excesos.length === 1, String(estadoCredito(dobles, HOY).saldoCapital));
+// E3 cuota sin mes: la renovación no se aplica (el capital no desaparece)
+const sinMes = ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados', cuotas: [{ tipo: 'Capital+Interés', mes: 'Sep', anio: 2027 }, { tipo: 'Capital+Interés', mes: '', anio: '' }] });
+check('E3 una cuota sin mes: no se aplica; capital 1.000.000; original completo; avisado',
+  aprox(estadoCredito(sinMes, HOY).saldoCapital, 1000000) && aprox(resumen(sinMes).vo.pendienteTotal, 1050000) && avisosRenovacion(sinMes).incompletas.length === 1);
+// E4 cuotas anteriores al vencimiento que se renueva
+const antes = ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados', cuotas: [{ tipo: 'Capital+Interés', mes: 'Nov', anio: 2026 }] });
+check('E4 cuotas anteriores al origen: no se aplica y se avisa', aprox(resumen(antes).vo.pendienteTotal, 1050000) && avisosRenovacion(antes).incompletas.length === 1);
+// E5 el vencimiento original ya tiene un pago registrado: no se renueva en silencio
+const pagadoAntes = registrarPago(base, { vencKey: 'rv@2026-12-31', fecha: '2026-10-01', capital: 1000000, interes: 50000 }, 'x');
+const pyR = { ...pagadoAntes, renovaciones: ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados' }).renovaciones };
+check('E5 origen con pago registrado: la extensión no se aplica (no baja la deuda dos veces) y se avisa',
+  aprox(estadoCredito(pyR, HOY).saldoCapital, 0) && sum(flujo([pyR], 'Allegria Foods').renovaciones.total) === 0 && avisosRenovacion(pyR).incompletas.length === 1, String(estadoCredito(pyR, HOY).saldoCapital));
+// E6 cuota antigua sin desglose: no se supone qué parte es capital
+const sinDesg = { ...base, desglose: undefined, renovaciones: ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados' }).renovaciones };
+check('E6 vencimiento sin desglose capital/interés: no se aplica y se pide el desglose',
+  sum(flujo([sinDesg], 'Allegria Foods').renovaciones.total) === 0 && /desglose/.test(avisosRenovacion(sinDesg).incompletas[0]?.falta || ''));
+// E7 tramos parciales que superan el capital: rechazados
+let sup = null; try { registrarDesembolsoRecibido(p1, { fecha: '2026-10-14', monto: 500000, tipo: 'parcial' }, 'x', HOY); } catch (e) { sup = e.message; }
+check('E7 parciales que superarían el capital se rechazan (usar "total")', !!sup);
 
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);
