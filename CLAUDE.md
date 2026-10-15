@@ -203,13 +203,8 @@ Reglas que no hay que romper:
   conciliación. Exige motivo; reemplazar o quitar anula con motivo y deja
   historial. No se admite en una cuota por conciliar (primero se concilia). Si
   la fecha estimada pasa sin pago, vuelve al arrastre. `fechaProyeccion` es la
-  única regla de ubicación (flujo, servicio de deuda por mes, saldo de capital al
-  corte —`saldosAlCorte`, `saldoCapitalAl`— y Excel); la UF se valoriza en la
-  fecha proyectada. Pantalla y Excel avisan las dos fechas. Si una fecha
-  estimada ANTERIOR al vencimiento pasa sin pago, vuelve al vencimiento
-  contractual. En «Saldo por Mes» una cuota vencida con fecha estimada futura
-  sigue contando en la columna «vencido» del mes estimado (es vencida).
-  Prueba: `src/__tests__/creditosObligacionPendiente.test.js`.
+  única regla de ubicación (flujo, servicio de deuda por mes, Excel). Pantalla
+  y Excel avisan las dos fechas. Prueba: `src/__tests__/creditosObligacionPendiente.test.js`.
 - **Fechas** ISO leídas como texto: `new Date("2027-01-01")` en Chile caía en
   diciembre.
 - **Pago Préstamos - Total** y **Renovaciones** tienen `_fuenteCreditos`: no se
@@ -850,31 +845,12 @@ de Angelo: o no descuenta (se cobra/paga al liquidar, como un sin-fecha
 histórico) o se declara como monto no proyectable aparte. No se cambió en el
 cierre de oct-2026 por no tener dato real con el que validarlo.
 
-#### Ciruelas conectadas al flujo (oct-2026)
+#### Limitación conocida — costos de ciruelas
 
-Antes solo «Liquidación Ciruelas» llegaba al flujo; costo de fruta, materiales y
-servicios se calculaban y no iban a ninguna línea. Ahora `buildAllegria` tiene
-«Costo Fruta Ciruelas», «Materiales Ciruelas» y «Servicios de Packing Ciruelas»
-(`cost/mat/srv.ciruelas`), y el Excel las arma en Parametros con los parámetros
-PROPIOS de ciruelas (columnas CC/MC/SC), nunca con las tarifas de cerezas.
-`diagnosticoCiruelas(p, sk)` lista lo que falta (kilos, FOB, materiales y
-servicios US$/kg, precio neto > 0, mes de liquidación, mes de saldo productor,
-calendarios que sumen 100%) y marca `ingresoSinEgreso` cuando el cliente
-proyecta caja y alguno de los tres egresos no proyecta nada (un costo de fruta
-en 0 porque el productor YA está pagado, realizado ≥ base, no cuenta). Sin
-kilos o FOB, el Excel proyecta igual los programas y saldos (base 0), como la
-app; lo mismo en cerezas, con el aviso `avisosCerezas` en pantalla y en el
-Excel. El aviso dice exactamente qué se proyecta y qué no: con kilos y sin FOB
-la estimación US$/kg SÍ se proyecta, y con liquidación definitiva la
-liquidación SÍ se proyecta. Efecto sobre datos entregados:
-`supabase/consulta_ciruelas_parametros.sql` y `FINANZAS_JSON=<export>` en
-`ciruelasFlujo.test.js`. Conectar no es validar: conservar los parámetros propios y avisar lo que
-falta no hace completa la proyección. Se muestra en el
-panel de ciruelas y viaja al Excel (`avisosCiruelas`, individual y consolidado).
-No hay bloqueo automático: no se activa el mes de liquidación mientras falten
-datos. Prueba: `src/__tests__/ciruelasFlujo.test.js` (con `RECALC=1`, Excel
-recalculado = app mes a mes).
-
+`calcAllegria` calcula `cost/mat/srv` de ciruelas pero `buildAllegria` no tiene líneas de
+flujo para ellos: los anticipos de productor, saldo, materiales y servicios de ciruelas no
+llegan al flujo ni al Excel. Está avisado en pantalla. Pendiente aparte (decisión contable
+de Angelo), no se arregló en el cambio de anticipos.
 #### Identidad de una línea = categoría + etiqueta (sep-2026)
 
 Dos categorías pueden tener conceptos con el MISMO nombre y es válido:
@@ -924,109 +900,14 @@ escrito daba 1.000). Dos correcciones:
 
 - `CeldaEditable` no llama `onSave` si el texto no cambió (clic y salir, o
   reescribir lo mismo). Un 0 escrito explícitamente sí se guarda.
-- `handleEditProy` aplica la regla acordada (ver la sección siguiente): con
-  semanas cargadas manda su suma. Cargar la 1ª semana de un mes que tenía valor
-  mensual reemplaza ese mensual y se CONFIRMA mostrando el antes y el después;
-  nada se convierte en un compromiso adicional.
+- `handleEditProy`, al crear el objeto semanal de un mes que no lo tenía, parte
+  de `semillaSemanal(efectivo, base, _semProy)`: lo que la pantalla mostraba
+  (valor manual mensual en la última semana, calculado en la primera, o el
+  reparto semanal propio de la línea). La regla mensual-vs-semanal no cambia.
 
 Fijado con `src/__tests__/semanalYAvisosCreditos.test.js` y
 `scripts/e2e/semanal-sin-perdida.mjs` (falla en c9c5792: guarda `{_sem2:0}` y el
 mes pasa de 2.700 a 0).
-
-#### Vista semanal: fechas solo cuando existen (oct-2026)
-
-Antes la vista semanal inventaba fechas: un valor mensual calculado iba a la 1ª
-semana del mes, un manual mensual a la última, un mensual de sublínea a la
-última y uno de línea agregada a la 1ª; la fila FLUJO NETO mostraba el mes ÷ 4.
-Y el saldo semanal del mes en curso arrancaba en la semana actual, así que lo
-puesto en semanas ya pasadas **desaparecía**: con el corte en S42, los costos
-fijos de octubre (en S40) no estaban en el saldo semanal (US$31.568 en la
-prueba sobre 9f28861), aunque la vista mensual y el Excel sí los contaban.
-
-Reglas actuales (`totalMesOverride`, `semillaSemanal`, `aplicarEdicionSemana`,
-`cambioAlCargarSemana`, `saldoSemanal`, junto a `buildEmpresasConOverrides`):
-
-- **Regla acordada (no cambia)**: si el mes tiene semanas cargadas, manda su
-  suma; si no, el valor mensual. Override semanal = `{ _sem0.._sem3 }`.
-- **Sin fecha**: un mensual sin semanas (calculado, manual numérico, sublínea o
-  línea agregada solo mensual) no está en ninguna semana. Cuenta en el total del
-  mes, en el FLUJO NETO y en el SALDO de la columna Σ, que son iguales a la
-  vista mensual y al Excel. Se ve en la fila «· sin fecha en el mes (neto)», en
-  la Σ de cada línea («sin fecha X») y en un aviso de incompletitud.
-- **Cargar la 1ª semana** de un mes con valor mensual: el mes pasa a ser la
-  suma de semanas. La pantalla lo pide **confirmar** con el antes y el después
-  (`cambioAlCargarSemana`); cancelar no escribe nada. La diferencia contra el
-  mensual anterior NO se convierte en un pendiente ni en otro compromiso. Si el
-  total no cambia (p. ej. el mes completo en una semana), no hay confirmación.
-- **Con semanas cargadas, la celda mensual no se edita** (vista mensual y mes
-  plegado; marca «Σ semanas»). `handleEditProy` lo comprueba también en la
-  acción que escribe. El total se cambia por semana.
-- **Negativos**: ajustes y devoluciones se cargan como cualquier valor, sin
-  bloqueo. No hay «residuo» que validar: no existe una parte sin fecha
-  calculada por diferencia.
-- **Atrasado**: lo fechado en semanas ya pasadas del mes en curso no se da por
-  pagado ni cobrado: `saldoSemanal` lo suma en la semana en curso (fila
-  «· atrasado»). Créditos ya arrastra sus vencidos por su cuenta.
-- **Cuadre**: saldo de la última semana + sin fecha (neto) = Σ del mes = saldo
-  mensual = Excel. FLUJO NETO semanal = lo fechado en esa semana.
-- Una fecha de distribución en una línea del flujo es siempre ESTIMADA (estas
-  líneas no tienen fecha contractual; marca «est.»); las fechas contractuales
-  son las de Créditos y programas, que no se tocan.
-- **Sublíneas y conceptos agregados** que solo tienen mensual no se editan por
-  semana (hay que dejar primero el mensual en 0, explícitamente).
-
-**Semana en curso** (`posicionSemanaFecha`, `posicionHoyFlujo`): UNA regla para
-la columna destacada y el saldo banco de la vista semanal, el atrasado, el
-arrastre de Créditos y el Reporte Semanal. Semana ISO del DÍA en hora local
-(antes se usaba la hora del reloj y desde el domingo a mediodía saltaba a la
-semana siguiente). Si la semana ISO no está entre las 4 del mes calendario
-(Oct 26-31 es la S44, que el flujo pone en noviembre), se usa la 1ª semana del
-mes en los días 1-7 y la ÚLTIMA en el resto. Antes quedaba en la 1ª: del 26
-al 31 de octubre no se veía el saldo banco ni el atrasado. `ubicarFechaFlujo`
-(vencimientos de Créditos) usa la MISMA función: antes numeraba semanas de
-domingo a sábado, así que un vencimiento en domingo caía en la semana
-siguiente y en 2027 todo quedaba una semana adelante de la semana en curso. Prueba en navegador con reloj y zona horaria de
-Chile: `scripts/e2e/semana-en-curso.mjs`.
-
-**Repartos posiblemente duplicados en producción** (escritos con 7492ca1, que
-copiaba el mensual a S4 o S1 al cargar la primera semana): consulta de solo
-lectura `supabase/consulta_repartos_semanales.sql` y comparación con el
-calculado en `src/revisionRepartos.js` (`FINANZAS_JSON=<export> ...
-revisionRepartos.test.js`). Lista firmas y propone el antes/después; no corrige
-nada.
-
-**Reporte Semanal** (`reporte_getMovimientos4Semanas`), mismas reglas de fecha:
-
-- Ventana: 8 semanas desde la semana en curso, que es la MISMA de la vista
-  semanal (`posicionHoyFlujo`, semana ISO), no una aproximación por día.
-- Lo sin fecha va como «<mes> sin fecha» (pendiente sin calendarizar), sin
-  inventarle semana. El del mes en curso y de los meses que caen completos en
-  la ventana entra a los totales; el de un mes que cae solo en parte queda
-  FUERA del total y se informa aparte (`fueraDelTotal`).
-- Lo fechado en semanas ya pasadas del mes en curso entra como «(atrasado)».
-- Sublíneas y conceptos agregados: semanas mandan; si no hay, su mensual es sin
-  fecha (antes el mensual de sublínea no aparecía y el de concepto agregado se
-  sumaba ENCIMA de sus semanas).
-- Un negativo se clasifica por su efecto en caja (egreso negativo = entrada).
-- Los totales y KPI suman el conjunto COMPLETO (antes se cortaba a 50 ítems por
-  empresa); el detalle mostrado ya se limita (top 5 + resto agrupado).
-- Orden por índice real del horizonte (antes diciembre quedaba después de enero).
-- `reporte_textoIncompleto` avisa, en pantalla y en el PDF, cuánto de los
-  totales no tiene semana, cuánto es atrasado y cuánto quedó fuera.
-
-Límites conocidos (no corregidos): las funciones auxiliares de saldo mensual
-suman en las líneas agregadas el mensual MÁS las semanas (FlujoEmpresa usa "las
-semanas mandan"); editar el mensual de una sublínea borra sus semanas; en una
-línea con sublíneas, editar la semana del padre escribe el total en el padre;
-el KPI de pantalla dice «4 Sem.» y suma 8 semanas como el PDF. Todo preexistente.
-
-Pruebas: `src/__tests__/semanalYAvisosCreditos.test.js` (reglas puras, sitio de
-llamada de la pantalla, reporte con reloj fijo y saldo con corte en semana
-intermedia) y `scripts/e2e/semanal-fechas.mjs` (navegador con reloj fijo en S42:
-sin fecha, atrasado, crédito con pago parcial, fin de mes sin confirmación,
-carga parcial con confirmación y cancelación, guardado y recarga, cuadre
-semanal = mensual = Excel recalculado, celda mensual bloqueada con semanas,
-negativo legítimo y aviso del Reporte Semanal).
 
 #### Avisos de Créditos también en el Excel (oct-2026)
 

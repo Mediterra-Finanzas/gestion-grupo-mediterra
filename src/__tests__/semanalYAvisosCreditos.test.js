@@ -15,7 +15,7 @@ import os from 'os';
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
 import * as XLSX from 'xlsx-js-style';
-import { CeldaEditable, posicionSemanaFecha, semillaSemanal, aplicarEdicionSemana, cambioAlCargarSemana, totalMesOverride, saldoSemanal, reporte_armarDatosEmpresa, reporte_calcKPIsGrupo, reporte_textoIncompleto, buildEmpresas, buildEmpresasConOverrides, aplicarCreditosAEmpresas,
+import { CeldaEditable, semillaSemanal, buildEmpresas, buildEmpresasConOverrides, aplicarCreditosAEmpresas,
   avisosDeEmpresa, avisosCreditosEmpresa, claveLinea } from '../FinanzasModule.jsx';
 import { exportarFlujoEmpresa } from '../flujoExportExcel.js';
 
@@ -53,215 +53,39 @@ describe('D1 · CeldaEditable no guarda si no se escribió nada', () => {
   });
 });
 
-// Vista semanal (oct-2026). Un mensual sin reparto queda SIN FECHA (no se le
-// inventa una semana). REGLA ACORDADA: con semanas cargadas manda su suma; sin
-// semanas, el mensual. Cargar la 1ª semana NO convierte el mensual ni su
-// diferencia en otro compromiso: se pide confirmar el cambio del total.
-describe('vista semanal · regla acordada (semanas mandan)', () => {
-  test('la semilla son solo las semanas que el mes ya tiene', () => {
-    expect(semillaSemanal(undefined, 2600, undefined)).toEqual({});
-    expect(semillaSemanal(5200, 2600, undefined)).toEqual({});
-    expect(semillaSemanal(0, 2600, undefined)).toEqual({});
-    expect(semillaSemanal(null, 50, undefined)).toEqual({});
-    expect(semillaSemanal({ _sem1: 10 }, 50, undefined)).toEqual({ _sem1: 10 });
+describe('D1 · semillaSemanal: las otras semanas parten de lo que se veía', () => {
+  test('sin valor manual: el calculado queda en la semana 1', () => {
+    expect(semillaSemanal(undefined, 2600, undefined)).toEqual({ _sem0: 2600 });
+  });
+  test('valor manual mensual: queda en la última semana (donde se mostraba)', () => {
+    expect(semillaSemanal(5200, 2600, undefined)).toEqual({ _sem3: 5200 });
+  });
+  test('valor manual mensual 0 (mes cerrado) se respeta', () => {
+    expect(semillaSemanal(0, 2600, undefined)).toEqual({ _sem3: 0 });
+  });
+  test('línea con reparto semanal propio', () => {
     expect(semillaSemanal(undefined, 300, [0, 100, 0, 200])).toEqual({ _sem1: 100, _sem3: 200 });
   });
-  test('cargar el mes completo en una semana: el total no cambia y no hay confirmación', () => {
-    expect(cambioAlCargarSemana(106000, 0, undefined, 3, 106000)).toBeNull();
-    expect(cambioAlCargarSemana(undefined, 2600, undefined, 3, 2600)).toBeNull();
-    const o = aplicarEdicionSemana(semillaSemanal(106000, 0), 3, 106000);
-    expect(o).toEqual({ _sem3: 106000 });
-    expect(totalMesOverride(o)).toBe(106000);
+  test('sin nada que conservar', () => { expect(semillaSemanal(undefined, 0, undefined)).toEqual({}); });
+  test('null o texto se tratan como sin valor manual (igual que la pantalla)', () => {
+    expect(semillaSemanal(null, 50, undefined)).toEqual({ _sem0: 50 });
+    expect(semillaSemanal('x', 50, undefined)).toEqual({ _sem0: 50 });
   });
-  test('cargar una parte: el mes pasa a la suma de semanas y se pide confirmar (no queda un pendiente extra)', () => {
-    expect(cambioAlCargarSemana(undefined, 2600, undefined, 2, 1000)).toEqual({ antes: 2600, despues: 1000 });
-    const o = aplicarEdicionSemana(semillaSemanal(undefined, 2600), 2, 1000);
-    expect(o).toEqual({ _sem2: 1000 });
-    expect(totalMesOverride(o)).toBe(1000);
-  });
-  test('con semanas ya cargadas, editar otra semana no pide confirmación y suma', () => {
-    expect(cambioAlCargarSemana({ _sem2: 1000 }, 2600, undefined, 3, 500)).toBeNull();
-    expect(totalMesOverride(aplicarEdicionSemana({ _sem2: 1000 }, 3, 500))).toBe(1500);
-  });
-  test('sin valor mensual previo no hay nada que confirmar', () => {
-    expect(cambioAlCargarSemana(undefined, 0, undefined, 1, 700)).toBeNull();
-    expect(cambioAlCargarSemana(0, 2600, undefined, 1, 700)).toBeNull();
-  });
-  test('Créditos (semanas propias): no aplica', () => {
-    expect(cambioAlCargarSemana(undefined, 300, [0, 100, 0, 200], 1, 50)).toBeNull();
-  });
-  test('negativos legítimos (devolución, ajuste): se cargan igual que los positivos', () => {
-    expect(cambioAlCargarSemana(-1000, 0, undefined, 0, -1000)).toBeNull();
-    expect(cambioAlCargarSemana(-1000, 0, undefined, 0, -400)).toEqual({ antes: -1000, despues: -400 });
-    const o = aplicarEdicionSemana(aplicarEdicionSemana({}, 0, -400), 2, 150);
-    expect(o).toEqual({ _sem0: -400, _sem2: 150 });
-    expect(totalMesOverride(o)).toBe(-250);
-  });
-  test('Excel/consolidado (buildEmpresasConOverrides) = pantalla: suma de semanas', () => {
+
+  // Mismo cálculo que el mes en pantalla (getProy) y que el Excel
+  // (buildEmpresasConOverrides): Σ semanas guardadas.
+  test('editar la semana 3 conserva el calculado: mes = 2.600 + 1.000 (antes 1.000)', () => {
     const empresas = buildEmpresas({}, { cobros: [] });
     const emp = empresas['Allegria Foods'];
     const sec = emp.sections.find(s => s.lines.some(l => l.label === 'Arriendo Oficina'));
     const idx = 6; // Oct-26
-    const ov = aplicarEdicionSemana(aplicarEdicionSemana({}, 2, 1000), 3, 250);
+    const base = sec.lines.find(l => l.label === 'Arriendo Oficina').proy[idx];
+    expect(base).toBeGreaterThan(0);
+    const ov = { ...semillaSemanal(undefined, base, undefined), _sem2: 1000 };
     const real = { 'Allegria Foods': { _proyOverrides: { [claveLinea(sec.cat, 'Arriendo Oficina')]: { [idx]: ov } } } };
     const out = buildEmpresasConOverrides(empresas, real, {}, {});
     const l = out['Allegria Foods'].sections.find(s => s.cat === sec.cat).lines.find(x => x.label === 'Arriendo Oficina');
-    expect(l.proy[idx]).toBe(1250);
-  });
-  // Control del SITIO DE LLAMADA (regla 10): se lee el código real de la pantalla.
-  // Puntos ciegos: una llamada por alias o desde otro handler no se ve aquí.
-  test('handleEditProy: con semanas no escribe el mensual; la 1ª semana pide confirmar ANTES de escribir', () => {
-    const src = fs.readFileSync(path.join(__dirname, '..', 'FinanzasModule.jsx'), 'utf8');
-    const i = src.indexOf('const handleEditProy = useCallback(');
-    const fin = src.indexOf('setProyOverrides(prev=>{', i);
-    expect(i).toBeGreaterThan(0); expect(fin).toBeGreaterThan(i);
-    const antes = src.slice(i, fin);
-    expect(antes).toMatch(/if \(semIdx == null\) \{\s*if \(efectivoAhora !== null && typeof efectivoAhora === "object"\) \{[\s\S]*?return;\s*\}/);
-    expect(antes).toMatch(/cambioAlCargarSemana\([\s\S]*?\);\s*if \(c && !window\.confirm\([\s\S]*?\)\) return;/);
-    const cuerpo = src.slice(fin, src.indexOf('},[empNombre, onSaveProy, emp, resoluciones, proyOverrides]);', fin));
-    expect(cuerpo).toMatch(/if \(efectivo !== null && typeof efectivo === "object"\) return prev;/);
-    expect(cuerpo).not.toMatch(/_sinFecha/);
-  });
-  test('la celda mensual no se edita con semanas cargadas (vista mensual y mes plegado)', () => {
-    const src = fs.readFileSync(path.join(__dirname, '..', 'FinanzasModule.jsx'), 'utf8');
-    expect(src).toMatch(/const isEditable=canEdit && !formulaBloquea && !isTot && col\.type!=="month_collapsed" && !mesConSemanas;/);
-    expect(src).toMatch(/canEdit=\{canEdit && !formulaBloquea && !mesConSemanas\}\s*real=\{real\}\s*onSave=\{v=>handleEditProy\(sec\.cat,line\.label,col\.idx,v\)\}/);
-  });
-});
-
-// Reporte Semanal: mismas reglas de fecha que la vista semanal. Lo sin fecha
-// se muestra como pendiente sin calendarizar (no se le inventa semana) y no
-// desaparece al avanzar el corte; los totales van sobre el conjunto completo.
-describe('reporte semanal · sin fecha, atrasado y totales completos', () => {
-  const conReloj = (fecha, fn) => {
-    jest.useFakeTimers('modern'); jest.setSystemTime(fecha);
-    try { return fn(); } finally { jest.useRealTimers(); }
-  };
-  const empresas = buildEmpresas({}, { cobros: [] });
-  const sec = empresas['Allegria Foods'].sections.find(s => s.lines.some(l => l.label === 'Arriendo Oficina'));
-  const clave = claveLinea(sec.cat, 'Arriendo Oficina');
-  const baseOct = sec.lines.find(l => l.label === 'Arriendo Oficina').proy[6];
-  const items = (d) => d.compromisos.filter(x => x.label === 'Arriendo Oficina').map(x => `${x.mes}|${Math.round(x.monto)}`);
-
-  test('lo calculado de octubre es «sin fecha» y sigue ahí en S40, S42 y S43', () => {
-    expect(baseOct).toBeGreaterThan(0);
-    [new Date(2026, 9, 1, 12), new Date(2026, 9, 14, 12), new Date(2026, 9, 21, 12)].forEach(f => {
-      const d = conReloj(f, () => reporte_armarDatosEmpresa('Allegria Foods', {}, empresas, null, 0, '', 950, {}, {}));
-      expect(items(d)).toContain(`Oct 26 sin fecha|${Math.round(baseOct)}`);
-      expect(d.compromisos.some(x => /^Oct 26 S\d/.test(x.mes) && x.label === 'Arriendo Oficina')).toBe(false);
-    });
-  });
-  test('semana cargada: va en su semana; si ya pasó, como atrasado (no como pagado)', () => {
-    const real = { 'Allegria Foods': { _proyOverrides: { [clave]: { 6: { _sem0: 500, _sem3: 700 }, 7: { _sem3: 1000 } } } } };
-    const d = conReloj(new Date(2026, 9, 14, 12), () => reporte_armarDatosEmpresa('Allegria Foods', real, empresas, null, 0, '', 950, {}, {}));
-    expect(items(d)).toEqual(expect.arrayContaining(['Oct 26 S1 (atrasado)|500', 'Oct 26 S4|700', 'Nov 26 S4|1000']));
-    expect(items(d).some(x => x.startsWith('Oct 26 sin fecha'))).toBe(false);
-    expect(items(d).some(x => x.startsWith('Nov 26 sin fecha'))).toBe(false);
-  });
-  test('mes que cae solo en parte en la ventana: su sin fecha queda FUERA del total y se informa', () => {
-    const d = conReloj(new Date(2026, 9, 14, 12), () => reporte_armarDatosEmpresa('Allegria Foods', {}, empresas, null, 0, '', 950, {}, {}));
-    expect(d.compromisos.some(x => x.mes.startsWith('Dic 26'))).toBe(false);
-    expect(d.fueraDelTotal.compromisos.some(x => x.mes === 'Dic 26 sin fecha' && x.label === 'Arriendo Oficina')).toBe(true);
-    const k = reporte_calcKPIsGrupo([d]);
-    expect(k.incompleto.mesesFuera).toEqual(['Dec-26']);
-    expect(reporte_textoIncompleto(k)).toMatch(/sin calendarizar[\s\S]*Fuera de los totales: montos sin fecha de Dec-26/);
-  });
-  test('más de 50 ítems: el KPI suma TODOS (el límite es solo del detalle mostrado)', () => {
-    const adds = { 'Allegria Foods': { [sec.cat]: Array.from({ length: 80 }, (_, n) => ({ label: `Gasto ${n}`, vals: { 6: 10 } })) } };
-    const d = conReloj(new Date(2026, 9, 14, 12), () => reporte_armarDatosEmpresa('Allegria Foods', {}, empresas, null, 0, '', 950, {}, adds));
-    expect(d.compromisos.length).toBeGreaterThan(80);
-    const total = d.compromisos.reduce((s, x) => s + x.monto, 0);
-    const k = reporte_calcKPIsGrupo([d]);
-    expect(k.compromisos4S).toBeCloseTo(total, 6);
-    expect(d.compromisos.filter(x => /^Gasto /.test(x.label)).length).toBe(80);
-  });
-  test('concepto agregado con semanas: mandan las semanas (el mensual no se suma encima)', () => {
-    const adds = { 'Allegria Foods': { [sec.cat]: [{ label: 'Gasto X', vals: { 6: 999, '6_3': 300 } }] } };
-    const d = conReloj(new Date(2026, 9, 14, 12), () => reporte_armarDatosEmpresa('Allegria Foods', {}, empresas, null, 0, '', 950, {}, adds));
-    expect(d.compromisos.filter(x => x.label === 'Gasto X').map(x => `${x.mes}|${x.monto}`)).toEqual(['Oct 26 S4|300']);
-  });
-  test('negativo legítimo: un egreso negativo (devolución) es entrada, no compromiso', () => {
-    const real = { 'Allegria Foods': { _proyOverrides: { [clave]: { 6: { _sem3: -400 } } } } };
-    const d = conReloj(new Date(2026, 9, 14, 12), () => reporte_armarDatosEmpresa('Allegria Foods', real, empresas, null, 0, '', 950, {}, {}));
-    expect(d.ingresos.some(x => x.label === 'Arriendo Oficina' && x.mes === 'Oct 26 S4' && x.monto === 400)).toBe(true);
-    expect(d.compromisos.some(x => x.label === 'Arriendo Oficina' && x.mes === 'Oct 26 S4')).toBe(false);
-  });
-  test('orden: diciembre antes que enero', () => {
-    const d = conReloj(new Date(2026, 11, 16, 12), () => reporte_armarDatosEmpresa('Allegria Foods', {}, empresas, null, 0, '', 950, {}, {}));
-    const k = reporte_calcKPIsGrupo([d]);
-    const meses = k.compromisosConsolidados.map(x => x.mes.slice(0, 6));
-    const iDic = meses.lastIndexOf('Dic 26'), iEne = meses.indexOf('Ene 27');
-    expect(iDic).toBeGreaterThanOrEqual(0); expect(iEne).toBeGreaterThan(iDic);
-  });
-});
-
-// Semana en curso: una sola regla (flujo, Créditos y Reporte Semanal). Semana
-// ISO del DÍA (sin la hora) y, si esa semana no está entre las 4 del mes
-// calendario, 1ª semana en los días 1-7 y última en el resto.
-describe('semana en curso · fin de mes y domingos', () => {
-  const pos = (y, m, d) => { const r = posicionSemanaFecha(y, m, d); return `${r.mes} ${r.semIdx} ${r.semana}`; };
-  test('semana normal y domingo (el domingo cierra la semana ISO)', () => {
-    expect(pos(2026, 10, 14)).toBe('Oct-26 2 S42');
-    expect(pos(2026, 10, 18)).toBe('Oct-26 2 S42');   // domingo
-    expect(pos(2026, 10, 19)).toBe('Oct-26 3 S43');   // lunes siguiente
-  });
-  test('fin de mes: la semana ISO es de otro mes → última semana del mes calendario', () => {
-    expect(pos(2026, 10, 26)).toBe('Oct-26 3 S43');   // S44 en el flujo es de noviembre
-    expect(pos(2026, 10, 29)).toBe('Oct-26 3 S43');
-    expect(pos(2026, 10, 31)).toBe('Oct-26 3 S43');
-    expect(pos(2026, 11, 30)).toBe('Nov-26 3 S47');
-    expect(pos(2026, 12, 31)).toBe('Dec-26 3 S51');
-  });
-  test('inicio de mes', () => {
-    expect(pos(2026, 11, 1)).toBe('Nov-26 0 S44');    // domingo de la S44
-    expect(pos(2027, 1, 1)).toBe('Jan-27 0 S01');     // semana ISO 53 de 2026
-    expect(pos(2027, 1, 4)).toBe('Jan-27 0 S01');
-  });
-  test('los vencimientos de Créditos usan la MISMA semana (domingo y 2027)', () => {
-    const cr = (uid, f) => ({ uid, n: 1, empresa: 'Allegria Foods', acreedor: 'Banco ' + uid, tipo_inst: 'Banco',
-      monto: 1000, f_venc: f, cuota: 1000, tipo_cr: 'Bullet', pagado: false, control_desde: '2026-10-01' });
-    jest.useFakeTimers('modern'); jest.setSystemTime(new Date(2026, 9, 12, 12));
-    try {
-      const e = aplicarCreditosAEmpresas(buildEmpresas({}, { cobros: [] }), [cr('D', '2026-10-18'), cr('F', '2027-02-10')]);
-      const l = e['Allegria Foods'].sections.flatMap(x => x.lines).find(x => x.label === 'Pago Préstamos - Total');
-      expect(l._semProy[6]).toEqual([0, 0, 1000, 0]);            // domingo 18-10 → S42 (semana ISO que cierra ese día)
-      expect(l._semProy[10]).toEqual([0, 1000, 0, 0]);           // miércoles 10-02-2027 → S06 = 2ª de febrero
-      expect(posicionSemanaFecha(2027, 2, 8).semIdx).toBe(1);    // el lunes 08-02-2027 es la misma semana
-    } finally { jest.useRealTimers(); }
-  });
-  test('el reporte usa la misma regla: domingo a las 15:00 y 29-10 marcan bien el atrasado', () => {
-    const empresas = buildEmpresas({}, { cobros: [] });
-    const sec = empresas['Allegria Foods'].sections.find(s => s.lines.some(l => l.label === 'Arriendo Oficina'));
-    const real = { 'Allegria Foods': { _proyOverrides: { [claveLinea(sec.cat, 'Arriendo Oficina')]: { 6: { _sem0: 10, _sem1: 20, _sem2: 30, _sem3: 40 } } } } };
-    const ver = (fecha) => {
-      jest.useFakeTimers('modern'); jest.setSystemTime(fecha);
-      try {
-        return reporte_armarDatosEmpresa('Allegria Foods', real, empresas, null, 0, '', 950, {}, {})
-          .compromisos.filter(x => x.label === 'Arriendo Oficina' && x.mes.startsWith('Oct 26')).map(x => x.mes);
-      } finally { jest.useRealTimers(); }
-    };
-    expect(ver(new Date(2026, 9, 18, 15, 0))).toEqual(['Oct 26 S1 (atrasado)', 'Oct 26 S2 (atrasado)', 'Oct 26 S3', 'Oct 26 S4']);
-    expect(ver(new Date(2026, 9, 18, 9, 0))).toEqual(['Oct 26 S1 (atrasado)', 'Oct 26 S2 (atrasado)', 'Oct 26 S3', 'Oct 26 S4']);
-    expect(ver(new Date(2026, 9, 29, 12, 0))).toEqual(['Oct 26 S1 (atrasado)', 'Oct 26 S2 (atrasado)', 'Oct 26 S3 (atrasado)', 'Oct 26 S4']);
-  });
-});
-
-describe('vista semanal · saldo semanal (corte en semana intermedia)', () => {
-  // Mes del corte = 6 (Oct-26), semana en curso = 2 (S42). Flujo fechado por semana:
-  const fechado = { '6_0': -100, '6_1': 0, '6_2': -30, '6_3': -500, '7_0': 50, '7_1': 0, '7_2': 0, '7_3': 0 };
-  const flujoSemana = (m, s) => fechado[`${m}_${s}`] || 0;
-  const base = { mesIni: 6, semIni: 2, saldoIni: 1000, flujoSemana };
-  test('semanas anteriores al corte: sin saldo', () => {
-    expect(saldoSemanal({ ...base, mesIdx: 6, semIdx: 1, acumMesPrevio: null })).toBeNull();
-  });
-  test('lo fechado en una semana pasada NO se da por pagado: entra en la semana en curso', () => {
-    // 1000 − 100 (atrasado S40) − 30 (S42) = 870
-    expect(saldoSemanal({ ...base, mesIdx: 6, semIdx: 2, acumMesPrevio: null })).toBe(870);
-    expect(saldoSemanal({ ...base, mesIdx: 6, semIdx: 3, acumMesPrevio: null })).toBe(370);
-  });
-  test('mes siguiente parte del cierre mensual (que incluye lo sin fecha)', () => {
-    // cierre Oct (mensual) = 370 − 200 sin fecha = 170
-    expect(saldoSemanal({ ...base, mesIdx: 7, semIdx: 0, acumMesPrevio: 170 })).toBe(220);
+    expect(l.proy[idx]).toBe(base + 1000);
   });
 });
 

@@ -1267,11 +1267,10 @@ function buildParametrosAllpaPeru(paramsAP, months) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// HOJA "Parametros" — Allegria Foods. 10 líneas parametrizadas:
+// HOJA "Parametros" — Allegria Foods. 7 líneas parametrizadas:
 //   Cerezas:  Anticipo Cerezas (ing), Costo Fruta Exportación, Materiales,
 //             Servicios de Packing.
-//   Ciruelas: Liquidación Ciruelas (ing), Costo Fruta Ciruelas, Materiales
-//             Ciruelas, Servicios de Packing Ciruelas (parámetros propios).
+//   Ciruelas: Liquidación Ciruelas (ing).
 //   Rebate:   Otros ingresos - Rebate (kg cerezas × US$/kg × %kilos).
 //   Arándanos Perú (comisión): kg × FOB × fee% (o kg × US$/kg).
 // Ingresos = anticipos cliente (US$/kg×kg) + liquidación (max(0, kg×FOB−Σant)).
@@ -1283,15 +1282,13 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
   // Movement cols (mes/monto) por línea:
   const AC_M=8,AC_N=9, CO_M=10,CO_N=11, MT_M=12,MT_N=13, SP_M=14,SP_N=15,
         LC_M=16,LC_N=17, RB_M=18,RB_N=19, AR_M=20,AR_N=21,
-        RE_M=22,RE_N=23, DE_M=24,DE_N=25,
-        CC_M=26,CC_N=27, MC_M=28,MC_N=29, SC_M=30,SC_N=31, LAST_COL=31;
+        RE_M=22,RE_N=23, DE_M=24,DE_N=25, LAST_COL=25;
   const { cells, merges, wrows, put, rInicio } = iniciarParamSheet('⚙ Parámetros — Allegria Foods', 7);
   let r = rInicio;
   // sub-encabezado columnas fuente
   [['Ant.Cerezas',AC_M],['Costo Fruta',CO_M],['Materiales',MT_M],['Servicios',SP_M],
    ['Liq.Ciruelas',LC_M],['Rebate',RB_M],['Arándanos',AR_M],
-   ['Recup.anticipos',RE_M],['Devol.anticipos',DE_M],
-   ['Costo Ciruelas',CC_M],['Mat.Ciruelas',MC_M],['Serv.Ciruelas',SC_M]].forEach(([t,c])=>{
+   ['Recup.anticipos',RE_M],['Devol.anticipos',DE_M]].forEach(([t,c])=>{
     put(r,c,{ t:'s', v:t, s:PS.colHdr }); put(r,c+1,{ t:'s', v:'US$', s:PS.colHdr });
   });
   r++;
@@ -1311,12 +1308,7 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
   seasonKeys.forEach(sk => {
     const p = paramsAll[sk]?.cerezas; if (!p) return;
     const kg = Number(p.kg)||0, fob = Number(p.fob_usd_kg)||0;
-    // Igual que calcAllegria (y que ciruelas): sin kilos o FOB, los programas
-    // por contraparte y los saldos a favor se proyectan igual (base 0); los
-    // calendarios de materiales y servicios no (no hay volumen).
-    const sinVolumen = kg===0 || fob===0;
-    const hayProgOSaldo = (Array.isArray(p.programas) && p.programas.length) || (Array.isArray(p.saldos_favor) && p.saldos_favor.length);
-    if (sinVolumen && !hayProgOSaldo) return;
+    if (kg===0 || fob===0) return;
     const desc = Number(p.desc_exp_pct)||0, matU = Number(p.mat_usd_kg)||0, srvU = Number(p.srv_usd_kg)||0;
     const rH = r; const kgC=ref(rH,2), fobC=ref(rH,3), descC=ref(rH,4), matC=ref(rH,5), srvC=ref(rH,6);
     cerezasKgCell[sk] = kgC;
@@ -1349,7 +1341,6 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
       saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'cerezas',
       modeloVersion:p.modelo_version || 1, decisionesSinFecha:p.decisiones_sin_fecha || {},
     });
-    if (sinVolumen) return;
     // materiales (dist_mat) → MT: kg×matUSD×pct/100
     (p.dist_mat||[]).forEach(d => {
       const pct = Number(d.pct)||0; const rD=r; const pC=ref(rD,3);
@@ -1365,25 +1356,19 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
   });
   r++;
 
-  // ══ CIRUELAS (4 líneas: Liquidación Ciruelas, Costo Fruta Ciruelas,
-  //    Materiales Ciruelas, Servicios de Packing Ciruelas) ══
-  // Mismo modelo que cerezas, con los parámetros PROPIOS de ciruelas.
-  secHdr('② CIRUELAS — anticipos cliente/productor (acordado · realizado · pendiente), materiales y packing');
-  colHdrs(['Temporada','Concepto','kg','FOB / US$·kg','desc%','matUSD','srvUSD']);
+  // ══ CIRUELAS (1 línea: Liquidación Ciruelas) ══
+  // NOTA: el flujo de Allegria Foods solo tiene línea de INGRESO para ciruelas.
+  // Sus costos (anticipos productor, saldo, materiales, servicios) se calculan
+  // en la app pero no están conectados a ninguna línea → no se exportan acá.
+  secHdr('② CIRUELAS — anticipos cliente (acordado · realizado · pendiente) + liquidación');
+  colHdrs(['Temporada','Concepto','kg','FOB / US$·kg','—','—','—']);
   seasonKeys.forEach(sk => {
     const p = paramsAll[sk]?.ciruelas; if (!p) return;
     const kg = Number(p.kg)||0, fob = Number(p.fob_usd_kg)||0;
-    // Igual que calcAllegria: sin kilos o FOB, los programas por contraparte y
-    // los saldos a favor se proyectan igual (base 0); los calendarios de
-    // materiales y servicios no (no hay volumen).
-    const sinVolumen = kg===0 || fob===0;
-    const hayProgOSaldo = (Array.isArray(p.programas) && p.programas.length) || (Array.isArray(p.saldos_favor) && p.saldos_favor.length);
-    if (sinVolumen && !hayProgOSaldo) return;
-    const desc = Number(p.desc_exp_pct)||0, matU = Number(p.mat_usd_kg)||0, srvU = Number(p.srv_usd_kg)||0;
-    const rH=r; const kgC=ref(rH,2), fobC=ref(rH,3), descC=ref(rH,4), matC=ref(rH,5), srvC=ref(rH,6);
+    if (kg===0 || fob===0) return;
+    const rH=r; const kgC=ref(rH,2), fobC=ref(rH,3);
     put(rH,0,{ t:'s', v:sk, s:PS.txt }); put(rH,1,{ t:'s', v:'Ciruelas', s:PS.txt });
-    put(rH,2,{ t:'n', v:kg, s:PS.inKg }); put(rH,3,{ t:'n', v:fob, s:PS.inUsd });
-    put(rH,4,{ t:'n', v:desc, s:PS.inPct }); put(rH,5,{ t:'n', v:matU, s:PS.inUsd }); put(rH,6,{ t:'n', v:srvU, s:PS.inUsd }); r++;
+    put(rH,2,{ t:'n', v:kg, s:PS.inKg }); put(rH,3,{ t:'n', v:fob, s:PS.inUsd }); r++;
     bloqueLiquidacionLado({
       estimaciones:p.anticipos_cliente||[], programas:p.programas, lado:'cliente',
       kgFruta:kg, kgC, helpers:helpersAll, put, getR, setR,
@@ -1392,29 +1377,6 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
       mesLiq:p.mes_liquidacion, etiqueta:'Liquidación', etiquetaTot:'Venta total',
       saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'ciruelas',
       modeloVersion:p.modelo_version || 1, decisionesSinFecha:p.decisiones_sin_fecha || {},
-    });
-    // ── productor → Costo Fruta Ciruelas (CC) ──
-    bloqueLiquidacionLado({
-      estimaciones:p.anticipos_productor||[], programas:p.programas, lado:'productor',
-      kgFruta:kg, kgC, helpers:helpersAll, put, getR, setR,
-      mesCol:CC_M, monCol:CC_N,
-      baseF:`${kgC}*MAX(0,${fobC}*(1-${descC}/100)-${matC}-${srvC})`,
-      baseV:kg*Math.max(0, fob*(1-desc/100)-matU-srvU),
-      definitiva:p.liq_definitiva_productor?.total || null,
-      mesLiq:p.mes_saldo_productor, etiqueta:'Saldo productor', etiquetaTot:'Costo neto total',
-      saldosFavor:p.saldos_favor||[], temporada:sk, fruta:'ciruelas',
-      modeloVersion:p.modelo_version || 1, decisionesSinFecha:p.decisiones_sin_fecha || {},
-    });
-    if (sinVolumen) return;
-    (p.dist_mat||[]).forEach(d => {
-      const pct = Number(d.pct)||0; const rD=r; const pC=ref(rD,3);
-      put(rD,1,{ t:'s', v:'   ↳ Materiales', s:PS.txtSub }); put(rD,3,{ t:'n', v:pct, s:PS.inPct });
-      put(rD,MC_M,{ t:'s', v:d.mes||'', s:PS.inTxt }); put(rD,MC_N,{ t:'n', f:`${kgC}*${matC}*${pC}/100`, v:kg*matU*pct/100, s:PS.movNum }); r++;
-    });
-    (p.dist_srv||[]).forEach(d => {
-      const pct = Number(d.pct)||0; const rD=r; const pC=ref(rD,3);
-      put(rD,1,{ t:'s', v:'   ↳ Serv. packing', s:PS.txtSub }); put(rD,3,{ t:'n', v:pct, s:PS.inPct });
-      put(rD,SC_M,{ t:'s', v:d.mes||'', s:PS.inTxt }); put(rD,SC_N,{ t:'n', f:`${kgC}*${srvC}*${pC}/100`, v:kg*srvU*pct/100, s:PS.movNum }); r++;
     });
   });
   r++;
@@ -1527,9 +1489,6 @@ function buildParametrosAllegria(paramsAll, comisionArandanos, months) {
     'Materiales':                                                    { cellFormula: sf(MT_M, MT_N) },
     'Servicios de Packing':                                          { cellFormula: sf(SP_M, SP_N) },
     'Liquidación Ciruelas':                                          { cellFormula: sf(LC_M, LC_N) },
-    'Costo Fruta Ciruelas':                                          { cellFormula: sf(CC_M, CC_N) },
-    'Materiales Ciruelas':                                           { cellFormula: sf(MC_M, MC_N) },
-    'Servicios de Packing Ciruelas':                                 { cellFormula: sf(SC_M, SC_N) },
     'Otros ingresos - Rebate exportación (cobro diferido)':          { cellFormula: sf(RB_M, RB_N) },
     'Arándanos Perú':                                                { cellFormula: sf(AR_M, AR_N) },
     'Recuperación de anticipos a productores':                       { cellFormula: sf(RE_M, RE_N) },

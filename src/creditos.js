@@ -1187,11 +1187,11 @@ export function flujoCreditosEmpresa(empresa, creditos, opts = {}) {
     vencimientos.forEach(v0 => {
       const v = v0;
       if (!(v.pendienteTotal > 0)) return;
+      // UF: el valor de la fecha del vencimiento (publicado) o hipótesis.
+      const f = factorVencimiento(c, v.fecha < hoy ? hoy : v.fecha);
       // Por conciliar: NO entra al flujo; se informa con su impacto potencial.
-      if (v.porConciliar) { out.porConciliar.push({ ...v, usd: r2(v.pendienteTotal * factorVencimiento(c, v.fecha < hoy ? hoy : v.fecha)) }); return; }
+      if (v.porConciliar) { out.porConciliar.push({ ...v, usd: r2(v.pendienteTotal * f) }); return; }
       const fp = fechaProyeccion(c, v, hoy);
-      // UF: el valor de la fecha en que se PROYECTA el pago (publicado) o hipótesis.
-      const f = factorVencimiento(c, fp.tipo === 'estimada' ? fp.fecha : (v.fecha < hoy ? hoy : v.fecha));
       let pos = ubicar ? ubicar(v.fecha) : { idx: -1, semIdx: 0 };
       if (fp.tipo === 'estimada') {
         // Fecha estimada de pago: se proyecta ahí; el vencimiento contractual se conserva.
@@ -1301,9 +1301,9 @@ export function servicioDeudaPorMes(creditos, hoy = hoyISO(), { arrastrar = true
     if (factorUSD(c) === null) return;
     aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.forEach(v => {
       if (!(v.pendienteTotal > 0)) return;
+      const f = factorVencimiento(c, v.fecha < hoy ? hoy : v.fecha);
       // Misma ubicación que el flujo: fecha estimada vigente o arrastre al mes en curso.
       const fp = v.porConciliar ? null : fechaProyeccion(c, v, hoy);
-      const f = factorVencimiento(c, (fp && fp.tipo === 'estimada') ? fp.fecha : (v.fecha < hoy ? hoy : v.fecha));
       const k = (fp && fp.tipo === 'estimada') ? fp.fecha.slice(0, 7)
         : (arrastrar && v.fecha < hoy) ? hoy.slice(0, 7) : v.fecha.slice(0, 7);
       const x = out[k] || (out[k] = { capital: 0, interes: 0, cargos: 0, sinDesglose: 0, total: 0, vencido: 0, porConciliar: 0, interesVariable: 0 });
@@ -1326,10 +1326,7 @@ export function saldoCapitalAl(creditos, corteISO, hoy = hoyISO()) {
   (creditos || []).filter(c => c && !esAnulado(c)).forEach(c => {
     const f = factorUSD(c); if (f === null) return;
     aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.forEach(v => {
-      if (v.porConciliar) return;
-      const fp = fechaProyeccion(c, v, hoy);
-      const fechaPago = fp.tipo === 'estimada' ? fp.fecha : v.fecha;   // misma ubicación que el flujo
-      if (fechaPago > corteISO) { capital += (v.pendiente.capital - capitalizadoNoVigenteAl(v, corteISO)) * f; sinDesglose += v.pendiente.sinDesglose * f; }
+      if (v.fecha > corteISO && !v.porConciliar) { capital += (v.pendiente.capital - capitalizadoNoVigenteAl(v, corteISO)) * f; sinDesglose += v.pendiente.sinDesglose * f; }
     });
   });
   return { capital: r2(capital), sinDesglose: r2(sinDesglose) };
@@ -1487,16 +1484,13 @@ export function saldosAlCorte(creditos, corte, hoy = hoyISO()) {
     aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.forEach(v => {
       if (!(v.pendienteTotal > 0)) return;
       if (v.porConciliar) { pc += v.pendienteTotal; if (fBase !== null) pcUSD += v.pendienteTotal * factorVencimiento(c, hoy); return; }
-      // Misma ubicación que el flujo: con fecha estimada vigente se paga ahí.
-      const fp = fechaProyeccion(c, v, hoy);
-      const fechaPago = fp.tipo === 'estimada' ? fp.fecha : v.fecha;
-      if (corte > hoy && fechaPago <= corte) return;
-      const f = fBase === null ? null : factorVencimiento(c, fechaPago < hoy ? hoy : fechaPago);
+      if (corte > hoy && v.fecha <= corte) return;
+      const f = fBase === null ? null : factorVencimiento(c, v.fecha < hoy ? hoy : v.fecha);
       // Interés capitalizado en una renovación: antes de su fecha sigue siendo interés, no capital.
       const capV = v.pendiente.capital - capitalizadoNoVigenteAl(v, corte);
       cap += capV; sd += v.pendiente.sinDesglose;
       if (f !== null) { capUSD += capV * f; sdUSD += v.pendiente.sinDesglose * f;
-        if (c._tc && c._tc.porFecha && fechaPago > hoy) { const u = c._tc.porFecha(fechaPago); if (!u || u.hipotesis) ufHipotesis = true; } }
+        if (c._tc && c._tc.porFecha && v.fecha > hoy) { const u = c._tc.porFecha(v.fecha); if (!u || u.hipotesis) ufHipotesis = true; } }
     });
     if (fBase === null) { if (cap + sd + pc > EPS) sinTC.push({ empresa: c.empresa, acreedor: c.acreedor, moneda: c.moneda || 'USD', capital: r2(cap), sinClasificar: r2(sd), porConciliar: r2(pc) }); return; }
     e.capital += capUSD; e.sinClasificar += sdUSD; e.porConciliar += pcUSD;
