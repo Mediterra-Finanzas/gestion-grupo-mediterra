@@ -325,5 +325,10 @@ check('I1 saldosAlCorte: capital 1.000.000 hoy y al 30-nov-26 (antes de capitali
   && aprox(saldosAlCorte([capI], '2027-01-31', HOY).total.capital, 1050000),
   `${saldosAlCorte([capI], HOY, HOY).total.capital} / ${saldosAlCorte([capI], '2026-11-30', HOY).total.capital} / ${saldosAlCorte([capI], '2027-01-31', HOY).total.capital}`);
 
+// I2 el desembolso (fecha real) lleva su semana para la vista semanal (no queda "sin fecha").
+const desSem = { ...bullet, uid: 'i2', fecha_desembolso: '2026-11-18' };
+const fI2 = flujo([desSem], 'Mediterra');
+check('I2 ingresos.sem: desembolso del 18-nov-26 en la 3ª semana de nov-26 (1.000.000)', aprox((fI2.ingresos.sem[iM(2026, 11)] || [])[2], 1000000) && aprox(fI2.ingresos.total[iM(2026, 11)], 1000000), JSON.stringify(fI2.ingresos.sem[iM(2026, 11)]));
+
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

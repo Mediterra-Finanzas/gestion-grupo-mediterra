@@ -900,14 +900,85 @@ escrito daba 1.000). Dos correcciones:
 
 - `CeldaEditable` no llama `onSave` si el texto no cambió (clic y salir, o
   reescribir lo mismo). Un 0 escrito explícitamente sí se guarda.
-- `handleEditProy`, al crear el objeto semanal de un mes que no lo tenía, parte
-  de `semillaSemanal(efectivo, base, _semProy)`: lo que la pantalla mostraba
-  (valor manual mensual en la última semana, calculado en la primera, o el
-  reparto semanal propio de la línea). La regla mensual-vs-semanal no cambia.
+- `handleEditProy` aplica la regla acordada (ver la sección siguiente): con
+  semanas cargadas manda su suma. Cargar la 1ª semana de un mes que tenía valor
+  mensual reemplaza ese mensual y se CONFIRMA mostrando el antes y el después;
+  nada se convierte en un compromiso adicional.
 
 Fijado con `src/__tests__/semanalYAvisosCreditos.test.js` y
 `scripts/e2e/semanal-sin-perdida.mjs` (falla en c9c5792: guarda `{_sem2:0}` y el
 mes pasa de 2.700 a 0).
+
+#### Vista semanal: fechas solo cuando existen (oct-2026)
+
+Antes la vista semanal inventaba fechas: un valor mensual calculado iba a la 1ª
+semana del mes, un manual mensual a la última, un mensual de sublínea a la
+última y uno de línea agregada a la 1ª; la fila FLUJO NETO mostraba el mes ÷ 4.
+Y el saldo semanal del mes en curso arrancaba en la semana actual, así que lo
+puesto en semanas ya pasadas **desaparecía**, aunque la vista mensual y el
+Excel sí lo contaban. Además, al cargar la 1ª semana de un mes con valor
+mensual, `semillaSemanal` copiaba ese mensual a S1/S4 y el mes quedaba en
+mensual + semana nueva, sin aviso.
+
+Reglas actuales (`totalMesOverride`, `semillaSemanal`, `aplicarEdicionSemana`,
+`cambioAlCargarSemana`, `saldoSemanal`, junto a `buildEmpresasConOverrides`):
+
+- **Regla acordada (no cambia)**: si el mes tiene semanas cargadas, manda su
+  suma; si no, el valor mensual. Override semanal = `{ _sem0.._sem3 }`.
+- **Sin fecha**: un mensual sin semanas (calculado, manual numérico, sublínea o
+  línea agregada solo mensual) no está en ninguna semana. Cuenta en el total del
+  mes, en el FLUJO NETO y en el SALDO de la columna Σ, que son iguales a la
+  vista mensual y al Excel. Se ve en la fila «· sin fecha en el mes (neto)», en
+  la Σ de cada línea («sin fecha X») y en un aviso de incompletitud.
+- **Cargar la 1ª semana** de un mes con valor mensual: el mes pasa a ser la
+  suma de semanas. La pantalla lo pide **confirmar** con el antes y el después
+  (`cambioAlCargarSemana`); cancelar no escribe nada. La diferencia contra el
+  mensual anterior NO se convierte en un pendiente ni en otro compromiso. Si el
+  total no cambia (p. ej. el mes completo en una semana), no hay confirmación.
+- **Con semanas cargadas, la celda mensual no se edita** (vista mensual y mes
+  plegado; marca «Σ semanas»). `handleEditProy` lo comprueba también en la
+  acción que escribe. El total se cambia por semana.
+- **Negativos**: ajustes y devoluciones se cargan como cualquier valor, sin
+  bloqueo.
+- **Atrasado**: lo fechado en semanas ya pasadas del mes en curso no se da por
+  pagado ni cobrado: `saldoSemanal` lo suma en la semana en curso (fila
+  «· atrasado»). Créditos ya arrastra sus vencidos por su cuenta.
+- **Cuadre**: saldo de la última semana + sin fecha (neto) = Σ del mes = saldo
+  mensual = Excel. FLUJO NETO semanal = lo fechado en esa semana.
+- Una fecha de distribución en una línea del flujo es siempre ESTIMADA (marca
+  «est.»); las fechas contractuales son las de Créditos y programas.
+- **Sublíneas y conceptos agregados** que solo tienen mensual no se editan por
+  semana (hay que dejar primero el mensual en 0, explícitamente).
+
+**Semana en curso** (`posicionSemanaFecha`, `posicionHoyFlujo`): UNA regla para
+la columna destacada y el saldo banco de la vista semanal, el atrasado y el
+arrastre de Créditos. Semana ISO del DÍA en hora local (antes se usaba la hora
+del reloj y desde el domingo a mediodía saltaba a la semana siguiente). Si la
+semana ISO no está entre las 4 del mes calendario (Oct 26-31 es la S44, que el
+flujo pone en noviembre), se usa la 1ª semana del mes en los días 1-7 y la
+ÚLTIMA en el resto. `ubicarFechaFlujo` (vencimientos de Créditos) usa la MISMA
+función: antes numeraba semanas de domingo a sábado, así que un vencimiento en
+domingo caía en la semana siguiente. Prueba en navegador con reloj y zona
+horaria de Chile: `scripts/e2e/semana-en-curso.mjs`.
+
+**Reporte Semanal: NO cambia en esta entrega.** `reporte_getMovimientos4Semanas`
+conserva su regla anterior: un mensual sin semanas se muestra en S1 (calculado)
+o en la última semana (manual), la semana en curso se aproxima por día del mes
+y no usa `posicionHoyFlujo`. Los totales mensuales del reporte sí suman las
+semanas cargadas (regla acordada).
+
+Límites conocidos (no corregidos): las funciones auxiliares de saldo mensual
+suman en las líneas agregadas el mensual MÁS las semanas (FlujoEmpresa usa "las
+semanas mandan"); editar el mensual de una sublínea borra sus semanas; en una
+línea con sublíneas, editar la semana del padre escribe el total en el padre.
+Todo preexistente.
+
+Pruebas: `src/__tests__/semanalYAvisosCreditos.test.js` (reglas puras, sitio de
+llamada de la pantalla, semana en curso y saldo con corte en semana intermedia)
+y `scripts/e2e/semanal-fechas.mjs` (navegador con reloj fijo en S42: sin fecha,
+atrasado, crédito con pago parcial, fin de mes sin confirmación, carga parcial
+con confirmación y cancelación, guardado y recarga, cuadre semanal = mensual =
+Excel recalculado, celda mensual bloqueada con semanas y negativo legítimo).
 
 #### Avisos de Créditos también en el Excel (oct-2026)
 

@@ -1175,7 +1175,7 @@ export function flujoCreditosEmpresa(empresa, creditos, opts = {}) {
   const Z = () => Array(n).fill(0);
   const bloque = () => ({ total: Z(), capital: Z(), interes: Z(), cargos: Z(), sinDesglose: Z(), sem: {}, porAcreedor: {},
     semComp: { capital: {}, interes: {}, cargos: {}, sinDesglose: {} } });
-  const out = { prestamos: bloque(), renovaciones: bloque(), ingresos: { total: Z(), porAcreedor: {} },
+  const out = { prestamos: bloque(), renovaciones: bloque(), ingresos: { total: Z(), porAcreedor: {}, sem: {} },
     arrastrados: [], porConciliar: [], sinTC: [], antesHorizonte: [], valorizacion: [], estimados: [], fueraHorizonte: [],
     desembolsosPendientesVencidos: [] };
   const hoyPos = ubicar ? ubicar(hoy) : { idx: -1, semIdx: 0 };
@@ -1241,6 +1241,8 @@ export function flujoCreditosEmpresa(empresa, creditos, opts = {}) {
       const p = ubicar(fIng);
       if (p.idx >= 0) {
         out.ingresos.total[p.idx] += monto;
+        const si = out.ingresos.sem[p.idx] || (out.ingresos.sem[p.idx] = [0, 0, 0, 0]);
+        si[p.semIdx || 0] += monto;
         const a = out.ingresos.porAcreedor[c.acreedor || '—'] || (out.ingresos.porAcreedor[c.acreedor || '—'] = Z());
         a[p.idx] += monto;
       }
