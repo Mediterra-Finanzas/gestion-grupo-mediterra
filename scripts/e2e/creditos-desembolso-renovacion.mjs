@@ -8,7 +8,8 @@
       01-nov-26, vencimiento 30-abr-27 (180 días → interés 40.000; total 1.040.000).
       - pendiente: Ingresos Financiamiento Nov-26 = 1.000.000
       - fecha futura: rechazada
-      - TOTAL 998.500 → Nov-26 = 0, diferencia −1.500; anular → 1.000.000
+      - 998.500 sin detalle → se confirma como PARCIAL (Nov-26 = 1.500 pendiente)
+      - TOTAL 998.500 + 1.500 retenidos por gastos → Nov-26 = 0, sin diferencia; anular → 1.000.000
       - PARCIAL 600.000 → 400.000; PARCIAL 400.000 → 0; anular el 2º → 400.000
       En todo momento: Pago Préstamos Apr-27 = 1.040.000, saldo capital
       1.000.000, sin pagos, finanzas_real intacto.
@@ -85,9 +86,12 @@ const errores = [];
 page.on('pageerror', e => errores.push(String(e)));
 let respuestaPrompt = 'prueba e2e';
 const alertas = [];
+const confirmaciones = [];
+let respuestaConfirm = true;
 page.on('dialog', d => {
   const t = d.type();
   if (t === 'alert') { alertas.push(d.message()); console.log('   [alert]', d.message().slice(0, 160)); }
+  if (t === 'confirm') { confirmaciones.push(d.message()); if (!respuestaConfirm) return d.dismiss().catch(() => {}); }
   return (t === 'prompt' ? d.accept(respuestaPrompt) : d.accept()).catch(() => {});
 });
 
@@ -224,12 +228,17 @@ await fotoFlujo('01-flujo-mediterra-desembolso-pendiente', 'Jan-27');
 
 const caja = page.locator('[data-desembolso-estado]');
 const estadoCaja = () => caja.getAttribute('data-desembolso-estado');
-async function registrarFondos(tipo, fecha, monto, nota) {
+async function registrarFondos(tipo, fecha, monto, nota, retenido, concepto) {
   await page.locator('[data-boton-fondos-recibidos]').click();
   await page.waitForTimeout(300);
   await page.locator('[data-desembolso-tipo]').selectOption(tipo);
   await inputTras(page, 'Fecha en que se recibieron').fill(fecha);
   await ponerNumero(page, 'Monto recibido (USD)', String(monto));
+  if (retenido) {
+    await ponerNumero(page, 'Retenido por el acreedor (USD)', String(retenido));
+    await page.waitForTimeout(200);
+    await page.locator('[data-desembolso-concepto]').fill(concepto || '');
+  }
   await inputTras(page, 'Nota / respaldo').fill(nota);
   await page.waitForTimeout(200);
   const nAl = alertas.length;
@@ -254,15 +263,33 @@ check('1e Fecha futura rechazada con aviso y sin escribir', alFut.length > 0 && 
 await caja.getByRole('button', { name: 'Cancelar' }).click().catch(() => {});
 await page.waitForTimeout(300);
 
-// ── TOTAL 998.500
-await registrarFondos('total', '2026-10-15', 998500, 'cartola BCI total e2e');
+// ── 998.500 SIN explicación de los 1.500: se confirma y queda como recepción PARCIAL
+const nConf = confirmaciones.length;
+await registrarFondos('total', '2026-10-15', 998500, 'cartola sin detalle e2e');
 let cb = credStore('e2e-bullet');
 let regs = cb.desembolso_registros || [];
-check('1f Store: registro total 2026-10-15 / 998.500 / nota / tipo total', regs.length === 1 && regs[0].fecha === '2026-10-15' && regs[0].monto === 998500
+check('1f0 998.500 "total" sin retención: pide confirmación y se registra PARCIAL; pendiente 1.500',
+  confirmaciones.length === nConf + 1 && /RECEPCIÓN PARCIAL/.test(confirmaciones[nConf] || '') && regs.length === 1 && regs[0].tipo === 'parcial'
+  && (await estadoCaja()) === 'parcial' && /Pendiente \$1,500\.00/.test(await caja.innerText()), (await caja.innerText()).replace(/\s+/g, ' ').slice(0, 200));
+await cerrarModal();
+fl = await leerFlujo('Mediterra');
+check('1f0b Parcial 998.500: Ingresos Financiamiento Nov-26 = 1.500 (lo que falta sigue proyectado)', aprox(v(fl, 'Ingresos Financiamiento', 'Nov-26'), 1500), `${v(fl, 'Ingresos Financiamiento', 'Nov-26')}`);
+await fotoFlujo('03b-flujo-mediterra-998500-parcial', 'Jan-27');
+await compararExcel('mediterra-998500-parcial', fl);
+await abrirDetalle('Banco Bullet E2E');
+await anularRegistro(0, 'faltaba el detalle de gastos (e2e)');
+
+// ── TOTAL 998.500 + 1.500 retenidos por gastos
+await registrarFondos('total', '2026-10-15', 998500, 'cartola BCI total e2e', 1500, 'gastos notariales e impuesto');
+cb = credStore('e2e-bullet');
+regs = (cb.desembolso_registros || []).filter(r => !r.anulado);
+check('1f Store: registro total 2026-10-15 / 998.500 + retenido 1.500 (concepto) / nota / tipo total', regs.length === 1 && regs[0].fecha === '2026-10-15' && regs[0].monto === 998500
+  && regs[0].retenido === 1500 && regs[0].concepto_retenido === 'gastos notariales e impuesto'
   && regs[0].nota === 'cartola BCI total e2e' && regs[0].tipo === 'total' && !regs[0].anulado, JSON.stringify(regs));
-check('1g Store: historial "desembolso_recibido"', (cb.historial || []).some(h => h.accion === 'desembolso_recibido' && /998500/.test(h.detalle)));
-check('1h Detalle: estado "recibido", diferencia −1.500, fila del registro', (await estadoCaja()) === 'recibido' && /diferencia -\$1,500\.00/.test(await caja.innerText())
-  && (await page.locator('[data-desembolso-registro]').count()) === 1, (await caja.innerText()).replace(/\s+/g, ' ').slice(0, 220));
+check('1g Store: historial "desembolso_recibido" con lo retenido', (cb.historial || []).some(h => h.accion === 'desembolso_recibido' && /998500/.test(h.detalle) && /retenido 1500/.test(h.detalle)));
+check('1h Detalle: estado "recibido", 998.500 + retenido 1.500 = 1.000.000, sin diferencia', (await estadoCaja()) === 'recibido'
+  && /retenido por el acreedor \$1,500\.00 = \$1,000,000\.00/.test(await caja.innerText()) && !/diferencia/.test(await caja.innerText())
+  && (await page.locator('[data-desembolso-registro]').count()) === 1, (await caja.innerText()).replace(/\s+/g, ' ').slice(0, 260));
 check('1i Saldo capital sin cambio; sin pagos; finanzas_real intacto', (await kpiModal('Saldo capital')) === capAntes && !(cb.pagos || []).length && realIntacto());
 await foto(page, '02-detalle-fondos-recibidos-total');
 await cerrarModal();
@@ -274,8 +301,8 @@ await compararExcel('mediterra-total-recibido', fl);
 await abrirDetalle('Banco Bullet E2E');
 await anularRegistro(0, 'era otro crédito (e2e)');
 cb = credStore('e2e-bullet');
-check('1l Anular total: registro conservado como anulado con motivo; estado "pendiente"', cb.desembolso_registros.length === 1 && cb.desembolso_registros[0].anulado === true
-  && cb.desembolso_registros[0].motivoAnulacion === 'era otro crédito (e2e)' && (await estadoCaja()) === 'pendiente');
+check('1l Anular total: registro conservado como anulado con motivo; estado "pendiente"', cb.desembolso_registros.length === 2 && cb.desembolso_registros.every(r => r.anulado === true)
+  && cb.desembolso_registros[1].motivoAnulacion === 'era otro crédito (e2e)' && (await estadoCaja()) === 'pendiente');
 
 // ── PARCIAL 600.000 + 400.000
 await registrarFondos('parcial', '2026-10-12', 600000, 'tramo 1 e2e');
@@ -295,8 +322,8 @@ check('1o Parcial 400.000: estado "recibido", 2 registros vigentes listados', (a
 await foto(page, '05-detalle-fondos-recibidos-parcial');
 cb = credStore('e2e-bullet');
 regs = (cb.desembolso_registros || []).filter(r => !r.anulado);
-check('1p Store: 2 tramos parciales vigentes (600.000 + 400.000) y el total anulado se conserva', regs.length === 2 && regs.every(r => r.tipo === 'parcial')
-  && regs[0].monto + regs[1].monto === 1000000 && cb.desembolso_registros.length === 3);
+check('1p Store: 2 tramos parciales vigentes (600.000 + 400.000) y los 2 anulados se conservan', regs.length === 2 && regs.every(r => r.tipo === 'parcial')
+  && regs[0].monto + regs[1].monto === 1000000 && cb.desembolso_registros.length === 4);
 await cerrarModal();
 fl = await leerFlujo('Mediterra');
 check('1q Parcial completo: Ingresos Financiamiento = 0', aprox(totalLinea(fl, 'Ingresos Financiamiento'), 0), `${totalLinea(fl, 'Ingresos Financiamiento')}`);
@@ -426,8 +453,18 @@ const prev0 = await c0.innerText();
 check('2h Vista previa (modelo): $50,000 y $1,050,000', /\$50,000/.test(prev0) && /\$1,050,000/.test(prev0));
 await b0.scrollIntoViewIfNeeded();
 await foto(page, '06-form-renovacion-extension-pagados');
+// Clasificar una renovación ANTIGUA cambia un registro existente: muestra la diferencia y pide confirmación.
+let nc = confirmaciones.length;
+respuestaConfirm = false;
 al = await guardarForm();
-check('2i R1 extensión + pagados guardada sin avisos', al.length === 0 && !(await modalAbierto()), al.join(' | '));
+const txtConf = confirmaciones[nc] || '';
+check('2h2 Clasificar la antigua: confirmación con la diferencia mes a mes; cancelar NO escribe',
+  /registro antiguo/.test(txtConf) && /Pago Préstamos - Total Dec-26: \$1,050,000 → \$50,000/.test(txtConf) && /Ingreso Renovación Dec-26: \$1,000,000 → \$0/.test(txtConf)
+  && renN(0).modalidad === undefined && await modalAbierto(), txtConf.replace(/\n/g, ' | ').slice(0, 400));
+respuestaConfirm = true;
+nc = confirmaciones.length;
+al = await guardarForm();
+check('2i R1 extensión + pagados guardada sin avisos (tras confirmar la diferencia)', al.length === 0 && !(await modalAbierto()) && confirmaciones.length === nc + 1, al.join(' | '));
 check('2j Store R1: extension · confirmada · pagados · origen 2026-12-31 (venc_origen_key con el uid)', renN(0).modalidad === 'extension' && renN(0).confirmada === true && renN(0).intereses === 'pagados'
   && renN(0).venc_origen === '2026-12-31' && /^e2e-renov@/.test(renN(0).venc_origen_key || ''), JSON.stringify({ i: renN(0).intereses, vo: renN(0).venc_origen, k: renN(0).venc_origen_key }));
 check('2k Historial: "ren.1: extension · confirmada · intereses pagados · 1000000"', /ren\.1: extension · confirmada · intereses pagados · 1000000/.test(ultimoHist().detalle || ''), ultimoHist().detalle);

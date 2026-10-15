@@ -5,7 +5,7 @@ import {
   calendarioContrato, estadoCredito, flujoCreditosEmpresa, registrarPago, saldoCapitalAl,
   registrarDesembolsoRecibido, anularDesembolsoRecibido, estadoDesembolso, desembolsoRecibido,
   ingresosRenovacion, avisosRenovacion, calcCuotasRenovacion, getRenovaciones, desembolsoPendiente,
-  movimientosCapitalAlCorte, saldosAlCorte,
+  movimientosCapitalAlCorte, saldosAlCorte, ingresosRenovacionFlujo,
 } from './creditos.js';
 
 let fallos = 0;
@@ -30,7 +30,8 @@ check('A0: calendario 1 vencimiento 30-abr-27 = 1.000.000 + 40.000', k.length ==
 const f0 = flujo([bullet], 'Mediterra');
 check('A1: sin registrar, el desembolso se proyecta como ingreso en nov-26 (1.000.000)', aprox(f0.ingresos.total[iM(2026, 11)], 1000000));
 check('A1b: estado del desembolso = pendiente', estadoDesembolso(bullet, HOY).estado === 'pendiente');
-const rec = registrarDesembolsoRecibido(bullet, { fecha: '2026-10-10', monto: 998500, nota: 'cartola BCI 10-10', tipo: 'total' }, 'Angelo', HOY);
+// 998.500 en la cartola + 1.500 retenidos por el banco (gastos notariales e impuesto) = 1.000.000 desembolsados.
+const rec = registrarDesembolsoRecibido(bullet, { fecha: '2026-10-10', monto: 998500, retenido: 1500, concepto_retenido: 'gastos notariales e impuesto', nota: 'cartola BCI 10-10', tipo: 'total' }, 'Angelo', HOY);
 const f1 = flujo([rec], 'Mediterra');
 const e0 = estadoCredito(bullet, HOY), e1 = estadoCredito(rec, HOY);
 check('A2: con fondos recibidos NO se proyecta ningún ingreso (ni en nov-26 ni en otro mes)', sum(f1.ingresos.total) === 0);
@@ -38,7 +39,17 @@ check('A3: el calendario de pago sigue igual: 1.040.000 en abr-27', aprox(f1.pre
 check('A4: capital pendiente sin cambio (1.000.000) e intereses 40.000', aprox(e1.saldoCapital, 1000000) && aprox(e1.interesPend, 40000) && e1.saldoCapital === e0.saldoCapital);
 check('A5: ninguna cuota pagada y ningún pago registrado', e1.vencimientos.every(v => v.estado === 'pendiente') && (rec.pagos || []).length === 0);
 const ed = estadoDesembolso(rec, HOY);
-check('A6: estado = recibido, monto recibido 998.500, diferencia vs capital −1.500', ed.estado === 'recibido' && ed.recibido.monto === 998500 && aprox(ed.diferencia, -1500));
+check('A6: estado = recibido: 998.500 en caja + 1.500 retenidos = 1.000.000; pendiente 0; diferencia 0; capital sin cambio',
+  ed.estado === 'recibido' && ed.recibidoTotal === 998500 && ed.retenidoTotal === 1500 && ed.pendiente === 0 && aprox(ed.diferencia, 0) && aprox(e1.saldoCapital, 1000000));
+// Sin explicación de los 1.500: no se acepta como total; como parcial, los 1.500 siguen proyectados.
+let sinExpl = null; try { registrarDesembolsoRecibido(bullet, { fecha: '2026-10-10', monto: 998500, tipo: 'total' }, 'x', HOY); } catch (e) { sinExpl = e.message; }
+check('A6b: 998.500 como TOTAL sin retención explicada se rechaza (indica retenido o registra parcial)', !!sinExpl && /parcial/.test(sinExpl));
+const recP = registrarDesembolsoRecibido(bullet, { fecha: '2026-10-10', monto: 998500, tipo: 'parcial' }, 'x', HOY);
+check('A6c: 998.500 como PARCIAL → 1.500 siguen pendientes y proyectados en nov-26; capital 1.000.000',
+  desembolsoPendiente(recP) === 1500 && aprox(flujo([recP], 'Mediterra').ingresos.total[iM(2026, 11)], 1500) && aprox(estadoCredito(recP, HOY).saldoCapital, 1000000));
+let sinConc = null; try { registrarDesembolsoRecibido(bullet, { fecha: '2026-10-10', monto: 998500, retenido: 1500, tipo: 'total' }, 'x', HOY); } catch (e) { sinConc = e.message; }
+check('A6d: retenido sin concepto se rechaza', !!sinConc && /concepto/.test(sinConc));
+check('A6e: el historial registra lo retenido y su concepto', rec.historial.some(h => /retenido 1500 \(gastos notariales/.test(h.detalle)));
 check('A7: queda en el historial', rec.historial.some(h => h.accion === 'desembolso_recibido'));
 let dup = null; try { registrarDesembolsoRecibido(rec, { fecha: '2026-10-11', monto: 1 }, 'x', HOY); } catch (e) { dup = e.message; }
 check('A8: no se puede registrar dos veces (anular y registrar el correcto)', !!dup);
@@ -69,9 +80,9 @@ const p2 = registrarDesembolsoRecibido(p1, { fecha: '2026-10-14', monto: 400000,
 check("A'4: segundo tramo 400.000 → nada pendiente; estado 'recibido'", sum(flujo([p2], 'Mediterra').ingresos.total) === 0 && estadoDesembolso(p2, HOY).estado === 'recibido');
 const p3 = anularDesembolsoRecibido(p2, p2.desembolso_registros[1].id, 'monto equivocado', 'Angelo');
 check("A'5: anular el 2º tramo devuelve 400.000 al flujo", aprox(flujo([p3], 'Mediterra').ingresos.total[iM(2026, 11)], 400000));
-const p4 = registrarDesembolsoRecibido(p1, { fecha: '2026-10-14', monto: 398500, tipo: 'total' }, 'Angelo', HOY);
-check("A'6: segundo tramo marcado TOTAL (neto de gastos 1.500) → nada pendiente; diferencia −1.500",
-  sum(flujo([p4], 'Mediterra').ingresos.total) === 0 && aprox(estadoDesembolso(p4, HOY).diferencia, -1500));
+const p4 = registrarDesembolsoRecibido(p1, { fecha: '2026-10-14', monto: 398500, retenido: 1500, concepto_retenido: 'comisión', tipo: 'total' }, 'Angelo', HOY);
+check("A'6: segundo tramo TOTAL 398.500 + 1.500 retenidos → nada pendiente; diferencia 0",
+  sum(flujo([p4], 'Mediterra').ingresos.total) === 0 && aprox(estadoDesembolso(p4, HOY).diferencia, 0) && estadoDesembolso(p4, HOY).retenidoTotal === 1500);
 
 // ═══ B. RENOVACIONES (registro por vencimiento) ═══════════════════
 // Crédito original: cuota 1.050.000 el 31-dic-26 = capital 1.000.000 + interés 50.000
@@ -286,9 +297,20 @@ check('G4 encadenada con capitalización: capital hoy 1.000.000 (+50.000 de inte
   `${eG4.saldoCapital} · ${saldoCapitalAl([encCap], '2027-01-31', HOY).capital} · ${mG4a.calculado}/${mG4a.capitalApp} · ${mG4b.calculado}/${mG4b.capitalApp}`);
 // G5 no se anula un tramo parcial mientras exista un registro total vigente.
 const g5a = registrarDesembolsoRecibido(bullet, { fecha: '2026-10-01', monto: 600000, tipo: 'parcial' }, 'x', HOY);
-const g5b = registrarDesembolsoRecibido(g5a, { fecha: '2026-10-10', monto: 300000, tipo: 'total' }, 'x', HOY);
+const g5b = registrarDesembolsoRecibido(g5a, { fecha: '2026-10-10', monto: 400000, tipo: 'total' }, 'x', HOY);
 let g5 = null; try { anularDesembolsoRecibido(g5b, g5b.desembolso_registros[0].id, 'error', 'x'); } catch (e) { g5 = e.message; }
 check('G5 anular el parcial con un total vigente se rechaza (primero el total)', !!g5 && /TOTAL/.test(g5));
+
+// ═══ H. RENOVACIONES ANTIGUAS: CÁLCULO ANTERIOR CONSERVADO ══════════
+// Hasta clasificarlas, su ingreso entra como antes: monto del registro, sin convertir y
+// aunque el crédito esté anulado (defectos conocidos que el informe de impacto lista).
+const antCLP = { ...base, uid: 'h-clp', moneda: 'CLP', tc_flujo: 950, renovaciones: [{ monto: 950000000, mes_ingreso: 'Dic', anio_ingreso: 2026, tasa_anual: 10,
+  cuotas: [{ tipo: 'Capital+Interés', mes: 'Dic', anio: 2027 }] }] };
+check('H1 antigua en CLP: ingreso como antes (950.000.000, sin convertir)', ingresosRenovacionFlujo(antCLP)[0].usd === 950000000 && ingresosRenovacionFlujo(antCLP)[0].antigua);
+const antAnul = { ...base, uid: 'h-an', anulado: true, renovaciones: [{ monto: 1000000, mes_ingreso: 'Dic', anio_ingreso: 2026, cuotas: [] }] };
+check('H2 antigua de un crédito anulado: ingreso como antes (1.000.000)', ingresosRenovacionFlujo(antAnul).length === 1 && ingresosRenovacionFlujo(antAnul)[0].usd === 1000000);
+const clasCLP = { ...antCLP, renovaciones: [{ ...antCLP.renovaciones[0], modalidad: 'pago_y_nuevo', confirmada: true }] };
+check('H3 al clasificarla, el ingreso se convierte con el TC (950.000.000 / 950 = 1.000.000)', aprox(ingresosRenovacionFlujo(clasCLP)[0].usd, 1000000));
 
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

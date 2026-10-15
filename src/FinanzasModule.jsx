@@ -11,7 +11,7 @@ import { buildAllpaPeruLineas, ALLPA_PERU_KG_2026, ALLPA_PERU_PRECIO_2026, ALLPA
 import { calcularAmortizacionSocio, generarInteresPeriodico } from './creditoSocio.js';
 import {
   hoyISO, partesISO, flujoCreditosEmpresa, getRenovaciones, calcCuotasRenovacion, calcMontoRealCuota,
-  ingresosRenovacion, avisosRenovacion, MODALIDADES_RENOVACION, renovacionAntigua, vencOrigenRenovacion,
+  ingresosRenovacion, ingresosRenovacionFlujo, avisosRenovacion, desembolsadoRegistro, MODALIDADES_RENOVACION, renovacionAntigua, vencOrigenRenovacion,
   TRATAMIENTOS_INTERES, trasladoRenovacion, renovacionAmortiza, planRenovaciones,
   estadoDesembolso, registrarDesembolsoRecibido, anularDesembolsoRecibido, registrosDesembolso, desembolsoRecibido,
   asegurarUids, uidCredito, estadoCredito, vencimientosCredito, aplicarPagos, registrarPago, anularPago,
@@ -922,7 +922,7 @@ export function avisosCreditosEmpresa(emp, empNombre, creditos, proyOverrides, r
   const ren = { antiguas: [], propuestas: [], incompletas: [], excesos: [], ingresosVencidos: [] };
   (Array.isArray(creditos) ? creditos : []).filter(c => c && c.empresa === empNombre).forEach(c => {
     const a = avisosRenovacion(c); ren.antiguas.push(...a.antiguas); ren.propuestas.push(...a.propuestas); ren.incompletas.push(...a.incompletas); ren.excesos.push(...(a.excesos || []));
-    ren.ingresosVencidos.push(...(a.ingresosVencidos || []).map(x => ({ ...x, usd: x.monto * (factorUSD(c) || 0) })));
+    ren.ingresosVencidos.push(...(a.ingresosVencidos || []));
   });
   return { arrastrados: fc.arrastrados, porConciliar: fc.porConciliar, sinTC: fc.sinTC, ovIgnorados, tcAvisos,
     estimados: fc.estimados || [], fueraHorizonte: fc.fueraHorizonte || [],
@@ -1080,11 +1080,11 @@ function calcRenovacionesDesglose(empresa, creditos=CREDITOS_DEFAULT) {
 function calcIngresoRenovacionEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const arr = Z65();
   creditos.filter(c => c.empresa === empresa).forEach(c => {
-    const f = factorUSD(c); if(f===null) return;   // sin TC: no entra al flujo en USD (igual que sus cuotas)
-    ingresosRenovacion(c).forEach(x => {
+    // Antiguas: cálculo anterior conservado; con modalidad: × TC (ingresosRenovacionFlujo).
+    ingresosRenovacionFlujo(c).forEach(x => {
       const p = partesISO(x.fecha); if(!p) return;
       const i = mIdx(`${Object.values(MES_ABR_TO_EN)[p.m-1]}-${String(p.y).slice(2)}`);
-      if(i >= 0) arr[i] += x.monto * f;
+      if(i >= 0) arr[i] += x.usd;
     });
   });
   return arr;
@@ -1095,13 +1095,12 @@ function calcIngresoRenovacionEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
 function calcIngresoRenovacionDesglose(empresa, creditos=CREDITOS_DEFAULT) {
   const byAcreedor = {};
   creditos.filter(c => c.empresa === empresa).forEach(c => {
-    const f = factorUSD(c); if(f===null) return;
-    ingresosRenovacion(c).forEach(x => {
+    ingresosRenovacionFlujo(c).forEach(x => {
       const key = c.acreedor + " (Ingr. Ren.)";
       if(!byAcreedor[key]) byAcreedor[key] = Z65();
       const p = partesISO(x.fecha); if(!p) return;
       const i = mIdx(`${Object.values(MES_ABR_TO_EN)[p.m-1]}-${String(p.y).slice(2)}`);
-      if(i >= 0) byAcreedor[key][i] += x.monto * f;
+      if(i >= 0) byAcreedor[key][i] += x.usd;
     });
   });
   return byAcreedor;
@@ -8416,7 +8415,18 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
   const [desembForm,setDesembForm]=useState(null); // {fecha, monto, nota}
   const ed = estadoDesembolso(credito, hoy);
   async function guardarDesembolso(){
-    try { await onSave(registrarDesembolsoRecibido(credito, desembForm, usuario, hoy)); setDesembForm(null); }
+    let f = desembForm;
+    // "Total" que no completa el capital y sin retención explicada = recepción PARCIAL:
+    // lo que falta sigue proyectado. Se confirma antes de registrarlo así.
+    if(f.tipo==="total"){
+      const previo = ed.recibidos.reduce((a,r)=>a+desembolsadoRegistro(r),0);
+      const falta = (Number(credito.monto)||0) - previo - (Number(f.monto)||0) - (Number(f.retenido)||0);
+      if(falta > toleranciaDe(mon) && !(Number(f.retenido)>0)){
+        if(!window.confirm(`Recibido ${$c(f.monto,mon)} no completa el capital de ${$c(credito.monto,mon)}: faltan ${$c(falta,mon)} y no se indicó retención.\n\nSe registrará como RECEPCIÓN PARCIAL: los ${$c(falta,mon)} siguen proyectados como ingreso pendiente. El capital adeudado no cambia.\n\nSi el acreedor retuvo esa diferencia (gastos, comisión, impuesto), cancela e indica el monto retenido y su concepto.`)) return;
+        f = {...f, tipo:"parcial"};
+      }
+    }
+    try { await onSave(registrarDesembolsoRecibido(credito, f, usuario, hoy)); setDesembForm(null); }
     catch(err){ alert(err.message); }
   }
   async function anularDesembolso(r){
@@ -8523,8 +8533,8 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
           border:`1px solid ${ed.estado==="recibido"?C.success+"66":ed.estado==="pendiente_vencido"?C.warning+"66":C.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <strong>Desembolso:</strong>
-            {ed.estado==="recibido"&&<span>✅ Recibido {$c(ed.recibidoTotal,mon)}{Math.abs(ed.diferencia)>0?<span style={{color:C.muted}}> (capital contractual {$c(ed.monto,mon)}; diferencia {$c(ed.diferencia,mon)})</span>:null}. No se proyecta como ingreso.</span>}
-            {ed.estado==="parcial"&&<span>◐ Recibido {$c(ed.recibidoTotal,mon)} de {$c(ed.monto,mon)}. <strong>Pendiente {$c(ed.pendiente,mon)}</strong>: sigue proyectado como ingreso el {fmtDate(ed.fecha)}.</span>}
+            {ed.estado==="recibido"&&<span>✅ Recibido {$c(ed.recibidoTotal,mon)}{ed.retenidoTotal>0?<> + retenido por el acreedor {$c(ed.retenidoTotal,mon)} = {$c(ed.recibidoTotal+ed.retenidoTotal,mon)}</>:null}{Math.abs(ed.diferencia)>0?<span style={{color:C.muted}}> (capital contractual {$c(ed.monto,mon)}; diferencia {$c(ed.diferencia,mon)})</span>:null}. No se proyecta como ingreso. Capital adeudado {$c(ed.monto,mon)}.</span>}
+            {ed.estado==="parcial"&&<span>◐ Recibido {$c(ed.recibidoTotal,mon)}{ed.retenidoTotal>0?<> + retenido {$c(ed.retenidoTotal,mon)}</>:null} de {$c(ed.monto,mon)}. <strong>Pendiente {$c(ed.pendiente,mon)}</strong>: sigue proyectado como ingreso el {fmtDate(ed.fecha)}.</span>}
             {ed.estado==="pendiente"&&<span>⏳ Pendiente: se proyecta como ingreso el {fmtDate(ed.fecha)} por {$c(ed.monto,mon)}.</span>}
             {ed.estado==="pendiente_vencido"&&<span>⚠ Pendiente con fecha pasada ({fmtDate(ed.fecha)}): sigue proyectado en ese mes. Si los fondos ya llegaron, regístralo.</span>}
             {ed.estado==="historico"&&<span style={{color:C.muted}}>Fecha {fmtDate(ed.fecha)}, anterior al control en la app: no se informa como pendiente.</span>}
@@ -8540,7 +8550,7 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
             <div style={{marginTop:6,display:"flex",flexDirection:"column",gap:3}}>
               {ed.recibidos.map(r=>(
                 <div key={r.id} data-desembolso-registro style={{display:"flex",gap:8,alignItems:"center"}}>
-                  <span>{r.tipo==="parcial"?"Tramo parcial":"Total"} · {fmtDate(r.fecha)} · {$c(r.monto,mon)}{r.nota?` · ${r.nota}`:""} · {r.usuario}</span>
+                  <span>{r.tipo==="parcial"?"Tramo parcial":"Total"} · {fmtDate(r.fecha)} · {$c(r.monto,mon)}{r.retenido>0?` + retenido ${$c(r.retenido,mon)} (${r.concepto_retenido})`:""}{r.nota?` · ${r.nota}`:""} · {r.usuario}</span>
                   {canEdit&&<button onClick={()=>anularDesembolso(r)} style={{fontSize:10,padding:"1px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>Anular…</button>}
                 </div>
               ))}
@@ -8550,16 +8560,18 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
             <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap",marginTop:8}}>
               <CampoCr label="Tipo">
                 <select data-desembolso-tipo value={desembForm.tipo} onChange={ev=>setDesembForm(p=>({...p,tipo:ev.target.value}))} style={CR_INP}>
-                  <option value="total">Total (cierra el desembolso; la diferencia son gastos)</option>
+                  <option value="total">Total (recibido + retenido = capital; cierra el desembolso)</option>
                   <option value="parcial">Parcial (lo que falta sigue proyectado)</option>
                 </select>
               </CampoCr>
               <CampoCr label="Fecha en que se recibieron"><input type="date" max={hoy} value={desembForm.fecha} onChange={ev=>setDesembForm(p=>({...p,fecha:ev.target.value}))} style={CR_INP}/></CampoCr>
               <CampoCr label={`Monto recibido (${mon})`}><InputNumero formato="monto" value={desembForm.monto} onChange={n=>setDesembForm(p=>({...p,monto:n}))} style={CR_INP}/></CampoCr>
+              <CampoCr label={`Retenido por el acreedor (${mon})`}><InputNumero data-desembolso-retenido formato="monto" value={desembForm.retenido||""} onChange={n=>setDesembForm(p=>({...p,retenido:n}))} style={CR_INP}/></CampoCr>
+              {Number(desembForm.retenido)>0&&<CampoCr label="Concepto de lo retenido"><input data-desembolso-concepto value={desembForm.concepto_retenido||""} onChange={ev=>setDesembForm(p=>({...p,concepto_retenido:ev.target.value}))} placeholder="Ej: gastos notariales, impuesto" style={CR_INP}/></CampoCr>}
               <CampoCr label="Nota / respaldo"><input value={desembForm.nota} onChange={ev=>setDesembForm(p=>({...p,nota:ev.target.value}))} placeholder="Ej: cartola BCI" style={CR_INP}/></CampoCr>
               <button onClick={()=>setDesembForm(null)} style={{fontSize:11,padding:"5px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer"}}>Cancelar</button>
               <button data-guardar-fondos-recibidos onClick={guardarDesembolso} style={{fontSize:11,padding:"5px 10px",borderRadius:6,border:"none",background:C.success,color:"#fff",cursor:"pointer",fontWeight:600}}>Guardar</button>
-              <div style={{flexBasis:"100%",color:C.muted,fontSize:10}}>Solo deja de proyectarse lo recibido. Las cuotas, el capital pendiente y el flujo real no cambian.</div>
+              <div style={{flexBasis:"100%",color:C.muted,fontSize:10}}>Solo deja de proyectarse lo recibido (y lo retenido, que cuenta como desembolsado pero no es caja). Las cuotas, el capital adeudado y el flujo real no cambian. Si lo recibido no completa el capital y no hay retención explicada, es una recepción parcial.</div>
             </div>
           )}
           {registrosDesembolso(credito).filter(r=>r.anulado).length>0&&(
@@ -9842,6 +9854,25 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
       cuotas_socio: undefined, amortizacion_calc: undefined,
     };
     }
+    // Clasificar (o anular) una renovación ANTIGUA cambia el cálculo de un registro
+    // existente: se muestra la diferencia mes a mes en el flujo y se exige confirmación.
+    if(original){
+      const rensO = original.renovable ? getRenovaciones(original) : [];
+      const rensI = getRenovaciones({...item, renovable:true});
+      const cambian = rensO.map((r,i)=>i).filter(i=>renovacionAntigua(rensO[i]) && !renovacionAntigua(rensI[i]||{}));
+      if(cambian.length){
+        const op = {hoy, ubicar:ubicarFechaFlujo, nMeses:MESES_65.length};
+        const fa = flujoCreditosEmpresa(original.empresa,[original],op), fn = flujoCreditosEmpresa(item.empresa,[item],op);
+        const lin = [["Pago Préstamos - Total",fa.prestamos.total,fn.prestamos.total],["Renovaciones",fa.renovaciones.total,fn.renovaciones.total],
+          ["Ingreso Renovación",calcIngresoRenovacionEmpresa(original.empresa,[original]),calcIngresoRenovacionEmpresa(item.empresa,[item])],
+          ["Ingresos Financiamiento",fa.ingresos.total,fn.ingresos.total]];
+        const difs=[];
+        lin.forEach(([l,a,b])=>MESES_65.forEach((m,i)=>{ const d=(b[i]||0)-(a[i]||0); if(Math.abs(d)>0.005) difs.push(`${l} ${m}: ${$$(a[i]||0)} → ${$$(b[i]||0)} (${d>0?"+":""}${$$(d)})`); }));
+        const txt = `Renovación ${cambian.map(i=>i+1).join(", ")}: era un registro antiguo (sin modalidad) y ahora queda ${cambian.map(i=>rensI[i]?.anulada?"ANULADA":`${MODALIDADES_RENOVACION[rensI[i]?.modalidad]||"sin modalidad"} · ${rensI[i]?.confirmada===true?"confirmada":"propuesta"}`).join(" / ")}.\n\n`+
+          `Esto cambia un registro existente. Efecto en el flujo (US$):\n${difs.length?difs.slice(0,30).join("\n")+(difs.length>30?`\n… y ${difs.length-30} más`:""):"sin cambios en el flujo"}\n\n¿Aplicar el cambio?`;
+        if(!window.confirm(txt)) return;
+      }
+    }
     // El payload al parent contiene SOLO el subset visible — el parent hace merge.
     const next=original
       ? creditosVisibles.map(c=>uidCredito(c)===editId?item:c)
@@ -10185,7 +10216,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                   creds.forEach(c=>{
                     estadoDe(c).vencimientos.forEach(v=>eventos.push({fecha:v.fecha, label:fmtDate(v.fecha), monto:v.total, pend:v.pendienteTotal,
                       estado:v.estado, isRen:v.origen==="renovacion", id:v.key, comp:v}));
-                    ingresosRenovacion(c).forEach(x=>{
+                    ingresosRenovacionFlujo(c).forEach(x=>{
                       const mesEn=Object.values(MES_A)[Number(x.fecha.slice(5,7))-1];
                       eventos.push({fecha:x.fecha,label:`${mesEn}-${x.fecha.slice(2,4)}`,monto:x.monto,isIngreso:true,id:`ing-${uidCredito(c)}-${x.ri}`});
                     });

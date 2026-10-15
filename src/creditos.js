@@ -414,6 +414,26 @@ export function ingresosRenovacion(c) {
   });
   return out;
 }
+// Ingreso de renovación tal como entra al FLUJO (US$), una sola fuente para la línea
+// "Ingreso Renovación", su desglose y Saldo por Mes.
+//  · Renovación ANTIGUA (sin modalidad): se conserva EXACTAMENTE el cálculo anterior
+//    (crédito renovable, monto del registro en el mes de ingreso, sin convertir moneda
+//    y sin mirar si el crédito está anulado) hasta que se clasifique. Ese cálculo tiene
+//    defectos conocidos (moneda ≠ US$, crédito anulado) que el informe de impacto
+//    (scripts/impacto/renovaciones.mjs) lista; se corrigen al clasificarla.
+//  · Renovación con modalidad: ingresosRenovacion × tipo de cambio del flujo.
+export function ingresosRenovacionFlujo(c) {
+  if (!c) return [];
+  const out = [];
+  if (c.renovable) getRenovaciones(c).forEach((ren, ri) => {
+    if (!renovacionAntigua(ren) || !ren.monto || !ren.mes_ingreso || !ren.anio_ingreso) return;
+    const fecha = fechaIngresoRen(ren); if (!fecha) return;
+    out.push({ ri, fecha, monto: num(ren.monto), usd: num(ren.monto), antigua: true, acreedor: c.acreedor || '—' });
+  });
+  const f = factorUSD(c);
+  if (f !== null) ingresosRenovacion(c).filter(x => !x.antigua).forEach(x => out.push({ ...x, usd: x.monto * f }));
+  return out;
+}
 // Lo que hay que mirar en las renovaciones de un crédito (no cambia nada).
 export function avisosRenovacion(c, hoy = hoyISO()) {
   const av = { antiguas: [], propuestas: [], incompletas: [], excesos: [], ingresosVencidos: [] };
@@ -421,8 +441,8 @@ export function avisosRenovacion(c, hoy = hoyISO()) {
   // Ingreso de un "pago y nuevo" con mes ya pasado y sin registrar como recibido: queda
   // en su mes original (antes del saldo inicial). No se da por recibido ni se arrastra solo.
   // Un registro antiguo se avisa solo si su ingreso es posterior al inicio del control en la app.
-  ingresosRenovacion(c).forEach(x => { if (x.fecha.slice(0, 7) < String(hoy).slice(0, 7) && (!x.antigua || x.fecha >= controlDesde(c)))
-    av.ingresosVencidos.push({ ri: x.ri, acreedor: c.acreedor, empresa: c.empresa, fecha: x.fecha, monto: x.monto }); });
+  ingresosRenovacionFlujo(c).forEach(x => { if (x.fecha.slice(0, 7) < String(hoy).slice(0, 7) && (!x.antigua || x.fecha >= controlDesde(c)))
+    av.ingresosVencidos.push({ ri: x.ri, acreedor: c.acreedor, empresa: c.empresa, fecha: x.fecha, monto: x.monto, usd: x.usd }); });
   const plan = planRenovaciones(c);
   getRenovaciones(c).forEach((ren, ri) => {
     if (ren.anulada) return;
@@ -942,26 +962,32 @@ export const puedeAnularCredito = (c) => pagosVigentes(c).length === 0 && c.paga
 // Registrar que los fondos ya se recibieron SOLO retira el ingreso proyectado del
 // desembolso (ya está en la caja/bancos). No marca cuotas como pagadas, no toca el
 // capital pendiente ni el calendario, y no escribe en el flujo real. No se borra:
-// se anula con motivo. `monto` es lo efectivamente recibido (puede ser neto de
-// gastos); el capital adeudado sigue siendo el contractual (`c.monto`).
+// se anula con motivo. `monto` es lo efectivamente recibido en caja; `retenido` es lo
+// que el acreedor descontó del giro (gastos, comisiones, impuestos), con su concepto.
+// Lo retenido CUENTA como desembolsado (no queda pendiente ni reduce el capital, que
+// sigue siendo el contractual `c.monto`) y no es caja. Ej.: 998.500 recibidos +
+// 1.500 retenidos por gastos = 1.000.000 desembolsados.
 export const registrosDesembolso = (c) => (c && Array.isArray(c.desembolso_registros) ? c.desembolso_registros : []);
 export const recibosDesembolsoVigentes = (c) => registrosDesembolso(c).filter(r => r && !r.anulado);
 // Último registro vigente (para mostrar).
 export const desembolsoRecibido = (c) => { const v = recibosDesembolsoVigentes(c); return v.length ? v[v.length - 1] : null; };
 export const fechaDesembolsoCredito = (c) => (esContrato(c) || esSocio(c) ? c.fecha_desembolso : c.f_inicio) || '';
-// Desembolso por tramos: cada registro es "parcial" o "total". Un registro total
-// cierra el desembolso (la diferencia con el capital son gastos/comisiones). Si solo
-// hay parciales, lo que falta recibir SIGUE proyectado en la fecha contractual.
+// Desembolso por tramos: cada registro es "parcial" o "total". Un registro total cierra
+// el desembolso y exige que recibido + retenido = capital (sin explicación de la
+// diferencia, lo recibido es una recepción PARCIAL). Si solo hay parciales, lo que
+// falta SIGUE proyectado en la fecha contractual.
+export const desembolsadoRegistro = (r) => num(r && r.monto) + num(r && r.retenido);
 export function desembolsoPendiente(c) {
   const v = recibosDesembolsoVigentes(c);
   if (v.some(r => r.tipo !== 'parcial')) return 0;
-  return rMon(c && c.moneda)(Math.max(0, num(c && c.monto) - v.reduce((s, r) => s + num(r.monto), 0)));
+  return rMon(c && c.moneda)(Math.max(0, num(c && c.monto) - v.reduce((s, r) => s + desembolsadoRegistro(r), 0)));
 }
 export function estadoDesembolso(c, hoy = hoyISO()) {
   const vig = recibosDesembolsoVigentes(c);
   const fecha = fechaDesembolsoCredito(c);
   const monto = num(c && c.monto);
   const recibidoTotal = rMon(c && c.moneda)(vig.reduce((s, r) => s + num(r.monto), 0));
+  const retenidoTotal = rMon(c && c.moneda)(vig.reduce((s, r) => s + num(r.retenido), 0));
   const pendiente = vig.length ? desembolsoPendiente(c) : monto;
   let estado;
   if (vig.length && pendiente <= EPS) estado = 'recibido';
@@ -972,23 +998,37 @@ export function estadoDesembolso(c, hoy = hoyISO()) {
   // Fecha anterior al control en la app: dato histórico, sin aviso (no se puede saber).
   else estado = fecha >= hoy ? 'pendiente' : (fecha >= (controlDesde(c) || '') ? 'pendiente_vencido' : 'historico');
   const total = vig.find(r => r.tipo !== 'parcial');
-  return { estado, fecha, monto, recibidos: vig, recibidoTotal, pendiente, recibido: vig.length ? vig[vig.length - 1] : null,
-    diferencia: total ? rMon(c.moneda)(recibidoTotal - monto) : 0 };
+  return { estado, fecha, monto, recibidos: vig, recibidoTotal, retenidoTotal, pendiente, recibido: vig.length ? vig[vig.length - 1] : null,
+    diferencia: total ? rMon(c.moneda)(recibidoTotal + retenidoTotal - monto) : 0 };
 }
-export function registrarDesembolsoRecibido(c, { fecha, monto, nota, tipo } = {}, usuario = '', hoy = hoyISO()) {
+export function registrarDesembolsoRecibido(c, { fecha, monto, nota, tipo, retenido, concepto_retenido } = {}, usuario = '', hoy = hoyISO()) {
   if (!isoValida(fecha)) throw new Error('Indica la fecha en que se recibieron los fondos (AAAA-MM-DD).');
   if (fecha > hoy) throw new Error('La fecha de recepción no puede ser futura: registra los fondos cuando lleguen.');
   if (!(num(monto) > 0)) throw new Error('Indica el monto recibido.');
   const t = tipo === 'parcial' ? 'parcial' : 'total';
   if (recibosDesembolsoVigentes(c).some(r => r.tipo !== 'parcial')) throw new Error('El desembolso ya está registrado como recibido en su totalidad. Para corregirlo, anula ese registro con motivo.');
-  if (t === 'parcial' && recibosDesembolsoVigentes(c).reduce((a, r) => a + num(r.monto), 0) + num(monto) > num(c && c.monto) + EPS)
-    throw new Error('Los tramos parciales superarían el capital del crédito. Si con este se completa el desembolso, regístralo como "total".');
-  const ts = new Date().toISOString();
   const r2 = rMon(c && c.moneda);
+  const ret = r2(num(retenido));
+  if (ret < 0) throw new Error('El monto retenido no puede ser negativo.');
+  if (ret > 0 && !String(concepto_retenido || '').trim()) throw new Error('Indica el concepto de lo retenido por el acreedor (gastos, comisión, impuesto…).');
+  const previo = recibosDesembolsoVigentes(c).reduce((a, r) => a + desembolsadoRegistro(r), 0);
+  const tol = toleranciaDe((c && c.moneda) || 'USD');
+  if (t === 'parcial' && previo + num(monto) + ret > num(c && c.monto) + tol)
+    throw new Error('Los tramos parciales superarían el capital del crédito. Si con este se completa el desembolso, regístralo como "total".');
+  // Total = cierra el desembolso: lo recibido más lo retenido tiene que ser el capital.
+  // Si no cuadra y no hay explicación, es una recepción PARCIAL (lo que falta sigue pendiente).
+  if (t === 'total') {
+    const dif = r2(num(c && c.monto) - previo - num(monto) - ret);
+    if (Math.abs(dif) > tol) throw new Error(dif > 0
+      ? `Recibido ${r2(num(monto))}${ret ? ' + retenido ' + ret : ''} no completa el capital (faltan ${dif}). Si el acreedor retuvo gastos, indica el monto retenido y su concepto; si no, regístralo como recepción parcial.`
+      : `Recibido ${r2(num(monto))}${ret ? ' + retenido ' + ret : ''} supera el capital del crédito en ${-dif}. Revisa los montos.`);
+  }
+  const ts = new Date().toISOString();
   const reg = { id: `ds-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, fecha, monto: r2(num(monto)), tipo: t,
+    ...(ret > 0 ? { retenido: ret, concepto_retenido: String(concepto_retenido).trim() } : {}),
     nota: String(nota || '').trim(), usuario, ts };
   return { ...c, desembolso_registros: [...registrosDesembolso(c), reg],
-    historial: [...(c.historial || []), { ts, usuario, accion: 'desembolso_recibido', detalle: `${t} · ${fecha} · ${reg.monto} ${c.moneda || 'USD'}${reg.nota ? ' · ' + reg.nota : ''}` }] };
+    historial: [...(c.historial || []), { ts, usuario, accion: 'desembolso_recibido', detalle: `${t} · ${fecha} · ${reg.monto} ${c.moneda || 'USD'}${ret > 0 ? ` · retenido ${ret} (${reg.concepto_retenido})` : ''}${reg.nota ? ' · ' + reg.nota : ''}` }] };
 }
 export function anularDesembolsoRecibido(c, id, motivo, usuario = '') {
   if (!motivo || !String(motivo).trim()) throw new Error('Anular el registro del desembolso requiere motivo.');
