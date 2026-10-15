@@ -4,7 +4,8 @@
 import {
   calendarioContrato, estadoCredito, flujoCreditosEmpresa, registrarPago, saldoCapitalAl,
   registrarDesembolsoRecibido, anularDesembolsoRecibido, estadoDesembolso, desembolsoRecibido,
-  ingresosRenovacion, avisosRenovacion, calcCuotasRenovacion, getRenovaciones,
+  ingresosRenovacion, avisosRenovacion, calcCuotasRenovacion, getRenovaciones, desembolsoPendiente,
+  movimientosCapitalAlCorte, saldosAlCorte,
 } from './creditos.js';
 
 let fallos = 0;
@@ -29,7 +30,7 @@ check('A0: calendario 1 vencimiento 30-abr-27 = 1.000.000 + 40.000', k.length ==
 const f0 = flujo([bullet], 'Mediterra');
 check('A1: sin registrar, el desembolso se proyecta como ingreso en nov-26 (1.000.000)', aprox(f0.ingresos.total[iM(2026, 11)], 1000000));
 check('A1b: estado del desembolso = pendiente', estadoDesembolso(bullet, HOY).estado === 'pendiente');
-const rec = registrarDesembolsoRecibido(bullet, { fecha: '2026-10-10', monto: 998500, nota: 'cartola BCI 10-10' }, 'Angelo');
+const rec = registrarDesembolsoRecibido(bullet, { fecha: '2026-10-10', monto: 998500, nota: 'cartola BCI 10-10', tipo: 'total' }, 'Angelo', HOY);
 const f1 = flujo([rec], 'Mediterra');
 const e0 = estadoCredito(bullet, HOY), e1 = estadoCredito(rec, HOY);
 check('A2: con fondos recibidos NO se proyecta ningún ingreso (ni en nov-26 ni en otro mes)', sum(f1.ingresos.total) === 0);
@@ -39,7 +40,7 @@ check('A5: ninguna cuota pagada y ningún pago registrado', e1.vencimientos.ever
 const ed = estadoDesembolso(rec, HOY);
 check('A6: estado = recibido, monto recibido 998.500, diferencia vs capital −1.500', ed.estado === 'recibido' && ed.recibido.monto === 998500 && aprox(ed.diferencia, -1500));
 check('A7: queda en el historial', rec.historial.some(h => h.accion === 'desembolso_recibido'));
-let dup = null; try { registrarDesembolsoRecibido(rec, { fecha: '2026-10-11', monto: 1 }, 'x'); } catch (e) { dup = e.message; }
+let dup = null; try { registrarDesembolsoRecibido(rec, { fecha: '2026-10-11', monto: 1 }, 'x', HOY); } catch (e) { dup = e.message; }
 check('A8: no se puede registrar dos veces (anular y registrar el correcto)', !!dup);
 const anul = anularDesembolsoRecibido(rec, desembolsoRecibido(rec).id, 'era otro crédito', 'Angelo');
 check('A9: anular con motivo devuelve el ingreso proyectado y conserva el registro anulado',
@@ -47,10 +48,30 @@ check('A9: anular con motivo devuelve el ingreso proyectado y conserva el regist
 let sinMotivo = null; try { anularDesembolsoRecibido(rec, desembolsoRecibido(rec).id, '', 'x'); } catch (e) { sinMotivo = e.message; }
 check('A10: anular sin motivo se rechaza', !!sinMotivo);
 // Pendiente con fecha pasada: no se mueve, se informa.
-const viejo = { ...bullet, uid: 'bv', fecha_desembolso: '2026-10-01' };
+const viejo = { ...bullet, uid: 'bv', fecha_desembolso: '2026-10-01', control_desde: '2026-09-01' };
 const fv = flujo([viejo], 'Mediterra');
 check('A11: desembolso pendiente con fecha pasada se informa (no se da por recibido ni se mueve)',
   fv.desembolsosPendientesVencidos.length === 1 && aprox(fv.ingresos.total[iM(2026, 10)], 1000000) && estadoDesembolso(viejo, HOY).estado === 'pendiente_vencido');
+// Un registro anterior al control en la app (fecha < control_desde) no genera aviso: es histórico.
+const hist = { ...bullet, uid: 'bh', fecha_desembolso: '2026-08-01', control_desde: '2026-09-01' };
+check('A12: desembolso anterior al control en la app: sin aviso (histórico)', flujo([hist], 'Mediterra').desembolsosPendientesVencidos.length === 0 && estadoDesembolso(hist, HOY).estado === 'historico');
+let fut = null; try { registrarDesembolsoRecibido(bullet, { fecha: '2026-12-01', monto: 1, tipo: 'parcial' }, 'x', HOY); } catch (e) { fut = e.message; }
+check('A13: no se registra una recepción con fecha futura', !!fut);
+
+// ═══ A'. DESEMBOLSO PARCIAL ═══════════════════════════════════════
+// Recibido 600.000 (parcial) el 12-oct: sigue proyectado 1.000.000 − 600.000 = 400.000 en nov-26.
+const p1 = registrarDesembolsoRecibido(bullet, { fecha: '2026-10-12', monto: 600000, tipo: 'parcial' }, 'Angelo', HOY);
+const fp1 = flujo([p1], 'Mediterra');
+check("A'1: parcial 600.000 → sigue proyectado 400.000 en nov-26", aprox(fp1.ingresos.total[iM(2026, 11)], 400000) && desembolsoPendiente(p1) === 400000);
+check("A'2: estado 'parcial' con recibido 600.000 y pendiente 400.000", estadoDesembolso(p1, HOY).estado === 'parcial' && estadoDesembolso(p1, HOY).recibidoTotal === 600000);
+check("A'3: el calendario y el capital no cambian (1.000.000 / 1.040.000)", aprox(estadoCredito(p1, HOY).saldoCapital, 1000000) && aprox(fp1.prestamos.total[iM(2027, 4)], 1040000));
+const p2 = registrarDesembolsoRecibido(p1, { fecha: '2026-10-14', monto: 400000, tipo: 'parcial' }, 'Angelo', HOY);
+check("A'4: segundo tramo 400.000 → nada pendiente; estado 'recibido'", sum(flujo([p2], 'Mediterra').ingresos.total) === 0 && estadoDesembolso(p2, HOY).estado === 'recibido');
+const p3 = anularDesembolsoRecibido(p2, p2.desembolso_registros[1].id, 'monto equivocado', 'Angelo');
+check("A'5: anular el 2º tramo devuelve 400.000 al flujo", aprox(flujo([p3], 'Mediterra').ingresos.total[iM(2026, 11)], 400000));
+const p4 = registrarDesembolsoRecibido(p1, { fecha: '2026-10-14', monto: 398500, tipo: 'total' }, 'Angelo', HOY);
+check("A'6: segundo tramo marcado TOTAL (neto de gastos 1.500) → nada pendiente; diferencia −1.500",
+  sum(flujo([p4], 'Mediterra').ingresos.total) === 0 && aprox(estadoDesembolso(p4, HOY).diferencia, -1500));
 
 // ═══ B. RENOVACIONES (registro por vencimiento) ═══════════════════
 // Crédito original: cuota 1.050.000 el 31-dic-26 = capital 1.000.000 + interés 50.000
@@ -73,7 +94,7 @@ const resumen = (c) => {
 };
 
 // B1 — Extensión sin movimiento de caja
-const r1 = resumen(ren({ modalidad: 'extension', confirmada: true }));
+const r1 = resumen(ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados' }));
 check('B1a extensión: el 31-dic-26 solo vence el interés en caja (50.000); el capital 1.000.000 se extiende',
   aprox(r1.vo.pendienteTotal, 50000) && aprox(r1.vo.renovado, 1000000) && aprox(r1.f.prestamos.total[dic26], 50000));
 check('B1b extensión: NO hay ingreso de renovación', r1.ing.length === 0);
@@ -95,7 +116,7 @@ check('B2e pago+nuevo: con los fondos del nuevo ya recibidos, no se proyecta el 
 
 // B3 — Parcial: paga 400.000 de capital y extiende 600.000
 // Renovación 600.000 al 10%: jun-27 = 600.000 × 10%/12 × 6 = 30.000; dic-27 = 600.000 + 30.000 = 630.000
-const r3 = resumen(ren({ monto: 600000, modalidad: 'parcial', confirmada: true }));
+const r3 = resumen(ren({ monto: 600000, modalidad: 'parcial', confirmada: true, intereses: 'pagados' }));
 check('B3a parcial: el 31-dic-26 se paga en caja 400.000 de capital + 50.000 de interés = 450.000',
   aprox(r3.vo.pendienteTotal, 450000) && aprox(r3.vo.pendiente.capital, 400000) && aprox(r3.vo.renovado, 600000));
 check('B3b parcial: NO hay ingreso de renovación', r3.ing.length === 0);
@@ -119,10 +140,45 @@ const r6 = resumen(ren({ modalidad: 'extension', confirmada: false }));
 check('B6 desconfirmar: el original vuelve a vencer completo; nada quedó registrado como pago', aprox(r6.vo.pendienteTotal, 1050000) && !r6.vo.renovado);
 
 // B7 — Extender más de lo que vence: no se inventa, se informa
-const r7 = resumen(ren({ monto: 1200000, modalidad: 'extension', confirmada: true }));
+const r7 = resumen(ren({ monto: 1200000, modalidad: 'extension', confirmada: true, intereses: 'pagados' }));
 // La extensión traslada CAPITAL (o lo sin desglose), nunca el interés del vencimiento original.
 check('B7 exceso: se traslada el capital que vencía (1.000.000), el interés 50.000 sigue en caja y se informa el exceso de 200.000',
   aprox(r7.vo.renovado, 1000000) && aprox(r7.vo.renovadoExceso, 200000) && aprox(r7.vo.pendienteTotal, 50000));
+
+// ═══ C. INTERESES Y CARGOS AL RENOVAR (extensión de 1.000.000; interés original 50.000) ═══
+// Pendientes: el 31-dic-26 no sale nada en caja; los 50.000 se pagan con la 1ª cuota de la
+// renovación (jun-27: 50.000 propio + 50.000 trasladado = 100.000), sin devengar interés.
+const rP = resumen(ren({ modalidad: 'extension', confirmada: true, intereses: 'pendientes' }));
+check('C1 pendientes: nada en caja el 31-dic-26 (vencimiento "renovada")', aprox(rP.vo.pendienteTotal, 0) && rP.vo.estado === 'renovada' && aprox(rP.f.prestamos.total[dic26], 0));
+check('C2 pendientes: jun-27 = 50.000 + 50.000 trasladado = 100.000; dic-27 = 1.050.000', aprox(rP.f.renovaciones.total[jun27], 100000) && aprox(rP.f.renovaciones.total[dic27], 1050000));
+check('C3 pendientes: capital 1.000.000 e intereses pendientes 150.000 (50.000 + 50.000 + 50.000)', aprox(rP.e.saldoCapital, 1000000) && aprox(rP.e.interesPend, 150000), `${rP.e.saldoCapital} / ${rP.e.interesPend}`);
+// Capitalizados: capital renovado 1.050.000 al 10%: jun-27 = 1.050.000 × 10%/12 × 6 = 52.500;
+// dic-27 = 1.050.000 + 52.500 = 1.102.500.
+const rK = resumen(ren({ modalidad: 'extension', confirmada: true, intereses: 'capitalizados' }));
+check('C4 capitalizados: nada en caja el 31-dic-26', aprox(rK.vo.pendienteTotal, 0) && aprox(rK.f.prestamos.total[dic26], 0));
+check('C5 capitalizados: jun-27 52.500 y dic-27 1.102.500', aprox(rK.f.renovaciones.total[jun27], 52500) && aprox(rK.f.renovaciones.total[dic27], 1102500),
+  `${rK.f.renovaciones.total[jun27]} / ${rK.f.renovaciones.total[dic27]}`);
+check('C6 capitalizados: capital pendiente 1.050.000 (el interés pasó a capital, sin duplicar)', aprox(rK.e.saldoCapital, 1050000));
+check('C7 sin tratamiento elegido: no se proyecta y se avisa', sum(resumen(ren({ modalidad: 'extension', confirmada: true })).f.renovaciones.total) === 0
+  && avisosRenovacion(ren({ modalidad: 'extension', confirmada: true })).incompletas.length === 1);
+
+// ═══ D. RESGUARDOS ═══════════════════════════════════════════════
+const soloInt = ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados', cuotas: [{ tipo: 'Solo Interés', mes: 'Jun', anio: 2027 }] });
+const rS = resumen(soloInt);
+check('D1 cuotas que no devuelven el capital: NO se traslada ni proyecta (el capital no desaparece) y se avisa',
+  aprox(rS.e.saldoCapital, 1000000) && aprox(rS.vo.pendienteTotal, 1050000) && sum(rS.f.renovaciones.total) === 0 && avisosRenovacion(soloInt).incompletas.length === 1);
+const sinOrig = ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados', venc_origen: '2026-12-01' });
+const rO = resumen(sinOrig);
+check('D2 vencimiento de origen inexistente: no se proyecta (no duplica) y se avisa',
+  aprox(rO.e.saldoCapital, 1000000) && sum(rO.f.renovaciones.total) === 0 && avisosRenovacion(sinOrig).incompletas.length === 1);
+const anulada = ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados', anulada: true, motivoAnulacion: 'banco no aprobó' });
+const rA = resumen(anulada);
+check('D3 renovación ANULADA: sin efecto (original completo, sin cuotas ni ingreso), el dato se conserva',
+  aprox(rA.vo.pendienteTotal, 1050000) && sum(rA.f.renovaciones.total) === 0 && rA.ing.length === 0 && aprox(rA.e.saldoCapital, 1000000)
+  && getRenovaciones(anulada)[0].motivoAnulacion === 'banco no aprobó');
+// Movimientos de capital cuadran con la extensión (antes: 2.000.000 calculado vs 1.000.000).
+const mv = movimientosCapitalAlCorte([ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados' })], '2027-01-31');
+check('D4 "Ver movimientos" cuadra con una extensión', mv && mv.cuadra === true, mv ? `${mv.calculado} vs ${mv.capitalApp}` : 'sin resultado');
 
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

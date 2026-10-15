@@ -150,16 +150,12 @@ export function tasaCredito(c) {
 const MES_ABR_NUM = { Ene: 1, Feb: 2, Mar: 3, Abr: 4, May: 5, Jun: 6, Jul: 7, Ago: 8, Sep: 9, Oct: 10, Nov: 11, Dic: 12 };
 export function getRenovaciones(c) {
   if (Array.isArray(c.renovaciones) && c.renovaciones.length) {
+    // Se conservan todos los campos guardados (modalidad, confirmada, venc_origen,
+    // intereses, recibido, anulada, historial…); solo se completa la tasa por defecto.
     return c.renovaciones.map(r => ({
-      monto: r.monto, mes_ingreso: r.mes_ingreso, anio_ingreso: r.anio_ingreso,
+      ...r,
       tasa_anual: (r.tasa_anual != null && r.tasa_anual !== '') ? r.tasa_anual : c.tasa_anual,
       cuotas: r.cuotas || [],
-      // Campos de oct-2026 (ver "Renovaciones con modalidad"). Ausentes = registro antiguo.
-      ...(r.modalidad !== undefined ? { modalidad: r.modalidad } : {}),
-      ...(r.confirmada !== undefined ? { confirmada: r.confirmada } : {}),
-      ...(r.venc_origen !== undefined ? { venc_origen: r.venc_origen } : {}),
-      ...(r.recibido !== undefined ? { recibido: r.recibido } : {}),
-      ...(r.nota !== undefined ? { nota: r.nota } : {}),
     }));
   }
   if (c.monto_renovacion || (c.cuotas_renovacion || []).length) {
@@ -170,7 +166,10 @@ export function getRenovaciones(c) {
 }
 // "Solo Interés": interés sobre saldo (capital no baja). "Capital+Interés":
 // amortización equitativa + interés sobre saldo. Interés mensual simple.
-export function calcMontoRealCuota(cuotas, capital, tasaAnual, mesIngresoAnio) {
+// opts.ajustarUltima: la última cuota "Capital+Interés" toma el remanente, así la
+// suma amortizada es exactamente el capital (solo renovaciones nuevas; las antiguas
+// conservan su redondeo histórico).
+export function calcMontoRealCuota(cuotas, capital, tasaAnual, mesIngresoAnio, opts = {}) {
   const cuotasArr = cuotas || [];
   if (cuotasArr.length === 0) return [];
   const tasaMensual = (Number(tasaAnual) || 0) / 100 / 12;
@@ -202,7 +201,8 @@ export function calcMontoRealCuota(cuotas, capital, tasaAnual, mesIngresoAnio) {
     }
     let montoReal, amort = 0;
     if (tipo === 'Capital+Interés') {
-      amort = Math.round(amortPorCuota);
+      const esUltima = opts.ajustarUltima && cuotasArr.slice(i + 1).every(x => (x.tipo || 'Solo Interés') !== 'Capital+Interés');
+      amort = esUltima ? Math.round(saldo * 100) / 100 : Math.round(amortPorCuota);
       montoReal = amort + interes;
       saldo = Math.max(0, saldo - amort);
     } else montoReal = interes;
@@ -211,8 +211,13 @@ export function calcMontoRealCuota(cuotas, capital, tasaAnual, mesIngresoAnio) {
 }
 export function calcCuotasRenovacion(ren) {
   return calcMontoRealCuota(ren.cuotas, ren.monto, ren.tasa_anual,
-    ren.mes_ingreso && ren.anio_ingreso ? `${ren.mes_ingreso}-${String(ren.anio_ingreso).slice(-2)}` : '');
+    ren.mes_ingreso && ren.anio_ingreso ? `${ren.mes_ingreso}-${String(ren.anio_ingreso).slice(-2)}` : '',
+    { ajustarUltima: !renovacionAntigua(ren) });
 }
+// Una renovación nueva solo se proyecta si sus cuotas DEVUELVEN el capital: al menos
+// una cuota "Capital+Interés" con mes y año. Si no, el capital renovado saldría de
+// la deuda original sin volver a aparecer en ninguna parte.
+export const renovacionAmortiza = (ren) => (ren && ren.cuotas || []).some(q => (q.tipo || 'Solo Interés') === 'Capital+Interés' && MES_ABR_NUM[q.mes] && parseInt(q.anio));
 
 // ── Renovaciones con modalidad (oct-2026) ───────────────────────────
 // Tres formas de renovar, que se tratan distinto en caja y en deuda:
@@ -232,8 +237,17 @@ export const MODALIDADES_RENOVACION = {
   pago_y_nuevo: 'Pago del crédito anterior y nuevo desembolso',
   parcial: 'Renovación parcial (paga parte y extiende el resto)',
 };
-export const renovacionAntigua = (ren) => !!ren && ren.modalidad == null && ren.confirmada == null;
-export const renovacionProyecta = (ren) => !!ren && (renovacionAntigua(ren) || (ren.confirmada === true && !!MODALIDADES_RENOVACION[ren.modalidad]));
+// Intereses y cargos del vencimiento que se extiende: según el contrato. No se
+// supone que se pagan siempre.
+export const TRATAMIENTOS_INTERES = {
+  pagados: 'Se pagan en caja en el vencimiento original',
+  pendientes: 'Quedan pendientes: se pagan con la primera cuota de la renovación (sin capitalizar)',
+  capitalizados: 'Se capitalizan: se suman al capital renovado',
+};
+export const renovacionAntigua = (ren) => !!ren && !ren.anulada && ren.modalidad == null && ren.confirmada == null;
+// Anulada (con motivo) = sin efecto, pero el dato queda en el historial.
+export const renovacionProyecta = (ren) => !!ren && !ren.anulada && (renovacionAntigua(ren) || (ren.confirmada === true && !!MODALIDADES_RENOVACION[ren.modalidad]
+  && (ren.modalidad === 'pago_y_nuevo' || !!TRATAMIENTOS_INTERES[ren.intereses]) && renovacionAmortiza(ren) && num(ren.monto) > 0));
 export const renovacionTraslada = (ren) => renovacionProyecta(ren) && !renovacionAntigua(ren) && (ren.modalidad === 'extension' || ren.modalidad === 'parcial');
 const fechaIngresoRen = (ren) => {
   const m = MES_ABR_NUM[ren.mes_ingreso], a = parseInt(ren.anio_ingreso);
@@ -245,6 +259,31 @@ export function vencOrigenRenovacion(c, ren) {
   const propias = vencimientosBase(c).filter(v => v.origen !== 'renovacion');
   return propias.length ? propias[propias.length - 1].fecha : '';
 }
+// Qué sale del vencimiento original al extender (cálculo ÚNICO: lo usan la deuda
+// original y el calendario renovado, así nunca se cuenta dos veces). Se calcula
+// sobre el calendario contractual, no sobre los pagos.
+//   tomado  capital renovado: del capital y, si la cuota no está desglosada, de lo sin desglose
+//   extra   intereses + cargos (y lo sin desglose restante) cuando NO se pagan en caja
+//   exceso  monto renovado que supera lo que vencía (se informa; no se inventa)
+export function trasladoRenovacion(c, ren) {
+  if (!renovacionTraslada(ren)) return null;
+  const fecha = vencOrigenRenovacion(c, ren);
+  const v = vencimientosBase(c).find(x => x.origen !== 'renovacion' && x.fecha === fecha);
+  const r2m = rMon(c && c.moneda);
+  if (!v) return { fecha, sinOrigen: true, key: null, tomado: { capital: 0, sinDesglose: 0 }, renovado: 0, exceso: num(ren.monto),
+    extra: { interes: 0, cargos: 0, sinDesglose: 0 }, extraTotal: 0, tratamiento: ren.intereses };
+  let r = num(ren.monto);
+  const tomado = { capital: 0, sinDesglose: 0 };
+  ['capital', 'sinDesglose'].forEach(k => { const q = Math.min(Math.max(0, v[k]), r); tomado[k] = r2m(q); r -= q; });
+  const extra = { interes: 0, cargos: 0, sinDesglose: 0 };
+  if (ren.intereses === 'pendientes' || ren.intereses === 'capitalizados') {
+    extra.interes = r2m(Math.max(0, v.interes)); extra.cargos = r2m(Math.max(0, v.cargos));
+    extra.sinDesglose = r2m(Math.max(0, v.sinDesglose - tomado.sinDesglose));
+  }
+  return { fecha, key: v.key, sinOrigen: false, tomado, renovado: r2m(tomado.capital + tomado.sinDesglose), exceso: r2m(r),
+    extra, extraTotal: r2m(extra.interes + extra.cargos + extra.sinDesglose), tratamiento: ren.intereses };
+}
+
 // Ingresos de caja por renovación: solo pago_y_nuevo confirmada (o el registro
 // antiguo, como siempre), y nunca si los fondos ya se marcaron recibidos.
 export function ingresosRenovacion(c) {
@@ -265,10 +304,16 @@ export function avisosRenovacion(c) {
   const av = { antiguas: [], propuestas: [], incompletas: [] };
   if (!c || esAnulado(c) || !c.renovable) return av;
   getRenovaciones(c).forEach((ren, ri) => {
+    if (ren.anulada) return;
     const r = { ri, acreedor: c.acreedor, empresa: c.empresa, monto: num(ren.monto) };
     if (renovacionAntigua(ren)) av.antiguas.push(r);
     else if (ren.confirmada !== true) av.propuestas.push(r);
     else if (!MODALIDADES_RENOVACION[ren.modalidad]) av.incompletas.push({ ...r, falta: 'modalidad' });
+    else if (ren.modalidad !== 'pago_y_nuevo' && !TRATAMIENTOS_INTERES[ren.intereses]) av.incompletas.push({ ...r, falta: 'tratamiento de intereses y cargos' });
+    else if (!(num(ren.monto) > 0)) av.incompletas.push({ ...r, falta: 'monto' });
+    else if (!renovacionAmortiza(ren)) av.incompletas.push({ ...r, falta: 'al menos una cuota "Capital+Interés" que devuelva el capital' });
+    else { const t = trasladoRenovacion(c, ren); if (t && t.sinOrigen) av.incompletas.push({ ...r, falta: `no hay un vencimiento propio el ${t.fecha || '(sin fecha)'}: no se proyecta` });
+      else if (t && t.exceso > 0) av.excesos = [...(av.excesos || []), { ...r, exceso: t.exceso }]; }
   });
   return av;
 }
@@ -473,15 +518,23 @@ function vencimientosBase(c, conRenovaciones = false) {
     getRenovaciones(c).forEach((ren, ri) => {
       // Una renovación propuesta (sin confirmar) no genera cuotas: no se suponen.
       if (!renovacionProyecta(ren)) return;
-      calcCuotasRenovacion(ren).forEach((cq, ci) => {
+      // Intereses/cargos del vencimiento extendido: capitalizados → suben el capital
+      // renovado; pendientes → se suman a la primera cuota (sin devengar interés).
+      const t = trasladoRenovacion(c, ren);
+      if (t && t.sinOrigen) return;   // no se sabe qué vencimiento sustituye: no se proyecta (se avisa)
+      const capitaliza = t && t.tratamiento === 'capitalizados' ? t.extraTotal : 0;
+      const pendExtra = t && t.tratamiento === 'pendientes' ? t.extra : null;
+      calcCuotasRenovacion(capitaliza ? { ...ren, monto: num(ren.monto) + capitaliza } : ren).forEach((cq, ci) => {
         const mes = MES_ABR_NUM[cq.mes];
         const anio = parseInt(cq.anio);
         if (!mes || !anio) return;
         const fecha = aISO(anio, mes, Math.min(28, diasMes(anio, mes)));
         const amort = num(cq.amort), interes = num(cq.interes);
         const total = num(cq.montoReal) || num(cq.monto);
-        out.push(V(c, `${uid}@R${ri}@${ci}`, fecha,
-          { capital: amort, interes, cargos: 0, sinDesglose: Math.max(0, total - amort - interes) }, { origen: 'renovacion', renovacion: ri }));
+        const comp = { capital: amort, interes, cargos: 0, sinDesglose: Math.max(0, total - amort - interes) };
+        if (pendExtra && ci === 0) { comp.interes += pendExtra.interes; comp.cargos += pendExtra.cargos; comp.sinDesglose += pendExtra.sinDesglose; }
+        out.push(V(c, `${uid}@R${ri}@${ci}`, fecha, comp,
+          { origen: 'renovacion', renovacion: ri, ...(pendExtra && ci === 0 ? { interesesTrasladados: t.extraTotal } : {}), ...(capitaliza ? { capitalizado: capitaliza } : {}) }));
       });
     });
   }
@@ -517,20 +570,18 @@ export function aplicarPagos(c, vencs, hoy = hoyISO()) {
   // desglose. Va a la primera cuota propia con esa fecha.
   const traslados = {};
   if (c && c.renovable) getRenovaciones(c).forEach((ren, ri) => {
-    if (!renovacionTraslada(ren)) return;
-    const f = vencOrigenRenovacion(c, ren);
-    const v = vencs.find(x => x.origen !== 'renovacion' && x.fecha === f);
-    if (v) (traslados[v.key] = traslados[v.key] || []).push({ ri, monto: num(ren.monto), modalidad: ren.modalidad });
+    const t = trasladoRenovacion(c, ren);
+    if (t && t.key && vencs.some(x => x.key === t.key)) (traslados[t.key] = traslados[t.key] || []).push({ ri, ...t });
   });
   const res = vencs.map(v => {
     const due = { capital: v.capital, interes: v.interes, cargos: v.cargos, sinDesglose: v.sinDesglose };
-    let renovado = 0, renovadoExceso = 0;
+    let renovado = 0, renovadoExceso = 0, interesesTrasladados = 0, renovadoCapital = 0;
     (traslados[v.key] || []).forEach(t => {
-      let r = t.monto;
-      ['capital', 'sinDesglose'].forEach(k => { const q = Math.min(Math.max(0, due[k]), r); due[k] -= q; r -= q; });
-      renovadoExceso += r;   // se renovó más de lo que vencía: se informa, no se inventa
+      ['capital', 'sinDesglose'].forEach(k => { due[k] = Math.max(0, due[k] - t.tomado[k]); });
+      ['interes', 'cargos', 'sinDesglose'].forEach(k => { due[k] = Math.max(0, due[k] - t.extra[k]); });
+      renovado += t.renovado; renovadoExceso += t.exceso; interesesTrasladados += t.extraTotal; renovadoCapital += t.tomado.capital;
     });
-    renovado = r2((traslados[v.key] || []).reduce((s, t) => s + t.monto, 0) - renovadoExceso);
+    renovado = r2(renovado);
     const pag = { capital: 0, interes: 0, cargos: 0, sinDesglose: 0 };
     const ps = porVenc[v.key] || [];
     let sd = 0;
@@ -560,7 +611,7 @@ export function aplicarPagos(c, vencs, hoy = hoyISO()) {
     const vencidaConfirmada = vencida && !porConciliar;
     const estado = pendienteTotal === 0 ? (renovado > 0 && pagadoTotal <= EPS ? 'renovada' : 'pagada') : (porConciliar ? 'por_conciliar' : (vencida ? 'vencida' : (parcial ? 'parcial' : 'pendiente')));
     return { ...v, pagado: pag, pagadoTotal, pendiente: pend, pendienteTotal, exceso, vencida: vencidaConfirmada, porConciliar,
-      ...(renovado > 0 || renovadoExceso > 0 ? { renovado, renovadoExceso: r2(renovadoExceso) } : {}),
+      ...(renovado > 0 || renovadoExceso > 0 ? { renovado, renovadoExceso: r2(renovadoExceso), interesesTrasladados: r2(interesesTrasladados), renovadoCapital: r2(renovadoCapital) } : {}),
       impagaConfirmada: confirmadas.has(v.key), parcial, estado,
       pagadoSinRegistro: legacyOrigen && pagadoTotal <= EPS, pagos: ps };
   });
@@ -780,30 +831,48 @@ export const puedeAnularCredito = (c) => pagosVigentes(c).length === 0 && c.paga
 // se anula con motivo. `monto` es lo efectivamente recibido (puede ser neto de
 // gastos); el capital adeudado sigue siendo el contractual (`c.monto`).
 export const registrosDesembolso = (c) => (c && Array.isArray(c.desembolso_registros) ? c.desembolso_registros : []);
-export const desembolsoRecibido = (c) => [...registrosDesembolso(c)].reverse().find(r => r && !r.anulado) || null;
+export const recibosDesembolsoVigentes = (c) => registrosDesembolso(c).filter(r => r && !r.anulado);
+// Último registro vigente (para mostrar).
+export const desembolsoRecibido = (c) => { const v = recibosDesembolsoVigentes(c); return v.length ? v[v.length - 1] : null; };
 export const fechaDesembolsoCredito = (c) => (esContrato(c) || esSocio(c) ? c.fecha_desembolso : c.f_inicio) || '';
+// Desembolso por tramos: cada registro es "parcial" o "total". Un registro total
+// cierra el desembolso (la diferencia con el capital son gastos/comisiones). Si solo
+// hay parciales, lo que falta recibir SIGUE proyectado en la fecha contractual.
+export function desembolsoPendiente(c) {
+  const v = recibosDesembolsoVigentes(c);
+  if (v.some(r => r.tipo !== 'parcial')) return 0;
+  return rMon(c && c.moneda)(Math.max(0, num(c && c.monto) - v.reduce((s, r) => s + num(r.monto), 0)));
+}
 export function estadoDesembolso(c, hoy = hoyISO()) {
-  const rec = desembolsoRecibido(c);
+  const vig = recibosDesembolsoVigentes(c);
   const fecha = fechaDesembolsoCredito(c);
   const monto = num(c && c.monto);
+  const recibidoTotal = rMon(c && c.moneda)(vig.reduce((s, r) => s + num(r.monto), 0));
+  const pendiente = vig.length ? desembolsoPendiente(c) : monto;
   let estado;
-  if (rec) estado = 'recibido';
+  if (vig.length && pendiente <= EPS) estado = 'recibido';
+  else if (vig.length) estado = 'parcial';
   else if (esContrato(c) && c.desembolso_en_flujo === false) estado = 'sin_caja';
   else if (!esContrato(c) && c && c.pagado === true) estado = 'cerrado_antiguo';
   else if (!isoValida(fecha)) estado = 'sin_fecha';
-  else estado = fecha < hoy ? 'pendiente_vencido' : 'pendiente';
-  return { estado, fecha, monto, recibido: rec, diferencia: rec ? rMon(c.moneda)(num(rec.monto) - monto) : 0 };
+  // Fecha anterior al control en la app: dato histórico, sin aviso (no se puede saber).
+  else estado = fecha >= hoy ? 'pendiente' : (fecha >= (controlDesde(c) || '') ? 'pendiente_vencido' : 'historico');
+  const total = vig.find(r => r.tipo !== 'parcial');
+  return { estado, fecha, monto, recibidos: vig, recibidoTotal, pendiente, recibido: vig.length ? vig[vig.length - 1] : null,
+    diferencia: total ? rMon(c.moneda)(recibidoTotal - monto) : 0 };
 }
-export function registrarDesembolsoRecibido(c, { fecha, monto, nota } = {}, usuario = '') {
+export function registrarDesembolsoRecibido(c, { fecha, monto, nota, tipo } = {}, usuario = '', hoy = hoyISO()) {
   if (!isoValida(fecha)) throw new Error('Indica la fecha en que se recibieron los fondos (AAAA-MM-DD).');
+  if (fecha > hoy) throw new Error('La fecha de recepción no puede ser futura: registra los fondos cuando lleguen.');
   if (!(num(monto) > 0)) throw new Error('Indica el monto recibido.');
-  if (desembolsoRecibido(c)) throw new Error('Ya hay un desembolso recibido registrado. Para corregirlo, anúlalo con motivo y registra el correcto.');
+  const t = tipo === 'parcial' ? 'parcial' : 'total';
+  if (recibosDesembolsoVigentes(c).some(r => r.tipo !== 'parcial')) throw new Error('El desembolso ya está registrado como recibido en su totalidad. Para corregirlo, anula ese registro con motivo.');
   const ts = new Date().toISOString();
   const r2 = rMon(c && c.moneda);
-  const reg = { id: `ds-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, fecha, monto: r2(num(monto)),
+  const reg = { id: `ds-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, fecha, monto: r2(num(monto)), tipo: t,
     nota: String(nota || '').trim(), usuario, ts };
   return { ...c, desembolso_registros: [...registrosDesembolso(c), reg],
-    historial: [...(c.historial || []), { ts, usuario, accion: 'desembolso_recibido', detalle: `${fecha} · ${reg.monto} ${c.moneda || 'USD'}${reg.nota ? ' · ' + reg.nota : ''}` }] };
+    historial: [...(c.historial || []), { ts, usuario, accion: 'desembolso_recibido', detalle: `${t} · ${fecha} · ${reg.monto} ${c.moneda || 'USD'}${reg.nota ? ' · ' + reg.nota : ''}` }] };
 }
 export function anularDesembolsoRecibido(c, id, motivo, usuario = '') {
   if (!motivo || !String(motivo).trim()) throw new Error('Anular el registro del desembolso requiere motivo.');
@@ -990,11 +1059,12 @@ export function flujoCreditosEmpresa(empresa, creditos, opts = {}) {
     let fIng = null;
     if (esContrato(c)) fIng = c.desembolso_en_flujo === false ? null : c.fecha_desembolso;
     else if (!c.pagado) fIng = esSocio(c) ? c.fecha_desembolso : c.f_inicio;
-    // Fondos ya recibidos: el ingreso NO se proyecta (ya está en la caja). Nada más cambia.
-    if (desembolsoRecibido(c)) fIng = null;
-    const monto = num(c.monto) * f;
-    // Pendiente con fecha pasada: no se mueve solo; se informa para confirmarlo.
-    if (fIng && isoValida(fIng) && fIng < hoy && monto) out.desembolsosPendientesVencidos.push({ uid: uidCredito(c), acreedor: c.acreedor, fecha: fIng, usd: r2(monto) });
+    // Fondos ya recibidos: lo recibido NO se proyecta (ya está en la caja). Con tramos
+    // parciales, solo lo que falta recibir sigue en la fecha contractual. Nada más cambia.
+    const monto = (recibosDesembolsoVigentes(c).length ? desembolsoPendiente(c) : num(c.monto)) * f;
+    // Pendiente con fecha pasada (desde que el crédito se controla en la app): no se
+    // mueve ni se da por recibido; se informa para confirmarlo.
+    if (fIng && isoValida(fIng) && fIng < hoy && fIng >= (controlDesde(c) || '') && monto) out.desembolsosPendientesVencidos.push({ uid: uidCredito(c), acreedor: c.acreedor, fecha: fIng, usd: r2(monto) });
     if (fIng && isoValida(fIng) && monto && ubicar) {
       const p = ubicar(fIng);
       if (p.idx >= 0) {
@@ -1144,7 +1214,7 @@ export const toleranciaDe = (moneda, tolerancias) => {
 export function movimientosCapitalAlCorte(creditosGrupo, corte) {
   const r2 = rMon(creditosGrupo[0] && creditosGrupo[0].moneda);
   const movs = [];
-  let original = 0, prepCap = 0, capCal = 0, capPag = 0, capSinReg = 0, capPC = 0, exceso = 0, intPag = 0, carPag = 0;
+  let original = 0, prepCap = 0, capCal = 0, capPag = 0, capSinReg = 0, capPC = 0, exceso = 0, intPag = 0, carPag = 0, capRen = 0;
   creditosGrupo.forEach(c => {
     original += num(c.monto);
     (c.prepagos || []).filter(p => !p.anulado && p.fecha <= corte).forEach(p => { prepCap += num(p.capital);
@@ -1153,6 +1223,9 @@ export function movimientosCapitalAlCorte(creditosGrupo, corte) {
     const cc = { ...c, pagos: (c.pagos || []).filter(p => p && p.fecha && p.fecha <= corte) };
     aplicarPagos(cc, vencs, corte).vencimientos.forEach(v => {
       capCal += v.capital;
+      // Capital extendido por una renovación: sale de este vencimiento sin caja y
+      // vuelve en las cuotas de la renovación (que ya están en el calendario).
+      if (v.renovadoCapital > 0) { capRen += v.renovadoCapital; movs.push({ fecha: v.fecha, tipo: 'capital renovado sin caja (pasa a la renovación)', capital: v.renovadoCapital, interes: 0, cargos: 0, sinDesglose: 0, cuenta: true }); }
       if (v.pagadoSinRegistro) { capSinReg += v.capital; movs.push({ fecha: v.fecha, tipo: 'cuota marcada pagada SIN registro (sin fecha ni monto)', capital: v.capital, interes: v.interes, cargos: v.cargos, sinDesglose: v.sinDesglose, cuenta: true }); return; }
       capPag += v.pagado.capital; exceso += Math.max(0, v.pagado.capital - v.capital);
       intPag += v.pagado.interes; carPag += v.pagado.cargos;
@@ -1169,8 +1242,8 @@ export function movimientosCapitalAlCorte(creditosGrupo, corte) {
   const app = posicionAlCorte(creditosGrupo, corte).capital;
   // capital app = calendario − capital imputado a cuotas (+ exceso, que no reduce
   // más allá de la cuota) − cuotas pagadas sin registro − capital por conciliar
-  const calculado = r2(capCal - (capPag - exceso) - capSinReg - capPC);
-  return { original: r2(original), prepagosCapital: r2(prepCap), capitalCalendario: r2(capCal), capitalPagado: r2(capPag), excesoCapital: r2(exceso),
+  const calculado = r2(capCal - capRen - (capPag - exceso) - capSinReg - capPC);
+  return { original: r2(original), prepagosCapital: r2(prepCap), capitalRenovado: r2(capRen), capitalCalendario: r2(capCal), capitalPagado: r2(capPag), excesoCapital: r2(exceso),
     capitalSinRegistro: r2(capSinReg), capitalPorConciliar: r2(capPC), interesPagado: r2(intPag), cargosPagados: r2(carPag),
     capitalApp: app, calculado, cuadra: Math.abs(calculado - app) <= (creditosGrupo[0] && creditosGrupo[0].moneda === 'UF' ? 0.0001 : 0.01), movimientos: movs };
 }
@@ -1278,6 +1351,11 @@ export function simularPrepago(c, sim, hoy = hoyISO()) {
   const faltantes = [], hipotesis = [], avisos = [];
   const fecha = sim.fecha;
   if (!isoValida(fecha)) return { error: 'Fecha de prepago inválida.' };
+  // Con una renovación que extiende capital, el saldo está repartido entre el
+  // vencimiento original y las cuotas de la renovación: el simulador no lo cubre.
+  if (c && c.renovable && getRenovaciones(c).some(ren => trasladoRenovacion(c, ren))) {
+    return { error: 'Este crédito tiene una renovación confirmada que extiende capital: el simulador de prepago no la cubre. Registra el pago anticipado como pago de las cuotas que correspondan.' };
+  }
   const vencs = aplicarPagos(c, vencimientosCredito(c), hoy).vencimientos.filter(v => v.origen === 'cuota');
   // Cuotas con vencimiento hasta la fecha del prepago aún impagas: se
   // regularizan junto con el prepago. Las "por conciliar" se informan aparte

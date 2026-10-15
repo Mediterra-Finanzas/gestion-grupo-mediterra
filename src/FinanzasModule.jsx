@@ -12,6 +12,7 @@ import { calcularAmortizacionSocio, generarInteresPeriodico } from './creditoSoc
 import {
   hoyISO, partesISO, flujoCreditosEmpresa, getRenovaciones, calcCuotasRenovacion, calcMontoRealCuota,
   ingresosRenovacion, avisosRenovacion, MODALIDADES_RENOVACION, renovacionAntigua, vencOrigenRenovacion,
+  TRATAMIENTOS_INTERES, trasladoRenovacion, renovacionAmortiza,
   estadoDesembolso, registrarDesembolsoRecibido, anularDesembolsoRecibido, registrosDesembolso, desembolsoRecibido,
   asegurarUids, uidCredito, estadoCredito, vencimientosCredito, aplicarPagos, registrarPago, anularPago,
   puedeAnularCredito, analisisCartera, servicioDeudaPorMes, saldoCapitalAl, simularPrepago, aplicarPrepago,
@@ -918,9 +919,9 @@ export function avisosCreditosEmpresa(emp, empNombre, creditos, proyOverrides, r
   // TC de proyección: avisa estimado (TC declarado) y antigüedad > 7 días, con fecha y fuente.
   const tcAvisos = (fc.valorizacion || []).filter(v => v.estimado || v.desactualizado || v.porFecha);
   // Renovaciones antiguas (sin modalidad: se proyectan como siempre) y propuestas (no se proyectan).
-  const ren = { antiguas: [], propuestas: [], incompletas: [] };
+  const ren = { antiguas: [], propuestas: [], incompletas: [], excesos: [] };
   (Array.isArray(creditos) ? creditos : []).filter(c => c && c.empresa === empNombre).forEach(c => {
-    const a = avisosRenovacion(c); ren.antiguas.push(...a.antiguas); ren.propuestas.push(...a.propuestas); ren.incompletas.push(...a.incompletas);
+    const a = avisosRenovacion(c); ren.antiguas.push(...a.antiguas); ren.propuestas.push(...a.propuestas); ren.incompletas.push(...a.incompletas); ren.excesos.push(...(a.excesos || []));
   });
   return { arrastrados: fc.arrastrados, porConciliar: fc.porConciliar, sinTC: fc.sinTC, ovIgnorados, tcAvisos,
     estimados: fc.estimados || [], fueraHorizonte: fc.fueraHorizonte || [],
@@ -946,7 +947,8 @@ export function textosAvisosCreditos(av) {
   const rn = av.renovaciones || { antiguas: [], propuestas: [], incompletas: [] };
   if (rn.antiguas.length) out.push(`ℹ Créditos: ${rn.antiguas.length} renovación(es) registrada(s) sin modalidad se proyectan como antes (ingreso + cuotas, sin descontar el vencimiento original): ${rn.antiguas.map(r => `${r.acreedor} ${$$(r.monto)}`).join(" · ")}. Define su modalidad y confírmala.`);
   if (rn.propuestas.length) out.push(`ℹ Créditos: ${rn.propuestas.length} renovación(es) propuesta(s) NO se proyectan hasta confirmarlas: ${rn.propuestas.map(r => `${r.acreedor} ${$$(r.monto)}`).join(" · ")}.`);
-  if (rn.incompletas.length) out.push(`⚠ Créditos: ${rn.incompletas.length} renovación(es) confirmada(s) sin modalidad NO se proyectan: ${rn.incompletas.map(r => r.acreedor).join(", ")}.`);
+  if (rn.incompletas.length) out.push(`⚠ Créditos: ${rn.incompletas.length} renovación(es) confirmada(s) NO se proyectan por datos faltantes: ${rn.incompletas.map(r => `${r.acreedor} (falta ${r.falta})`).join(" · ")}.`);
+  if ((rn.excesos || []).length) out.push(`⚠ Créditos: ${rn.excesos.length} renovación(es) extienden más capital del que vencía en la fecha original: ${rn.excesos.map(r => `${r.acreedor} ${$$(r.exceso)} de más`).join(" · ")}. Revisa el monto.`);
   return out;
 }
 // ── Vista semanal: fechas SOLO cuando existen ─────────────────────
@@ -1076,10 +1078,11 @@ function calcRenovacionesDesglose(empresa, creditos=CREDITOS_DEFAULT) {
 function calcIngresoRenovacionEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
   const arr = Z65();
   creditos.filter(c => c.empresa === empresa).forEach(c => {
+    const f = factorUSD(c); if(f===null) return;   // sin TC: no entra al flujo en USD (igual que sus cuotas)
     ingresosRenovacion(c).forEach(x => {
       const p = partesISO(x.fecha); if(!p) return;
       const i = mIdx(`${Object.values(MES_ABR_TO_EN)[p.m-1]}-${String(p.y).slice(2)}`);
-      if(i >= 0) arr[i] += x.monto;
+      if(i >= 0) arr[i] += x.monto * f;
     });
   });
   return arr;
@@ -1090,12 +1093,13 @@ function calcIngresoRenovacionEmpresa(empresa, creditos=CREDITOS_DEFAULT) {
 function calcIngresoRenovacionDesglose(empresa, creditos=CREDITOS_DEFAULT) {
   const byAcreedor = {};
   creditos.filter(c => c.empresa === empresa).forEach(c => {
+    const f = factorUSD(c); if(f===null) return;
     ingresosRenovacion(c).forEach(x => {
       const key = c.acreedor + " (Ingr. Ren.)";
       if(!byAcreedor[key]) byAcreedor[key] = Z65();
       const p = partesISO(x.fecha); if(!p) return;
       const i = mIdx(`${Object.values(MES_ABR_TO_EN)[p.m-1]}-${String(p.y).slice(2)}`);
-      if(i >= 0) byAcreedor[key][i] += x.monto;
+      if(i >= 0) byAcreedor[key][i] += x.monto * f;
     });
   });
   return byAcreedor;
@@ -7811,6 +7815,13 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
         );
       })()}
 
+      {/* ── Créditos: desembolsos pendientes con fecha pasada y renovaciones sin definir ── */}
+      {((avisoCreditos.desembolsosPendientesVencidos||[]).length>0||(avisoCreditos.renovaciones?.antiguas||[]).length>0||(avisoCreditos.renovaciones?.propuestas||[]).length>0||(avisoCreditos.renovaciones?.incompletas||[]).length>0||(avisoCreditos.renovaciones?.excesos||[]).length>0)&&(
+        <div data-aviso-creditos-desembolso-renovacion style={{background:C.infoBg||C.cardAlt,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",fontSize:11,color:C.text,lineHeight:1.6}}>
+          {textosAvisosCreditos({arrastrados:[],estimados:[],fueraHorizonte:[],porConciliar:[],sinTC:[],tcAvisos:[],ovIgnorados:[],
+            desembolsosPendientesVencidos:avisoCreditos.desembolsosPendientesVencidos||[], renovaciones:avisoCreditos.renovaciones}).map((t,i)=><div key={i}>{t}</div>)}
+        </div>
+      )}
       {/* ── Créditos: vencidos arrastrados, sin TC, manuales que no aplican ── */}
       {(avisoCreditos.arrastrados.length>0||avisoCreditos.porConciliar.length>0||avisoCreditos.sinTC.length>0||avisoCreditos.ovIgnorados.length>0||avisoCreditos.tcAvisos.length>0||avisoCreditos.estimados.length>0)&&(
         <div style={{background:C.warningBg,border:`1px solid ${C.warning}`,borderRadius:10,padding:"10px 14px",fontSize:11,color:C.text,lineHeight:1.6}}>
@@ -8403,7 +8414,7 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
   const [desembForm,setDesembForm]=useState(null); // {fecha, monto, nota}
   const ed = estadoDesembolso(credito, hoy);
   async function guardarDesembolso(){
-    try { await onSave(registrarDesembolsoRecibido(credito, desembForm, usuario)); setDesembForm(null); }
+    try { await onSave(registrarDesembolsoRecibido(credito, desembForm, usuario, hoy)); setDesembForm(null); }
     catch(err){ alert(err.message); }
   }
   async function anularDesembolso(r){
@@ -8510,30 +8521,43 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
           border:`1px solid ${ed.estado==="recibido"?C.success+"66":ed.estado==="pendiente_vencido"?C.warning+"66":C.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <strong>Desembolso:</strong>
-            {ed.estado==="recibido"&&<span>✅ Fondos recibidos el {fmtDate(ed.recibido.fecha)} por {$c(ed.recibido.monto,mon)}
-              {Math.abs(ed.diferencia)>0&&<span style={{color:C.muted}}> (capital contractual {$c(ed.monto,mon)}; diferencia {$c(ed.diferencia,mon)})</span>}
-              {ed.recibido.nota?` · ${ed.recibido.nota}`:""} · {ed.recibido.usuario}. No se proyecta como ingreso.</span>}
+            {ed.estado==="recibido"&&<span>✅ Recibido {$c(ed.recibidoTotal,mon)}{Math.abs(ed.diferencia)>0?<span style={{color:C.muted}}> (capital contractual {$c(ed.monto,mon)}; diferencia {$c(ed.diferencia,mon)})</span>:null}. No se proyecta como ingreso.</span>}
+            {ed.estado==="parcial"&&<span>◐ Recibido {$c(ed.recibidoTotal,mon)} de {$c(ed.monto,mon)}. <strong>Pendiente {$c(ed.pendiente,mon)}</strong>: sigue proyectado como ingreso el {fmtDate(ed.fecha)}.</span>}
             {ed.estado==="pendiente"&&<span>⏳ Pendiente: se proyecta como ingreso el {fmtDate(ed.fecha)} por {$c(ed.monto,mon)}.</span>}
             {ed.estado==="pendiente_vencido"&&<span>⚠ Pendiente con fecha pasada ({fmtDate(ed.fecha)}): sigue proyectado en ese mes. Si los fondos ya llegaron, regístralo.</span>}
+            {ed.estado==="historico"&&<span style={{color:C.muted}}>Fecha {fmtDate(ed.fecha)}, anterior al control en la app: no se informa como pendiente.</span>}
             {ed.estado==="sin_caja"&&<span>Sin movimiento de caja (refinanciamiento con el mismo acreedor).</span>}
             {ed.estado==="cerrado_antiguo"&&<span>Registro antiguo marcado como pagado: no proyecta ingreso.</span>}
             {ed.estado==="sin_fecha"&&<span>Sin fecha de desembolso: no se proyecta ingreso.</span>}
-            {canEdit&&!ed.recibido&&!desembForm&&ed.estado!=="sin_caja"&&ed.estado!=="cerrado_antiguo"&&(
-              <button data-boton-fondos-recibidos onClick={()=>setDesembForm({fecha:hoy, monto:credito.monto||"", nota:""})}
+            {canEdit&&ed.estado!=="recibido"&&!desembForm&&ed.estado!=="sin_caja"&&ed.estado!=="cerrado_antiguo"&&(
+              <button data-boton-fondos-recibidos onClick={()=>setDesembForm({fecha:hoy, monto:ed.estado==="parcial"?ed.pendiente:(credito.monto||""), nota:"", tipo:"total"})}
                 style={{marginLeft:"auto",fontSize:11,padding:"3px 10px",borderRadius:6,border:`1px solid ${C.success}`,background:"transparent",color:C.success,cursor:"pointer",fontWeight:600}}>
                 Registrar fondos recibidos</button>)}
-            {canEdit&&ed.recibido&&(
-              <button onClick={()=>anularDesembolso(ed.recibido)} style={{marginLeft:"auto",fontSize:11,padding:"3px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>
-                Anular registro…</button>)}
           </div>
+          {ed.recibidos.length>0&&(
+            <div style={{marginTop:6,display:"flex",flexDirection:"column",gap:3}}>
+              {ed.recibidos.map(r=>(
+                <div key={r.id} data-desembolso-registro style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <span>{r.tipo==="parcial"?"Tramo parcial":"Total"} · {fmtDate(r.fecha)} · {$c(r.monto,mon)}{r.nota?` · ${r.nota}`:""} · {r.usuario}</span>
+                  {canEdit&&<button onClick={()=>anularDesembolso(r)} style={{fontSize:10,padding:"1px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer"}}>Anular…</button>}
+                </div>
+              ))}
+            </div>
+          )}
           {desembForm&&(
             <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap",marginTop:8}}>
-              <CampoCr label="Fecha en que se recibieron"><input type="date" value={desembForm.fecha} onChange={ev=>setDesembForm(p=>({...p,fecha:ev.target.value}))} style={CR_INP}/></CampoCr>
+              <CampoCr label="Tipo">
+                <select data-desembolso-tipo value={desembForm.tipo} onChange={ev=>setDesembForm(p=>({...p,tipo:ev.target.value}))} style={CR_INP}>
+                  <option value="total">Total (cierra el desembolso; la diferencia son gastos)</option>
+                  <option value="parcial">Parcial (lo que falta sigue proyectado)</option>
+                </select>
+              </CampoCr>
+              <CampoCr label="Fecha en que se recibieron"><input type="date" max={hoy} value={desembForm.fecha} onChange={ev=>setDesembForm(p=>({...p,fecha:ev.target.value}))} style={CR_INP}/></CampoCr>
               <CampoCr label={`Monto recibido (${mon})`}><InputNumero formato="monto" value={desembForm.monto} onChange={n=>setDesembForm(p=>({...p,monto:n}))} style={CR_INP}/></CampoCr>
               <CampoCr label="Nota / respaldo"><input value={desembForm.nota} onChange={ev=>setDesembForm(p=>({...p,nota:ev.target.value}))} placeholder="Ej: cartola BCI" style={CR_INP}/></CampoCr>
               <button onClick={()=>setDesembForm(null)} style={{fontSize:11,padding:"5px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer"}}>Cancelar</button>
               <button data-guardar-fondos-recibidos onClick={guardarDesembolso} style={{fontSize:11,padding:"5px 10px",borderRadius:6,border:"none",background:C.success,color:"#fff",cursor:"pointer",fontWeight:600}}>Guardar</button>
-              <div style={{flexBasis:"100%",color:C.muted,fontSize:10}}>Solo deja de proyectarse el ingreso. Las cuotas, el capital pendiente y el flujo real no cambian.</div>
+              <div style={{flexBasis:"100%",color:C.muted,fontSize:10}}>Solo deja de proyectarse lo recibido. Las cuotas, el capital pendiente y el flujo real no cambian.</div>
             </div>
           )}
           {registrosDesembolso(credito).filter(r=>r.anulado).length>0&&(
@@ -9636,8 +9660,17 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   }
   // ── Helpers para múltiples renovaciones ──
   const updRen = (ri,patch)=>setForm(p=>{const arr=[...(p.renovaciones||[])];arr[ri]={...arr[ri],...patch};return {...p,renovaciones:arr};});
-  const addRen = ()=>setForm(p=>({...p,renovaciones:[...(p.renovaciones||[]),{...RENOVACION_VACIA(),monto:(p.renovaciones||[]).length?"":p.monto}]}));
-  const delRen = (ri)=>setForm(p=>({...p,renovaciones:(p.renovaciones||[]).filter((_,i)=>i!==ri)}));
+  const addRen = ()=>setForm(p=>({...p,renovaciones:[...(p.renovaciones||[]),{...RENOVACION_VACIA(),_nueva:true,monto:(p.renovaciones||[]).length?"":p.monto}]}));
+  // Una renovación agregada en esta edición (nunca guardada) se puede quitar. Una ya
+  // guardada NO se borra: se anula con motivo y queda en el historial, sin efecto.
+  const delRen = (ri)=>{
+    const ren=(form.renovaciones||[])[ri]; if(!ren) return;
+    if(ren._nueva){ setForm(p=>({...p,renovaciones:(p.renovaciones||[]).filter((_,i)=>i!==ri)})); return; }
+    const motivo=window.prompt("Motivo para anular esta renovación (queda en el historial; deja de proyectarse y el vencimiento original vuelve a vencer completo):");
+    if(motivo===null) return;
+    if(!motivo.trim()){ alert("Anular una renovación requiere motivo."); return; }
+    updRen(ri,{anulada:true, motivoAnulacion:motivo.trim(), anuladaPor:usuario, anuladaTs:new Date().toISOString()});
+  };
   const addRenCuota = (ri)=>setForm(p=>{const arr=[...(p.renovaciones||[])];arr[ri]={...arr[ri],cuotas:[...(arr[ri].cuotas||[]),{tipo:"Solo Interés",mes:"",anio:""}]};return {...p,renovaciones:arr};});
   const updRenCuota = (ri,ci,patch)=>setForm(p=>{const arr=[...(p.renovaciones||[])];const cu=[...(arr[ri].cuotas||[])];cu[ci]={...cu[ci],...patch};arr[ri]={...arr[ri],cuotas:cu};return {...p,renovaciones:arr};});
   const delRenCuota = (ri,ci)=>setForm(p=>{const arr=[...(p.renovaciones||[])];arr[ri]={...arr[ri],cuotas:(arr[ri].cuotas||[]).filter((_,j)=>j!==ci)};return {...p,renovaciones:arr};});
@@ -9665,12 +9698,23 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     }
     // Renovaciones: confirmar exige modalidad; extender exige saber qué vencimiento se renueva.
     if(!esSocio && !esContratoF && form.renovable){
+      const candidato = {...form, renovable:true, monto:parseFloat(form.monto)||0, cuota:parseFloat(form.cuota)||0};
       for(const [ri,ren] of (form.renovaciones||[]).entries()){
-        if(ren.confirmada===true && !MODALIDADES_RENOVACION[ren.modalidad]){ alert(`Renovación ${ri+1}: elige la modalidad antes de confirmarla.`); return; }
-        if(ren.confirmada===true && (ren.modalidad==="extension"||ren.modalidad==="parcial") && !vencOrigenRenovacion(form, ren)){
-          alert(`Renovación ${ri+1}: indica el vencimiento que se renueva.`); return; }
-        if(ren.confirmada===true && !(Number(ren.monto)>0)){ alert(`Renovación ${ri+1}: indica el monto.`); return; }
-        if(ren.recibido && !ren.recibido.fecha){ alert(`Renovación ${ri+1}: indica la fecha en que se recibieron los fondos.`); return; }
+        if(ren.anulada || ren.confirmada!==true){
+          if(ren.recibido && ren.confirmada!==true){ alert(`Renovación ${ri+1}: los fondos recibidos solo se registran en una renovación confirmada.`); return; }
+          continue;
+        }
+        const n=ri+1;
+        if(!MODALIDADES_RENOVACION[ren.modalidad]){ alert(`Renovación ${n}: elige la modalidad antes de confirmarla.`); return; }
+        if(!(Number(ren.monto)>0)){ alert(`Renovación ${n}: indica el monto.`); return; }
+        if(!renovacionAmortiza(ren)){ alert(`Renovación ${n}: agrega al menos una cuota "Capital+Interés" (con mes y año) que devuelva el capital. Si no, el capital renovado saldría de la deuda sin volver a aparecer.`); return; }
+        if(ren.modalidad==="extension"||ren.modalidad==="parcial"){
+          if(!TRATAMIENTOS_INTERES[ren.intereses]){ alert(`Renovación ${n}: indica qué pasa con los intereses y cargos del vencimiento que se renueva (pagados, pendientes o capitalizados).`); return; }
+          const t = trasladoRenovacion(candidato, ren);
+          if(!t || t.sinOrigen){ alert(`Renovación ${n}: no hay un vencimiento del crédito el ${ren.venc_origen||vencOrigenRenovacion(candidato, ren)||"(sin fecha)"}. Elige la fecha exacta del vencimiento que se renueva.`); return; }
+          if(t.exceso>0 && !window.confirm(`Renovación ${n}: se extienden ${$$(t.exceso)} más que el capital que vencía. ¿Guardar igual? (se informará como exceso)`)) return;
+        }
+        if(ren.recibido && (!ren.recibido.fecha || ren.recibido.fecha>hoy)){ alert(`Renovación ${n}: indica la fecha (no futura) en que se recibieron los fondos.`); return; }
       }
     }
     // Guardrail: no permitir crear/editar créditos de empresas fuera del subset
@@ -9739,7 +9783,12 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
       f_inicio: form.f_inicio || "",
       // Renovaciones en el formato nuevo (array). Limpia los campos legacy
       // para que getRenovaciones use exclusivamente el array.
-      renovaciones: form.renovable ? (form.renovaciones||[]) : [],
+      renovaciones: form.renovable ? (form.renovaciones||[]).map(r=>{
+        const {_nueva, ...x} = r;
+        // Se guarda el vencimiento que se renueva: si después cambia el f_venc, el traslado no se mueve solo.
+        if(x.confirmada===true && (x.modalidad==="extension"||x.modalidad==="parcial") && !x.venc_origen) x.venc_origen = vencOrigenRenovacion(form, x);
+        return x;
+      }) : [],
       cuotas_renovacion: undefined,
       monto_renovacion: undefined,
       mes_ingreso_renovacion: undefined,
@@ -10102,7 +10151,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                       <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6}}>{acreedor}</div>
                       <div style={{display:"flex",alignItems:"center",gap:0,overflowX:"auto",paddingBottom:4}}>
                         {eventos.map((ev,ei)=>{
-                          const pag = ev.estado==="pagada", venc = ev.estado==="vencida";
+                          const pag = ev.estado==="pagada"||ev.estado==="renovada", venc = ev.estado==="vencida";
                           const col = ev.isIngreso?"#22c55e":venc?C.red:ev.isRen?C.orange:C.red;
                           return (
                             <React.Fragment key={ev.id}>
@@ -10116,7 +10165,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                                 <div style={{fontSize:10,fontWeight:700,color:C.yellow}}>{ev.label}</div>
                                 <div style={{fontSize:11,fontWeight:800,color:col}}>{$$(ev.monto)}</div>
                                 {ev.estado==="parcial"||(venc&&ev.pend<ev.monto)?<div style={{fontSize:8,color:C.blue}}>pend. {$$(ev.pend)}</div>:null}
-                                {pag&&<div style={{fontSize:8,color:"#22c55e"}}>✓</div>}
+                                {pag&&<div style={{fontSize:8,color:ev.estado==="renovada"?"#075985":"#22c55e"}}>{ev.estado==="renovada"?"↺ renovada sin caja":"✓"}</div>}
+                                {!pag&&ev.comp?.renovado>0&&<div style={{fontSize:8,color:"#075985"}}>↺ {$$(ev.comp.renovado)} renovado</div>}
                               </div>
                               {ei<eventos.length-1&&<div style={{width:16,height:1,background:C.muted2,flexShrink:0}}/>}
                             </React.Fragment>
@@ -10352,8 +10402,10 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                     <div key={ri} style={{border:`1px solid ${C.green}44`,borderRadius:10,padding:"10px 12px",marginBottom:12,background:C.card}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                         <div style={{fontSize:11,fontWeight:800,color:C.text}}>Renovación {ri+1}</div>
-                        <button type="button" onClick={()=>delRen(ri)}
-                          style={{padding:"3px 10px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>🗑 Quitar</button>
+                        {ren.anulada
+                          ? <span style={{fontSize:11,color:C.red,fontWeight:700}}>Anulada · {ren.motivoAnulacion} ({ren.anuladaPor})</span>
+                          : <button type="button" onClick={()=>delRen(ri)}
+                              style={{padding:"3px 10px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>{ren._nueva?"🗑 Quitar":"Anular…"}</button>}
                       </div>
 
                       {/* Modalidad y estado (oct-2026). Sin ellos = registro antiguo. */}
@@ -10381,14 +10433,28 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                                   <input type="date" value={ren.venc_origen||vencOrigenRenovacion(form, ren)||""} onChange={e=>updRen(ri,{venc_origen:e.target.value})} style={selSt}/></div>
                               ):ren.modalidad==="pago_y_nuevo"?(
                                 <div>{lbl("Fondos del nuevo crédito")}
-                                  <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,marginTop:6}}>
-                                    <input type="checkbox" checked={!!ren.recibido} onChange={e=>updRen(ri,{recibido: e.target.checked ? {fecha:"", monto:ren.monto, usuario, ts:new Date().toISOString()} : undefined})}/>
-                                    Ya recibidos
+                                  <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,marginTop:6,opacity:ren.confirmada===true?1:0.5}}>
+                                    <input type="checkbox" disabled={ren.confirmada!==true} checked={!!ren.recibido} onChange={e=>{
+                                      if(e.target.checked){ updRen(ri,{recibido:{fecha:"", monto:ren.monto, usuario, ts:new Date().toISOString()}}); return; }
+                                      const motivo=window.prompt("Motivo para quitar el registro de fondos recibidos (queda en el historial):");
+                                      if(motivo===null) return;
+                                      if(!motivo.trim()){ alert("Se requiere motivo."); return; }
+                                      updRen(ri,{recibido:undefined, recibido_anulados:[...(ren.recibido_anulados||[]),{...ren.recibido, anulado:true, motivoAnulacion:motivo.trim(), anuladoPor:usuario, anuladoTs:new Date().toISOString()}]});
+                                    }}/>
+                                    Ya recibidos{ren.confirmada!==true?" (confirma primero)":""}
                                   </label>
-                                  {ren.recibido&&<input type="date" value={ren.recibido.fecha||""} onChange={e=>updRen(ri,{recibido:{...ren.recibido, fecha:e.target.value}})} style={{...selSt,marginTop:4}}/>}
+                                  {ren.recibido&&<input type="date" max={hoy} value={ren.recibido.fecha||""} onChange={e=>updRen(ri,{recibido:{...ren.recibido, fecha:e.target.value}})} style={{...selSt,marginTop:4}}/>}
                                 </div>
                               ):<div/>}
                             </div>
+                            {traslada&&(
+                              <div style={{marginTop:8}}>{lbl("Intereses y cargos del vencimiento que se renueva (según contrato)")}
+                                <select data-renovacion-intereses={ri} value={ren.intereses||""} onChange={e=>updRen(ri,{intereses:e.target.value})} style={selSt}>
+                                  <option value="">— elegir —</option>
+                                  {Object.entries(TRATAMIENTOS_INTERES).map(([k,l])=><option key={k} value={k}>{l}</option>)}
+                                </select>
+                              </div>
+                            )}
                             <div style={{fontSize:10,color:C.muted,marginTop:6,lineHeight:1.5}}>
                               {antigua&&<span style={{color:C.orange,fontWeight:600}}>Registro antiguo: se proyecta como antes (ingreso del monto + cuotas, sin descontar el vencimiento original). Elige modalidad y estado para dejarlo definido. </span>}
                               {!antigua&&ren.confirmada!==true&&<span style={{fontWeight:600}}>Propuesta: no entra al flujo ni a la deuda hasta confirmarla. </span>}
