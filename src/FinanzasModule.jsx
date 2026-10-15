@@ -919,9 +919,10 @@ export function avisosCreditosEmpresa(emp, empNombre, creditos, proyOverrides, r
   // TC de proyección: avisa estimado (TC declarado) y antigüedad > 7 días, con fecha y fuente.
   const tcAvisos = (fc.valorizacion || []).filter(v => v.estimado || v.desactualizado || v.porFecha);
   // Renovaciones antiguas (sin modalidad: se proyectan como siempre) y propuestas (no se proyectan).
-  const ren = { antiguas: [], propuestas: [], incompletas: [], excesos: [] };
+  const ren = { antiguas: [], propuestas: [], incompletas: [], excesos: [], ingresosVencidos: [] };
   (Array.isArray(creditos) ? creditos : []).filter(c => c && c.empresa === empNombre).forEach(c => {
     const a = avisosRenovacion(c); ren.antiguas.push(...a.antiguas); ren.propuestas.push(...a.propuestas); ren.incompletas.push(...a.incompletas); ren.excesos.push(...(a.excesos || []));
+    ren.ingresosVencidos.push(...(a.ingresosVencidos || []).map(x => ({ ...x, usd: x.monto * (factorUSD(c) || 0) })));
   });
   return { arrastrados: fc.arrastrados, porConciliar: fc.porConciliar, sinTC: fc.sinTC, ovIgnorados, tcAvisos,
     estimados: fc.estimados || [], fueraHorizonte: fc.fueraHorizonte || [],
@@ -948,6 +949,7 @@ export function textosAvisosCreditos(av) {
   if (rn.antiguas.length) out.push(`ℹ Créditos: ${rn.antiguas.length} renovación(es) registrada(s) sin modalidad se proyectan como antes (ingreso + cuotas, sin descontar el vencimiento original): ${rn.antiguas.map(r => `${r.acreedor} ${$$(r.monto)}`).join(" · ")}. Define su modalidad y confírmala.`);
   if (rn.propuestas.length) out.push(`ℹ Créditos: ${rn.propuestas.length} renovación(es) propuesta(s) NO se proyectan hasta confirmarlas: ${rn.propuestas.map(r => `${r.acreedor} ${$$(r.monto)}`).join(" · ")}.`);
   if (rn.incompletas.length) out.push(`⚠ Créditos: ${rn.incompletas.length} renovación(es) confirmada(s) NO se proyectan por datos faltantes: ${rn.incompletas.map(r => `${r.acreedor} (falta ${r.falta})`).join(" · ")}.`);
+  if ((rn.ingresosVencidos || []).length) out.push(`ℹ Créditos: ${rn.ingresosVencidos.length} nuevo(s) desembolso(s) de renovación con mes ya pasado sin registrar como recibido(s) quedan en su mes original, antes del saldo inicial, por ${$$(rn.ingresosVencidos.reduce((a, r) => a + (r.usd || 0), 0))}: ${rn.ingresosVencidos.map(r => `${r.acreedor} ${fmtDate(r.fecha)} ${$$(r.usd)}`).join(" · ")}. Si los fondos llegaron, márcalos "Ya recibidos" en la renovación; si llegarán después, corrige el mes de ingreso. No se dan por recibidos solos.`);
   if ((rn.excesos || []).length) out.push(`⚠ Créditos: ${rn.excesos.length} renovación(es) extienden más capital del que vencía en la fecha original: ${rn.excesos.map(r => `${r.acreedor} ${$$(r.exceso)} de más`).join(" · ")}. Revisa el monto.`);
   return out;
 }
@@ -7816,7 +7818,7 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       })()}
 
       {/* ── Créditos: desembolsos pendientes con fecha pasada y renovaciones sin definir ── */}
-      {((avisoCreditos.desembolsosPendientesVencidos||[]).length>0||(avisoCreditos.renovaciones?.antiguas||[]).length>0||(avisoCreditos.renovaciones?.propuestas||[]).length>0||(avisoCreditos.renovaciones?.incompletas||[]).length>0||(avisoCreditos.renovaciones?.excesos||[]).length>0)&&(
+      {((avisoCreditos.desembolsosPendientesVencidos||[]).length>0||(avisoCreditos.renovaciones?.antiguas||[]).length>0||(avisoCreditos.renovaciones?.propuestas||[]).length>0||(avisoCreditos.renovaciones?.incompletas||[]).length>0||(avisoCreditos.renovaciones?.excesos||[]).length>0||(avisoCreditos.renovaciones?.ingresosVencidos||[]).length>0)&&(
         <div data-aviso-creditos-desembolso-renovacion style={{background:C.infoBg||C.cardAlt,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",fontSize:11,color:C.text,lineHeight:1.6}}>
           {textosAvisosCreditos({arrastrados:[],estimados:[],fueraHorizonte:[],porConciliar:[],sinTC:[],tcAvisos:[],ovIgnorados:[],
             desembolsosPendientesVencidos:avisoCreditos.desembolsosPendientesVencidos||[], renovaciones:avisoCreditos.renovaciones}).map((t,i)=><div key={i}>{t}</div>)}
@@ -9731,6 +9733,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
         if(!MODALIDADES_RENOVACION[ren.modalidad]){ alert(`Renovación ${n}: elige la modalidad antes de confirmarla.`); return; }
         if(!(Number(ren.monto)>0)){ alert(`Renovación ${n}: indica el monto.`); return; }
         if(!renovacionAmortiza(ren)){ alert(`Renovación ${n}: todas las cuotas deben tener mes y año, en orden cronológico, y al menos una debe ser "Capital+Interés" (devuelve el capital). Si no, el capital renovado saldría de la deuda sin volver a aparecer.`); return; }
+        if(ren.modalidad==="pago_y_nuevo" && !(ren.mes_ingreso && Number(ren.anio_ingreso)>0)){ alert(`Renovación ${n}: indica el mes y año de ingreso del nuevo desembolso. Sin esa fecha el ingreso no se puede proyectar.`); return; }
         if(ren.modalidad==="extension"||ren.modalidad==="parcial"){
           if(!TRATAMIENTOS_INTERES[ren.intereses]){ alert(`Renovación ${n}: indica qué pasa con los intereses y cargos del vencimiento que se renueva (pagados, pendientes o capitalizados).`); return; }
           const t = plan.porRen[ri];
@@ -10441,9 +10444,8 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                           : <button type="button" onClick={()=>delRen(ri)}
                               style={{padding:"3px 10px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>{ren._nueva?"🗑 Quitar":"Anular…"}</button>}
                       </div>
-                      {(()=>{ const bloq = !ren._nueva && ren._confirmadaGuardada && pagosEnRenovacion(ri).length>0;
-                        return bloq ? <div data-renovacion-bloqueada={ri} style={{fontSize:11,color:C.muted,marginBottom:8}}>Renovación confirmada con pagos registrados: sus condiciones no se editan. Para corregirla, anula esos pagos (con motivo) y luego la renovación.</div> : null; })()}
-                      <fieldset disabled={!ren._nueva && ren._confirmadaGuardada && pagosEnRenovacion(ri).length>0} style={{border:0,padding:0,margin:0,minWidth:0}}>
+                      {!ren._nueva && ren._confirmadaGuardada && !ren.anulada && <div data-renovacion-bloqueada={ri} style={{fontSize:11,color:C.muted,marginBottom:8}}>
+                        Renovación confirmada: sus condiciones (modalidad, vencimiento que renueva, intereses, monto y cuotas) no se editan. Para corregirla, anúlala con motivo y registra la correcta{pagosEnRenovacion(ri).length>0?" (primero anula, con motivo, los pagos registrados en sus cuotas)":""}. Los fondos recibidos sí se pueden registrar.</div>}
 
                       {/* Modalidad y estado (oct-2026). Sin ellos = registro antiguo. */}
                       {(()=>{
@@ -10455,7 +10457,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                           <div data-renovacion-modalidad={ri} style={{marginBottom:12,padding:"8px 12px",background:C.cardAlt,borderRadius:8,border:`1px solid ${C.border}`}}>
                             <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr",gap:10}}>
                               <div>{lbl("Modalidad")}
-                                <select value={ren.modalidad||""} onChange={e=>updRen(ri,{modalidad:e.target.value, confirmada: ren.confirmada===true})} style={selSt}>
+                                <select disabled={!!ren.anulada || (!ren._nueva && ren._confirmadaGuardada)} value={ren.modalidad||""} onChange={e=>updRen(ri,{modalidad:e.target.value, confirmada: ren.confirmada===true})} style={selSt}>
                                   <option value="">{antigua?"— sin definir (registro antiguo) —":"— elegir —"}</option>
                                   {Object.entries(MODALIDADES_RENOVACION).map(([k,l])=><option key={k} value={k}>{l}</option>)}
                                 </select></div>
@@ -10470,7 +10472,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                                 <div>{lbl("Vencimiento que se renueva")}
                                   {(()=>{ const cand = candidatoForm(); const lista = planRenovaciones(cand).candidatos[ri]||[]; const sel = vencOrigenRenovacion(cand, ri);
                                     return (
-                                    <select data-renovacion-origen={ri} value={sel?.key||""} onChange={e=>{ const v=lista.find(x=>x.key===e.target.value); updRen(ri,{venc_origen_key:v?.key, venc_origen:v?.fecha}); }} style={selSt}>
+                                    <select data-renovacion-origen={ri} disabled={!!ren.anulada || (!ren._nueva && ren._confirmadaGuardada)} value={sel?.key||""} onChange={e=>{ const v=lista.find(x=>x.key===e.target.value); updRen(ri,{venc_origen_key:v?.key, venc_origen:v?.fecha}); }} style={selSt}>
                                       {!sel?.key&&<option value="">— elegir —</option>}
                                       {lista.map(v=><option key={v.key} value={v.key}>{fmtDate(v.fecha)} · {$$(v.total)}{v.origen==="renovacion"?` · renovación ${v.renovacion+1}`:""}</option>)}
                                     </select>); })()}</div>
@@ -10492,7 +10494,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                             </div>
                             {traslada&&(
                               <div style={{marginTop:8}}>{lbl("Intereses y cargos del vencimiento que se renueva (según contrato)")}
-                                <select data-renovacion-intereses={ri} value={ren.intereses||""} onChange={e=>updRen(ri,{intereses:e.target.value})} style={selSt}>
+                                <select data-renovacion-intereses={ri} disabled={!!ren.anulada || (!ren._nueva && ren._confirmadaGuardada)} value={ren.intereses||""} onChange={e=>updRen(ri,{intereses:e.target.value})} style={selSt}>
                                   <option value="">— elegir —</option>
                                   {Object.entries(TRATAMIENTOS_INTERES).map(([k,l])=><option key={k} value={k}>{l}</option>)}
                                 </select>
@@ -10510,9 +10512,10 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                         );
                       })()}
 
+                      <fieldset disabled={!!ren.anulada || (!ren._nueva && ren._confirmadaGuardada)} style={{border:0,padding:0,margin:0,minWidth:0}}>
                       {/* Ingreso del préstamo renovado */}
                       <div style={{marginBottom:12,padding:"8px 12px",background:`${C.blue}11`,borderRadius:8,border:`1px solid ${C.blue}33`}}>
-                        <div style={{fontSize:11,fontWeight:700,color:C.blue,marginBottom:8}}>{(ren.modalidad==="extension"||ren.modalidad==="parcial")?"🔁 Capital que se extiende (sin ingreso de caja) y mes de inicio":"💰 Ingreso Nuevo Préstamo (Ing. No Operacional)"}</div>
+                        <div style={{fontSize:11,fontWeight:700,color:C.blue,marginBottom:8}}>{(ren.modalidad==="extension"||ren.modalidad==="parcial")?"🔁 Capital que se extiende (sin ingreso de caja)":"💰 Ingreso Nuevo Préstamo (Ing. No Operacional)"}</div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
                           <div>
                             <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Monto Nuevo Préstamo (USD)</div>
@@ -10520,6 +10523,11 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                               placeholder="Ej: 500000"
                               style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
                           </div>
+                          {(ren.modalidad==="extension"||ren.modalidad==="parcial") ? (
+                            <div data-renovacion-interes-desde={ri} style={{gridColumn:"span 2",fontSize:10,color:C.muted,alignSelf:"center",lineHeight:1.5}}>
+                              Sin desembolso: el interés de las cuotas corre desde el vencimiento que se renueva{(()=>{ const o=vencOrigenRenovacion(candidatoForm(), ri); return o?.fecha?` (${fmtDate(o.fecha)})`:""; })()}, no desde un mes de ingreso.
+                            </div>
+                          ) : (<>
                           <div>
                             <div style={{fontSize:10,color:C.muted,fontWeight:600,marginBottom:3}}>Mes Ingreso</div>
                             <select value={ren.mes_ingreso||""} onChange={e=>updRen(ri,{mes_ingreso:e.target.value,anio_ingreso:ren.anio_ingreso||(form.f_venc?new Date(form.f_venc).getFullYear():new Date().getFullYear())})}
@@ -10534,6 +10542,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                               placeholder={form.f_venc?String(new Date(form.f_venc).getFullYear()):"2026"}
                               style={{width:"100%",padding:"7px 10px",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,outline:"none",boxSizing:"border-box"}}/>
                           </div>
+                          </>)}
                         </div>
                       </div>
 

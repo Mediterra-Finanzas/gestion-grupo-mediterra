@@ -250,5 +250,45 @@ check('F6 Ver movimientos cuadra antes (1.000.000) y después (1.050.000) del or
   mvA.cuadra && aprox(mvA.capitalApp, 1000000) && mvD.cuadra && aprox(mvD.capitalApp, 1050000) && mvD.movimientos.some(m => /capitalizado/.test(m.tipo) && aprox(m.capital, 50000)),
   `${mvA.calculado}/${mvA.capitalApp} · ${mvD.calculado}/${mvD.capitalApp}`);
 
+// ═══ G. HALLAZGOS DE LA 4ª REVISIÓN ═════════════════════════════════
+// G1 pago y nuevo confirmado SIN mes de ingreso: no se proyecta (ni deuda nueva ni ingreso) y se avisa.
+const pynSin = ren({ modalidad: 'pago_y_nuevo', confirmada: true, mes_ingreso: '', anio_ingreso: '' });
+const rG1 = resumen(pynSin);
+check('G1 pago y nuevo sin mes de ingreso: no proyecta cuotas nuevas ni ingreso; capital 1.000.000; aviso "mes y año de ingreso"',
+  sum(rG1.f.renovaciones.total) === 0 && rG1.ing.length === 0 && aprox(rG1.e.saldoCapital, 1000000)
+  && /ingreso/.test(avisosRenovacion(pynSin, HOY).incompletas[0]?.falta || ''), String(rG1.e.saldoCapital));
+// G2 extensión sin mes de ingreso: el interés corre desde el vencimiento de origen (31-dic-26).
+// 1.000.000 × 10% / 12 × 6 meses = 50.000 en jun-27 y otros 50.000 + capital en dic-27.
+const extSin = ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados', mes_ingreso: '', anio_ingreso: '' });
+const fG2 = flujo([extSin], 'Allegria Foods');
+check('G2 extensión sin mes de ingreso: interés desde el origen → jun-27 50.000, dic-27 1.050.000',
+  aprox(fG2.renovaciones.total[jun27], 50000) && aprox(fG2.renovaciones.total[dic27], 1050000), `${fG2.renovaciones.total[jun27]} / ${fG2.renovaciones.total[dic27]}`);
+// …y un mes de ingreso posterior al origen (Feb-27) no deja tramos sin interés.
+const extFeb = ren({ modalidad: 'extension', confirmada: true, intereses: 'pagados', mes_ingreso: 'Feb', anio_ingreso: 2027 });
+check('G2b extensión con "mes de ingreso" Feb-27: igual corre desde dic-26 (jun-27 50.000)', aprox(flujo([extFeb], 'Allegria Foods').renovaciones.total[jun27], 50000));
+// G3 ingreso de un pago y nuevo con mes pasado y no registrado: se avisa (no se mueve ni se da por recibido).
+const pynPas = { ...base, renovaciones: [{ monto: 1000000, mes_ingreso: 'Sep', anio_ingreso: 2026, tasa_anual: 10, modalidad: 'pago_y_nuevo', confirmada: true,
+  cuotas: [{ tipo: 'Capital+Interés', mes: 'Mar', anio: 2027 }] }] };
+const avG3 = avisosRenovacion(pynPas, HOY);
+check('G3 pago y nuevo con ingreso en sep-26 sin registrar: aviso de ingreso vencido por 1.000.000',
+  avG3.ingresosVencidos.length === 1 && aprox(avG3.ingresosVencidos[0].monto, 1000000) && avG3.ingresosVencidos[0].fecha === '2026-09-01');
+const pynRec = { ...pynPas, renovaciones: [{ ...pynPas.renovaciones[0], recibido: { fecha: '2026-09-05' } }] };
+check('G3b registrado como recibido: sin aviso', avisosRenovacion(pynRec, HOY).ingresosVencidos.length === 0);
+// G4 encadenada con capitalización en R0: al 15-oct-26 (antes del origen) el capital es 1.000.000;
+// después del origen (31-ene-27) 1.050.000; Ver movimientos cuadra en las dos fechas.
+const encCap = { ...base, renovaciones: [R({ intereses: 'capitalizados' }), R({ intereses: 'pagados', venc_origen_key: 'rv@R0@1',
+  cuotas: [{ tipo: 'Solo Interés', mes: 'Jun', anio: 2028 }, { tipo: 'Capital+Interés', mes: 'Dic', anio: 2028 }] })] };
+const eG4 = estadoCredito(encCap, HOY);
+const mG4a = movimientosCapitalAlCorte([encCap], '2026-11-30'), mG4b = movimientosCapitalAlCorte([encCap], '2027-01-31');
+check('G4 encadenada con capitalización: capital hoy 1.000.000 (+50.000 de interés), al 31-ene-27 1.050.000, movimientos cuadran',
+  aprox(eG4.saldoCapital, 1000000) && aprox(saldoCapitalAl([encCap], '2027-01-31', HOY).capital, 1050000)
+  && mG4a.cuadra && aprox(mG4a.capitalApp, 1000000) && mG4b.cuadra && aprox(mG4b.capitalApp, 1050000),
+  `${eG4.saldoCapital} · ${saldoCapitalAl([encCap], '2027-01-31', HOY).capital} · ${mG4a.calculado}/${mG4a.capitalApp} · ${mG4b.calculado}/${mG4b.capitalApp}`);
+// G5 no se anula un tramo parcial mientras exista un registro total vigente.
+const g5a = registrarDesembolsoRecibido(bullet, { fecha: '2026-10-01', monto: 600000, tipo: 'parcial' }, 'x', HOY);
+const g5b = registrarDesembolsoRecibido(g5a, { fecha: '2026-10-10', monto: 300000, tipo: 'total' }, 'x', HOY);
+let g5 = null; try { anularDesembolsoRecibido(g5b, g5b.desembolso_registros[0].id, 'error', 'x'); } catch (e) { g5 = e.message; }
+check('G5 anular el parcial con un total vigente se rechaza (primero el total)', !!g5 && /TOTAL/.test(g5));
+
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

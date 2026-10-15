@@ -262,7 +262,7 @@ const fechaPrimeraCuotaRen = (ren) => { const q = ((ren && ren.cuotas) || [])[0]
 // Anulada (con motivo) = sin efecto, pero el dato queda en el historial.
 // (renovacionProyecta = cumple los requisitos; si además tiene efecto lo dice el plan)
 export const renovacionProyecta = (ren) => !!ren && !ren.anulada && (renovacionAntigua(ren) || (ren.confirmada === true && !!MODALIDADES_RENOVACION[ren.modalidad]
-  && (ren.modalidad === 'pago_y_nuevo' || !!TRATAMIENTOS_INTERES[ren.intereses]) && renovacionAmortiza(ren) && num(ren.monto) > 0));
+  && (ren.modalidad === 'pago_y_nuevo' ? !!fechaIngresoRen(ren) : !!TRATAMIENTOS_INTERES[ren.intereses]) && renovacionAmortiza(ren) && num(ren.monto) > 0));
 export const renovacionTraslada = (ren) => renovacionProyecta(ren) && !renovacionAntigua(ren) && (ren.modalidad === 'extension' || ren.modalidad === 'parcial');
 const fechaIngresoRen = (ren) => {
   const m = MES_ABR_NUM[ren.mes_ingreso], a = parseInt(ren.anio_ingreso);
@@ -311,7 +311,7 @@ export function planRenovaciones(c) {
       capitalDisponible: r2m((disp.get(v.key) || {}).capital || 0) }));
     out.porRen[ri] = null;
     if (!renovacionProyecta(ren)) return;
-    let t = null;
+    let t = null, origenRen = null;
     if (renovacionTraslada(ren)) {
       const porDefecto = todos.length ? todos.reduce((a, v) => (v.fecha >= a.fecha ? v : a)) : null;
       // Por clave; si la clave no existe (p. ej. se generó antes de fijar el uid), por fecha.
@@ -332,6 +332,7 @@ export function planRenovaciones(c) {
       const extra = { interes: 0, cargos: 0, sinDesglose: 0 };
       if (ren.intereses === 'pendientes' || ren.intereses === 'capitalizados') { extra.interes = r2m(Math.max(0, d.interes)); extra.cargos = r2m(Math.max(0, d.cargos)); }
       d.capital = r2m(d.capital - capital); d.interes = r2m(d.interes - extra.interes); d.cargos = r2m(d.cargos - extra.cargos);
+      origenRen = origen;
       t = { aplicada: true, fecha: origen.fecha, key: origen.key, tomado: { capital, sinDesglose: 0 }, renovado: capital, exceso,
         extra, extraTotal: r2m(extra.interes + extra.cargos), tratamiento: ren.intereses, ri };
       (out.traslados[origen.key] = out.traslados[origen.key] || []).push(t);
@@ -342,7 +343,14 @@ export function planRenovaciones(c) {
     const capitalRen = t ? r2m(t.renovado + capitaliza) : num(ren.monto);
     if (t) t.capitalRenovacion = capitalRen;
     const pendExtra = t && t.tratamiento === 'pendientes' ? t.extra : null;
-    calcCuotasRenovacion({ ...ren, monto: capitalRen }).forEach((cq, ci) => {
+    // En extensión y parcial el interés corre desde el vencimiento que se renueva (no
+    // desde un "mes de ingreso", que no existe: no hay desembolso).
+    const baseInteres = t ? { mes_ingreso: Object.keys(MES_ABR_NUM).find(k => MES_ABR_NUM[k] === parseInt(t.fecha.slice(5, 7))), anio_ingreso: t.fecha.slice(0, 4) } : {};
+    // Interés capitalizado que viene del vencimiento de origen (renovación encadenada):
+    // viaja con el capital renovado y conserva su propia fecha de capitalización.
+    const heredadas = t && origenRen && origenRen.capitalizaciones && origenRen.capital > 0
+      ? origenRen.capitalizaciones.map(k => ({ monto: r2m(k.monto * t.renovado / origenRen.capital), desde: k.desde })).filter(k => k.monto > 0) : [];
+    calcCuotasRenovacion({ ...ren, ...baseInteres, monto: capitalRen }).forEach((cq, ci) => {
       const mes = MES_ABR_NUM[cq.mes], anio = parseInt(cq.anio);
       if (!mes || !anio) return;
       const fecha = aISO(anio, mes, Math.min(28, diasMes(anio, mes)));
@@ -353,9 +361,14 @@ export function planRenovaciones(c) {
       // Parte de la amortización que viene de intereses capitalizados: hasta la fecha
       // de origen sigue siendo interés (el banco aún no la capitalizó).
       const capitalizadoEnCuota = capitaliza > 0 && capitalRen > 0 ? r2m(amort * capitaliza / capitalRen) : 0;
+      const capitalizaciones = [
+        ...heredadas.map(k => ({ monto: r2m(amort * k.monto / capitalRen), desde: k.desde })),
+        ...(capitalizadoEnCuota > 0 ? [{ monto: capitalizadoEnCuota, desde: t.fecha, propia: true }] : []),
+      ].filter(k => k.monto > 0);
       const v = V(c, `${uid}@R${ri}@${ci}`, fecha, comp, { origen: 'renovacion', renovacion: ri,
         ...(pendExtra && ci === 0 ? { interesesTrasladados: t.extraTotal } : {}),
-        ...(capitalizadoEnCuota > 0 ? { capitalizadoEnCuota, capitalizaDesde: t.fecha } : {}) });
+        ...(capitalizadoEnCuota > 0 ? { capitalizadoEnCuota, capitalizaDesde: t.fecha } : {}),
+        ...(capitalizaciones.length ? { capitalizaciones } : {}) });
       out.cuotas.push(v); todos.push(v);
       const dv = { capital: v.capital, interes: v.interes, cargos: v.cargos, sinDesglose: v.sinDesglose };
       descontarPagos(v.key, dv);
@@ -402,9 +415,13 @@ export function ingresosRenovacion(c) {
   return out;
 }
 // Lo que hay que mirar en las renovaciones de un crédito (no cambia nada).
-export function avisosRenovacion(c) {
-  const av = { antiguas: [], propuestas: [], incompletas: [], excesos: [] };
+export function avisosRenovacion(c, hoy = hoyISO()) {
+  const av = { antiguas: [], propuestas: [], incompletas: [], excesos: [], ingresosVencidos: [] };
   if (!c || esAnulado(c) || !c.renovable) return av;
+  // Ingreso de un "pago y nuevo" con mes ya pasado y sin registrar como recibido: queda
+  // en su mes original (antes del saldo inicial). No se da por recibido ni se arrastra solo.
+  ingresosRenovacion(c).forEach(x => { if (!x.antigua && x.fecha.slice(0, 7) < String(hoy).slice(0, 7))
+    av.ingresosVencidos.push({ ri: x.ri, acreedor: c.acreedor, empresa: c.empresa, fecha: x.fecha, monto: x.monto }); });
   const plan = planRenovaciones(c);
   getRenovaciones(c).forEach((ren, ri) => {
     if (ren.anulada) return;
@@ -413,6 +430,7 @@ export function avisosRenovacion(c) {
     else if (ren.confirmada !== true) av.propuestas.push(r);
     else if (!MODALIDADES_RENOVACION[ren.modalidad]) av.incompletas.push({ ...r, falta: 'modalidad' });
     else if (ren.modalidad !== 'pago_y_nuevo' && !TRATAMIENTOS_INTERES[ren.intereses]) av.incompletas.push({ ...r, falta: 'tratamiento de intereses y cargos' });
+    else if (ren.modalidad === 'pago_y_nuevo' && !fechaIngresoRen(ren)) av.incompletas.push({ ...r, falta: 'mes y año de ingreso del nuevo desembolso' });
     else if (!(num(ren.monto) > 0)) av.incompletas.push({ ...r, falta: 'monto' });
     else if (!renovacionAmortiza(ren)) av.incompletas.push({ ...r, falta: 'cuotas con mes y año, en orden, y al menos una "Capital+Interés" que devuelva el capital' });
     else {
@@ -636,8 +654,17 @@ const COMP = ['capital', 'interes', 'cargos', 'sinDesglose'];
 // Intereses capitalizados en una renovación: al MEDIR un saldo a una fecha anterior al
 // vencimiento de origen siguen siendo INTERÉS (el acreedor aún no los capitalizó).
 // No cambia el flujo ni el servicio de deuda (cada cuota vence después del origen).
-export const capitalizadoNoVigenteAl = (v, fecha) =>
-  (v && v.capitalizadoEnCuota > 0 && v.capitalizaDesde && fecha < v.capitalizaDesde) ? Math.min(v.pendiente ? v.pendiente.capital : v.capital, v.capitalizadoEnCuota) : 0;
+// En renovaciones encadenadas la cuota lleva también lo capitalizado que heredó de su
+// origen, cada parte con su propia fecha (`capitalizaciones`).
+export const capitalizadoNoVigenteAl = (v, fecha) => {
+  if (!v) return 0;
+  const ks = v.capitalizaciones || (v.capitalizadoEnCuota > 0 && v.capitalizaDesde ? [{ monto: v.capitalizadoEnCuota, desde: v.capitalizaDesde }] : []);
+  const noVig = ks.filter(k => fecha < k.desde).reduce((a, k) => a + k.monto, 0);
+  if (!(noVig > 0) || !(v.capital > 0)) return 0;
+  // Proporcional al capital que sigue en esta cuota (lo pagado o renovado se lleva su parte).
+  const cap = v.pendiente ? v.pendiente.capital : v.capital;
+  return r2(Math.min(cap, noVig * cap / v.capital));
+};
 
 // Aplica los pagos vigentes a los vencimientos. Un pago "sin desglose" se
 // imputa primero a lo sin desglose y luego a cargos → intereses → capital
@@ -965,6 +992,9 @@ export function registrarDesembolsoRecibido(c, { fecha, monto, nota, tipo } = {}
 export function anularDesembolsoRecibido(c, id, motivo, usuario = '') {
   if (!motivo || !String(motivo).trim()) throw new Error('Anular el registro del desembolso requiere motivo.');
   const ts = new Date().toISOString();
+  const obj = registrosDesembolso(c).find(r => r.id === id && !r.anulado);
+  if (obj && obj.tipo === 'parcial' && registrosDesembolso(c).some(r => !r.anulado && r.tipo !== 'parcial'))
+    throw new Error('Hay un registro de desembolso TOTAL vigente: anúlalo primero (con motivo) y después el tramo parcial.');
   let ok = null;
   const regs = registrosDesembolso(c).map(r => {
     if (r.id !== id || r.anulado) return r;
