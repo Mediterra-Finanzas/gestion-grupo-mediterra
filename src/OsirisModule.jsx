@@ -1625,7 +1625,7 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
             r.mesAnticipo||"",r.nProforma||"",
             (r.tandas||[]).length>0?(r.tandas||[]).map(t=>`${t.fechaEntrega} (${t.nPlantas}pl)`).join(" | "):"",
             `T${r.trimPagoVivero} ${r.añoPagoVivero}`]),
-          ["Cliente","País","Vivero","Fecha Pedido","Año Entrega","Trim.","N° Plantas","Há","Estado",
+          ["Cliente","País","Vivero","Fecha pedido o plantación","Año","Trim.","N° Plantas","Há","Estado",
            "Regalía US$/Pl","% Anticipo","N° Cuotas","Mes Anticipo","Proforma","Tandas","Trim. Pago Vivero"],
           "TotalPedidos",
           {
@@ -3179,7 +3179,7 @@ function GraficosPlantas({tpData,rpData}) {
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <div style={{fontSize:11,color:C.sl}}>
               Los dos recuentos no miden lo mismo: <strong>{conciliacion.totalA.toLocaleString("es-CL")}</strong> plantas registradas
-              en {tpData.length} plantaciones, contra <strong>{conciliacion.totalB.toLocaleString("es-CL")}</strong> en {rpData.length} tandas o despachos.
+              en {conciliacion.filasA} plantaciones, contra <strong>{conciliacion.totalB.toLocaleString("es-CL")}</strong> en {conciliacion.filasB} tandas o despachos.
               Diferencia <strong style={{color:C.azul}}>{conciliacion.sumaDiferencias>0?"+":""}{conciliacion.sumaDiferencias.toLocaleString("es-CL")}</strong>
               {" "}en {conciliacion.conDiferencia} contratos. No se resta de ningún total.
             </div>
@@ -3221,6 +3221,19 @@ function GraficosPlantas({tpData,rpData}) {
                 <div style={{marginTop:8,fontSize:10,color:C.muted2}}>
                   {conciliacion.soloB.length} contrato(s) facturan por orden de compra sin ninguna plantación registrada:
                   {" "}{conciliacion.soloB.map(f=>f.cliente||f.ctId).join(", ")}.
+                </div>
+              )}
+              {(conciliacion.excluidasA>0||conciliacion.excluidasB>0)&&(
+                <div style={{marginTop:6,fontSize:10,color:C.am,fontWeight:600}}>
+                  ⚠ Fuera de esta conciliación por no estar ligadas a un contrato:
+                  {" "}{conciliacion.excluidasA} fila(s) de plantación ({conciliacion.plantasFueraA.toLocaleString("es-CL")} plantas)
+                  {" "}y {conciliacion.excluidasB} de tanda o despacho ({conciliacion.plantasFueraB.toLocaleString("es-CL")} plantas).
+                  Los indicadores de arriba sí las cuentan.
+                </div>
+              )}
+              {!conciliacion.cuadra&&(
+                <div style={{marginTop:6,fontSize:10,color:C.rojo,fontWeight:700}}>
+                  ⚠ Lo conciliado más lo excluido no reconstruye el total de los indicadores. Revisar antes de usar estas cifras.
                 </div>
               )}
             </div>
@@ -12172,6 +12185,9 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
   const puenteCobranza = useMemo(()=>puentePendiente({
     rpData, feData, fvData, rcData, ctData,
   }),[rpData, feData, fvData, rcData, ctData]);
+  // `paqueteA.js` importa el mismo `factorNetoFila` que usa esta pantalla, así
+  // que `puenteCobranza.totalHub` y `totPend` son el mismo número por
+  // construcción y no por coincidencia de los datos de hoy.
 
   const hoy=new Date();hoy.setHours(0,0,0,0);
   const alertasRC=rcData.filter(r=>{const fA=fechaAvisoTrim(r.añoCobro,r.trimCobro);const fI=fechaInicioTrim(r.añoCobro,r.trimCobro);return hoy>=fA&&hoy<fI&&!r.nFact;}).length;
@@ -12339,11 +12355,21 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
             </div>
           ))}
         </div>
-        <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`,fontSize:10,color:C.muted2,lineHeight:1.7}}>
+        <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`,fontSize:11,color:C.sl,fontWeight:600}}>
+          Los tres suman {$$0(puenteCobranza.sumaTresConceptos)}, que no es el total de la cabecera ni el bruto de las tres líneas.
+          <div style={{fontWeight:400,fontSize:10,color:C.muted2,marginTop:2}}>Base: {puenteCobranza.baseDeclarada}.</div>
+        </div>
+        <div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,fontSize:10,color:C.muted2,lineHeight:1.7}}>
+          El puente, en dos tramos:{" "}
+          cabecera {$$0(puenteCobranza.puente.desdeTotalHub)}
+          {" + "}royalty comercial omitido {$$0(puenteCobranza.puente.masRoyaltyComercialOmitido)}
+          {" = "}<strong>{$$0(puenteCobranza.puente.igualSumaTresConceptos)}</strong>, la suma de los tres conceptos;
+          {" "}más la retención de royalty planta {$$0(puenteCobranza.puente.masRetencionRoyaltyPlanta)}
+          {" = "}<strong>{$$0(puenteCobranza.puente.igualBrutoTresLineas)}</strong> en base bruta.
+          <br/>
           El indicador <strong>Royalty planta + fee</strong> de la cabecera muestra {$$0(puenteCobranza.totalHub)}:
           royalty planta neto de retención ({$$0(puenteCobranza.componentesHub.rpNeto)}) más contract fee bruto ({$$0(puenteCobranza.componentesHub.feBruto)}).
-          {" "}No incluye royalty comercial ({$$0(puenteCobranza.puente.masRoyaltyComercialOmitido)}) ni la retención de royalty planta ({$$0(puenteCobranza.puente.masRetencionRoyaltyPlanta)}),
-          {" "}con lo que el pendiente bruto de las tres líneas es {$$0(puenteCobranza.puente.igualBrutoTresLineas)}.
+          {" "}No incluye royalty comercial ni la retención de royalty planta.
           <br/>
           Fuente de fecha — royalty planta: {puenteCobranza.periodo.royaltyPlanta.fuenteFecha}
           {puenteCobranza.periodo.royaltyPlanta.sinFecha>0&&<> ({puenteCobranza.periodo.royaltyPlanta.sinFecha} fila(s) sin fecha)</>};

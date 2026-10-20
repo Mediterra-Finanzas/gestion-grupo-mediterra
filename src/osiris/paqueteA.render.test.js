@@ -105,6 +105,20 @@ describe("A2 · render de la pantalla de Plantas", () => {
     expect(screen.queryByText(/Los dos recuentos no miden lo mismo/)).toBeNull();
   });
 
+  test("declara las filas que la conciliación deja fuera por no tener contrato", () => {
+    // Una fila sin ctId no cae en ningún contrato, pero el indicador de arriba
+    // sí la cuenta. Antes desaparecía en silencio.
+    const tp = [...tpData, { id: "huerfana", nPlantas: 9999, cliente: "Sin contrato" }];
+    render(<GraficosPlantas tpData={tp} rpData={rpData} />);
+    fireEvent.click(screen.getByText("Ver detalle por contrato"));
+    expect(screen.getByText(/Fuera de esta conciliación por no estar ligadas a un contrato/)).toBeInTheDocument();
+    expect(screen.getByText(/9\.999 plantas/)).toBeInTheDocument();
+    // el denominador del aviso es 4 (las conciliadas), no 5
+    expect(screen.getByText(/en 4 plantaciones/)).toBeInTheDocument();
+    // y el control no se declara cuadrado por una identidad algebraica
+    expect(screen.queryByText(/no reconstruye el total de los indicadores/)).toBeNull();
+  });
+
   test("no revienta con las listas vacías", () => {
     const { container } = render(<GraficosPlantas tpData={[]} rpData={[]} />);
     expect(container).toBeTruthy();

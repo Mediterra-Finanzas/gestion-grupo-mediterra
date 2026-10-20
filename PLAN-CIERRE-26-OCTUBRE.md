@@ -51,7 +51,10 @@ El paquete A completo: `e6f0d2e0`, 5 correcciones, 1 archivo nuevo de lógica pu
 - El cobro de OC separado en declarado por estado (1.569.847,95) · documento registrado (50.600,00)
   · pago verificado (0,00), con el detalle de qué respalda cada uno.
 - El pendiente separado en cobranza registrada (2.719.242,60) · calculado pendiente (4.769.799,45) ·
-  proyección futura (11.188.950,00, toda ella con horizonte supuesto), con el puente a la vista.
+  proyección futura (11.188.950,00, toda ella con horizonte supuesto). Los tres suman 18.677.992,05,
+  que es un número propio y queda declarado como tal, con su base. El puente va en dos tramos:
+  cabecera 5.311.342,05 + comercial omitido 13.366.650,00 = 18.677.992,05, más retención 815.530,95
+  = 19.493.523,00 en base bruta.
 
 ### Lo que NO se mueve, y está fijado por prueba
 
@@ -76,8 +79,10 @@ filtro ni los rótulos, porque son precisamente lo que el paquete corrige.
 
 ### Pruebas
 
-- 33 pruebas de comportamiento con datos sintéticos (`src/osiris/paqueteA.test.js`), reproducibles
-  en cualquier máquina.
+- 37 pruebas de comportamiento con datos sintéticos (`src/osiris/paqueteA.test.js`), reproducibles
+  en cualquier máquina y en cualquier huso horario (verificadas con `TZ=UTC`).
+- 8 pruebas de render (`src/osiris/paqueteA.render.test.js`) que montan el componente de verdad: el
+  archivo tiene `/* eslint-disable */`, así que el build no detecta una variable inexistente en el JSX.
 - 7 pruebas de evidencia antes/después contra el corte de producción
   (`src/osiris/paqueteA.evidencia.test.js`), incluida la verificación del `sha256` del corte. Si el
   archivo del corte no está en la máquina, se saltan en vez de fallar: **el corte tiene datos de
@@ -85,9 +90,10 @@ filtro ni los rótulos, porque son precisamente lo que el paquete corrige.
 
 ### Lo que falta para publicar
 
-1. El resultado de la revisión independiente del diff.
-2. El build con `CI=true`.
-3. Tu autorización de merge con la frase literal, y después el despliegue.
+Una sola cosa: **tu autorización de merge con la frase literal**, y después el despliegue.
+
+La revisión independiente del diff ya se hizo y encontró seis cosas reales, todas corregidas. Están
+en `REVISION-INDEPENDIENTE-PAQUETE-A.md`. El build con `CI=true` da exit 0.
 
 ---
 

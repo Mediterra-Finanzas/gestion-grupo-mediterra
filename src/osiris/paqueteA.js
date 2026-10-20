@@ -15,6 +15,12 @@
 // A5 haDeFila, fechaDeFila  · una sola fuente de hectáreas y fecha por fila
 // ══════════════════════════════════════════════════════════════════
 
+// H2: el factor de retención es el MISMO que usa la cabecera. No se
+// reimplementa: `factorNetoFila` cae al país cuando la fila no trae estado de
+// retención, y reescribir esa regla acá hacía que el panel pudiera imprimir un
+// número distinto del de la cabecera afirmando que era el mismo.
+import { factorNetoFila } from "./retencion";
+
 const num = (v) => {
   const n = Number(v);
   return isNaN(n) ? 0 : n;
@@ -101,15 +107,43 @@ export function conciliarUniversos(ctData, tpData, rpData) {
   const totalA = filas.reduce((s, f) => s + f.universoA, 0);
   const totalB = filas.reduce((s, f) => s + f.universoB, 0);
   const sumaDiferencias = filas.reduce((s, f) => s + f.diferencia, 0);
+
+  // H3: una fila sin `ctId` no cae en ningún contrato y por lo tanto no entra
+  // en la conciliación. Antes desaparecía en silencio mientras el aviso de
+  // pantalla seguía citando el total de filas. Ahora se cuenta y se declara.
+  const ids = {};
+  filas.forEach((f) => { ids[f.ctId] = true; });
+  const dentroA = (tpData || []).filter((r) => r && r.ctId && ids[r.ctId]);
+  const dentroB = (rpData || []).filter((r) => r && r.ctId && ids[r.ctId]);
+  const fueraA = (tpData || []).filter((r) => !r || !r.ctId || !ids[r.ctId]);
+  const fueraB = (rpData || []).filter((r) => !r || !r.ctId || !ids[r.ctId]);
+  const plantasFueraA = fueraA.reduce((s, r) => s + num(r && r.nPlantas), 0);
+  const plantasFueraB = fueraB.reduce((s, r) => s + num(r && r.nPlantas), 0);
+  // Totales de TODAS las filas, que son los que muestran los indicadores.
+  const totalTodasA = (tpData || []).reduce((s, r) => s + num(r && r.nPlantas), 0);
+  const totalTodasB = (rpData || []).reduce((s, r) => s + num(r && r.nPlantas), 0);
+
   return {
     filas,
     totalA,
     totalB,
     sumaDiferencias,
-    // Control de reproducibilidad: la suma de las filas tiene que dar el total.
-    cuadra: sumaDiferencias === totalB - totalA,
+    // H4: `sumaDiferencias === totalB - totalA` es una identidad algebraica
+    // sobre las mismas filas: no puede fallar, así que no era un control.
+    // El control de verdad es que lo conciliado más lo excluido reconstruya el
+    // total que muestran los indicadores. Eso sí puede fallar.
+    cuadra: totalA + plantasFueraA === totalTodasA && totalB + plantasFueraB === totalTodasB,
     conDiferencia: filas.filter((f) => f.diferencia !== 0).length,
     soloB: filas.filter((f) => f.universoA === 0 && f.universoB > 0),
+    // Denominadores correctos para el aviso de pantalla
+    filasA: dentroA.length,
+    filasB: dentroB.length,
+    excluidasA: fueraA.length,
+    excluidasB: fueraB.length,
+    plantasFueraA,
+    plantasFueraB,
+    totalTodasA,
+    totalTodasB,
   };
 }
 
@@ -200,7 +234,8 @@ export function puentePendiente({ rpData, feData, fvData, rcData, ctData, tempor
   // ── Royalty planta: bruto y neto, para poder mostrar la retención ──
   const rpPend = (rpData || []).filter((r) => !r.pagado);
   const bruto = (r) => num(r.nPlantas) * num(r.usdPlanta);
-  const retF = (r) => (num(r.retFactor) || (1 - num(r.retPct) / 100));
+  // El mismo factor que usa la cabecera, importado, no reescrito.
+  const retF = factorNetoFila;
   const rpBruto = rpPend.reduce((s, r) => s + bruto(r), 0);
   const rpNeto = rpPend.reduce((s, r) => s + bruto(r) * retF(r), 0);
   const rpConFactura = rpPend.filter((r) => r.nFact);
@@ -247,6 +282,9 @@ export function puentePendiente({ rpData, feData, fvData, rcData, ctData, tempor
   });
 
   const temps = (rcData || []).map((r) => r.temporada).filter(Boolean).sort();
+  const rcTodoPend = rcPend.reduce((s, r) => s + num(r.montoFact), 0);
+  const cobranzaRegistradaT = rpRegistrado + feRegistrado + rcRegistrado;
+  const calculadoPendienteT = rpCalculado + (feBruto - feRegistrado) + fvMonto + rcCalculado;
 
   return {
     temporadaActual: tAct,
@@ -254,8 +292,8 @@ export function puentePendiente({ rpData, feData, fvData, rcData, ctData, tempor
     totalHub,
     componentesHub: { rpNeto, feBruto, fvMonto },
     // Los tres conceptos, separados
-    cobranzaRegistrada: rpRegistrado + feRegistrado + rcRegistrado,
-    calculadoPendiente: rpCalculado + (feBruto - feRegistrado) + fvMonto + rcCalculado,
+    cobranzaRegistrada: cobranzaRegistradaT,
+    calculadoPendiente: calculadoPendienteT,
     proyeccionFutura: rcProyeccion,
     proyeccionConHorizonteSupuesto: rcProyeccionSupuesta,
     detalle: {
@@ -264,12 +302,19 @@ export function puentePendiente({ rpData, feData, fvData, rcData, ctData, tempor
       fv: { monto: fvMonto, filas: fvPend.length },
       rc: { registrado: rcRegistrado, calculado: rcCalculado, proyeccion: rcProyeccion, proyeccionSupuesta: rcProyeccionSupuesta, filas: rcPend.length, contratosSinFechaTermino: sinFechaTermino.size },
     },
-    // El puente: del total del hub al pendiente bruto de las tres líneas
+    // H1: la suma de los tres conceptos es un número propio, distinto del total
+    // de cabecera y del bruto de las tres líneas. Si no se declara, quien sume
+    // las tres tarjetas obtiene una cifra que no aparece en ninguna pantalla.
+    sumaTresConceptos: cobranzaRegistradaT + calculadoPendienteT + rcProyeccion,
+    baseDeclarada: "royalty planta en NETO de retención; contract fee, fee vivero y royalty comercial en BRUTO",
+    // El puente, en dos tramos encadenados que sí cierran:
+    //   total de cabecera  ->  suma de los tres  ->  bruto de las tres líneas
     puente: {
       desdeTotalHub: totalHub,
-      masRoyaltyComercialOmitido: rcPend.reduce((s, r) => s + num(r.montoFact), 0),
+      masRoyaltyComercialOmitido: rcTodoPend,
+      igualSumaTresConceptos: totalHub + rcTodoPend,
       masRetencionRoyaltyPlanta: rpBruto - rpNeto,
-      igualBrutoTresLineas: totalHub + rcPend.reduce((s, r) => s + num(r.montoFact), 0) + (rpBruto - rpNeto),
+      igualBrutoTresLineas: totalHub + rcTodoPend + (rpBruto - rpNeto),
     },
     // Período y fuente de fecha efectivamente usados
     periodo: {
