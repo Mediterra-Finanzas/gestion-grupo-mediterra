@@ -82,8 +82,15 @@ export function conciliarUniversos(ctData, tpData, rpData) {
     });
     contratos = Object.values(vistos);
   }
-  const porCtA = {}, porCtB = {}, filasB = {};
-  (tpData || []).forEach((r) => { porCtA[r.ctId] = (porCtA[r.ctId] || 0) + num(r.nPlantas); });
+  // Se cuentan FILAS, no sólo plantas: un contrato con filas que suman cero
+  // igual existe y tiene que aparecer. Si se lo filtra por sumar cero, el aviso
+  // de pantalla termina citando un número de plantaciones distinto del que
+  // muestra el indicador, y un registro de prueba desaparece sin decirlo.
+  const porCtA = {}, porCtB = {}, filasB = {}, nFilasA = {};
+  (tpData || []).forEach((r) => {
+    porCtA[r.ctId] = (porCtA[r.ctId] || 0) + num(r.nPlantas);
+    nFilasA[r.ctId] = (nFilasA[r.ctId] || 0) + 1;
+  });
   (rpData || []).forEach((r) => {
     porCtB[r.ctId] = (porCtB[r.ctId] || 0) + num(r.nPlantas);
     (filasB[r.ctId] = filasB[r.ctId] || []).push(r);
@@ -101,8 +108,12 @@ export function conciliarUniversos(ctData, tpData, rpData) {
       diferencia: b - a,
       origenB: fb.length === 0 ? "—" : (fb.some((x) => x._fromOC) ? "OC/despachos" : "tandas del contrato"),
       filasB: fb.length,
+      filasA: nFilasA[ct.id] || 0,
+      // Un contrato con filas en los dos universos pero sin cantidades. No se
+      // esconde: se muestra en cero, que es información y no ruido.
+      sinCantidades: (porCtA[ct.id] || 0) === 0 && (porCtB[ct.id] || 0) === 0,
     };
-  }).filter((f) => f.universoA !== 0 || f.universoB !== 0);
+  }).filter((f) => f.filasA > 0 || f.filasB > 0);
 
   const totalA = filas.reduce((s, f) => s + f.universoA, 0);
   const totalB = filas.reduce((s, f) => s + f.universoB, 0);
@@ -135,6 +146,7 @@ export function conciliarUniversos(ctData, tpData, rpData) {
     cuadra: totalA + plantasFueraA === totalTodasA && totalB + plantasFueraB === totalTodasB,
     conDiferencia: filas.filter((f) => f.diferencia !== 0).length,
     soloB: filas.filter((f) => f.universoA === 0 && f.universoB > 0),
+    sinCantidades: filas.filter((f) => f.sinCantidades),
     // Denominadores correctos para el aviso de pantalla
     filasA: dentroA.length,
     filasB: dentroB.length,

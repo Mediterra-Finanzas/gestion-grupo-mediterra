@@ -1624,7 +1624,9 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
             r.regaliaVivero||"",r.pctAnticipo||60,r.nCuotasVivero||2,
             r.mesAnticipo||"",r.nProforma||"",
             (r.tandas||[]).length>0?(r.tandas||[]).map(t=>`${t.fechaEntrega} (${t.nPlantas}pl)`).join(" | "):"",
-            `T${r.trimPagoVivero} ${r.añoPagoVivero}`]),
+            // A5: las filas derivadas de contrato no traen trimestre ni ano de
+            // pago a vivero. Antes el export escribia "Tundefined undefined".
+            (r.trimPagoVivero&&r.añoPagoVivero)?`T${r.trimPagoVivero} ${r.añoPagoVivero}`:""]),
           ["Cliente","País","Vivero","Fecha pedido o plantación","Año","Trim.","N° Plantas","Há","Estado",
            "Regalía US$/Pl","% Anticipo","N° Cuotas","Mes Anticipo","Proforma","Tandas","Trim. Pago Vivero"],
           "TotalPedidos",
@@ -3179,7 +3181,8 @@ function GraficosPlantas({tpData,rpData}) {
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <div style={{fontSize:11,color:C.sl}}>
               Los dos recuentos no miden lo mismo: <strong>{conciliacion.totalA.toLocaleString("es-CL")}</strong> plantas registradas
-              en {conciliacion.filasA} plantaciones, contra <strong>{conciliacion.totalB.toLocaleString("es-CL")}</strong> en {conciliacion.filasB} tandas o despachos.
+              en {conciliacion.filasA}{conciliacion.excluidasA>0?` de ${tpData.length}`:""} plantaciones,
+              contra <strong>{conciliacion.totalB.toLocaleString("es-CL")}</strong> en {conciliacion.filasB}{conciliacion.excluidasB>0?` de ${rpData.length}`:""} tandas o despachos.
               Diferencia <strong style={{color:C.azul}}>{conciliacion.sumaDiferencias>0?"+":""}{conciliacion.sumaDiferencias.toLocaleString("es-CL")}</strong>
               {" "}en {conciliacion.conDiferencia} contratos. No se resta de ningún total.
             </div>
@@ -3188,6 +3191,29 @@ function GraficosPlantas({tpData,rpData}) {
               {verConciliacion?"Ocultar detalle":"Ver detalle por contrato"}
             </button>
           </div>
+          {/* Lo que queda fuera se dice SIEMPRE, no sólo al desplegar el
+              detalle: si no, el aviso cita un número de plantaciones distinto
+              del que muestra el indicador de arriba y nadie sabe por qué. */}
+          {(conciliacion.excluidasA>0||conciliacion.excluidasB>0)&&(
+            <div style={{marginTop:6,fontSize:10,color:C.am,fontWeight:600}}>
+              ⚠ Quedan fuera de la conciliación{" "}
+              {conciliacion.excluidasA>0&&<>{conciliacion.excluidasA} fila(s) de plantación ({conciliacion.plantasFueraA.toLocaleString("es-CL")} plantas)</>}
+              {conciliacion.excluidasA>0&&conciliacion.excluidasB>0&&" y "}
+              {conciliacion.excluidasB>0&&<>{conciliacion.excluidasB} de tanda o despacho ({conciliacion.plantasFueraB.toLocaleString("es-CL")} plantas)</>}
+              {" "}por no estar ligadas a ningún contrato. Los indicadores de arriba sí las cuentan.
+            </div>
+          )}
+          {conciliacion.sinCantidades.length>0&&(
+            <div style={{marginTop:6,fontSize:10,color:C.muted2}}>
+              {conciliacion.sinCantidades.length} contrato(s) con filas cargadas y sin cantidades, que aparecen en cero
+              en el detalle: {conciliacion.sinCantidades.map(f=>f.cliente||f.ctId).join(", ")}.
+            </div>
+          )}
+          {!conciliacion.cuadra&&(
+            <div style={{marginTop:6,fontSize:10,color:C.rojo,fontWeight:700}}>
+              ⚠ Lo conciliado más lo excluido no reconstruye el total de los indicadores. Revisar antes de usar estas cifras.
+            </div>
+          )}
           {verConciliacion&&(
             <div style={{marginTop:10,overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
@@ -3223,19 +3249,7 @@ function GraficosPlantas({tpData,rpData}) {
                   {" "}{conciliacion.soloB.map(f=>f.cliente||f.ctId).join(", ")}.
                 </div>
               )}
-              {(conciliacion.excluidasA>0||conciliacion.excluidasB>0)&&(
-                <div style={{marginTop:6,fontSize:10,color:C.am,fontWeight:600}}>
-                  ⚠ Fuera de esta conciliación por no estar ligadas a un contrato:
-                  {" "}{conciliacion.excluidasA} fila(s) de plantación ({conciliacion.plantasFueraA.toLocaleString("es-CL")} plantas)
-                  {" "}y {conciliacion.excluidasB} de tanda o despacho ({conciliacion.plantasFueraB.toLocaleString("es-CL")} plantas).
-                  Los indicadores de arriba sí las cuentan.
-                </div>
-              )}
-              {!conciliacion.cuadra&&(
-                <div style={{marginTop:6,fontSize:10,color:C.rojo,fontWeight:700}}>
-                  ⚠ Lo conciliado más lo excluido no reconstruye el total de los indicadores. Revisar antes de usar estas cifras.
-                </div>
-              )}
+
             </div>
           )}
         </div>

@@ -110,11 +110,14 @@ describe("A2 · render de la pantalla de Plantas", () => {
     // sí la cuenta. Antes desaparecía en silencio.
     const tp = [...tpData, { id: "huerfana", nPlantas: 9999, cliente: "Sin contrato" }];
     render(<GraficosPlantas tpData={tp} rpData={rpData} />);
-    fireEvent.click(screen.getByText("Ver detalle por contrato"));
-    expect(screen.getByText(/Fuera de esta conciliación por no estar ligadas a un contrato/)).toBeInTheDocument();
+    // El aviso se ve SIN desplegar el detalle: si estuviera escondido, el
+    // número de plantaciones del aviso no cuadraría con el indicador de arriba
+    // y nadie sabría por qué.
+    expect(screen.getByText(/Quedan fuera de la conciliación/)).toBeInTheDocument();
     expect(screen.getByText(/9\.999 plantas/)).toBeInTheDocument();
-    // el denominador del aviso es 4 (las conciliadas), no 5
-    expect(screen.getByText(/en 4 plantaciones/)).toBeInTheDocument();
+    // el aviso declara las dos cifras: las conciliadas y el total
+    expect(screen.getByText(/en 4 de 5 plantaciones/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Ver detalle por contrato"));
     // y el control no se declara cuadrado por una identidad algebraica
     expect(screen.queryByText(/no reconstruye el total de los indicadores/)).toBeNull();
   });

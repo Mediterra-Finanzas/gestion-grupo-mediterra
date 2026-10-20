@@ -5,25 +5,106 @@ Estado al 2026-10-20. Candidato local `e6f0d2e0` en la rama `fix/osiris-paquete-
 
 ---
 
-## 0 · Un hallazgo que cambia la ruta de integración
+## 0 · Me equivoqué: NO hay discrepancia entre main y Production
 
-Antes de cualquier plan: **producción sirve código de Osiris que `main` no tiene.**
+Dije que producción servía código que `main` no tenía. **Es falso.** Comparé contra la rama
+**local** `main`, que lleva congelada desde agosto, en vez de contra `origin/main`.
 
-| | Fecha | Líneas de `OsirisModule.jsx` | `src/osiris/preservacion.js` |
-|---|---|---:|---|
-| `1bc5c447` (lo que sirve Production) | 2026-10-15 | 16.109 | sí |
-| `main` (`a599f47e`) | 2026-08-26 | 14.596 | **no** |
+### Lo verificado, con su procedencia
 
-`main` está dos meses atrás en el área de Osiris y le faltan unas 15.800 líneas que producción sí
-tiene, incluido `preservacion.js`, del que depende la atribución de órdenes de compra a contratos.
+Verificación del 2026-10-20 16:52 UTC.
 
-Por eso el paquete A está construido **sobre `1bc5c447`**, no sobre `main`: es el único árbol donde
-las cifras de antes/después son comparables con lo que ves en pantalla.
+| Qué | Valor |
+|---|---|
+| Carpeta | `C:\Users\angel\Documents\Proyectos\gestion-grupo-mediterra` |
+| Repositorio remoto | `https://github.com/Mediterra-Finanzas/gestion-grupo-mediterra.git` (`origin`) |
+| Rama del checkout | `deploy-allpa` |
+| HEAD del checkout | `ffda87c2eb2cb5ee7cb879e5d5924a17f545d9a5` |
+| `origin/main` tras `git fetch` | **`1bc5c447748e97adda3c37ee9ca38029e7695a69`** · 2026-10-15 15:50:15 UTC |
+| `main` **local** | `a599f47ea91eee697ccbd93df604581411be11d2` · 2026-08-26 14:08:28 −4 |
+| Distancia de `main` local | **370 commits atrás** y 140 adelante de `origin/main` |
 
-**Consecuencia para el 26:** publicar el paquete A es un paso; reconciliar `main` con lo que sirve
-producción es otro, más grande, y no es parte de este paquete. Hay que decidir cuál de los dos se
-hace primero. Mi recomendación: publicar sobre la línea que ya está en producción y dejar la
-reconciliación de `main` como trabajo propio, porque mezclarlos arriesga el cierre.
+### El SHA que sirve el dominio productivo
+
+| Qué | Valor |
+|---|---|
+| Dominio | `https://gestion-grupo-mediterra.vercel.app` |
+| Bundle servido | `/static/js/main.466070a8.js` · 5.494.568 bytes · `sha256 78ad738aa2387b2e80be6ddd531101c0b00fcdb9a2ca17304d8e999d5036ff70` |
+| `REACT_APP_VERCEL_GIT_COMMIT_SHA` incrustado | **`1bc5c447748e97adda3c37ee9ca38029e7695a69`** |
+| `REACT_APP_VERCEL_TARGET_ENV` incrustado | `production` |
+| `REACT_APP_VERCEL_GIT_PREVIOUS_SHA` incrustado | `778a397cdffeb28352dc19ff39bb44df25638dd0` |
+| Cabeceras de la respuesta | `X-Vercel-Cache: HIT` · `Age: 368534` (≈ 4,27 días ⇒ en caché desde ≈ 2026-10-16 10:30 UTC) |
+
+**El método:** el proyecto de Vercel tiene habilitado exponer sus variables de sistema, así que
+llegan con prefijo `REACT_APP_` y Create React App las incrusta literalmente en el paquete. El SHA
+no se infiere: está escrito en el bundle que sirve el dominio. La CLI de Vercel no se usó; `gh` no
+está instalado en este equipo, así que la API de despliegues de GitHub no estuvo disponible y la
+verificación se hizo contra el bundle, que es evidencia más directa.
+
+### Contraste con los despliegues anteriores de este carril
+
+`origin/main`, primer padre, los últimos del carril:
+
+| SHA | Fecha UTC | Asunto |
+|---|---|---|
+| **`1bc5c447`** | 2026-10-15 15:50 | release: Créditos + correcciones de la vista semanal sobre producción (778a397) ← **servido hoy** |
+| `d9611add` | 2026-10-15 13:34 | release: producción = 778a397 + Créditos; retira de main los 14 cambios no publicados |
+| `e9c77895` | 2026-10-15 13:10 | fix(creditos): saldosAlCorte no cuenta como capital el interés capitalizado |
+| `778a397c` | 2026-10-13 13:14 | ← **despliegue anterior**, según el propio bundle |
+
+`778a397c` es el predecesor directo de `1bc5c447` en la rama, con 30 commits entre ambos. La cadena
+es consistente: lo que sirve producción es la punta de `origin/main`, y el despliegue previo fue el
+commit anterior de la misma rama.
+
+### Por qué aparecía una base de agosto
+
+La rama **local** `main` de este checkout dejó de moverse el 2026-08-26, cuando otro carril
+mergeó ahí el trabajo de Allegria Foods C3-B **localmente y sin empujarlo**. Desde entonces nadie
+corrió `git pull` sobre `main` en esta carpeta, así que la referencia quedó en ese punto mientras
+`origin/main` avanzó 370 commits. Los 140 commits "adelante" son exactamente ese trabajo sin
+publicar.
+
+Mi error fue leer `main` en vez de `origin/main` y presentar la diferencia como deriva de
+producción. **No reconcilié ni sobrescribí nada**, y no corresponde hacerlo desde este carril: esos
+140 commits son de otro, y decidir qué pasa con ellos no es parte del paquete A.
+
+### Consecuencia para el paquete A
+
+La ruta de integración es la normal. El candidato está construido **exactamente sobre
+`origin/main`**, que es el SHA que sirve producción. No hay nada que reconciliar antes de publicar.
+
+---
+
+## 0.bis · Identificación del candidato
+
+| Qué | Valor |
+|---|---|
+| Rama | `fix/osiris-paquete-a` |
+| SHA del candidato | **`624f5e6a2714338af6ccccbc3c33f43cb8505a41`** |
+| Base exacta | **`1bc5c447748e97adda3c37ee9ca38029e7695a69`** |
+| La base es | `origin/main` **y** el SHA que sirve producción |
+| Commits | 5 |
+| Estado | local, **sin push, sin merge, sin despliegue** |
+
+Los cinco commits:
+
+| SHA | Qué |
+|---|---|
+| `e6f0d2e0c51a4b78d474998abcea2418408fa5b9` | paquete A: las cinco correcciones |
+| `a2596500a3f4e459dbb16b7057e4b2f21f361b24` | fichas B, inventario C y plan de cierre |
+| `d528701ceab0d4679f0ef458a1ab7cccbb39fe09` | pruebas de render del JSX nuevo |
+| `97bf703d8f8b24fdceec5a9dd4abac56073df915` | correcciones tras la revisión independiente |
+| `624f5e6a2714338af6ccccbc3c33f43cb8505a41` | rótulos de cobranza |
+
+Diff contra la base: **5 archivos de código y prueba**, más los documentos.
+
+```
+src/OsirisModule.jsx                    (modificado)
+src/osiris/paqueteA.js                  (nuevo, logica pura)
+src/osiris/paqueteA.test.js             (nuevo, 38 pruebas)
+src/osiris/paqueteA.evidencia.test.js   (nuevo, 7 pruebas)
+src/osiris/paqueteA.render.test.js      (nuevo, 8 pruebas)
+```
 
 ---
 

@@ -4,7 +4,8 @@
 pediste: qué está cargado a mano hoy, y qué hay que resolver antes de conectar para no contar dos
 veces.
 
-Verificado sobre `1bc5c447` (lo que sirve Production) y el corte de datos del 2026-10-20.
+Verificado sobre `1bc5c447748e97adda3c37ee9ca38029e7695a69` = `origin/main` = el SHA que sirve
+Production, y el corte de datos del 2026-10-20.
 
 ---
 
@@ -74,6 +75,7 @@ que no se derivan de nada:
 | 3 | `oc.cantidad_plantas` y `oc.fee_usd_planta` | cabecera de OC sin estructura de líneas | el fee de la OC | **29 de 69 OC no tienen línea alguna** y aun así cobran: **US$494.146,50 sin desglose por variedad** |
 | 4 | `oc.estado_oc` | el estado que el sistema convierte en cobro | US$1.569.847,95 "cobrados" | 63 OC en "Pagada total", **0 cuotas de pago cargadas** |
 | 5 | `ct.contractFee*` | factura, estado y fecha de pago del contract fee | nada: la pantalla no los lee | 14 contratos declaran pagado, la pantalla cuenta 0 |
+| 7 | `ct.fechaTermino` cuando falta | nada: el horizonte lo pone el codigo (`fin = a1 + 10`) | US$11.188.950 de proyeccion de royalty comercial | 19 de 23 contratos sin esa fecha |
 | 6 | `feeEntrada` | la fila que sí lee la pantalla de contract fee | los US$690.000 pendientes | **1 sola fila guardada en toda la producción** |
 
 ---
