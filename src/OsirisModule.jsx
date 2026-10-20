@@ -16262,4 +16262,6 @@ export {
   derivarContractFeeDesdeContratos, derivarRoyaltyPlantaDesdeContratos,
   derivarRoyaltyComercialDesdeContratos, derivarTotalPedidosDesdeContratos,
   RC_MES_DEFAULT_POR_PAIS, RP_CUOTAS_DEFAULT, ESTADOS_CF,
+  // expuesto para poder renderizarlo en prueba (paquete A, A2)
+  GraficosPlantas, añoPedido,
 };
