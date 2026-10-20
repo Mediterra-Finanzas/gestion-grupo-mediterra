@@ -197,11 +197,11 @@ D("Paquete A · evidencia contra el corte de producción", () => {
     di("");
     di("  DESPUES  Declarado por estado           " + d2(n.estadoDeclarado).padStart(16) + "   " + n.ocsDeclaradasPagadas + " OC en 'Pagada total'");
     di("           Documento registrado           " + d2(n.docRegistrada).padStart(16) + "   facturas con importe");
-    di("           Pago verificado                " + d2(n.pagoVerificado).padStart(16) + "   el sistema no guarda conciliación");
+    di("           Pago verificado                " + String(n.pagoVerificadoEstado).padStart(16) + "   no es un importe: el sistema no guarda conciliación");
     di("");
     di("  respaldo real del importe declarado:");
     di("    cuotas de pago cargadas en todo el sistema : " + n.cuotasPagadas + " (en " + n.ocsConCuotas + " OC)");
-    di("    importe sin ningún documento detrás        : " + d2(n.sinDocumento));
+    di("    importe sin factura REGISTRADA              : " + d2(n.sinDocumentoRegistrado) + "  (no afirma que la factura no exista)");
     di("    con fecha de pago escrita en la factura    : " + d2(n.pagoDeclarado) + "  <- declaración, pendiente de conciliar");
     n.pagoDeclaradoDetalle.forEach((x) => di("      OC " + x.oc + "  factura " + x.nFactura + "  " + d2(x.monto) + "  fecha " + x.fechaPago + "  estado " + x.estado));
     di("    registros de factura sin importe           : " + n.docsSinMonto.length);
@@ -211,7 +211,8 @@ D("Paquete A · evidencia contra el corte de producción", () => {
     // el importe declarado no cambia: sólo cambia su rótulo
     expect(n.estadoDeclarado).toBeCloseTo(cobradoAntes, 6);
     // y el pago verificado no se infiere de una factura
-    expect(n.pagoVerificado).toBe(0);
+    expect(n.pagoVerificado).toBeNull();
+    expect(n.pagoVerificadoEstado).toBe("sin conciliación registrada");
     expect(n.docRegistrada).toBeLessThan(n.estadoDeclarado);
   });
 
@@ -231,7 +232,8 @@ D("Paquete A · evidencia contra el corte de producción", () => {
     di("");
     di("  ANTES    'Por cobrar'                   " + d2(totPendAntes).padStart(16) + "   un solo número, sin decir qué suma");
     di("");
-    di("  DESPUES  Cobranza registrada            " + d2(p.cobranzaRegistrada).padStart(16) + "   con factura emitida");
+    di("  DESPUES  Con factura registrada         " + d2(p.conFacturaRegistrada).padStart(16) + "   " + p.queAcredita.conFacturaRegistrada);
+    di("             de ella, contradictoria       " + d2(p.conFacturaContradictoria).padStart(16) + "   " + p.filasContradictorias + " fila(s) con factura Y fecha de pago, sin marcar pagado");
     di("           Calculado pendiente            " + d2(p.calculadoPendiente).padStart(16) + "   lo calcula el sistema, nadie lo facturó");
     di("           Proyección futura              " + d2(p.proyeccionFutura).padStart(16) + "   temporadas que no empiezan aún · NO exigible");
     di("              de ella, horizonte supuesto " + d2(p.proyeccionConHorizonteSupuesto).padStart(16) + "   tope de 11 temporadas del código");
@@ -277,7 +279,7 @@ D("Paquete A · evidencia contra el corte de producción", () => {
       feData.filter((r) => !r.pagado).reduce((s, r) => s + N(r.montoUSD), 0) +
       fvData.filter((r) => !r.pagado).reduce((s, r) => s + N(r.montoFact), 0) +
       rc.filter((r) => !r.pagado).reduce((s, r) => s + N(r.montoFact), 0);
-    expect(p.cobranzaRegistrada + p.calculadoPendiente + p.proyeccionFutura).toBeCloseTo(universo, 6);
+    expect(p.conFacturaRegistrada + p.calculadoPendiente + p.proyeccionFutura).toBeCloseTo(universo, 6);
     expect(p.sumaTresConceptos).toBeCloseTo(universo, 6);
 
     // 3. la proyeccion futura son SOLO temporadas que no empezaron
@@ -292,7 +294,16 @@ D("Paquete A · evidencia contra el corte de producción", () => {
       feData.filter((r) => !r.pagado && r.nFact).reduce((s, r) => s + N(r.montoUSD), 0) +
       rc.filter((r) => !r.pagado && r.nFact && Number(String(r.temporada).split("/")[0]) <= tActIni)
         .reduce((s, r) => s + N(r.montoFact), 0);
-    expect(p.cobranzaRegistrada).toBeCloseTo(registradoAparte, 6);
+    expect(p.conFacturaRegistrada).toBeCloseTo(registradoAparte, 6);
+    // y la porcion contradictoria, recalculada aparte
+    const contradictorioAparte =
+      rp.filter((r) => !r.pagado && r.nFact && r.fechaPago)
+        .reduce((s, r) => s + N(r.nPlantas) * N(r.usdPlanta) * retFactorFila(r), 0) +
+      rc.filter((r) => !r.pagado && r.nFact && r.fechaPago &&
+                        Number(String(r.temporada).split("/")[0]) <= tActIni)
+        .reduce((s, r) => s + N(r.montoFact), 0);
+    expect(p.conFacturaContradictoria).toBeCloseTo(contradictorioAparte, 6);
+    expect(p.conFacturaContradictoria).toBeGreaterThan(0);
 
     // 4. el puente, contra sumas calculadas aqui y no contra su definicion
     const rcPendAparte = rc.filter((r) => !r.pagado).reduce((s, r) => s + N(r.montoFact), 0);

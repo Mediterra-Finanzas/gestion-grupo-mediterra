@@ -12344,9 +12344,9 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         <div style={{fontSize:11,fontWeight:800,color:C.sl,marginBottom:10}}>Pendiente, separado por lo que realmente es</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
           {[
-            ["Cobranza registrada", puenteCobranza.cobranzaRegistrada, C.success, "con número de factura emitido"],
-            ["Calculado pendiente", puenteCobranza.calculadoPendiente, C.warning, "lo calcula el sistema, nadie lo facturó"],
-            ["Proyección futura", puenteCobranza.proyeccionFutura, C.muted2, `temporadas que no empiezan aún · no exigible`],
+            ["Con factura registrada", puenteCobranza.conFacturaRegistrada, C.success, puenteCobranza.queAcredita.conFacturaRegistrada],
+            ["Calculado pendiente", puenteCobranza.calculadoPendiente, C.warning, puenteCobranza.queAcredita.calculadoPendiente],
+            ["Proyección futura", puenteCobranza.proyeccionFutura, C.muted2, puenteCobranza.queAcredita.proyeccionFutura],
           ].map(([l,v,c,sub])=>(
             <div key={l} style={{borderLeft:`3px solid ${c}`,paddingLeft:10}}>
               <div style={{fontSize:10,color:C.muted,fontWeight:700}}>{l}</div>
@@ -12358,6 +12358,15 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
         <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`,fontSize:11,color:C.sl,fontWeight:600}}>
           Los tres suman {$$0(puenteCobranza.sumaTresConceptos)}, que no es el total de la cabecera ni el bruto de las tres líneas.
           <div style={{fontWeight:400,fontSize:10,color:C.muted2,marginTop:2}}>Base: {puenteCobranza.baseDeclarada}.</div>
+          {puenteCobranza.conFacturaContradictoria>0&&(
+            <div style={{fontWeight:700,fontSize:10,color:C.rojo,marginTop:6,lineHeight:1.6}}>
+              ⚠ Ninguna de las tres cifras acredita cobro. De los {$$0(puenteCobranza.conFacturaRegistrada)} con
+              factura registrada, <strong>{$$0(puenteCobranza.conFacturaContradictoria)}</strong> en
+              {" "}{puenteCobranza.filasContradictorias} fila(s) provienen de registros que se contradicen: traen
+              número de factura y fecha de pago, y a la vez la marca de pagado en false. Requieren conciliación
+              documental antes de usarse como cartera.
+            </div>
+          )}
         </div>
         <div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,fontSize:10,color:C.muted2,lineHeight:1.7}}>
           El puente, en dos tramos:{" "}
@@ -14515,7 +14524,7 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                           ["💰 Fee total", $$(totFee), C.purple],
                           ["🏷 Declarado por estado", $$(niv.estadoDeclarado), C.success],
                           ["📄 Documento registrado", $$(niv.docRegistrada), C.accent2],
-                          ["🔎 Pago verificado", $$(niv.pagoVerificado), C.danger],
+                          ["🔎 Pago verificado", niv.pagoVerificadoEstado, C.danger],
                           ["⏳ Fee sin declarar pagado", $$(totPorCobrar), C.warning],
                         ].map(([l,vv,c])=>(
                           <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,borderRadius:8,padding:"8px 12px"}}>
@@ -14537,8 +14546,11 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                         {" "}Cuotas de pago cargadas en el sistema: <strong>{niv.cuotasPagadas}</strong> en {niv.ocsConCuotas} OC.
                         {" "}Facturas registradas con importe: <strong>{$$(niv.docRegistrada)}</strong>
                         {niv.pagoDeclarado>0&&<> ({$$(niv.pagoDeclarado)} con fecha de pago escrita en la propia factura, pendiente de conciliar)</>}.
-                        {" "}Sin ningún documento detrás: <strong>{$$(niv.sinDocumento)}</strong>.
-                        {" "}El sistema no guarda conciliación bancaria, por eso <em>pago verificado</em> es {$$(0)}.
+                        {" "}Sin factura registrada en el sistema: <strong>{$$(niv.sinDocumentoRegistrado)}</strong>
+                        {" "}— lo que no está cargado puede existir en papel; esto no afirma que no exista.
+                        {" "}El sistema no guarda conciliación de pago, por eso <em>pago verificado</em> dice
+                        {" "}<strong>{niv.pagoVerificadoEstado}</strong> y no un importe: un cero se leería como
+                        {" "}prueba de que no se cobró, y eso no está demostrado.
                         {niv.contradicciones.length>0&&(
                           <div style={{marginTop:6,color:C.danger,fontWeight:600}}>
                             ⚠ {niv.contradicciones.length} OC declarada(s) pagada(s) con su factura en “Por cobrar”:

@@ -184,9 +184,14 @@ describe("A3 · tres niveles de cobro en OC", () => {
     expect(n.docsSinMonto).toHaveLength(1);
   });
 
-  test("el pago verificado es 0: una factura no acredita cobranza", () => {
+  test("el pago verificado NO es un cero: es un estado, porque no hay conciliación", () => {
     const n = nivelesCobroOC(ocs);
-    expect(n.pagoVerificado).toBe(0);
+    // Un 0 se leería como "no se cobró nada", que es una afirmación distinta y
+    // que estos datos no sostienen. Se devuelve un estado, no un importe.
+    expect(n.pagoVerificado).toBeNull();
+    expect(n.pagoVerificado).not.toBe(0);
+    expect(n.pagoVerificadoEstado).toBe("sin conciliación registrada");
+    expect(n.registrosDeConciliacion).toBe(0);
     // lo que existe queda listado aparte, como declaración pendiente de conciliar
     expect(n.pagoDeclarado).toBe(500);
     expect(n.pagoDeclaradoDetalle).toEqual([
@@ -194,9 +199,11 @@ describe("A3 · tres niveles de cobro en OC", () => {
     ]);
   });
 
-  test("señala el importe sin ningún documento detrás", () => {
+  test("señala el importe sin factura REGISTRADA, sin afirmar que no exista", () => {
     const n = nivelesCobroOC(ocs);
-    expect(n.sinDocumento).toBe(1380);
+    expect(n.sinDocumentoRegistrado).toBe(1380);
+    // el nombre viejo, que afirmaba ausencia de documento, ya no se expone
+    expect(n.sinDocumento).toBeUndefined();
   });
 
   test("señala la OC declarada pagada cuya factura dice Por cobrar", () => {
@@ -238,7 +245,7 @@ describe("A4 · puente del pendiente", () => {
     ],
     fvData: [],
     rcData: [
-      { ctId: "c1", temporada: "2024/2025", montoFact: 10000, pagado: false, nFact: "300" },
+      { ctId: "c1", temporada: "2024/2025", montoFact: 10000, pagado: false, nFact: "300", fechaPago: "2025-05-02" },
       { ctId: "c1", temporada: "2025/2026", montoFact: 10000, pagado: false, nFact: "" },
       { ctId: "c2", temporada: "2030/2031", montoFact: 50000, pagado: false, nFact: "" },
     ],
@@ -262,10 +269,31 @@ describe("A4 · puente del pendiente", () => {
     expect(p.periodo.royaltyComercial.contratosSinFechaTermino).toBe(1);
   });
 
-  test("cobranza registrada = sólo lo que tiene factura emitida", () => {
+  test("`con factura registrada` acredita una factura cargada, no un cobro", () => {
     const p = puentePendiente(base);
     // rp con factura (1000 × 0,85 = 850) + fee con factura (30.000) + rc con factura (10.000)
-    expect(p.cobranzaRegistrada).toBeCloseTo(850 + 30000 + 10000, 6);
+    expect(p.conFacturaRegistrada).toBeCloseTo(850 + 30000 + 10000, 6);
+    expect(p.queAcredita.conFacturaRegistrada).toMatch(/no acredita cobro/);
+  });
+
+  test("informa qué parte de ese total viene de filas que se contradicen", () => {
+    // La primera fila de rp trae nFact Y fechaPago con pagado en false: se
+    // contradice, así que su importe no puede leerse como cobro ni como
+    // facturación firme.
+    const p = puentePendiente(base);
+    expect(p.conFacturaContradictoria).toBeCloseTo(850 + 10000, 6);
+    expect(p.filasContradictorias).toBe(2);
+    // y está DENTRO del total, no al lado
+    expect(p.conFacturaContradictoria).toBeLessThan(p.conFacturaRegistrada);
+
+    // sin filas contradictorias, el aviso no tiene de qué hablar
+    const limpio = puentePendiente({
+      ...base,
+      rpData: base.rpData.map((r) => ({ ...r, fechaPago: "" })),
+      rcData: base.rcData.map((r) => ({ ...r, fechaPago: "" })),
+    });
+    expect(limpio.conFacturaContradictoria).toBe(0);
+    expect(limpio.filasContradictorias).toBe(0);
   });
 
   test("calculado pendiente = lo que el sistema calcula y nadie facturó", () => {
@@ -275,7 +303,7 @@ describe("A4 · puente del pendiente", () => {
 
   test("los tres conceptos no se solapan y cubren todo el pendiente", () => {
     const p = puentePendiente(base);
-    const suma = p.cobranzaRegistrada + p.calculadoPendiente + p.proyeccionFutura;
+    const suma = p.conFacturaRegistrada + p.calculadoPendiente + p.proyeccionFutura;
     const universo = p.componentesHub.rpNeto + p.componentesHub.feBruto +
                      p.detalle.rc.registrado + p.detalle.rc.calculado + p.detalle.rc.proyeccion;
     expect(suma).toBeCloseTo(universo, 6);
@@ -299,7 +327,7 @@ describe("A4 · puente del pendiente", () => {
 
   test("la suma de las tres tarjetas se declara y no se confunde con los otros dos totales", () => {
     const p = puentePendiente(base);
-    const sumaTarjetas = p.cobranzaRegistrada + p.calculadoPendiente + p.proyeccionFutura;
+    const sumaTarjetas = p.conFacturaRegistrada + p.calculadoPendiente + p.proyeccionFutura;
     expect(p.sumaTresConceptos).toBeCloseTo(sumaTarjetas, 6);
     // es un número PROPIO: ni el total de cabecera ni el bruto de las tres líneas
     expect(p.sumaTresConceptos).not.toBeCloseTo(p.totalHub, 6);

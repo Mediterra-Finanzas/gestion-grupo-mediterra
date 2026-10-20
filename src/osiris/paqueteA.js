@@ -153,8 +153,15 @@ export function conciliarUniversos(ctData, tpData, rpData) {
 //   2 docRegistrada    — importe de las facturas registradas en la OC. Una
 //                        factura acredita que se facturó, no que se cobró.
 //   3 pagoVerificado   — cobro conciliado contra un comprobante externo. El
-//                        sistema no guarda esa conciliación, así que es 0 y lo
-//                        que existe queda listado como `pagoDeclarado`.
+//                        sistema NO guarda esa conciliación, así que no hay un
+//                        importe que mostrar: se devuelve `null` y el estado
+//                        "sin conciliación registrada". Un cero se leería como
+//                        "no se cobró nada", que es una afirmación distinta y
+//                        que estos datos no sostienen.
+//
+// Lo que el sistema no tiene registrado no se declara inexistente: una factura
+// que no está cargada puede existir en papel. Por eso los rotulos dicen "no
+// registrado en el sistema" y nunca "no existe".
 export function nivelesCobroOC(ordenesCompra) {
   const ocs = ordenesCompra || [];
   const cobradoDeOc = (o) => {
@@ -194,7 +201,12 @@ export function nivelesCobroOC(ordenesCompra) {
   return {
     estadoDeclarado,
     docRegistrada,
-    pagoVerificado: 0,          // el sistema no registra conciliación de pago
+    // No hay conciliación de pago en el sistema. `null` y no 0, para que la
+    // pantalla muestre un estado y no un importe: cero se leería como prueba
+    // de que no hubo cobro, y eso no está demostrado.
+    pagoVerificado: null,
+    pagoVerificadoEstado: "sin conciliación registrada",
+    registrosDeConciliacion: 0,
     pagoDeclarado,              // importe con fecha de pago escrita en la propia factura
     pagoDeclaradoDetalle,
     contradicciones,
@@ -202,8 +214,9 @@ export function nivelesCobroOC(ordenesCompra) {
     ocsDeclaradasPagadas: ocs.filter((o) => o.estado_oc === "Pagada total").length,
     ocsConCuotas: conCuotas,
     cuotasPagadas,
-    // Porción del importe declarado que no tiene NINGÚN documento detrás.
-    sinDocumento: estadoDeclarado - docRegistrada,
+    // Porción del importe declarado sin documento REGISTRADO en el sistema.
+    // No afirma que el documento no exista: afirma que no está cargado.
+    sinDocumentoRegistrado: estadoDeclarado - docRegistrada,
   };
 }
 
@@ -213,9 +226,16 @@ export function nivelesCobroOC(ordenesCompra) {
 // en tres cosas que no son lo mismo y declara el período y la fuente de fecha
 // de cada una.
 //
-//   cobranzaRegistrada — pendiente que YA tiene número de factura emitido
-//   calculadoPendiente — pendiente que el sistema calcula y nadie facturó aún
-//   proyeccionFutura   — temporadas que todavía no empiezan. NO es exigible.
+//   conFacturaRegistrada — pendiente que tiene un número de factura cargado en
+//                          el sistema. Acredita que ALGUIEN REGISTRÓ UNA
+//                          FACTURA, nada más: no acredita cobro, ni emisión
+//                          verificada contra el documento, ni conciliación
+//                          bancaria. Parte de este importe viene justamente de
+//                          filas que se contradicen (traen fecha de pago y la
+//                          marca de pagado en false), y esa porción se informa
+//                          aparte en `contradictorio`.
+//   calculadoPendiente   — pendiente que el sistema calcula y nadie facturó aún
+//   proyeccionFutura     — temporadas que todavía no empiezan. NO es exigible.
 //
 // `temporadaActual` en formato "AAAA/AAAA+1". Si no se entrega, se deduce de
 // la fecha dada (temporada agrícola julio–junio).
@@ -241,6 +261,12 @@ export function puentePendiente({ rpData, feData, fvData, rcData, ctData, tempor
   const rpConFactura = rpPend.filter((r) => r.nFact);
   const rpRegistrado = rpConFactura.reduce((s, r) => s + bruto(r) * retF(r), 0);
   const rpCalculado = rpNeto - rpRegistrado;
+  // Filas que se contradicen: factura y fecha de pago, con `pagado` en false.
+  // Están dentro de `conFacturaRegistrada`, así que ese total no puede leerse
+  // como cobro confirmado.
+  const rpContradictorio = rpConFactura.filter((r) => r.fechaPago)
+    .reduce((s, r) => s + bruto(r) * retF(r), 0);
+  const rpContradictorias = rpConFactura.filter((r) => r.fechaPago).length;
 
   // ── Contract fee: el hub lo suma BRUTO y lee sólo la fila guardada ──
   const fePend = (feData || []).filter((r) => !r.pagado);
@@ -260,6 +286,7 @@ export function puentePendiente({ rpData, feData, fvData, rcData, ctData, tempor
   // ── Royalty comercial: lo que el hub NO suma, separado por período ──
   const rcPend = (rcData || []).filter((r) => !r.pagado);
   let rcRegistrado = 0, rcCalculado = 0, rcProyeccion = 0, rcProyeccionSupuesta = 0;
+  let rcContradictorio = 0, rcContradictorias = 0;
   const temporadasProyectadas = new Set(), temporadasVencidas = new Set();
   const sinFechaTermino = new Set();
   rcPend.forEach((r) => {
@@ -274,6 +301,7 @@ export function puentePendiente({ rpData, feData, fvData, rcData, ctData, tempor
       if (horizonteSupuesto) { rcProyeccionSupuesta += monto; sinFechaTermino.add(r.ctId); }
     } else if (r.nFact) {
       rcRegistrado += monto;
+      if (r.fechaPago) { rcContradictorio += monto; rcContradictorias += 1; }
       temporadasVencidas.add(r.temporada);
     } else {
       rcCalculado += monto;
@@ -292,15 +320,27 @@ export function puentePendiente({ rpData, feData, fvData, rcData, ctData, tempor
     totalHub,
     componentesHub: { rpNeto, feBruto, fvMonto },
     // Los tres conceptos, separados
+    // Nombre nuevo: lo que acredita es una factura REGISTRADA, no un cobro.
+    conFacturaRegistrada: cobranzaRegistradaT,
+    // Porción de ese total que proviene de filas contradictorias, y por lo
+    // tanto no puede presentarse como cobro ni como facturación firme.
+    conFacturaContradictoria: rpContradictorio + rcContradictorio,
+    filasContradictorias: rpContradictorias + rcContradictorias,
+    // Alias retrocompatible; no usar en pantalla.
     cobranzaRegistrada: cobranzaRegistradaT,
     calculadoPendiente: calculadoPendienteT,
     proyeccionFutura: rcProyeccion,
+    queAcredita: {
+      conFacturaRegistrada: "un número de factura cargado en el sistema; no acredita cobro ni conciliación",
+      calculadoPendiente: "un cálculo del sistema sin factura registrada",
+      proyeccionFutura: "temporadas que no han empezado; no es deuda exigible",
+    },
     proyeccionConHorizonteSupuesto: rcProyeccionSupuesta,
     detalle: {
-      rp: { bruto: rpBruto, neto: rpNeto, retencion: rpBruto - rpNeto, registrado: rpRegistrado, calculado: rpCalculado, filas: rpPend.length, conFactura: rpConFactura.length },
+      rp: { bruto: rpBruto, neto: rpNeto, retencion: rpBruto - rpNeto, registrado: rpRegistrado, calculado: rpCalculado, filas: rpPend.length, conFactura: rpConFactura.length, contradictorio: rpContradictorio, contradictorias: rpContradictorias },
       fe: { bruto: feBruto, registrado: feRegistrado, calculado: feBruto - feRegistrado, filas: fePend.length, conFactura: feConFactura.length, contradictorio: feContradictorioMonto, contradictorias: feContradictorio.length },
       fv: { monto: fvMonto, filas: fvPend.length },
-      rc: { registrado: rcRegistrado, calculado: rcCalculado, proyeccion: rcProyeccion, proyeccionSupuesta: rcProyeccionSupuesta, filas: rcPend.length, contratosSinFechaTermino: sinFechaTermino.size },
+      rc: { registrado: rcRegistrado, calculado: rcCalculado, proyeccion: rcProyeccion, proyeccionSupuesta: rcProyeccionSupuesta, filas: rcPend.length, contratosSinFechaTermino: sinFechaTermino.size, contradictorio: rcContradictorio, contradictorias: rcContradictorias },
     },
     // H1: la suma de los tres conceptos es un número propio, distinto del total
     // de cabecera y del bruto de las tres líneas. Si no se declara, quien sume
