@@ -13,9 +13,41 @@ persona pueda trabajar sobre una lista concreta y no sobre un total.
 
 ---
 
+## Dónde se ve cada cosa en el sistema
+
+Rutas verificadas haciendo el recorrido. Se entra por **Osiris Plant Management** desde la pantalla
+de módulos.
+
+| Qué quiero ver | Ruta |
+|---|---|
+| Las plantaciones de un contrato | Osiris Hub → **Contratos Exp-Prod** → fila del cliente → **Ver →** → pestaña **🌿 Plantaciones** |
+| Las **tandas** de royalty planta, con factura y fecha de pago | … el mismo contrato → pestaña **💵 Cobros derivados** → bloque **🌱 Royalty Planta** |
+| El **contract fee** del contrato (n° factura, estado, fecha de pago) | … el mismo contrato → pestaña **💰 Facturación** |
+| Las **órdenes de compra** atribuidas a un contrato | … el mismo contrato → pestaña **🧾 Órdenes de Compra** |
+| El **royalty comercial** por temporada | … el mismo contrato → **💵 Cobros derivados** → bloque **📈 Royalty Comercial** |
+| Las **órdenes de compra del vivero** (las 67 de BIOTECNOS) | Osiris Hub → **Contratos Viveros** → **🌱 BIOTECNOS** → pestaña **📦 Órdenes de Compra** |
+| El **contract fee como lo ve Ingresos** | Osiris Hub → **Ingresos Osiris** → **📄 Fee Entrada** |
+| Las **plantaciones con hectáreas y el filtro de año** | Osiris Hub → **Ingresos Osiris** → **📦 Total Pedidos** |
+| La **conciliación de las 226.001 plantas**, contrato por contrato | Osiris Hub → **Ingresos Osiris** → **🌿 Plantas** → botón **Ver detalle por contrato** |
+| Los tres niveles de cobro de las OC | Osiris Hub → **Contratos Viveros** → **🌱 BIOTECNOS** → **📦 Órdenes de Compra** (las tarjetas de arriba) |
+
+Dos cosas útiles que se ven en la pantalla de **Cobros derivados**:
+
+- Cada tanda con antecedentes contradictorios trae la marca **revisar** al lado. Son exactamente las
+  filas de la ficha B3.1: no hay que buscarlas, están señaladas.
+- El pie del bloque de Royalty Planta dice, por contrato, cuánto se facturó en tandas y cuál es el
+  tope según las OC del cliente. En Prosembra: *"Facturado en tandas: 1.555.705 plantas = $1.555.705
+  · tope 2.844.765 plantas (suma OC del cliente)"*. Ese contraste es la ficha B1 en una línea.
+
+---
+
 ## B1 · Prosembra — 600.000 plantas entre la orden de compra y lo plantado
 
 **Nicolás** (qué se plantó en terreno) con **Milagros** (qué se facturó).
+
+**Ruta:** Osiris Hub → Contratos Exp-Prod → **Prosembra S.A.C.** → Ver → pestañas
+**🌿 Plantaciones** (las 3 filas), **💵 Cobros derivados** (las 6 tandas) y
+**🧾 Órdenes de Compra** (las 3 OC).
 
 ### Registros
 
@@ -78,6 +110,9 @@ sobredimensionada. Es el contrato que explica 600.000 de las 226.001 plantas de 
 
 **Milagros.**
 
+**Ruta:** Osiris Hub → Contratos Viveros → **🌱 BIOTECNOS** → **📦 Órdenes de Compra** →
+buscar `AGROEX-CL-2024-04` en la tabla. Las cuatro filas con ese número salen juntas.
+
 ### Corrección de lo que dije antes
 
 Lo planteé como "una OC duplicada". El patrón es más amplio y en su mayoría **no** es duplicación:
@@ -126,6 +161,19 @@ orden de compra debe pasar a tener cabecera y líneas — eso es diseño, va al 
 ## B3 · Los 33 registros que se contradicen a sí mismos
 
 **Milagros** (facturas) con **Lorena** (conciliación bancaria).
+
+**Rutas:**
+
+- **B3.1**, las 18 tandas: Osiris Hub → Contratos Exp-Prod → el cliente → Ver →
+  **💵 Cobros derivados** → **🌱 Royalty Planta**. Las filas en cuestión traen la marca
+  **revisar**. Son 5 clientes: Agroextiende, Agrícola Huarmey, Corp. Agrícola Olmos, Pura Berries y
+  Prosembra.
+- **B3.2**, los 14 contract fee: Osiris Hub → Contratos Exp-Prod → el cliente → Ver →
+  **💰 Facturación**. Para ver cómo los cuenta Ingresos, en cambio:
+  Osiris Hub → Ingresos Osiris → **📄 Fee Entrada**. **Las dos pantallas muestran cosas
+  distintas del mismo contrato: esa es justamente la ficha.**
+- **B3.3**, el royalty comercial: Osiris Hub → Contratos Exp-Prod → **Agroextiende** → Ver →
+  **💵 Cobros derivados** → **📈 Royalty Comercial**, temporada 2024/2025.
 
 Ninguno se marca ni se desmarca automáticamente. El paquete A los muestra; resolverlos es documental.
 
@@ -219,7 +267,12 @@ pagado" ni "si no está marcado no está pagado". Las dos reglas producen cifras
 
 ## B4 · "TEST PERU" — registro pendiente de validación
 
-**Angelo.** Queda señalado, **no se elimina ni se excluye en silencio.**
+**Angelo.** Queda señalado, **no se elimina ni se excluye en silencio**, y permanece sin
+modificaciones hasta tu decisión.
+
+**Ruta:** Osiris Hub → Contratos Exp-Prod → **TEST PERU** → Ver. Y, ya con el paquete A,
+también aparece nombrado en Osiris Hub → Ingresos Osiris → **🌿 Plantas**, en la línea
+*"1 contrato(s) con filas cargadas y sin cantidades, que aparecen en cero en el detalle: TEST PERU"*.
 
 ### Qué es
 
@@ -265,6 +318,9 @@ plantación, pero no de contrato. Crear esa marca es desarrollo, no dato.
 ## B5 · 19 contratos sin fecha de término
 
 **Nicolás** con **Angelo.**
+
+**Ruta:** Osiris Hub → **Contratos Exp-Prod**. La tabla lista los 23 con su fecha; entrando a cada
+uno con **Ver →** y la pestaña **📄 Contrato** se ve si tiene fecha de término cargada.
 
 Cuando falta `fechaTermino`, el royalty comercial proyecta **11 temporadas** por un tope escrito en
 el código (`fin = a1 + 10`), no por el contrato. Lista completa:
