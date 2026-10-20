@@ -18,6 +18,10 @@ import {
 } from "./osiris/informeAlcance";
 import { asuntoCorreoInforme, cuerpoCorreoInforme, vistaPreviaCorreo, validarDestinatarios } from "./osiris/correoInforme";
 import {
+  añoDeFechaTexto, haDeFila, fechaDeFila,
+  conciliarUniversos, nivelesCobroOC, puentePendiente,
+} from "./osiris/paqueteA";
+import {
   factorNeto as retFactorNeto, factorNetoFila as retFactorFila,
   estadoRetencion as retEstadoDe, estadoDeFila as retEstadoFila,
   celdaNeto as retCeldaNeto, resumenValidacion as retResumen, COLUMNA_NETO as RET_COLUMNA,
@@ -766,11 +770,14 @@ const TIPOS   = ["Anticipo","Entrega","Anticipo/Entrega"];
 
 // Año de un pedido/plantación: manual usa añoEntrega, derivado de contrato usa
 // fechaPlantacion. Antes el código leía r.año (inexistente) → todo caía en "?".
+// A1: el año sale del texto de la fecha. `new Date(...).getFullYear()` lee la
+// fecha como UTC y la devuelve en hora de Chile, con lo que un 1 de enero
+// retrocede al año anterior (159.650 plantas cambiaban de año por esto).
 function añoPedido(r){
   if(r==null) return null;
   if(r.año) return Number(r.año);
   if(r.añoEntrega) return Number(r.añoEntrega);
-  if(r.fechaPlantacion){ const y=new Date(r.fechaPlantacion).getFullYear(); if(!isNaN(y)) return y; }
+  if(r.fechaPlantacion) return añoDeFechaTexto(r.fechaPlantacion);
   return null;
 }
 
@@ -1426,18 +1433,21 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
     });
   }
 
-  const años=["Todos",...Array.from(new Set(data.map(r=>r.añoEntrega))).sort()];
+  // A5: las filas derivadas de contrato no traen añoEntrega/ha/fechaPedido sino
+  // fechaPlantacion/hectareas. Se lee una sola fuente por fila (helpers del
+  // paquete A); no se suman las dos variantes ni se convierten plantas a há.
+  const años=["Todos",...Array.from(new Set(data.map(r=>añoPedido(r)).filter(v=>v!=null))).sort((x,y)=>x-y),...(data.some(r=>añoPedido(r)==null)?["Sin fecha"]:[])];
   const paises=["Todos",...Array.from(new Set(data.map(r=>r.pais).filter(Boolean))).sort()];
 
   const filtrado=data.filter(r=>
     (filtroPais==="Todos"||r.pais===filtroPais)&&
-    (filtroAño==="Todos"||r.añoEntrega===Number(filtroAño))&&
+    (filtroAño==="Todos"||(filtroAño==="Sin fecha"?añoPedido(r)==null:añoPedido(r)===Number(filtroAño)))&&
     (filtroEst==="Todos"||r.estado===filtroEst)&&
     (!filtroCli||r.cliente?.toLowerCase().includes(filtroCli.toLowerCase()))
   );
 
   const totPlantas=filtrado.reduce((s,r)=>s+(Number(r.nPlantas)||0),0);
-  const totHa=filtrado.reduce((s,r)=>s+(Number(r.ha)||0),0);
+  const totHa=filtrado.reduce((s,r)=>s+haDeFila(r),0);
   const confirmados=filtrado.filter(r=>r.estado==="Confirmado").length;
 
   // Propagar a pestañas hijas cuando se confirma un pedido
@@ -1609,8 +1619,8 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
           {label:"Estado",opciones:["Todos","Confirmado","Por confirmar"],valor:filtroEst,onChange:setFiltroEst},
         ]}
         onExportar={async ()=>exportCSV(
-          filtrado.map(r=>[r.cliente,r.pais,r.vivero||"",r.fechaPedido||"",
-            r.añoEntrega,`T${r.trimEntrega}`,r.nPlantas||0,r.ha||0,r.estado||"",
+          filtrado.map(r=>[r.cliente,r.pais,r.vivero||"",fechaDeFila(r),
+            añoPedido(r)??"",r.trimEntrega?`T${r.trimEntrega}`:"",r.nPlantas||0,haDeFila(r),r.estado||"",
             r.regaliaVivero||"",r.pctAnticipo||60,r.nCuotasVivero||2,
             r.mesAnticipo||"",r.nProforma||"",
             (r.tandas||[]).length>0?(r.tandas||[]).map(t=>`${t.fechaEntrega} (${t.nPlantas}pl)`).join(" | "):"",
@@ -1665,16 +1675,16 @@ function TotalPedidos({data,setData,rpData,setRpData,rcData,setRcData,fvData,set
                 <td style={{padding:"7px 10px",fontSize:12}}><Cell val={r.pais} onChange={v=>upd(r.id,"pais",v)} opts={PAISES} can={can&&!r._fromContract}/></td>
                 <td style={{padding:"7px 10px",fontSize:11}}><Cell val={r.vivero||""} onChange={v=>upd(r.id,"vivero",v)} opts={VIVEROS} can={can}/></td>
                 <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
-                  <Cell val={r.fechaPedido||""} onChange={v=>upd(r.id,"fechaPedido",v)} type="date" can={can}/>
+                  <Cell val={fechaDeFila(r)} onChange={v=>upd(r.id,"fechaPedido",v)} type="date" can={can&&!r._fromContract}/>
                 </td>
                 <td style={{padding:"7px 10px",textAlign:"center",fontWeight:600,color:C.teal,fontSize:12}}>
-                  {r.añoEntrega} T{r.trimEntrega}
+                  {añoPedido(r)??"—"}{r.trimEntrega?` T${r.trimEntrega}`:""}
                 </td>
                 <td style={{padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.teal}}>
                   <Cell val={r.nPlantas} onChange={v=>upd(r.id,"nPlantas",parseFloat(v)||0)} type="number" can={can&&!r._fromContract}/>
                 </td>
                 <td style={{padding:"7px 10px",textAlign:"right"}}>
-                  <Cell val={r.ha||""} onChange={v=>upd(r.id,"ha",parseFloat(v)||0)} type="number" can={can&&!r._fromContract} ph="0"/>
+                  <Cell val={haDeFila(r)||""} onChange={v=>upd(r.id,"ha",parseFloat(v)||0)} type="number" can={can&&!r._fromContract} ph="0"/>
                 </td>
                 <td style={{padding:"7px 10px",textAlign:"center",fontSize:11}}>
                   <Cell val={r.regaliaVivero||regalias[r.vivero]||0.45} onChange={v=>upd(r.id,"regaliaVivero",parseFloat(v)||0)} type="number" can={can}/>
@@ -3124,6 +3134,13 @@ function GraficosPlantas({tpData,rpData}) {
   const rpPendientes = rpData.filter(r=>!r.pagado).reduce((s,r)=>s+(Number(r.nPlantas)||0),0);
   const totalPlantas = tpData.reduce((s,r)=>s+(Number(r.nPlantas)||0),0);
 
+  // A2: los tres indicadores de arriba NO son un total y sus dos partes. El
+  // primero cuenta plantaciones registradas; los otros dos cuentan tandas y
+  // despachos facturables. Son dos recuentos de hechos distintos sobre los
+  // mismos contratos, así que su diferencia se explica, no se resta.
+  const conciliacion = useMemo(()=>conciliarUniversos(null, tpData, rpData),[tpData,rpData]);
+  const [verConciliacion,setVerConciliacion] = useState(false);
+
   const añosOrden = Object.keys(plantasPorAño).sort();
   const maxAnio = Math.max(...añosOrden.map(Number));
   const maxPlantas = Math.max(...Object.values(plantasPorAño),1);
@@ -3142,18 +3159,74 @@ function GraficosPlantas({tpData,rpData}) {
       {/* KPIs plantas */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:12}}>
         {[
-          ["Total Plantas Vendidas", N(totalPlantas), C.teal, C.tealBg],
-          ["Con Royalty Pagado", N(rpPagadas), C.verde, C.verdeBg],
-          ["Royalty Pendiente", N(rpPendientes), C.am, C.amBg],
-          ["Clientes únicos", new Set(tpData.map(r=>r.cliente)).size, C.azul, C.azulBg],
-          ["Años con pedidos", añosOrden.length, C.mo, C.moBg],
-        ].map(([l,v,c,bg])=>(
+          ["Plantas registradas", N(totalPlantas), C.teal, C.tealBg, `${tpData.length} plantaciones`],
+          ["Facturado y marcado pagado", N(rpPagadas), C.verde, C.verdeBg, "tandas y despachos"],
+          ["Facturable no marcado pagado", N(rpPendientes), C.am, C.amBg, "tandas y despachos"],
+          ["Clientes únicos", new Set(tpData.map(r=>r.cliente)).size, C.azul, C.azulBg, ""],
+          ["Años con pedidos", añosOrden.length, C.mo, C.moBg, ""],
+        ].map(([l,v,c,bg,sub])=>(
           <div key={l} style={{background:C.card,borderRadius:12,padding:"14px 16px",border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,boxShadow:C.shadow}}>
             <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:4}}>{l}</div>
             <div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div>
+            {sub&&<div style={{fontSize:9,color:C.muted2,marginTop:2}}>{sub}</div>}
           </div>
         ))}
       </div>
+
+      {/* A2: la diferencia entre los dos recuentos, a la vista y auditable */}
+      {conciliacion.sumaDiferencias!==0&&(
+        <div style={{background:C.card,borderRadius:12,padding:"12px 16px",border:`1px solid ${C.border}`,borderLeft:`4px solid ${C.azul}`,boxShadow:C.shadow}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <div style={{fontSize:11,color:C.sl}}>
+              Los dos recuentos no miden lo mismo: <strong>{conciliacion.totalA.toLocaleString("es-CL")}</strong> plantas registradas
+              en {tpData.length} plantaciones, contra <strong>{conciliacion.totalB.toLocaleString("es-CL")}</strong> en {rpData.length} tandas o despachos.
+              Diferencia <strong style={{color:C.azul}}>{conciliacion.sumaDiferencias>0?"+":""}{conciliacion.sumaDiferencias.toLocaleString("es-CL")}</strong>
+              {" "}en {conciliacion.conDiferencia} contratos. No se resta de ningún total.
+            </div>
+            <button onClick={()=>setVerConciliacion(v=>!v)}
+              style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.sl,cursor:"pointer",fontSize:11,fontWeight:700}}>
+              {verConciliacion?"Ocultar detalle":"Ver detalle por contrato"}
+            </button>
+          </div>
+          {verConciliacion&&(
+            <div style={{marginTop:10,overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                <thead><tr style={{background:C.bg}}>
+                  {["Contrato","Plantaciones (A)","Tandas/despachos (B)","Diferencia","Origen de B"].map(h=>(
+                    <th key={h} style={{padding:"5px 8px",textAlign:h==="Contrato"||h==="Origen de B"?"left":"right",color:C.muted,fontWeight:700,borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {[...conciliacion.filas].sort((a,b)=>Math.abs(b.diferencia)-Math.abs(a.diferencia)).map(f=>(
+                    <tr key={f.ctId} style={{borderBottom:`1px solid ${C.border}44`}}>
+                      <td style={{padding:"4px 8px"}}>{f.cliente||f.ctId}</td>
+                      <td style={{padding:"4px 8px",textAlign:"right"}}>{f.universoA.toLocaleString("es-CL")}</td>
+                      <td style={{padding:"4px 8px",textAlign:"right"}}>{f.universoB.toLocaleString("es-CL")}</td>
+                      <td style={{padding:"4px 8px",textAlign:"right",fontWeight:700,color:f.diferencia===0?C.muted2:f.diferencia>0?C.am:C.azul}}>
+                        {f.diferencia===0?"—":`${f.diferencia>0?"+":""}${f.diferencia.toLocaleString("es-CL")}`}
+                      </td>
+                      <td style={{padding:"4px 8px",color:C.muted2}}>{f.origenB}</td>
+                    </tr>
+                  ))}
+                  <tr style={{background:C.bg,fontWeight:800}}>
+                    <td style={{padding:"5px 8px"}}>TOTAL</td>
+                    <td style={{padding:"5px 8px",textAlign:"right"}}>{conciliacion.totalA.toLocaleString("es-CL")}</td>
+                    <td style={{padding:"5px 8px",textAlign:"right"}}>{conciliacion.totalB.toLocaleString("es-CL")}</td>
+                    <td style={{padding:"5px 8px",textAlign:"right",color:C.azul}}>{conciliacion.sumaDiferencias>0?"+":""}{conciliacion.sumaDiferencias.toLocaleString("es-CL")}</td>
+                    <td style={{padding:"5px 8px",fontSize:10,color:C.muted2}}>{conciliacion.cuadra?"la suma de las filas cuadra con el total":"⚠ la suma de las filas NO cuadra"}</td>
+                  </tr>
+                </tbody>
+              </table>
+              {conciliacion.soloB.length>0&&(
+                <div style={{marginTop:8,fontSize:10,color:C.muted2}}>
+                  {conciliacion.soloB.length} contrato(s) facturan por orden de compra sin ninguna plantación registrada:
+                  {" "}{conciliacion.soloB.map(f=>f.cliente||f.ctId).join(", ")}.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Barras por año */}
       <div style={{background:C.card,borderRadius:14,padding:20,boxShadow:"0 2px 10px #0001"}}>
@@ -12091,6 +12164,15 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
     feData.filter(r=>!r.pagado).reduce((s,r)=>s+(Number(r.montoUSD)||0),0)+
     fvData.filter(r=>!r.pagado).reduce((s,r)=>s+(Number(r.montoFact)||0),0);
 
+  // A4: `totPend` no se modifica. Lo que se agrega es su descomposición: no es
+  // lo mismo lo facturado y pendiente de pago, lo que el sistema calcula y
+  // nadie facturó, y las temporadas que todavía no empiezan. El horizonte de
+  // royalty comercial de los contratos sin fecha de término sale de un tope
+  // del código (11 temporadas), así que NO es deuda exigible.
+  const puenteCobranza = useMemo(()=>puentePendiente({
+    rpData, feData, fvData, rcData, ctData,
+  }),[rpData, feData, fvData, rcData, ctData]);
+
   const hoy=new Date();hoy.setHours(0,0,0,0);
   const alertasRC=rcData.filter(r=>{const fA=fechaAvisoTrim(r.añoCobro,r.trimCobro);const fI=fechaInicioTrim(r.añoCobro,r.trimCobro);return hoy>=fA&&hoy<fI&&!r.nFact;}).length;
   const sinConfirmar=tpData.filter(r=>r.estado==="Por confirmar").length;
@@ -12144,8 +12226,9 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         {showPorCobrar&&(
-          <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",textAlign:"right",marginRight:4}}>
-            <div style={{fontSize:9,textTransform:"uppercase",letterSpacing:1,marginBottom:1}}>Por cobrar</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",textAlign:"right",marginRight:4}}
+            title={`No incluye royalty comercial (${$$(puenteCobranza.puente.masRoyaltyComercialOmitido)} pendiente, de las cuales ${$$(puenteCobranza.proyeccionFutura)} son temporadas futuras). Royalty planta entra neto de retención; contract fee entra bruto.`}>
+            <div style={{fontSize:9,textTransform:"uppercase",letterSpacing:1,marginBottom:1}}>Royalty planta + fee</div>
             <div style={{fontSize:14,fontWeight:800,color:"#fbbf24"}}>{$$(totPend)}</div>
           </div>
         )}
@@ -12239,10 +12322,48 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
           </div>);
       })()}
 
+      {/* A4: cobranza registrada, calculado pendiente y proyección futura.
+          Son tres cosas distintas; el total del hub no cambia. */}
+      <div style={{maxWidth:700,margin:"0 auto",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",boxShadow:C.shadow}}>
+        <div style={{fontSize:11,fontWeight:800,color:C.sl,marginBottom:10}}>Pendiente, separado por lo que realmente es</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
+          {[
+            ["Cobranza registrada", puenteCobranza.cobranzaRegistrada, C.success, "con número de factura emitido"],
+            ["Calculado pendiente", puenteCobranza.calculadoPendiente, C.warning, "lo calcula el sistema, nadie lo facturó"],
+            ["Proyección futura", puenteCobranza.proyeccionFutura, C.muted2, `temporadas que no empiezan aún · no exigible`],
+          ].map(([l,v,c,sub])=>(
+            <div key={l} style={{borderLeft:`3px solid ${c}`,paddingLeft:10}}>
+              <div style={{fontSize:10,color:C.muted,fontWeight:700}}>{l}</div>
+              <div style={{fontSize:17,fontWeight:900,color:c}}>{$$0(v)}</div>
+              <div style={{fontSize:9,color:C.muted2,marginTop:2}}>{sub}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`,fontSize:10,color:C.muted2,lineHeight:1.7}}>
+          El indicador <strong>Royalty planta + fee</strong> de la cabecera muestra {$$0(puenteCobranza.totalHub)}:
+          royalty planta neto de retención ({$$0(puenteCobranza.componentesHub.rpNeto)}) más contract fee bruto ({$$0(puenteCobranza.componentesHub.feBruto)}).
+          {" "}No incluye royalty comercial ({$$0(puenteCobranza.puente.masRoyaltyComercialOmitido)}) ni la retención de royalty planta ({$$0(puenteCobranza.puente.masRetencionRoyaltyPlanta)}),
+          {" "}con lo que el pendiente bruto de las tres líneas es {$$0(puenteCobranza.puente.igualBrutoTresLineas)}.
+          <br/>
+          Fuente de fecha — royalty planta: {puenteCobranza.periodo.royaltyPlanta.fuenteFecha}
+          {puenteCobranza.periodo.royaltyPlanta.sinFecha>0&&<> ({puenteCobranza.periodo.royaltyPlanta.sinFecha} fila(s) sin fecha)</>};
+          {" "}contract fee: {puenteCobranza.periodo.contractFee.fuenteFecha}
+          {puenteCobranza.periodo.contractFee.sinFecha>0&&<> ({puenteCobranza.periodo.contractFee.sinFecha} sin fecha)</>};
+          {" "}royalty comercial: {puenteCobranza.periodo.royaltyComercial.fuenteFecha}, de {puenteCobranza.periodo.royaltyComercial.desde} a {puenteCobranza.periodo.royaltyComercial.hasta}
+          {" "}(temporada actual {puenteCobranza.temporadaActual}).
+          {puenteCobranza.periodo.royaltyComercial.contratosSinFechaTermino>0&&(
+            <> {puenteCobranza.periodo.royaltyComercial.contratosSinFechaTermino} contrato(s) sin fecha de término: de la proyección futura, {$$0(puenteCobranza.proyeccionConHorizonteSupuesto)} descansa en un horizonte supuesto de 11 temporadas escrito en el código, no en el contrato.</>
+          )}
+          {puenteCobranza.detalle.fe.contradictorio>0&&(
+            <><br/><span style={{color:C.danger,fontWeight:600}}>⚠ {puenteCobranza.detalle.fe.contradictorias} contrato(s) declaran el contract fee pagado ({$$0(puenteCobranza.detalle.fe.contradictorio)}) mientras esta pantalla los cuenta pendientes. Requiere conciliación.</span></>
+          )}
+        </div>
+      </div>
+
       {/* KPIs globales */}
       <div style={{display:"flex",gap:12,flexWrap:"wrap",maxWidth:700,margin:"0 auto"}}>
         {[
-          ["💵 Por cobrar",     $$0(totPend),          C.warning],
+          ["💵 Royalty planta + fee", $$0(totPend),  C.warning],
           ["📦 Pedidos",        tpData.length,         C.primary],
           ["🌿 Royalty filas",  rpData.length,         C.success],
           ["🌱 Fee Vivero",     fvData.filter(r=>!r.pagado).length+" pend.", C.danger],
@@ -14355,13 +14476,21 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                         const totPorCobrar = ordenesCompra.reduce((s,o)=> o.estado_oc==="Anulada"?s : s+Math.max(0,(parseFloat(o.fee_total_usd)||0)-cobradoDeOc(o)),0);
                         const totPlantas = ordenesCompra.reduce((s,o)=>s+(parseFloat(o.cantidad_plantas)||0),0);
                         const totHa = ordenesCompra.reduce((s,o)=>s+(parseFloat(o.hectareas)||0),0);
+                        // A3: el importe de arriba sale del campo `estado_oc`, que es una
+                        // etiqueta. Se muestra con ese nombre y al lado los otros dos
+                        // niveles, que son cosas distintas: una factura registrada no
+                        // acredita cobranza, y la conciliación de pago no existe en el
+                        // sistema (por eso "pago verificado" es 0 y no 50.600).
+                        const niv = nivelesCobroOC(ordenesCompra);
                         return [
                           ["📦 Total OC", ordenesCompra.length, C.primary],
                           ["🌱 Plantas", totPlantas.toLocaleString("es-CL"), C.success],
                           ["📐 Há", totHa.toLocaleString("es-CL",{maximumFractionDigits:1}), C.accent2],
                           ["💰 Fee total", $$(totFee), C.purple],
-                          ["✅ Cobrado", $$(totPagado), C.success],
-                          ["⏳ Por cobrar", $$(totPorCobrar), C.warning],
+                          ["🏷 Declarado por estado", $$(niv.estadoDeclarado), C.success],
+                          ["📄 Documento registrado", $$(niv.docRegistrada), C.accent2],
+                          ["🔎 Pago verificado", $$(niv.pagoVerificado), C.danger],
+                          ["⏳ Fee sin declarar pagado", $$(totPorCobrar), C.warning],
                         ].map(([l,vv,c])=>(
                           <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${c}`,borderRadius:8,padding:"8px 12px"}}>
                             <div style={{fontSize:9,color:C.muted,fontWeight:600,marginBottom:2}}>{l}</div>
@@ -14371,6 +14500,33 @@ export default function OsirisModule({usuarioActual,esAdmin,esSoloConsulta,tabPe
                       })()}
                     </div>
                   )}
+                  {/* A3: qué respalda el importe declarado */}
+                  {ordenesCompra.length>0&&(()=>{
+                    const niv = nivelesCobroOC(ordenesCompra);
+                    if(niv.estadoDeclarado<=0) return null;
+                    return (
+                      <div style={{background:C.warningBg||"#fef3c7",border:`1px solid ${C.warning}`,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:C.sl,lineHeight:1.6}}>
+                        <strong>De dónde sale el importe declarado.</strong>{" "}
+                        {niv.ocsDeclaradasPagadas} OC están en estado “Pagada total” y aportan {$$(niv.estadoDeclarado)}.
+                        {" "}Cuotas de pago cargadas en el sistema: <strong>{niv.cuotasPagadas}</strong> en {niv.ocsConCuotas} OC.
+                        {" "}Facturas registradas con importe: <strong>{$$(niv.docRegistrada)}</strong>
+                        {niv.pagoDeclarado>0&&<> ({$$(niv.pagoDeclarado)} con fecha de pago escrita en la propia factura, pendiente de conciliar)</>}.
+                        {" "}Sin ningún documento detrás: <strong>{$$(niv.sinDocumento)}</strong>.
+                        {" "}El sistema no guarda conciliación bancaria, por eso <em>pago verificado</em> es {$$(0)}.
+                        {niv.contradicciones.length>0&&(
+                          <div style={{marginTop:6,color:C.danger,fontWeight:600}}>
+                            ⚠ {niv.contradicciones.length} OC declarada(s) pagada(s) con su factura en “Por cobrar”:
+                            {" "}{niv.contradicciones.map(x=>x.oc).join(", ")}. Requiere conciliación, no corrección automática.
+                          </div>
+                        )}
+                        {niv.docsSinMonto.length>0&&(
+                          <div style={{marginTop:4,color:C.muted2}}>
+                            {niv.docsSinMonto.length} registro(s) de factura sin importe cargado.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {ordenesCompra.length>0&&(
                     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
                       <input value={ocBusca} onChange={e=>setOcBusca(e.target.value)} placeholder="🔎 Buscar por N° OC, cliente o variedad..."
