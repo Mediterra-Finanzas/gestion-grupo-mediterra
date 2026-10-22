@@ -214,5 +214,7 @@ const I2 = informeDeuda([legD, clp], '2026-10-22');
 check('Conteo: 2 listados, 1 incluido, 1 sin TC', I2.conteo.listados === 2 && I2.conteo.incluidos === 1 && I2.conteo.sinTC === 1 && I2.parcial);
 check('Sin desglose, por conciliar ni TC faltante → no parcial', !informeDeuda([bci], '2026-10-22').parcial);
 
+const bciPP = { ...bci, pagos: [...bci.pagos, { id: 'p9', vencKey: 'bci@2026-11-05', fecha: '2026-10-01', capital: 0, interes: 1000 }] };
+check('Pago parcial y vence el día del corte: rótulo propio', informeDeuda([bciPP], '2026-11-05').filas[0].cuotas.find(q => q.fecha === '2026-11-05').estado === 'vence_corte_parcial');
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

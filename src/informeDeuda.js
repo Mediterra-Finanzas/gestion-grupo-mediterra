@@ -73,7 +73,7 @@ export function textoGarantia(g) {
 export const CAMPOS = ['capital', 'devengado', 'cargosVencidos', 'saldoDeuda', 'porDevengar', 'cargosFuturos', 'totalPorPagar', 'sinDesglose', 'totalIdentificado', 'porConciliar'];
 // Estado de una cuota al corte (rótulo único para pantalla, Excel y PDF).
 export const ESTADOS_CUOTA = { pagada: 'Pagada', renovada: 'Renovada', vencida: 'Vencida', vencida_parcial: 'Vencida (pago parcial)',
-  parcial: 'Por vencer (pago parcial)', por_vencer: 'Por vencer', vence_corte: 'Vence en la fecha de corte', por_conciliar: 'Por conciliar', capitaliza: 'Se capitaliza (sin pago)' };
+  parcial: 'Por vencer (pago parcial)', por_vencer: 'Por vencer', vence_corte: 'Vence en la fecha de corte', vence_corte_parcial: 'Vence en la fecha de corte (pago parcial)', por_conciliar: 'Por conciliar', capitaliza: 'Se capitaliza (sin pago)' };
 const estadoCuota = (v) => {
   if (v.estado === 'pagada' || v.estado === 'renovada' || v.estado === 'por_conciliar') return v.estado;
   if (v.estado === 'vencida') return v.pagadoTotal > EPS ? 'vencida_parcial' : 'vencida';
@@ -180,7 +180,7 @@ export function informeDeuda(creditos, corte) {
       if (q.pendiente <= EPS && (q.estado === 'vencida' || q.estado === 'vencida_parcial' || q.estado === 'parcial')) q.estado = 'pagada';
       else if (q.estado === 'vencida' && q.pagado > EPS) q.estado = 'vencida_parcial';
     });
-    vencs.forEach(v => { const q = qDe.get(v); if (q.estado === 'por_vencer' && v.fecha === corte && q.pendiente > EPS) q.estado = 'vence_corte'; });
+    vencs.forEach(v => { const q = qDe.get(v); if ((q.estado === 'por_vencer' || q.estado === 'parcial') && v.fecha === corte && q.pendiente > EPS) q.estado = q.estado === 'parcial' ? 'vence_corte_parcial' : 'vence_corte'; });
     vencs.forEach(v => {
       const q = qDe.get(v);
       if (!(v.pendienteTotal > 0)) return;

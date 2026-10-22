@@ -10868,7 +10868,7 @@ const NOTAS_INFORME = [
   "Por conciliar: cuotas históricas sin pago registrado ni confirmación. Quedan fuera del saldo confirmado y de los totales; se informan aparte.",
   "Montos redondeados al centavo (UF: 4 decimales) en cada cuota. Los intereses, cargos y cuotas sin desglosar de un crédito son la suma de sus cuotas; el capital también, menos el interés que se capitalizará después del corte (se muestra el ajuste). Los subtotales y el total son la suma de los créditos, así las cifras visibles cuadran. Valores en US$ al tipo de cambio de Maestros a la fecha de corte (si no hay, TC declarado en el crédito como hipótesis; sin TC el crédito queda fuera de los totales). Pagos con fecha posterior al corte no se descuentan.",
 ];
-const ESTADO_COLOR = (e)=>({vence_corte:C.yellow,vencida:C.red,vencida_parcial:C.red,parcial:C.yellow,por_conciliar:C.muted,pagada:C.green,renovada:C.green,capitaliza:C.muted}[e]||C.text);
+const ESTADO_COLOR = (e)=>({vence_corte:C.yellow,vence_corte_parcial:C.yellow,vencida:C.red,vencida_parcial:C.red,parcial:C.yellow,por_conciliar:C.muted,pagada:C.green,renovada:C.green,capitaliza:C.muted}[e]||C.text);
 export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
   const [corte,setCorte]=useState(hoyISO());
   const [abiertos,setAbiertos]=useState(()=>new Set());
