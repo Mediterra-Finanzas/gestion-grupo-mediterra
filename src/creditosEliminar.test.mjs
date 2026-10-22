@@ -49,4 +49,9 @@ assert.equal(posterior.ok,true);
 assert.deepEqual(posterior.lista.find(c=>c.uid==='cr-a'),eliminado,'Otro guardado no borra el expediente oculto');
 assert.equal(prepararGuardadoCreditos(guardado.lista,[{...eliminado,eliminado:false}],ctx).ok,false,'No reactiva un eliminado');
 assert.equal(prepararGuardadoCreditos([base],[],{...ctx,administrador:false}).lista.length,1,'Omitir no elimina');
+// Pago confirmado desde una nómina: no se elimina (la nómina quedaría sin poder anularse).
+const conNomina={...base,uid:'cr-nom',pagos:[{id:'p1',vencKey:'cr-nom@2027-01-01',fecha:'2026-10-01',capital:100,interes:0,cargos:0,sinDesglose:0,origen:{tipo:'nomina',clave:'nomina:N1:L1'}}]};
+assert.throws(()=>eliminarCredito(conNomina,{administrador:true,usuario:'Admin',motivo:'x'}),/nómina/,'No elimina con pago de nómina vigente');
+const conNominaAnulado={...conNomina,pagos:[{...conNomina.pagos[0],anulado:true,motivoAnulacion:'error'}]};
+assert.equal(eliminarCredito(conNominaAnulado,{administrador:true,usuario:'Admin',motivo:'x'}).eliminado,true,'Con el pago de nómina anulado sí elimina');
 console.log('OK: permisos, historial, capital, cuotas, desembolsos, renovaciones antiguas, semanas y guardados posteriores.');

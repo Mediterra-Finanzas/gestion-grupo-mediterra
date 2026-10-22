@@ -134,6 +134,11 @@ export function eliminarCredito(c, { administrador = false, usuario = '', motivo
   if (!c || esEliminado(c)) throw new Error('El crédito no existe o ya fue eliminado.');
   const razon = String(motivo).trim();
   if (!razon) throw new Error('Indica el motivo de eliminación.');
+  // Un pago confirmado desde una nómina se anula o se anota desde esa nómina; con el
+  // crédito eliminado esa operación quedaría bloqueada (el guardado rechaza cambios a un
+  // eliminado) y la nómina no podría anularse. Primero se resuelve en la nómina.
+  const deNomina = pagosVigentes(c).filter(p => p.origen && String(p.origen.clave || '').startsWith('nomina:'));
+  if (deNomina.length) throw new Error(`No se puede eliminar: tiene ${deNomina.length} pago(s) confirmado(s) desde una nómina. Anúlalos primero desde la nómina (con motivo).`);
   const ts = new Date().toISOString();
   return { ...c, eliminado: true, anulado: true, eliminadoPor: usuario, eliminadoTs: ts,
     motivoEliminacion: razon,
