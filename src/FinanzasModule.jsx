@@ -15,7 +15,7 @@ import {
   TRATAMIENTOS_INTERES, trasladoRenovacion, renovacionAmortiza, planRenovaciones,
   estadoDesembolso, registrarDesembolsoRecibido, anularDesembolsoRecibido, registrosDesembolso, desembolsoRecibido,
   asegurarUids, uidCredito, estadoCredito, vencimientosCredito, aplicarPagos, registrarPago, anularPago,
-  puedeAnularCredito, analisisCartera, servicioDeudaPorMes, saldoCapitalAl, simularPrepago, aplicarPrepago,
+  puedeAnularCredito, eliminarCredito, esEliminado, prepararGuardadoCreditos, analisisCartera, servicioDeudaPorMes, saldoCapitalAl, simularPrepago, aplicarPrepago,
   calendarioContrato, datosFaltantesContrato, tasaCredito, factorUSD, totalPago, pagosVigentes,
   confirmarImpaga, anularConciliacion, conciliacionesVigentes, porConciliarCartera, registrarPagoIdempotente, pagoPorOrigen,
   valorizarCreditos, sinValorizacion, infoTC, conciliacionAcreedores, claveAcreedor, anotarPago,
@@ -9498,7 +9498,7 @@ function ConciliacionCreditos({creditos, creditosTodos, empresas, realData={}, o
 }
 const diasEntreISO = (a,b)=>{ const pa=partesISO(a), pb=partesISO(b); if(!pa||!pb) return ""; return Math.round((Date.UTC(pb.y,pb.m-1,pb.d)-Date.UTC(pa.y,pa.m-1,pa.d))/86400000); };
 
-function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canEdit=false, empresasPermitidas, nextCreditId, usuario="", realData={}, onConciliarOverride,
+export function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canEdit=false, esAdmin=false, empresasPermitidas, nextCreditId, usuario="", realData={}, onConciliarOverride,
   tcEstado, saldosInformados=[], onSaveSaldosInformados, creditosConfig={}, onSaveCreditosConfig, tcData, onGuardarCobertura}) {
   // Subset de empresas que el usuario puede ver. Todos los créditos,
   // KPIs y deudas se computan SOLO sobre este subset. Defensa adicional
@@ -9511,9 +9511,7 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
   );
   const esPermitida = (emp) => permitidasSet ? permitidasSet.has(emp) : true;
   const creditosVisibles = useMemo(
-    () => permitidasSet
-      ? (creditosData||[]).filter(c => permitidasSet.has(c?.empresa))
-      : (creditosData||[]),
+    () => (creditosData||[]).filter(c => !esEliminado(c) && (!permitidasSet || permitidasSet.has(c?.empresa))),
     [creditosData, permitidasSet]
   );
   // Lista de empresas para el <select> del modal: filtrar por permisos
@@ -9817,6 +9815,16 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
     guardarUno({...c, anulado:true, motivoAnulacion:motivo.trim(), anuladoPor:usuario, anuladoTs:ts,
       historial:[...(c.historial||[]),{ts,usuario,accion:"anulación",detalle:motivo.trim()}]}).catch(err=>alert(err.message));
   }
+  async function eliminarCreditoAdmin(c){
+    if(!esAdmin || !canEdit || !esPermitida(c.empresa)) return;
+    const motivo = window.prompt(`Eliminar el crédito ${c.acreedor} (${c.empresa}).\nDesaparecerá de Créditos y de sus proyecciones de cuotas, desembolsos y renovaciones.\nLos pagos y documentos se conservarán en el historial; el flujo real no cambia.\nMotivo (obligatorio):`);
+    if(!motivo?.trim()) return;
+    if(!window.confirm(`¿Confirmas eliminar ${c.acreedor}? Esta acción retira sus importes del flujo proyectado.`)) return;
+    try {
+      await guardarUno(eliminarCredito(c,{administrador:esAdmin,usuario,motivo}));
+      if(detalleUid===uidCredito(c)) setDetalleUid(null);
+    } catch(err) { alert(err.message); }
+  }
   function reactivarCredito(c){
     if(!window.confirm(`Reactivar ${c.acreedor} (${c.empresa})? Vuelve a proyectarse en el flujo.`)) return;
     const ts=new Date().toISOString();
@@ -10044,6 +10052,10 @@ function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCreditos, canE
                         {canEdit&&c.anulado&&<button onClick={()=>reactivarCredito(c)} title={`Anulado: ${c.motivoAnulacion||""}`}
                           style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:11,background:"transparent",color:C.muted}}>
                           Reactivar
+                        </button>}
+                        {esAdmin&&canEdit&&<button onClick={()=>eliminarCreditoAdmin(c)} title="Eliminar de Créditos y del flujo (solo administrador)"
+                          style={{padding:"3px 8px",borderRadius:6,border:"1px solid #991b1b",cursor:"pointer",fontSize:11,background:"#991b1b",color:"white"}}>
+                          Eliminar
                         </button>}
                       </div>
                     </td>
@@ -15287,10 +15299,9 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
     const anterior = creditosRef.current || [];
     const permitidas = getEmpresasPermitidasUsuario(usuarioActual);
     // Las copias valorizadas traen `_tc` (TC del día): no se persiste.
-    const nextValidado = (Array.isArray(newList)?newList:[])
-      .filter(c => permitidas.includes(c?.empresa)).map(sinValorizacion);
-    const preservados = anterior.filter(c => !permitidas.includes(c?.empresa));
-    const final = [...preservados, ...nextValidado];
+    const validacion = prepararGuardadoCreditos(anterior, newList, {administrador:esAdmin, empresasPermitidas:permitidas});
+    if(!validacion.ok) return Promise.resolve(validacion);
+    const final = validacion.lista;
 
     setCreditosData(final);
     creditosRef.current = final;
@@ -15339,7 +15350,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         setSaved(ok?"✅ Guardado":"⚠️ Error"); setTimeout(()=>setSaved(null),2000);
         return r;
       });
-  },[persistAll, usuarioActual]);
+  },[persistAll, usuarioActual, esAdmin]);
 
   // Saldos informados por los acreedores (conciliación). No se borran: se anulan.
   const handleSaveSaldosInformados = useCallback(async (newList) => {
@@ -16087,7 +16098,7 @@ export default function FinanzasModule({onBack,onLogout,usuarioActual,tabPermiso
         return <Creditos empresas={empresasVisibles} creditosData={creditosVal} tcEstado={tcEstado}
           saldosInformados={saldosInformados} onSaveSaldosInformados={handleSaveSaldosInformados}
           creditosConfig={creditosConfig} onSaveCreditosConfig={handleSaveCreditosConfig} tcData={tcData}
-          onGuardarCobertura={handleGuardarCobertura} onSaveCreditos={handleSaveCreditos} canEdit={puedoEdit('creditos')} empresasPermitidas={empresasPermitidas} nextCreditId={maxNFull+1} usuario={usuarioActual?.nombre||""}
+          onGuardarCobertura={handleGuardarCobertura} onSaveCreditos={handleSaveCreditos} canEdit={puedoEdit('creditos')} esAdmin={esAdmin} empresasPermitidas={empresasPermitidas} nextCreditId={maxNFull+1} usuario={usuarioActual?.nombre||""}
           realData={realData} onConciliarOverride={handleConciliarOverrideCredito}/>;
       })()}
 
