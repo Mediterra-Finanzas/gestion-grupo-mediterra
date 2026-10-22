@@ -162,7 +162,9 @@ export function informeDeuda(creditos, corte) {
       if (!pr || pr.aplicada === false || !renovacionProyecta(ren)) return;
       const traslada = renovacionTraslada(ren);
       const fecha = traslada ? pr.fecha : (renovacionAntigua(ren) ? fechaIngresoAntigua(ren) : ((ren.recibido && ren.recibido.fecha) || fechaIngresoRen(ren)));
-      vig[ri] = { fecha, traslada, monto: num(ren.monto), origenKey: traslada ? pr.key : null };
+      // «Pago y nuevo»: el crédito anterior se paga ENTERO y entra un desembolso nuevo, así que
+      // reemplaza todo el saldo anterior. Una antigua reemplaza hasta su monto.
+      vig[ri] = { fecha, traslada, monto: num(ren.monto), pagoTotal: ren.modalidad === 'pago_y_nuevo', origenKey: traslada ? pr.key : null };
     });
     // Renovación con desembolso (antigua o pago y nuevo): renueva los vencimientos del crédito
     // (o de una renovación anterior) que vencen hasta el fin de su mes de ingreso. Sin mes de
@@ -175,8 +177,15 @@ export function informeDeuda(creditos, corte) {
       const ren = rens[ri] || {};
       const primera = vencs.filter(v => v.origen === 'renovacion' && v.renovacion === Number(ri)).map(v => v.fecha).sort()[0] || '';
       const tope = o.fecha ? `${o.fecha.slice(0, 7)}-31` : primera;
-      const cand = vencs.filter(v => (o.fecha ? v.fecha <= tope : v.fecha < tope) && (v.origen !== 'renovacion' || v.renovacion < Number(ri)) && v.capital + v.sinDesglose > EPS);
-      o.origenes = cand.map(v => v.key).reverse();   // el más reciente primero
+      const previo = (v) => v.origen !== 'renovacion' || v.renovacion < Number(ri);
+      const cand = vencs.filter(v => (o.fecha ? v.fecha <= tope : v.fecha < tope) && previo(v) && v.capital + v.sinDesglose > EPS);
+      // Refinancia el SALDO de lo que renueva: primero lo vencido hasta el ingreso (del más
+      // reciente al más antiguo) y después las cuotas posteriores de ese mismo crédito o
+      // renovación (de la más próxima a la más lejana), hasta agotar el monto renovado.
+      const fuente = cand.length ? (cand[cand.length - 1].origen === 'renovacion' ? cand[cand.length - 1].renovacion : null) : null;
+      const posteriores = vencs.filter(v => !cand.includes(v) && previo(v) && v.capital + v.sinDesglose > EPS && v.fecha > (cand.length ? cand[cand.length - 1].fecha : '')
+        && (fuente === null ? v.origen !== 'renovacion' : (v.origen === 'renovacion' && v.renovacion === fuente)));
+      o.origenes = [...cand.map(v => v.key).reverse(), ...posteriores.map(v => v.key)];
       o.origenKey = cand.length ? cand[cand.length - 1].key : null;
       const fo = cand.length ? cand[cand.length - 1].fecha : '';
       if (!o.fecha) { o.fecha = fo; o.sinMes = true; }
@@ -202,7 +211,7 @@ export function informeDeuda(creditos, corte) {
     const pendDe = Object.fromEntries(vencs.map(v => [v.key, v.pendiente.capital + v.pendiente.sinDesglose]));
     Object.entries(vig).forEach(([ri, o]) => {
       if (o.traslada || !o.origenes || !efectiva(Number(ri))) return;
-      let x = o.monto;
+      let x = o.pagoTotal ? Infinity : o.monto;
       o.origenes.forEach(k => {
         const usado = (reemplazo[k] && reemplazo[k].monto) || 0;
         const t = Math.min(x, Math.max(0, pendDe[k] - usado)); if (!(t > EPS)) return;
@@ -211,6 +220,15 @@ export function informeDeuda(creditos, corte) {
       });
     });
     const esFutura = (v) => v.origen === 'renovacion' && !!vig[v.renovacion] && !efectiva(v.renovacion);
+    // En la proyección, una renovación futura que renueva cuotas de otra renovación futura
+    // reemplaza su capital nuevo (no se proyectan ambos).
+    const reemplazoProy = {};
+    Object.entries(vig).forEach(([ri, o]) => {
+      if (o.traslada || !o.origenes || efectiva(Number(ri))) return;
+      let x = o.monto;
+      o.origenes.forEach(k => { const v = vencs.find(z => z.key === k); if (!v || !esFutura(v) || !capitalNuevo(v.renovacion)) return;
+        const t = Math.min(x, Math.max(0, v.pendiente.capital - (reemplazoProy[k] || 0))); if (t > EPS) { reemplazoProy[k] = (reemplazoProy[k] || 0) + t; x -= t; } });
+    });
     if (Object.values(vig).some(o => o.sinMes)) avisos.push('Renovación antigua sin mes de ingreso: se considera vigente desde el vencimiento que renueva.');
     // Período de interés: empieza en el vencimiento anterior del crédito o, si no hay, en el
     // desembolso. Un vencimiento que solo trae cargos (cargo único: notaría, comisión) no corta
@@ -277,7 +295,12 @@ export function informeDeuda(creditos, corte) {
       if (rem) {
         let x = rem.monto; const tc = Math.min(pend.capital, x); pend.capital -= tc; x -= tc;
         const ts = Math.min(pend.sinDesglose, x); pend.sinDesglose -= ts;
-        q.reemplazado = tc + ts; q.pendiente = rM(Math.max(0, q.pendiente - tc - ts));
+        // Cuota posterior refinanciada: su interés futuro deja de deberse en la misma proporción.
+        let ti = 0;
+        const desdeRen = rem.fechas.slice().sort()[0];
+        if (v.fecha > desdeRen && v.capital + v.sinDesglose > EPS && pend.interes > EPS) { ti = pend.interes * Math.min(1, (tc + ts) / (v.capital + v.sinDesglose)); pend.interes -= ti; }
+        const tcg = v.fecha > desdeRen && v.capital + v.sinDesglose > EPS ? pend.cargos * Math.min(1, (tc + ts) / (v.capital + v.sinDesglose)) : 0; pend.cargos -= tcg;
+        q.reemplazado = tc + ts + ti + tcg; q.pendiente = rM(Math.max(0, q.pendiente - q.reemplazado));
         q.notas.push(`renovado: ${fmtMon(tc + ts, c.moneda)} reemplazado por la renovación`);
         if (q.pendiente <= EPS) q.estado = 'renovada';
         if (v.fecha <= corte && !(v.pagadoTotal > EPS)) q.notas.push('sin pago registrado del vencimiento renovado: se considera reemplazado por la renovación');
@@ -290,7 +313,7 @@ export function informeDeuda(creditos, corte) {
         const extra0 = tr0 && tr0.extra ? Math.min(tr0.extra.interes, pend.interes) : 0;
         const extraC0 = tr0 && tr0.extra ? Math.min(tr0.extra.cargos || 0, pend.cargos) : 0;   // cargos del vencimiento vigente
         q.proyInteres = pend.interes - extra0; q.proyOtros = pend.cargos - extraC0;
-        if (!o.traslada || capitalNuevo(v.renovacion)) { q.proyCapital = pend.capital; q.proyOtros += pend.sinDesglose; q.proyInteres = pend.interes; q.pendiente = 0;
+        if (!o.traslada || capitalNuevo(v.renovacion)) { q.proyCapital = Math.max(0, pend.capital - (reemplazoProy[v.key] || 0)); q.proyOtros += pend.sinDesglose; q.proyInteres = pend.interes; q.pendiente = 0;
           q.notas.push('renovación que aún no rige: proyección'); return; }
         q.notas.push('renovación que aún no rige: el capital es el del crédito vigente; los intereses nuevos son proyección');
         q.pendiente = rM(Math.max(0, q.pendiente - q.proyInteres - q.proyOtros));
