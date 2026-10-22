@@ -82,5 +82,51 @@ check('Sin tipo → sin dato', clasificacionSugerida({ tipo_inst: 'Banco' }).val
 check('Elección manual prevalece', clasificacionCredito({ tipo_cr: 'PAE', clasificacion: 'Estructurado' }).origen === 'manual');
 check('Anulado/eliminado no aparece', informeDeuda([{ ...legD, anulado: true }, { ...legD, uid: 'e', eliminado: true }], '2026-10-22').filas.length === 0);
 
+
+// ═══ CASO 5 — Revisión independiente: renovaciones, prepagos, gracia, socio ═══
+// Registro 900.000 capital + 100.000 interés, 30-06-2026 → 31-12-2026 (184 días),
+// renovado por extensión a jun-2027 al 10%.
+const renBase = { uid: 'r', empresa: 'Osiris', acreedor: 'Banco Ren', moneda: 'USD', monto: 900000, f_inicio: '2026-06-30', f_venc: '2026-12-31',
+  cuota: 1000000, renovable: true, control_desde: '2026-06-30', desglose: { capital: 900000, interes: 100000, cargos: 0 } };
+const ren = (intereses) => ({ monto: 900000, tasa_anual: 10, modalidad: 'extension', confirmada: true, intereses, venc_origen_key: 'r@2026-12-31',
+  cuotas: [{ tipo: 'Capital+Interés', mes: 'Jun', anio: 2027 }] });
+// Pagos: con fecha posterior al corte no reducen el capital, aunque toquen la renovación.
+const rPag = { ...renBase, renovaciones: [ren('pagados')], pagos: [{ id: 'x', vencKey: 'r@2026-12-31', fecha: '2026-12-31', capital: 0, interes: 100000 }] };
+check('Renovación: capital al 31-10-2026 = 900.000 aunque haya pagos posteriores', aprox(informeDeuda([rPag], '2026-10-31').filas[0].capital, 900000), String(informeDeuda([rPag], '2026-10-31').filas[0].capital));
+// Intereses "pagados": el interés de origen se devenga en su período: 100.000 × 123/184 = 66.847,83
+const iPag = informeDeuda([{ ...renBase, renovaciones: [ren('pagados')] }], '2026-10-31').filas[0];
+check('Renovación "pagados": devengado 100.000 × 123/184', aprox(iPag.devengado, 100000 * 123 / 184), String(iPag.devengado));
+// "pendientes": el interés de origen viaja a la 1ª cuota de la renovación, pero se devenga en SU período.
+const iPend = informeDeuda([{ ...renBase, renovaciones: [ren('pendientes')] }], '2026-10-31').filas[0];
+check('Renovación "pendientes": devengado al 31-10-2026 = 100.000 × 123/184', aprox(iPend.devengado, 100000 * 123 / 184), String(iPend.devengado));
+const iCap = informeDeuda([{ ...renBase, renovaciones: [ren('capitalizados')] }], '2026-10-31').filas[0];
+check('Renovación "capitalizados": capital 900.000 y devengado 100.000 × 123/184', aprox(iCap.capital, 900000) && aprox(iCap.devengado, 100000 * 123 / 184, 0.05), `${iCap.capital} / ${iCap.devengado}`);
+const iPend2 = informeDeuda([{ ...renBase, renovaciones: [ren('pendientes')] }], '2027-03-31').filas[0];
+const intRen = iPend2.devengado + iPend2.porDevengar - 100000;   // interés propio de la renovación
+const fr = 90 / 179;   // 31-12-2026 → 31-03-2027 = 90 días de 31-12-2026 → 28-06-2027 = 179
+check('Renovación "pendientes" al 31-03-2027: 100.000 + propio × 90/179', aprox(iPend2.devengado, 100000 + intRen * fr, 0.05), `${iPend2.devengado} (propio ${intRen.toFixed(2)})`);
+
+// Antes del desembolso no hay deuda.
+const fr1 = { uid: 'f', tipo_credito: 'contrato', modalidad: 'frances', empresa: 'Osiris', acreedor: 'Banco Futuro', moneda: 'USD', monto: 1000000,
+  fecha_desembolso: '2026-12-01', primer_venc: '2027-01-01', vencimiento_final: '2027-12-01', periodicidad: 1, tasa_tipo: 'fija', tasa_anual: 12, base: '30360' };
+const iF = informeDeuda([fr1], '2026-10-22');
+check('Corte antes del desembolso: no aparece, se informa aparte', iF.filas.length === 0 && iF.noDesembolsados.length === 1);
+// Prepago con fecha posterior al corte no reduce el capital al corte.
+const bi = { ...fr1, uid: 'b', modalidad: 'bullet_int', fecha_desembolso: '2026-06-01', primer_venc: '2026-07-01', vencimiento_final: '2027-06-01',
+  prepagos: [{ id: 'pp', fecha: '2026-12-15', capital: 400000, modo: 'plazo' }] };
+check('Prepago posterior al corte: capital 1.000.000', aprox(informeDeuda([bi], '2026-10-22').filas[0].capital, 1000000), String(informeDeuda([bi], '2026-10-22').filas[0].capital));
+// Gracia total: el interés que se capitalizará después del corte NO es capital al corte.
+const gr = { ...fr1, uid: 'g', fecha_desembolso: '2026-01-01', primer_venc: '2026-02-01', vencimiento_final: '2027-12-01', gracia_periodos: 6, gracia_tipo: 'total', base: 'act360' };
+const iG = informeDeuda([gr], '2026-01-02').filas[0];
+check('Gracia total: capital al día siguiente del desembolso = 1.000.000', aprox(iG.capital, 1000000), String(iG.capital));
+check('Gracia total: devengado = 1 día de interés (1.000.000 × 12% / 360)', aprox(iG.devengado, 1000000 * 0.12 / 360, 0.05), String(iG.devengado));
+// Pago parcial de interés en una cuota futura: 1ª cuota del caso 1 con 100.000 de interés pagado antes del corte.
+const pp = { ...bci, pagos: [...bci.pagos, { id: 'p3', vencKey: 'bci@2026-11-05', fecha: '2026-10-01', capital: 0, interes: 100000 }] };
+const iPP = informeDeuda([pp], '2026-10-22').filas[0];
+check('Pago parcial de interés: devengado = 204.240,89 × 347/360 − 100.000', aprox(iPP.devengado, 204240.89 * 347 / 360 - 100000), String(iPP.devengado));
+// UF: montos en moneda original con 4 decimales.
+const uf = { ...legD, uid: 'uf', moneda: 'UF', monto: 1000.12345, desglose: { capital: 1000.1234, interes: 20.5678, cargos: 0 }, cuota: 1020.6912 };
+check('UF con 4 decimales', informeDeuda([uf], '2026-10-22').filas[0].capital === 1000.1234);
+
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);
