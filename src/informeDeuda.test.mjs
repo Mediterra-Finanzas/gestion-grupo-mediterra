@@ -216,5 +216,12 @@ check('Sin desglose, por conciliar ni TC faltante → no parcial', !informeDeuda
 
 const bciPP = { ...bci, pagos: [...bci.pagos, { id: 'p9', vencKey: 'bci@2026-11-05', fecha: '2026-10-01', capital: 0, interes: 1000 }] };
 check('Pago parcial y vence el día del corte: rótulo propio', informeDeuda([bciPP], '2026-11-05').filas[0].cuotas.find(q => q.fecha === '2026-11-05').estado === 'vence_corte_parcial');
+// ═══ CASO 8 — Anticipos de clientes: separados, dentro del total de obligaciones ═══
+const IA = informeDeuda([bci, { ...leg, naturaleza: 'anticipo_cliente' }, legD], '2026-10-22');
+const IB = informeDeuda([bci, leg, legD], '2026-10-22');
+check('Anticipo marcado: fuera de la deuda financiera', IA.total.totalIdentificado === r2t(IB.total.totalIdentificado - 120000) && IA.anticipos.totalIdentificado === 120000);
+check('Total de obligaciones = deuda financiera + anticipos (no cambia al marcar)', IA.obligaciones.totalIdentificado === r2t(IA.total.totalIdentificado + IA.anticipos.totalIdentificado) && IA.obligaciones.totalIdentificado === IB.obligaciones.totalIdentificado);
+check('Por empresa / clasificación solo deuda financiera', Object.values(IA.porEmpresa).reduce((a, o) => a + o.creditos, 0) === IA.total.creditos);
+check('Acreedor "Otro"/"Privado" no se marca solo como anticipo', IB.filas.every(x => x.naturaleza === 'financiera'));
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

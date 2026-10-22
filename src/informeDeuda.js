@@ -69,6 +69,13 @@ export function textoGarantia(g) {
   return partes.filter(Boolean).join(' · ');
 }
 
+// ── Naturaleza de la obligación (decisión del CFO, 22-10-2026) ──────
+// Un anticipo de cliente registrado en Créditos se muestra SEPARADO de la deuda financiera,
+// pero entra al total de obligaciones identificadas. Se marca a mano en cada crédito: no se
+// deduce del tipo de acreedor («Otros» también tiene otros acreedores).
+export const NATURALEZAS = { financiera: 'Deuda financiera', anticipo_cliente: 'Anticipo de cliente' };
+export const naturalezaCredito = (c) => (c && c.naturaleza === 'anticipo_cliente' ? 'anticipo_cliente' : 'financiera');
+
 // ── Informe ─────────────────────────────────────────────────────────
 export const CAMPOS = ['capital', 'devengado', 'cargosVencidos', 'saldoDeuda', 'porDevengar', 'cargosFuturos', 'totalPorPagar', 'sinDesglose', 'totalIdentificado', 'porConciliar'];
 // Estado de una cuota al corte (rótulo único para pantalla, Excel y PDF).
@@ -258,6 +265,7 @@ export function informeDeuda(creditos, corte) {
     const est = new Set(qs.map(q => q.estado));
     filas.push({
       uid: uidCredito(c), empresa: c.empresa || '', acreedor: c.acreedor || '', identificador: c.identificador || '',
+      naturaleza: naturalezaCredito(c),
       tipoCredito: c.tipo_cr || (esSocio(c) ? 'Socio' : ''), modalidad: esContrato(c) ? (MODALIDADES[c.modalidad] || '') : (esSocio(c) ? 'Crédito de socio' : 'Registro por vencimiento'),
       clasificacion: cl.valor, clasificacionOrigen: cl.origen, clasificacionMotivo: cl.motivo,
       moneda: c.moneda || 'USD', tasa: t.tasa, tasaVariable: !!t.variable, base, vencimientoFinal: vencFinal,
@@ -271,15 +279,19 @@ export function informeDeuda(creditos, corte) {
   cuotasSinDesglose.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.empresa.localeCompare(b.empresa));
 
   const cero = () => Object.fromEntries(CAMPOS.map(k => [k, 0]).concat([['creditos', 0]]));
-  const total = cero(), porClasificacion = {}, porEmpresa = {};
+  // `total`, por clasificación y por empresa = DEUDA FINANCIERA. Los anticipos de clientes
+  // van en `anticipos`; `obligaciones` suma ambos.
+  const total = cero(), anticipos = cero(), porClasificacion = {}, porEmpresa = {};
   filas.forEach(x => {
     if (!x.usd) return;
+    if (x.naturaleza === 'anticipo_cliente') { CAMPOS.forEach(cmp => { anticipos[cmp] += x.usd[cmp]; }); anticipos.creditos++; return; }
     const k = x.clasificacion || 'Sin clasificar';
     const a = porClasificacion[k] || (porClasificacion[k] = cero());
     const e = porEmpresa[x.empresa] || (porEmpresa[x.empresa] = cero());
     [total, a, e].forEach(o => { CAMPOS.forEach(cmp => { o[cmp] += x.usd[cmp]; }); o.creditos++; });
   });
-  [total, ...Object.values(porClasificacion), ...Object.values(porEmpresa)].forEach(o => CAMPOS.forEach(k => { o[k] = r2(o[k]); }));
+  [total, anticipos, ...Object.values(porClasificacion), ...Object.values(porEmpresa)].forEach(o => CAMPOS.forEach(k => { o[k] = r2(o[k]); }));
+  const obligaciones = { totalIdentificado: r2(total.totalIdentificado + anticipos.totalIdentificado), porConciliar: r2(total.porConciliar + anticipos.porConciliar) };
 
   // Garantías: conteo por tipo y monto por moneda (el monto es el valor declarado de la garantía).
   const garantias = {};
@@ -297,10 +309,11 @@ export function informeDeuda(creditos, corte) {
   // desglosar (su capital e interés no se conocen), por conciliar o créditos sin TC.
   const motivosParcial = [];
   if (total.sinDesglose > 0) motivosParcial.push(`cuotas sin desglosar por US$ ${fmtUSD(total.sinDesglose)} (no se sabe cuánto es capital y cuánto interés)`);
-  if (total.porConciliar > 0) motivosParcial.push(`cuotas por conciliar por US$ ${fmtUSD(total.porConciliar)} (no confirmadas: fuera de las cifras)`);
+  if (obligaciones.porConciliar > 0) motivosParcial.push(`cuotas por conciliar por US$ ${fmtUSD(obligaciones.porConciliar)} (no confirmadas: fuera de las cifras)`);
   if (sinTC.length) motivosParcial.push(`${sinTC.length} crédito(s) sin tipo de cambio al corte, fuera de los totales en US$`);
-  const conteo = { listados: filas.length, incluidos: filas.filter(x => x.usd).length, sinTC: sinTC.length, noDesembolsados: noDesembolsados.length };
-  return { corte, filas, total, noDesembolsados, porClasificacion, porEmpresa, cuotasSinDesglose, sinTC, garantias, sinGarantia, soloTexto,
+  const conteo = { listados: filas.length, incluidos: filas.filter(x => x.usd).length, sinTC: sinTC.length, noDesembolsados: noDesembolsados.length,
+    anticipos: filas.filter(x => x.naturaleza === 'anticipo_cliente').length };
+  return { corte, filas, total, anticipos, obligaciones, noDesembolsados, porClasificacion, porEmpresa, cuotasSinDesglose, sinTC, garantias, sinGarantia, soloTexto,
     sinClasificar: filas.filter(x => !x.clasificacion).length, incompleto: sinTC.length > 0,
     parcial: motivosParcial.length > 0, motivosParcial, conteo };
 }
@@ -312,8 +325,8 @@ export const ESTADOS_CREDITO = { con_vencidas: 'Con cuotas vencidas', con_parcia
 export const etiquetaCredito = (x) => [x.acreedor, x.tipoCredito || x.modalidad, x.identificador && `N° ${x.identificador}`].filter(Boolean).join(' · ');
 // Agrupa empresa → crédito/contrato (cada registro es un contrato: dos contratos del mismo
 // banco son dos filas). Subtotales = suma de los créditos del grupo, en US$.
-export function agruparInforme(inf, { empresa = '', acreedor = '', estado = '' } = {}) {
-  const filas = inf.filas.filter(x => (!empresa || x.empresa === empresa) && (!acreedor || x.acreedor === acreedor)
+export function agruparInforme(inf, { empresa = '', acreedor = '', estado = '', naturaleza = 'financiera' } = {}) {
+  const filas = inf.filas.filter(x => x.naturaleza === naturaleza && (!empresa || x.empresa === empresa) && (!acreedor || x.acreedor === acreedor)
     && (!estado || (estado === 'por_conciliar' ? x.tienePorConciliar : x.estadoCredito === estado)));
   const sum = (arr) => {
     const o = Object.fromEntries(CAMPOS.map(k => [k, 0]));
@@ -333,14 +346,14 @@ export function agruparInforme(inf, { empresa = '', acreedor = '', estado = '' }
 export function textoConteo(inf) {
   const c = inf.conteo;
   const sin = inf.sinTC.map(z => `${z.empresa} · ${z.acreedor} (${z.moneda})`).join('; ');
-  return `${c.listados} crédito(s) listado(s) · ${c.incluidos} incluido(s) en los totales en US$` + (c.sinTC ? ` · ${c.sinTC} excluido(s) por falta de tipo de cambio al corte: ${sin}` : '');
+  return `${c.listados} crédito(s) listado(s)${c.anticipos ? ` (${c.listados - c.anticipos} de deuda financiera y ${c.anticipos} anticipo(s) de cliente)` : ''} · ${c.incluidos} incluido(s) en los totales en US$` + (c.sinTC ? ` · ${c.sinTC} excluido(s) por falta de tipo de cambio al corte: ${sin}` : '');
 }
 // Qué NO está en el «Total de pagos pendientes identificados».
 export function textosExcluidos(inf) {
   const out = [];
-  if (inf.total.porConciliar > 0) out.push(`Cuotas por conciliar: US$ ${fmtUSD(inf.total.porConciliar)} (históricas sin pago registrado ni confirmación).`);
+  if (inf.obligaciones.porConciliar > 0) out.push(`Cuotas por conciliar: US$ ${fmtUSD(inf.obligaciones.porConciliar)} (históricas sin pago registrado ni confirmación).`);
   inf.sinTC.forEach(z => out.push(`${z.empresa} · ${z.acreedor}: ${z.moneda} ${fmtMon(z.totalIdentificado, z.moneda)}${z.porConciliar ? ` + ${z.moneda} ${fmtMon(z.porConciliar, z.moneda)} por conciliar` : ''} sin tipo de cambio al corte.`));
   inf.noDesembolsados.forEach(z => out.push(`${z.empresa} · ${z.acreedor}: aún no desembolsado (desembolso ${z.desembolso}).`));
-  out.push('Obligaciones que no están registradas como créditos (proveedores, anticipos fuera de Créditos, garantías otorgadas).');
+  out.push('Obligaciones que no están registradas en Créditos (proveedores, anticipos de clientes no registrados como crédito, garantías otorgadas).');
   return out;
 }

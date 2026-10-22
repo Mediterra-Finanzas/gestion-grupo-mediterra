@@ -42,9 +42,11 @@ test('resumen: parciales, total identificado, por conciliar aparte y conteo', ()
   expect(ind('devengado')).toMatch(/parcial\*/);
   expect(ind('saldoDeuda')).toMatch(/parcial\*/);
   expect(ind('totalIdentificado')).toContain(`US$ ${txt(inf.total.totalPorPagar + inf.total.sinDesglose)}`);
+  expect(ind('obligaciones')).toContain(`US$ ${txt(inf.total.totalIdentificado)}`);   // sin anticipos marcados: obligaciones = deuda financiera
+  expect(ind('anticipos')).toMatch(/ningún crédito marcado/);
   expect(ind('porConciliar')).toContain('US$ 43,828.00');
   expect(container.textContent).toContain('6 crédito(s) listado(s) · 5 incluido(s) en los totales en US$ · 1 excluido(s) por falta de tipo de cambio al corte: Frisku Foods · Banco Perú (PEN)');
-  expect(container.textContent).toMatch(/Excluido del total identificado:.*Cuotas por conciliar: US\$ 43,828.00/);
+  expect(container.textContent).toMatch(/Excluido del total de obligaciones identificadas:.*Cuotas por conciliar: US\$ 43,828.00/);
   expect(container.querySelector('[data-avisos-totales]').textContent).toMatch(/Cifras parciales/);
 });
 
@@ -64,7 +66,7 @@ test('agrupa empresa → crédito; dos contratos del mismo banco van separados; 
   expect(celdas(filaAS)[3 + iTot]).toBe(txt(asSub.totalIdentificado));
   const sumBci = Math.round((inf.filas.find(x => x.uid === 'bci').usd.totalIdentificado + inf.filas.find(x => x.uid === 'bci2').usd.totalIdentificado) * 100) / 100;
   expect(asSub.totalIdentificado).toBe(sumBci);
-  const tot = celdas(container.querySelector('[data-fila-total]'));
+  const tot = celdas(container.querySelector('[data-fila-total="financiera"]'));
   cols.forEach(([k], i) => expect(tot[3 + i]).toBe(txt(inf.total[k])));
   // desplegar el leasing: cuotas con estados y devengo 347/360; total no cambia
   fireEvent.click(container.querySelector('[data-fila-credito="bci"]'));
@@ -72,7 +74,7 @@ test('agrupa empresa → crédito; dos contratos del mismo banco van separados; 
   expect(det.querySelectorAll('[data-cuota="pagada"]')).toHaveLength(2);
   expect(det.querySelectorAll('[data-cuota="vencida"]')).toHaveLength(1);    // 05-11-2026 impaga al 15-12-2026
   expect(det.textContent).toMatch(/período 05-11-2026 → 05-11-2027, base 30\/360: 40 de 360 días/);
-  expect(celdas(container.querySelector('[data-fila-total]'))[3 + iTot]).toBe(txt(inf.total.totalIdentificado));
+  expect(celdas(container.querySelector('[data-fila-total="financiera"]'))[3 + iTot]).toBe(txt(inf.total.totalIdentificado));
   // contraer / expandir todos
   fireEvent.click(screen.getByRole('button', { name: 'Contraer todos' }));
   expect(container.querySelector('[data-detalle-credito]')).toBeNull();
@@ -83,8 +85,8 @@ test('agrupa empresa → crédito; dos contratos del mismo banco van separados; 
   expect(within(detZ).getAllByText('sin desglose')).toHaveLength(2);
   // filtro por acreedor: total del filtro = Σ de los créditos filtrados
   fireEvent.change(screen.getByLabelText('Acreedor'), { target: { value: 'BCI' } });
-  expect(container.querySelector('[data-fila-total]').textContent).toMatch(/TOTAL DEL FILTRO/);
-  expect(celdas(container.querySelector('[data-fila-total]'))[3 + iTot]).toBe(txt(sumBci));
+  expect(container.querySelector('[data-fila-total="financiera"]').textContent).toMatch(/TOTAL DEUDA FINANCIERA \(FILTRO\)/);
+  expect(celdas(container.querySelector('[data-fila-total="financiera"]'))[3 + iTot]).toBe(txt(sumBci));
   fireEvent.change(screen.getByLabelText('Acreedor'), { target: { value: '' } });
   fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'por_conciliar' } });
   expect(container.querySelectorAll('[data-fila-credito]')).toHaveLength(1);
@@ -100,24 +102,26 @@ test('Excel y PDF: misma estructura y mismos totales que la pantalla', () => {
   expect(wb.SheetNames).toEqual(['Resumen', 'Créditos y cuotas', 'Por conciliar', 'Garantías', 'Datos técnicos', 'Notas']);
   const res = XLSX.utils.sheet_to_json(wb.Sheets.Resumen, { header: 1 });
   const fila = (re) => res.find(r => re.test(String(r[0])));
-  expect(fila(/^Total de pagos pendientes identificados$/)[1]).toBe(inf.total.totalIdentificado);
+  expect(fila(/^Total de pagos pendientes identificados de deuda financiera$/)[1]).toBe(inf.total.totalIdentificado);
+  expect(fila(/^Total de obligaciones identificadas$/)[1]).toBe(inf.obligaciones.totalIdentificado);
   expect(fila(/^Saldo deuda \(parcial\*\)/)[1]).toBe(inf.total.saldoDeuda);
   expect(fila(/^Por conciliar/)[1]).toBe(43828);
   const det = XLSX.utils.sheet_to_json(wb.Sheets['Créditos y cuotas'], { header: 1, defval: '' });
   const hdr = det[2]; const cTI = hdr.indexOf('Total identificado (US$)');
-  expect(det.find(r => r[0] === 'TOTAL')[cTI]).toBe(inf.total.totalIdentificado);
+  expect(det.find(r => r[0] === 'TOTAL DEUDA FINANCIERA')[cTI]).toBe(inf.total.totalIdentificado);
+  expect(det.find(r => r[0] === 'TOTAL OBLIGACIONES IDENTIFICADAS')[cTI]).toBe(inf.obligaciones.totalIdentificado);
   // estructura: subtotal de empresa, luego cada crédito y sus cuotas (nivel 1)
   const iEmp = det.findIndex(r => String(r[1]).startsWith('Subtotal Allegria Service'));
   expect(det[iEmp + 1][1]).toMatch(/^BCI · (Leasing|Capital de trabajo)/);
   expect(wb.Sheets['Créditos y cuotas']['!rows'].filter(x => x.level === 1).length).toBe(inf.filas.reduce((a, x) => a + x.cuotas.length, 0));
   // PDF (contenido): mismo total por empresa y total general; con detalle, una tabla de cuotas por crédito
   const B = bloquesPdfInforme(inf, {});
-  const tabla = B.find(b => b.titulo === 'Deuda por empresa y crédito (US$)');
+  const tabla = B.find(b => b.titulo === 'Deuda financiera por empresa y crédito (US$)');
   const iT = tabla.head.indexOf('Total identificado');
   expect(tabla.body[tabla.body.length - 1][iT]).toBe(txt(inf.total.totalIdentificado));
   expect(B.some(b => b.titulo === 'Por conciliar: fuera del saldo confirmado')).toBe(true);
   const indic = B.find(b => b.head && b.head[0] === 'Indicador');
-  expect(indic.body.find(r => r[0] === 'Total de pagos pendientes identificados')[1]).toBe(txt(inf.total.totalIdentificado));
+  expect(indic.body.find(r => r[0] === 'Total de pagos pendientes identificados de deuda financiera')[1]).toBe(txt(inf.total.totalIdentificado));
   const conCuotas = bloquesPdfInforme(inf, { detalle: true }).filter(b => /— cuotas en/.test(b.titulo || ''));
   expect(conCuotas).toHaveLength(inf.filas.length);
   expect(hojasExcelInforme(inf).length).toBe(6);
@@ -171,4 +175,50 @@ test('anular una garantía cargada pide motivo y la conserva marcada', () => {
   expect(ultimo.garantias_lista[0]).toMatchObject({ ...g0, anulada: true, motivoAnulacion: 'Alzamiento de hipoteca' });
   expect(screen.queryByTitle('Anular garantía (queda en el historial)')).toBeNull();
   pr.mockRestore();
+});
+
+test('anticipo de cliente marcado: separado de la deuda financiera e incluido en el total de obligaciones (pantalla, Excel y PDF)', () => {
+  const conAnt = creditos.map(c => (c.uid === 'z' ? { ...c, naturaleza: 'anticipo_cliente' } : c));
+  const { container } = render(<InformeDeudaCreditos creditos={conAnt} tcData={{}} />);
+  poneCorte(container);
+  const inf = informeDeuda(conAnt, CORTE), base = informeDeuda(creditos, CORTE);
+  // Zelun sale de la deuda financiera y entra a anticipos; el total de obligaciones no cambia.
+  expect(inf.anticipos.totalIdentificado).toBe(120000);
+  expect(inf.total.totalIdentificado).toBe(Math.round((base.total.totalIdentificado - 120000) * 100) / 100);
+  expect(inf.obligaciones.totalIdentificado).toBe(base.obligaciones.totalIdentificado);
+  expect(inf.total.sinDesglose).toBe(0);   // la cuota sin desglosar de Zelun ya no es deuda financiera
+  expect(container.querySelector('[data-tabla-deuda="financiera"] [data-fila-credito="z"]')).toBeNull();
+  expect(container.querySelector('[data-tabla-deuda="anticipo_cliente"] [data-fila-credito="z"]')).not.toBeNull();
+  const celdas = (el) => [...el.querySelectorAll('td')].map(td => td.textContent);
+  const iTot = columnasResumen(inf).findIndex(c => c[0] === 'totalIdentificado');
+  expect(celdas(container.querySelector('[data-fila-total="anticipo_cliente"]'))[3 + iTot]).toBe(txt(120000));
+  expect(celdas(container.querySelector('[data-fila-total="financiera"]'))[3 + iTot]).toBe(txt(inf.total.totalIdentificado));
+  expect(container.querySelector('[data-obligaciones]').textContent).toContain(`US$ ${txt(inf.obligaciones.totalIdentificado)}`);
+  expect(container.querySelector('[data-indicador="anticipos"]').textContent).toContain('US$ 120,000.00');
+  // Excel
+  fireEvent.click(screen.getByRole('button', { name: /Excel/ }));
+  const [wb] = XLSX.writeFile.mock.calls[0];
+  const det = XLSX.utils.sheet_to_json(wb.Sheets['Créditos y cuotas'], { header: 1, defval: '' });
+  const cTI = det[2].indexOf('Total identificado (US$)');
+  expect(det.find(r => r[0] === 'TOTAL ANTICIPOS DE CLIENTES')[cTI]).toBe(120000);
+  expect(det.find(r => r[0] === 'TOTAL DEUDA FINANCIERA')[cTI]).toBe(inf.total.totalIdentificado);
+  expect(det.find(r => r[0] === 'TOTAL OBLIGACIONES IDENTIFICADAS')[cTI]).toBe(inf.obligaciones.totalIdentificado);
+  // PDF
+  const B = bloquesPdfInforme(inf, {});
+  const tA = B.find(b => /^Anticipos de clientes por empresa/.test(b.titulo || ''));
+  expect(tA.body[tA.body.length - 1][tA.head.indexOf('Total identificado')]).toBe(txt(120000));
+  expect(B.some(b => b.tipo === 'texto' && b.texto.includes(`= US$ ${txt(inf.obligaciones.totalIdentificado)}`))).toBe(true);
+});
+
+test('la naturaleza se marca a mano en el crédito; por defecto es deuda financiera', () => {
+  let ultimo;
+  function Env() { const [form, setForm] = useState({ empresa: 'Allegria Foods', tipo_inst: 'Privado', tipo_acreedor: 'Otro' }); ultimo = form; return <CamposComunesCredito form={form} setForm={setForm} />; }
+  const { container } = render(<Env />);
+  const sel = container.querySelector('[data-naturaleza-credito]');
+  expect(sel.value).toBe('financiera');
+  expect(ultimo.naturaleza).toBeUndefined();   // abrir no escribe nada
+  // un acreedor «Otro» NO se marca solo como anticipo
+  expect(informeDeuda([{ ...zelun, tipo_acreedor: 'Otro' }], CORTE).filas[0].naturaleza).toBe('financiera');
+  fireEvent.change(sel, { target: { value: 'anticipo_cliente' } });
+  expect(ultimo.naturaleza).toBe('anticipo_cliente');
 });

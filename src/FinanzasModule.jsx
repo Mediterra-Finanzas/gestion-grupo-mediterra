@@ -51,8 +51,8 @@ import {
   MODELO_VERSION, normalizarIdentidades,
 } from './programas.js';
 import ProgramasPanel, { ResumenLado } from './ProgramasComerciales.jsx';
-import { informeDeuda, CLASIFICACIONES, clasificacionSugerida, TIPOS_GARANTIA, textoGarantia, agruparInforme, etiquetaCredito, textoConteo, textosExcluidos, ESTADOS_CREDITO, NOMBRE_BASE, fmtUSD } from './informeDeuda.js';
-import { hojasExcelInforme, bloquesPdfInforme, indicadoresInforme, formulaTotalIdentificado, columnasResumen, COLS_CUOTA, celdaCuota, textoDevengo, textoAjusteCapital } from './informeDeudaExport.js';
+import { informeDeuda, CLASIFICACIONES, clasificacionSugerida, TIPOS_GARANTIA, textoGarantia, agruparInforme, etiquetaCredito, textoConteo, textosExcluidos, ESTADOS_CREDITO, NOMBRE_BASE, NATURALEZAS, fmtUSD } from './informeDeuda.js';
+import { BLOQUES_NATURALEZA, hojasExcelInforme, bloquesPdfInforme, indicadoresInforme, formulaTotalIdentificado, columnasResumen, COLS_CUOTA, celdaCuota, textoDevengo, textoAjusteCapital } from './informeDeudaExport.js';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -8100,6 +8100,11 @@ export function CamposComunesCredito({form,setForm,sinMoneda=false}){
           </div>
         </CampoCr>
       )}
+      <CampoCr label="Naturaleza de la obligación" ayuda="Anticipo de cliente: se muestra separado de la deuda financiera en el informe de deuda, pero suma al total de obligaciones. Se marca a mano; no se deduce del tipo de acreedor.">
+        <select data-naturaleza-credito value={form.naturaleza==="anticipo_cliente"?"anticipo_cliente":"financiera"} onChange={e=>set("naturaleza",e.target.value)} style={CR_INP}>
+          {Object.entries(NATURALEZAS).map(([k,l])=><option key={k} value={k}>{l}</option>)}
+        </select>
+      </CampoCr>
       <CampoCr label="Clasificación" ayuda={sug.valor?`Sugerida por el sistema: ${sug.valor} (${sug.motivo}).`:`Sin sugerencia: ${sug.motivo}. Elige el «Tipo de crédito» o la clasificación.`}>
         <select data-clasificacion-credito value={form.clasificacion||""} onChange={e=>set("clasificacion",e.target.value)} style={CR_INP}>
           <option value="">{sug.valor?`Según tipo de crédito → ${sug.valor}`:"— según tipo de crédito —"}</option>{CLASIFICACIONES.map(t=><option key={t}>{t}</option>)}
@@ -8496,6 +8501,7 @@ export function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}
     ["Tasa", t.tasa===null?"sin dato":`${t.tasa}% ${t.variable?"variable":"fija"}${t.efectiva?" efectiva":""} · ${t.origen}`],
     ["Base", BASES[credito.base]||(credito.tipo_credito==="socio"?"Efectiva anual, Actual/365":"sin dato")],
     ["Modalidad", MODALIDADES[credito.modalidad]||(credito.tipo_credito==="socio"?"Crédito de socio (cuotas definidas)":"Registro por vencimiento")],
+    ["Naturaleza", NATURALEZAS[credito.naturaleza==="anticipo_cliente"?"anticipo_cliente":"financiera"]],
     ["Clasificación", (()=>{ const k=CLASIFICACIONES.includes(credito.clasificacion)?{valor:credito.clasificacion,origen:"elegida"}:clasificacionSugerida(credito); return k.valor?`${k.valor}${k.origen==="sugerida"?` (sugerida: ${k.motivo})`:""}`:"sin clasificar"; })()],
     ["Garantías", [...(Array.isArray(credito.garantias_lista)?credito.garantias_lista:[]).filter(g=>g&&!g.anulada).map(textoGarantia), credito.garantias].filter(Boolean).join(" | ")||"—"],
     ["Control en la app desde", controlDesdePorRegla(credito)
@@ -10876,7 +10882,7 @@ export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
   const [pdfDetalle,setPdfDetalle]=useState(false);
   const corteOk = /^\d{4}-\d{2}-\d{2}$/.test(corte);
   const inf = useMemo(()=>informeDeuda(valorizarCreditos((creditos||[]).map(sinValorizacion), tcData, corteOk?corte:hoyISO()), corteOk?corte:hoyISO()),[creditos,tcData,corte,corteOk]);
-  const g = useMemo(()=>agruparInforme(inf, filtro),[inf,filtro]);
+  const bloques = useMemo(()=>BLOQUES_NATURALEZA.map(b=>({...b, g:agruparInforme(inf,{...filtro,naturaleza:b.naturaleza})})),[inf,filtro]);
   const cols = columnasResumen(inf);
   const $u = (n)=> n==null ? "—" : `US$ ${fmtUSD(n)}`;
   const $m = (n,mon)=> `${mon==="USD"?"US$":mon} ${fmtN(n, mon==="UF"?4:2)}`;
@@ -10884,7 +10890,7 @@ export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
   const empresasOp = [...new Set(inf.filas.map(x=>x.empresa))].sort();
   const acreedoresOp = [...new Set(inf.filas.filter(x=>!filtro.empresa||x.empresa===filtro.empresa).map(x=>x.acreedor))].sort();
   const toggle = (uid)=>setAbiertos(p=>{ const n=new Set(p); n.has(uid)?n.delete(uid):n.add(uid); return n; });
-  const todosUids = g.grupos.flatMap(e=>e.filas.map(x=>x.uid));
+  const todosUids = bloques.flatMap(b=>b.g.grupos.flatMap(e=>e.filas.map(x=>x.uid)));
 
   function exportarExcel(){
     const wb = XLSX.utils.book_new();
@@ -10953,22 +10959,22 @@ export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
         <table data-indicadores style={{borderCollapse:"collapse",width:"100%",maxWidth:720,fontSize:12}}>
           <tbody>
             {indicadoresInforme(inf).map(i=>{
-              const fuerte = i.k==="saldoDeuda"||i.k==="totalIdentificado";
+              const fuerte = i.k==="saldoDeuda"||i.k==="totalIdentificado"||i.k==="obligaciones";
               const aparte = i.k==="porConciliar";
               return (
-                <tr key={i.k} data-indicador={i.k} style={{borderTop:i.k==="totalIdentificado"||aparte?`2px solid ${C.border}`:`1px solid ${C.border}44`,background:i.k==="totalIdentificado"?`${C.blue}10`:"transparent"}}>
+                <tr key={i.k} data-indicador={i.k} style={{borderTop:i.k==="totalIdentificado"||i.k==="anticipos"||aparte?`2px solid ${C.border}`:`1px solid ${C.border}44`,background:i.k==="obligaciones"?`${C.blue}18`:(i.k==="totalIdentificado"?`${C.blue}0a`:"transparent")}}>
                   <td style={{padding:"6px 10px",fontWeight:fuerte?800:500,color:aparte?C.muted:C.text}}>{i.label}</td>
                   <td style={{padding:"6px 10px",textAlign:"right",fontVariantNumeric:"tabular-nums",fontWeight:fuerte?800:600,color:aparte?C.muted:C.text}}>{$u(i.usd)}</td>
                 </tr>);})}
           </tbody>
         </table>
         <div style={{fontSize:10.5,color:C.muted,marginTop:8}}>{formulaTotalIdentificado(inf)}</div>
-        <div style={{fontSize:10.5,color:C.muted,marginTop:4}}><b>Excluido del total identificado:</b> {textosExcluidos(inf).join(" ")}</div>
+        <div style={{fontSize:10.5,color:C.muted,marginTop:4}}><b>Excluido del total de obligaciones identificadas:</b> {textosExcluidos(inf).join(" ")}</div>
       </Card>
 
       <Card style={{padding:0,overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
-          <div style={{flex:1,minWidth:200}}><SectionTitle>Deuda por empresa y crédito (US$)</SectionTitle></div>
+          <div style={{flex:1,minWidth:200}}><SectionTitle>Deuda por empresa y crédito (US$)</SectionTitle><div style={{fontSize:10.5,color:C.muted}}>Deuda financiera y, aparte, anticipos de clientes.</div></div>
           <select aria-label="Empresa" value={filtro.empresa} onChange={e=>setFiltro(f=>({...f,empresa:e.target.value,acreedor:""}))} style={sel}>
             <option value="">Todas las empresas</option>{empresasOp.map(e=><option key={e}>{e}</option>)}</select>
           <select aria-label="Acreedor" value={filtro.acreedor} onChange={e=>setFiltro(f=>({...f,acreedor:e.target.value}))} style={sel}>
@@ -10978,9 +10984,12 @@ export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
           <button onClick={()=>setAbiertos(new Set(todosUids))} style={{...sel,minWidth:0,cursor:"pointer",color:C.blue,fontWeight:700}}>Expandir todos</button>
           <button onClick={()=>setAbiertos(new Set())} style={{...sel,minWidth:0,cursor:"pointer",color:C.blue,fontWeight:700}}>Contraer todos</button>
         </div>
-        {g.filtrado&&<div style={{fontSize:10.5,color:C.muted,padding:"6px 14px"}}>Filtro activo: los subtotales y el total de esta tabla son solo de los créditos mostrados ({g.n}). El resumen de arriba es del informe completo.</div>}
-        <div style={{overflowX:"auto"}}>
-          <table data-tabla-deuda style={{borderCollapse:"collapse",width:"100%"}}>
+        {bloques[0].g.filtrado&&<div style={{fontSize:10.5,color:C.muted,padding:"6px 14px"}}>Filtro activo: los subtotales y totales de estas tablas son solo de los créditos mostrados ({bloques.reduce((a,b)=>a+b.g.n,0)}). El resumen de arriba y el total de obligaciones son del informe completo.</div>}
+        {bloques.map(({g,titulo,total:totLbl,naturaleza})=> (naturaleza!=="financiera"&&!g.n)
+          ? <div key={naturaleza} data-bloque={naturaleza} style={{fontSize:11,color:C.muted,padding:"10px 14px",borderTop:`2px solid ${C.border}`}}><b>{titulo}:</b> {g.filtrado?"ninguno con este filtro.":"ningún crédito marcado como anticipo de cliente (se marca en el crédito, campo «Naturaleza»)."}</div>
+          : <div key={naturaleza} data-bloque={naturaleza} style={{overflowX:"auto",borderTop:naturaleza==="financiera"?"none":`2px solid ${C.border}`}}>
+          <div style={{fontSize:11,fontWeight:800,color:C.text,padding:"8px 14px"}}>{titulo}</div>
+          <table data-tabla-deuda={naturaleza} style={{borderCollapse:"collapse",width:"100%"}}>
             <thead><tr style={{background:C.primary}}>
               {th("Empresa / crédito o contrato","left")}{th("Moneda","left")}{th("Vence")}
               {cols.map(([k,l])=><React.Fragment key={k}>{th(l)}</React.Fragment>)}
@@ -11044,19 +11053,23 @@ export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
                         </td></tr>)}
                     </React.Fragment>);})}
                 </React.Fragment>))}
-              <tr data-fila-total style={{background:`${C.blue}1a`}}>
-                <td style={{...CR_TD,fontWeight:800}}>{g.filtrado?"TOTAL DEL FILTRO":"TOTAL"} <span style={{fontWeight:400,color:C.muted,fontSize:10}}>· {g.total.creditos} crédito(s) en US$</span></td>
+              <tr data-fila-total={naturaleza} style={{background:`${C.blue}1a`}}>
+                <td style={{...CR_TD,fontWeight:800}}>{g.filtrado?`${totLbl} (FILTRO)`:totLbl} <span style={{fontWeight:400,color:C.muted,fontSize:10}}>· {g.total.creditos} crédito(s) en US$</span></td>
                 <td style={CR_TD}>US$</td><td style={CR_TD}></td>
                 {cols.map(([k])=><React.Fragment key={k}>{tdN(fmtUSD(g.total[k]),{fontWeight:800})}</React.Fragment>)}
               </tr>
             </tbody>
           </table>
+        </div>)}
+        <div data-obligaciones style={{display:"flex",justifyContent:"space-between",gap:10,padding:"10px 14px",borderTop:`2px solid ${C.border}`,background:`${C.blue}14`,fontSize:12,fontWeight:800}}>
+          <span>TOTAL DE OBLIGACIONES IDENTIFICADAS{filtro.empresa||filtro.acreedor||filtro.estado?" (informe completo, sin filtro)":""} <span style={{fontWeight:400,color:C.muted,fontSize:10.5}}>= deuda financiera US$ {fmtUSD(inf.total.totalIdentificado)} + anticipos de clientes US$ {fmtUSD(inf.anticipos.totalIdentificado)}</span></span>
+          <span style={{fontVariantNumeric:"tabular-nums"}}>US$ {fmtUSD(inf.obligaciones.totalIdentificado)}</span>
         </div>
       </Card>
 
-      {inf.total.porConciliar>0&&(
+      {inf.obligaciones.porConciliar>0&&(
         <Card>
-          <SectionTitle>Por conciliar: fuera del saldo confirmado (US$ {fmtUSD(inf.total.porConciliar)})</SectionTitle>
+          <SectionTitle>Por conciliar: fuera del saldo confirmado (US$ {fmtUSD(inf.obligaciones.porConciliar)})</SectionTitle>
           <div style={{fontSize:10.5,color:C.muted,marginBottom:6}}>Cuotas históricas sin pago registrado ni confirmación. Si se confirman impagas, pasan a la deuda; si se registra su pago, desaparecen.</div>
           <table style={{borderCollapse:"collapse",width:"100%",maxWidth:820}}><tbody>
             {inf.filas.filter(x=>x.porConciliar>0).map(x=>(
