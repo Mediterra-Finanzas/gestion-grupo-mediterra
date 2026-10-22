@@ -223,5 +223,9 @@ check('Anticipo marcado: fuera de la deuda financiera', IA.total.totalIdentifica
 check('Total de obligaciones = deuda financiera + anticipos (no cambia al marcar)', IA.obligaciones.totalIdentificado === r2t(IA.total.totalIdentificado + IA.anticipos.totalIdentificado) && IA.obligaciones.totalIdentificado === IB.obligaciones.totalIdentificado);
 check('Por empresa / clasificación solo deuda financiera', Object.values(IA.porEmpresa).reduce((a, o) => a + o.creditos, 0) === IA.total.creditos);
 check('Acreedor "Otro"/"Privado" no se marca solo como anticipo', IB.filas.every(x => x.naturaleza === 'financiera'));
+const IP = informeDeuda([{ ...bciPP }], '2026-11-05').filas[0];
+check('Pago parcial que vence el día del corte: crédito "con pagos parciales"', IP.estadoCredito === 'con_parciales', IP.estadoCredito);
+const IC = informeDeuda([bci, { ...viejoPC, naturaleza: 'anticipo_cliente' }], '2026-10-22');
+check('Por conciliar de un anticipo no rotula como parcial la deuda financiera', !IC.parcial && IC.obligaciones.porConciliar === 43828, JSON.stringify(IC.motivosParcial));
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

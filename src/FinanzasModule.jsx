@@ -11077,7 +11077,7 @@ export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
           </tbody></table>
         </Card>)}
 
-      <details><summary style={{cursor:"pointer",fontSize:11,fontWeight:700,color:C.muted}}>Por clasificación (estructurado, no estructurado, socios, otros)</summary>
+      <details><summary style={{cursor:"pointer",fontSize:11,fontWeight:700,color:C.muted}}>Por clasificación de la deuda financiera (estructurado, no estructurado, socios, otros; sin anticipos de clientes)</summary>
         <Card style={{padding:0,overflow:"hidden",marginTop:6}}><div style={{overflowX:"auto"}}>
           <table style={{borderCollapse:"collapse",width:"100%"}}>
             <thead><tr style={{background:C.primary}}>{th("Clasificación","left")}{th("Créditos")}{cols.map(([k,l])=><React.Fragment key={k}>{th(l)}</React.Fragment>)}</tr></thead>

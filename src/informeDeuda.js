@@ -260,7 +260,7 @@ export function informeDeuda(creditos, corte) {
     const fx = factorVencimiento(c, corte);
     const cl = clasificacionCredito(c);
     const usd = fx === null ? null : cifras(f, r2, fx);
-    if (fx === null) sinTC.push({ uid: uidCredito(c), empresa: c.empresa, acreedor: c.acreedor, moneda: c.moneda || 'USD', totalIdentificado: orig.totalIdentificado, porConciliar: orig.porConciliar });
+    if (fx === null) sinTC.push({ uid: uidCredito(c), naturaleza: naturalezaCredito(c), empresa: c.empresa, acreedor: c.acreedor, moneda: c.moneda || 'USD', totalIdentificado: orig.totalIdentificado, porConciliar: orig.porConciliar });
     const vencFinal = vencs.length ? vencs[vencs.length - 1].fecha : (c.f_venc || '');
     const est = new Set(qs.map(q => q.estado));
     filas.push({
@@ -270,7 +270,7 @@ export function informeDeuda(creditos, corte) {
       clasificacion: cl.valor, clasificacionOrigen: cl.origen, clasificacionMotivo: cl.motivo,
       moneda: c.moneda || 'USD', tasa: t.tasa, tasaVariable: !!t.variable, base, vencimientoFinal: vencFinal,
       ...orig, usd, tc: c._tc || null, cuotas: qs, ajusteCapital,
-      estadoCredito: est.has('vencida') || est.has('vencida_parcial') ? 'con_vencidas' : (est.has('parcial') ? 'con_parciales' : 'al_dia'),
+      estadoCredito: est.has('vencida') || est.has('vencida_parcial') ? 'con_vencidas' : (est.has('parcial') || est.has('vence_corte_parcial') ? 'con_parciales' : 'al_dia'),
       tienePorConciliar: f.porConciliar > EPS,
       garantias: garantiasCredito(c), garantiasTexto: String(c.garantias || '').trim(), avisos,
     });
@@ -309,8 +309,9 @@ export function informeDeuda(creditos, corte) {
   // desglosar (su capital e interés no se conocen), por conciliar o créditos sin TC.
   const motivosParcial = [];
   if (total.sinDesglose > 0) motivosParcial.push(`cuotas sin desglosar por US$ ${fmtUSD(total.sinDesglose)} (no se sabe cuánto es capital y cuánto interés)`);
-  if (obligaciones.porConciliar > 0) motivosParcial.push(`cuotas por conciliar por US$ ${fmtUSD(obligaciones.porConciliar)} (no confirmadas: fuera de las cifras)`);
-  if (sinTC.length) motivosParcial.push(`${sinTC.length} crédito(s) sin tipo de cambio al corte, fuera de los totales en US$`);
+  if (total.porConciliar > 0) motivosParcial.push(`cuotas por conciliar por US$ ${fmtUSD(total.porConciliar)} (no confirmadas: fuera de las cifras)`);
+  const sinTCFin = sinTC.filter(z => z.naturaleza === 'financiera').length;
+  if (sinTCFin) motivosParcial.push(`${sinTCFin} crédito(s) de deuda financiera sin tipo de cambio al corte, fuera de los totales en US$`);
   const conteo = { listados: filas.length, incluidos: filas.filter(x => x.usd).length, sinTC: sinTC.length, noDesembolsados: noDesembolsados.length,
     anticipos: filas.filter(x => x.naturaleza === 'anticipo_cliente').length };
   return { corte, filas, total, anticipos, obligaciones, noDesembolsados, porClasificacion, porEmpresa, cuotasSinDesglose, sinTC, garantias, sinGarantia, soloTexto,
