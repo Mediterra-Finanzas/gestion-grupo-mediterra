@@ -61,13 +61,13 @@ export async function descargarExcelConLogo(nombreArchivo, hojas) {
     // Logo con su proporción (269 × 152): 88 × 50 px.
     if (imgId !== null) ws.addImage(imgId, { tl: { col: 0.1, row: 0.15 }, ext: { width: 88, height: 50 } });
     ws.getRow(1).height = 20; ws.getRow(2).height = 20; ws.getRow(3).height = 8;
-    const enc = new Set(h.encabezados || []), tot = new Set(h.totales || []), enteras = new Set(h.colsEnteras || []), dec4 = new Set(h.filasUF || []), montos = new Set(h.filasMonto || []);
+    const enc = new Set(h.encabezados || []), tot = new Set(h.totales || []), enteras = new Set(h.colsEnteras || []), dec4 = new Set(h.filasUF || []), montos = new Set(h.filasMonto || []), noUF = new Set(h.colsNoUF || []);
     h.aoa.forEach((fila, i) => {
       const r = ws.getRow(i + 1 + FILAS_LOGO);
       (fila || []).forEach((v, j) => {
         const c = r.getCell(j + 1);
         c.value = v === undefined ? null : v;
-        if (typeof v === 'number') c.numFmt = enteras.has(j) && !montos.has(i) ? '#,##0' : (dec4.has(i) ? '#,##0.0000' : '#,##0.00');
+        if (typeof v === 'number') c.numFmt = enteras.has(j) && !montos.has(i) ? '#,##0' : (dec4.has(i) && !noUF.has(j) ? '#,##0.0000' : '#,##0.00');
       });
       if (h.niveles && h.niveles[i]) r.outlineLevel = h.niveles[i];
       if (i === 0) r.getCell(1).font = { bold: true, size: 13, color: { argb: AZUL } };

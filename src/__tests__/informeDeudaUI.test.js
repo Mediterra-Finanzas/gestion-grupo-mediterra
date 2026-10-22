@@ -288,4 +288,6 @@ test('UF con 4 decimales en Excel, TC declarado rotulado como estimación y aval
   expect(fPe[det.aoa[2].indexOf('Avales')]).toMatch(/Socio C · aval personal hasta UF 5000 · desde 2026-01-15/);
   const gar = H.find(h => h.nombre === 'Avales y garantías').aoa;
   expect(gar.find(r => r[4] === 'Socio C')[5]).toBe('aval personal hasta UF 5000');
+  const avPdf = bloquesPdfInforme(inf, {}).find(b => b.titulo === 'Avales').body.find(r => r[2] === 'Socio C');
+  expect(avPdf[5]).toBe('aval personal hasta UF 5000 · desde 15-01-2026');
 });

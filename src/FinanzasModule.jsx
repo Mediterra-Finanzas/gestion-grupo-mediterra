@@ -11027,7 +11027,7 @@ export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
       <Card style={{padding:0,overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
           <div style={{flex:1,minWidth:200}}><SectionTitle>Detalle por empresa y crédito (US$)</SectionTitle><div style={{fontSize:10.5,color:C.muted}}>Haz clic en un crédito para ver sus cuotas.</div></div>
-          <select aria-label="Empresa" value={filtro.empresa} onChange={e=>setFiltro(f=>({...f,empresa:e.target.value,acreedor:""}))} style={sel}>
+          <select aria-label="Empresa" value={filtro.empresa} onChange={e=>{ if(!e.target.value) setAlcanceDesc("todas"); setFiltro(f=>({...f,empresa:e.target.value,acreedor:""})); }} style={sel}>
             <option value="">Todas las empresas</option>{empresasOp.map(e=><option key={e}>{e}</option>)}</select>
           <select aria-label="Acreedor" value={filtro.acreedor} onChange={e=>setFiltro(f=>({...f,acreedor:e.target.value}))} style={sel}>
             <option value="">Todos los acreedores</option>{acreedoresOp.map(a=><option key={a}>{a}</option>)}</select>

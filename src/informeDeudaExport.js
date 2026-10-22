@@ -167,7 +167,7 @@ export function hojasExcelInforme(inf, { notas = NOTAS_METODO, alcance = 'Todas 
   return [
     { nombre: 'Resumen', aoa: res, encabezados: encR, totales: totR, colsEnteras: [1], filasMonto: montosR, cols: [{ wch: 58 }, { wch: 16 }, ...cols.map(() => ({ wch: 16 })), { wch: 16 }] },
     { nombre: 'Créditos y cuotas', aoa: det, ancha: true, filasUF: ufD, niveles: niv, encabezados: encD, totales: totD, cols: [{ wch: 30 }, { wch: 38 }, { wch: 24 }, { wch: 8 }, { wch: 11 }, { wch: 20 }, ...Array(vacioRes).fill({ wch: 15 }), { wch: 11 }, { wch: 22 }, ...Array(COLS_CUOTA.length - 2).fill({ wch: 14 }), { wch: 40 }, { wch: 40 }, { wch: 60 }] },
-    { nombre: 'Por conciliar', aoa: pc, filasUF: ufPC, encabezados: [2], totales: totPC, cols: [{ wch: 16 }, { wch: 34 }, { wch: 8 }, { wch: 22 }, { wch: 16 }] },
+    { nombre: 'Por conciliar', aoa: pc, filasUF: ufPC, colsNoUF: [4], encabezados: [2], totales: totPC, cols: [{ wch: 16 }, { wch: 34 }, { wch: 8 }, { wch: 22 }, { wch: 16 }] },
     { nombre: 'Avales y garantías', aoa: gar, encabezados: [2], cols: [{ wch: 16 }, { wch: 34 }, { wch: 18 }, { wch: 10 }, { wch: 26 }, { wch: 30 }, { wch: 8 }, { wch: 15 }, { wch: 11 }, { wch: 11 }, { wch: 30 }] },
     { nombre: 'Datos técnicos', aoa: tec, ancha: true, filasUF: inf.filas.map((x, i) => (x.moneda === 'UF' ? 3 + i : -1)).filter(i => i >= 0), encabezados: [2], cols: [{ wch: 16 }, { wch: 34 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 8 }, { wch: 9 }, { wch: 12 }, { wch: 11 }, ...Array(10).fill({ wch: 14 }), { wch: 26 }, { wch: 40 }] },
     { nombre: 'Cómo se calcula', aoa: [tit, [], ...notas.map(n => [n])], cols: [{ wch: 130 }] },
@@ -203,10 +203,11 @@ export function bloquesPdfInforme(inf, { detalle = false, notas = NOTAS_METODO, 
     body: [...pcs.map(x => [x.empresa, etiquetaCredito(x), `${x.moneda} ${fmtMon(x.porConciliar, x.moneda)}`, x.usd ? fmtUSD(x.usd.porConciliar) : 'sin TC']), ['TOTAL', '', '', fmtUSD(inf.obligaciones.porConciliar)]], derecha: [3], estilos: [...pcs.map(() => 'credito'), 'total'] });
   // Avales y garantías de cada crédito (sin montos de deuda: varios avalistas no la duplican).
   const conAval = inf.filas.filter(x => x.avales.length);
-  B.push({ tipo: 'tabla', titulo: 'Avales', head: ['Empresa', 'Crédito / contrato', 'Avalista', 'Monto declarado', '% de la deuda'],
+  B.push({ tipo: 'tabla', titulo: 'Avales', head: ['Empresa', 'Crédito / contrato', 'Avalista', 'Monto declarado', '% de la deuda', 'Detalle'],
     body: conAval.length ? conAval.flatMap(x => x.avales.map(a => [x.empresa, etiquetaCredito(x), a.otorgante || 'Avalista sin nombre',
-      Number(a.monto) > 0 ? `${a.moneda || 'USD'} ${fmtMon(Number(a.monto), a.moneda)}` : '—', Number(a.porcentaje) > 0 ? `${Number(a.porcentaje)}%` : '—']))
-      : [['—', `Ningún crédito tiene avales registrados.`, '', '', '']], derecha: [3, 4] });
+      Number(a.monto) > 0 ? `${a.moneda || 'USD'} ${fmtMon(Number(a.monto), a.moneda)}` : '—', Number(a.porcentaje) > 0 ? `${Number(a.porcentaje)}%` : '—',
+      [a.bien, a.fecha && `desde ${fechaCL(a.fecha)}`, a.nota].filter(Boolean).join(' · ') || '—']))
+      : [['—', `Ningún crédito tiene avales registrados.`, '', '', '', '']], derecha: [3, 4] });
   const conGar = inf.filas.filter(x => x.garantias.length || x.garantiasTexto);
   B.push({ tipo: 'tabla', titulo: 'Hipotecas, prendas y otras garantías', head: ['Empresa', 'Crédito / contrato', 'Garantías'],
     body: conGar.length ? conGar.map(x => [x.empresa, etiquetaCredito(x), textoGarantias(x)]) : [['—', 'Ningún crédito tiene garantías registradas.', '']] });
