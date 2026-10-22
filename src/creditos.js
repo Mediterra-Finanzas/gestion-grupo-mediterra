@@ -92,7 +92,7 @@ export function fraccionAnio(base, desde, hasta) {
 }
 
 // ── Catálogos ───────────────────────────────────────────────────────
-export const TIPOS_ACREEDOR = ['Banco', 'Socio', 'Empresa relacionada', 'Persona natural', 'Otro'];
+export const TIPOS_ACREEDOR = ['Banco', 'Socio', 'Cliente', 'Empresa relacionada', 'Persona natural', 'Otro'];
 export const TIPOS_CREDITO = ['Capital de trabajo', 'Leasing', 'PAE', 'Bullet', 'Cuotas Mensuales',
   'Crédito Hipotecario', 'Inversión', 'Otro'];
 export const MONEDAS = ['USD', 'CLP', 'UF', 'PEN', 'EUR'];
