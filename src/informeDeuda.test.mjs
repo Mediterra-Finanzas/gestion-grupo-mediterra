@@ -175,6 +175,7 @@ check('30/360 fin de mes: 31-01 → 15-02 = 15 días, 31-01 → 28-02 = 28 días
   Math.round(fraccionAnio('30360', '2027-01-31', '2027-02-15') * 360) === 15 && Math.round(fraccionAnio('30360', '2027-01-31', '2027-02-28') * 360) === 28);
 
 // Cuadre: Σ cuotas = crédito; saldo = capital + devengado + cargos vencidos; total identificado = total por pagar + sin desglosar.
+const viejoPC = { uid: 'pc', empresa: 'Allegria Foods', acreedor: 'Banco Antiguo', tipo_inst: 'Banco', tipo_cr: 'PAE', monto: 40000, f_inicio: '2025-01-01', f_venc: '2025-06-30', cuota: 43828, control_desde: '2026-01-01' };
 const todos = valorizarCreditos([bci, leg, legD, clp, { ...soc(1000), uid: 'sx' }, { ...renBase, uid: 'rx', renovaciones: [ren('pendientes')] }], tcData, '2026-10-22');
 const I = informeDeuda(todos, '2026-10-22');
 const r2t = (x) => Math.round(x * 100) / 100;
@@ -189,6 +190,19 @@ I.filas.forEach(x => {
   });
 });
 check('Cada crédito = suma de sus cuotas (moneda original)', okC);
+// Detalle: Σ saldo pendiente de las cuotas confirmadas = total identificado; Σ por conciliar = por conciliar.
+const escen = [I, informeDeuda([soc(1000)], '2026-03-01'), informeDeuda([{ ...soc(1000), pagos: [{ id: 'q', vencKey: 's@2026-07-15', fecha: '2026-07-15', capital: 0, interes: 1000 }] }], '2026-08-15'),
+  informeDeuda([{ ...soc(1000), control_desde: '2026-09-01' }], '2026-10-15'), informeDeuda([soc(0)], '2026-10-15'), informeDeuda([gr], '2026-04-15'),
+  informeDeuda([{ ...renBase, renovaciones: [ren('capitalizados')] }], '2026-10-31'), informeDeuda([viejoPC], '2026-10-22')];
+const malos = [];
+escen.forEach(E => E.filas.forEach(x => {
+  const pend = r2t(x.cuotas.filter(q => q.estado !== 'por_conciliar').reduce((a, q) => a + q.pendiente, 0));
+  if (Math.abs(pend - x.totalIdentificado) > 0.001) malos.push(`${x.uid}: Σ pendiente ${pend} vs total identificado ${x.totalIdentificado}`);
+}));
+check('Detalle: Σ saldo pendiente de cuotas confirmadas = total identificado del crédito', malos.length === 0, malos.join(' | '));
+const sP = informeDeuda([{ ...soc(1000), pagos: [{ id: 'q', vencKey: 's@2026-07-15', fecha: '2026-07-15', capital: 0, interes: 1000 }] }], '2026-08-15').filas[0];
+check('Socio cuota parcial pagada: la cuota figura pagada y el crédito al día', sP.cuotas[0].estado === 'pagada' && sP.cuotas[0].capital === 0 && sP.estadoCredito === 'al_dia', `${sP.cuotas[0].estado} / ${sP.estadoCredito}`);
+check('Cuota que vence el día del corte: "vence en la fecha de corte"', informeDeuda([bci], '2026-11-05').filas[0].cuotas.find(q => q.fecha === '2026-11-05').estado === 'vence_corte');
 check('Identidades exactas al centavo en moneda original y US$', okU);
 const sumE = (k) => r2t(Object.values(I.porEmpresa).reduce((a, o) => a + o[k], 0));
 const sumF = (k) => r2t(I.filas.filter(x => x.usd).reduce((a, x) => a + x.usd[k], 0));

@@ -73,12 +73,12 @@ export function textoGarantia(g) {
 export const CAMPOS = ['capital', 'devengado', 'cargosVencidos', 'saldoDeuda', 'porDevengar', 'cargosFuturos', 'totalPorPagar', 'sinDesglose', 'totalIdentificado', 'porConciliar'];
 // Estado de una cuota al corte (rótulo único para pantalla, Excel y PDF).
 export const ESTADOS_CUOTA = { pagada: 'Pagada', renovada: 'Renovada', vencida: 'Vencida', vencida_parcial: 'Vencida (pago parcial)',
-  parcial: 'Por vencer (pago parcial)', por_vencer: 'Por vencer', por_conciliar: 'Por conciliar', capitaliza: 'Se capitaliza (sin pago)' };
+  parcial: 'Por vencer (pago parcial)', por_vencer: 'Por vencer', vence_corte: 'Vence en la fecha de corte', por_conciliar: 'Por conciliar', capitaliza: 'Se capitaliza (sin pago)' };
 const estadoCuota = (v) => {
   if (v.estado === 'pagada' || v.estado === 'renovada' || v.estado === 'por_conciliar') return v.estado;
   if (v.estado === 'vencida') return v.pagadoTotal > EPS ? 'vencida_parcial' : 'vencida';
   if (v.estado === 'parcial') return 'parcial';
-  return 'por_vencer';
+  return 'por_vencer';   // 'vence_corte' se asigna en el informe (necesita la fecha de corte)
 };
 // Días de la base para mostrar el período: 30/360 y Actual/360 en días de 360; Actual/365 en días reales.
 const diasBase = (base, a, b) => Math.round(fraccionAnio(base, a, b) * (base === 'act365' ? 365 : 360));
@@ -169,6 +169,18 @@ export function informeDeuda(creditos, corte) {
       } else capSocioParcial[x.fecha] = (capSocioParcial[x.fecha] || 0) - x.amortizacion;
     });
     if (Object.keys(capSocioParcial).length) avisos.push('cuota de socio menor al interés: la parte no cubierta se capitaliza (el flujo de caja hoy proyecta el interés completo)');
+    // Detalle de la cuota parcial de socio: lo que la cuota no cubre no se cobra en esa fecha
+    // (se capitaliza), así que no es saldo pendiente de la cuota ni la deja vencida.
+    vencs.forEach(v => {
+      const cp = capSocioParcial[v.fecha] || 0; if (!(cp > EPS)) return;
+      const q = qDe.get(v);
+      q.capital = Math.max(0, q.capital); q.total = rM(q.capital + q.interes - cp + q.cargos);
+      q.pendiente = rM(Math.max(0, q.pendiente - cp)); q.capitalizaEnCuota = rM(cp);
+      q.notas.push(`la cuota no cubre el interés: ${rM(cp)} se suma al capital en esta fecha`);
+      if (q.pendiente <= EPS && (q.estado === 'vencida' || q.estado === 'vencida_parcial' || q.estado === 'parcial')) q.estado = 'pagada';
+      else if (q.estado === 'vencida' && q.pagado > EPS) q.estado = 'vencida_parcial';
+    });
+    vencs.forEach(v => { const q = qDe.get(v); if (q.estado === 'por_vencer' && v.fecha === corte && q.pendiente > EPS) q.estado = 'vence_corte'; });
     vencs.forEach(v => {
       const q = qDe.get(v);
       if (!(v.pendienteTotal > 0)) return;
@@ -184,7 +196,7 @@ export function informeDeuda(creditos, corte) {
         ks.filter(k => corte < k.desde).forEach(k => devengar(q, noVig * k.monto / tot, periodo(k.desde), 'interés capitalizado en la renovación'));
       }
       const capParcial = capSocioParcial[v.fecha] || 0;
-      if (capParcial > EPS && v.fecha > corte) { q.capFuturo += capParcial; q.notas.push('la cuota no cubre el interés: la diferencia se capitaliza'); }
+      if (capParcial > EPS && v.fecha > corte) q.capFuturo += capParcial;
       if (v.fecha <= corte) {
         q.devengado += Math.max(0, v.pendiente.interes - capParcial); q.cargosVencidos += v.pendiente.cargos;
       } else {
@@ -218,7 +230,12 @@ export function informeDeuda(creditos, corte) {
     qs.sort((a, b) => a.fecha.localeCompare(b.fecha));
     // Redondeo único: cada cuota a la precisión de su moneda; el crédito = Σ cuotas redondeadas.
     const CQ = ['pendCapital', 'noVig', 'capFuturo', 'devengado', 'porDevengar', 'cargosVencidos', 'cargosFuturos', 'sdPend', 'porConciliar'];
-    qs.forEach(q => CQ.forEach(k => { q[k] = rM(q[k]); }));
+    qs.forEach(q => {
+      // devengado + por devengar se redondean como par: su suma es el interés exacto de la cuota.
+      const tot = rM(q.devengado + q.porDevengar);
+      CQ.forEach(k => { q[k] = rM(q[k]); });
+      q.porDevengar = rM(tot - q.devengado);
+    });
     const S = (k) => rM(qs.reduce((a, q) => a + q[k], 0));
     const ajusteCapital = { cuotas: S('pendCapital'), interesRenovacion: S('noVig'), interesACapitalizar: S('capFuturo') };
     const f = { capital: Math.max(0, rM(ajusteCapital.cuotas - ajusteCapital.interesRenovacion - ajusteCapital.interesACapitalizar)),
@@ -287,6 +304,7 @@ export function informeDeuda(creditos, corte) {
     sinClasificar: filas.filter(x => !x.clasificacion).length, incompleto: sinTC.length > 0,
     parcial: motivosParcial.length > 0, motivosParcial, conteo };
 }
+export const fmtMon = (n, moneda) => (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: moneda === 'UF' ? 4 : 2, maximumFractionDigits: moneda === 'UF' ? 4 : 2 });
 export const fmtUSD = (n) => (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // ── Presentación compartida (pantalla, Excel y PDF) ─────────────────
@@ -321,7 +339,7 @@ export function textoConteo(inf) {
 export function textosExcluidos(inf) {
   const out = [];
   if (inf.total.porConciliar > 0) out.push(`Cuotas por conciliar: US$ ${fmtUSD(inf.total.porConciliar)} (históricas sin pago registrado ni confirmación).`);
-  inf.sinTC.forEach(z => out.push(`${z.empresa} · ${z.acreedor}: ${z.moneda} ${fmtUSD(z.totalIdentificado)}${z.porConciliar ? ` + ${z.moneda} ${fmtUSD(z.porConciliar)} por conciliar` : ''} sin tipo de cambio al corte.`));
+  inf.sinTC.forEach(z => out.push(`${z.empresa} · ${z.acreedor}: ${z.moneda} ${fmtMon(z.totalIdentificado, z.moneda)}${z.porConciliar ? ` + ${z.moneda} ${fmtMon(z.porConciliar, z.moneda)} por conciliar` : ''} sin tipo de cambio al corte.`));
   inf.noDesembolsados.forEach(z => out.push(`${z.empresa} · ${z.acreedor}: aún no desembolsado (desembolso ${z.desembolso}).`));
   out.push('Obligaciones que no están registradas como créditos (proveedores, anticipos fuera de Créditos, garantías otorgadas).');
   return out;

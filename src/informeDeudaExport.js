@@ -2,7 +2,7 @@
 // Lee el MISMO objeto `informeDeuda(...)` y la MISMA agrupación (`agruparInforme`) que la
 // pantalla, así que los tres muestran las mismas cifras. Probado en
 // src/__tests__/informeDeudaUI.test.js.
-import { agruparInforme, etiquetaCredito, textoConteo, textosExcluidos, ESTADOS_CUOTA, ESTADOS_CREDITO, NOMBRE_BASE, fmtUSD } from './informeDeuda.js';
+import { agruparInforme, etiquetaCredito, textoConteo, textosExcluidos, ESTADOS_CUOTA, ESTADOS_CREDITO, NOMBRE_BASE, fmtUSD, fmtMon } from './informeDeuda.js';
 
 const r = (n) => (n == null ? '' : Math.round(n * 10000) / 10000);
 const fechaCL = (iso) => (iso ? `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}` : '');
@@ -54,12 +54,12 @@ export function celdaCuota(q, k) {
 }
 export function textoDevengo(d, mon) {
   if (d.vencido) return `${d.que}: cuota vencida, devengada completa`;
-  return `${d.que}: período ${fechaCL(d.inicio)} → ${fechaCL(d.fin)}, base ${NOMBRE_BASE[d.base] || d.base}: ${d.transcurrido} de ${d.periodo} días × ${mon} ${fmtUSD(d.monto)} = ${mon} ${fmtUSD(d.monto * d.frac)}`;
+  return `${d.que}: período ${fechaCL(d.inicio)} → ${fechaCL(d.fin)}, base ${NOMBRE_BASE[d.base] || d.base}: ${d.transcurrido} de ${d.periodo} días × ${mon} ${fmtMon(d.monto, mon)} = ${mon} ${fmtMon(d.monto * d.frac, mon)}`;
 }
 export const textoAjusteCapital = (x) => {
   const a = x.ajusteCapital;
   if (!(a.interesRenovacion > 0) && !(a.interesACapitalizar > 0)) return '';
-  return `Capital al corte = capital de cuotas pendientes ${fmtUSD(a.cuotas)}${a.interesRenovacion > 0 ? ` − interés capitalizado en renovación aún no vigente ${fmtUSD(a.interesRenovacion)}` : ''}${a.interesACapitalizar > 0 ? ` − interés que se capitalizará después del corte ${fmtUSD(a.interesACapitalizar)}` : ''} = ${fmtUSD(x.capital)} (${x.moneda}).`;
+  return `Capital al corte = capital de cuotas pendientes ${fmtMon(a.cuotas, x.moneda)}${a.interesRenovacion > 0 ? ` − interés capitalizado en renovación aún no vigente ${fmtMon(a.interesRenovacion, x.moneda)}` : ''}${a.interesACapitalizar > 0 ? ` − interés que se capitalizará después del corte ${fmtMon(a.interesACapitalizar, x.moneda)}` : ''} = ${fmtMon(x.capital, x.moneda)} (${x.moneda}).`;
 };
 
 // ── Excel ───────────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ export function hojasExcelInforme(inf, { notas = [] } = {}) {
   const det = [tit, [], head], niv = [0, 0, 0];
   const vacioRes = cols.length + 1;
   g.grupos.forEach(e => {
-    det.push([e.empresa, `Subtotal ${e.empresa} (${e.sub.creditos} crédito(s) en US$)`, 'US$', '', '', ...cols.map(([k]) => e.sub[k]), e.sub.porConciliar,
+    det.push([e.empresa, `Subtotal ${e.empresa} (${e.sub.creditos} crédito(s) en US$${e.sub.listados > e.sub.creditos ? `; ${e.sub.listados - e.sub.creditos} sin TC, fuera del subtotal` : ''})`, 'US$', '', '', ...cols.map(([k]) => e.sub[k]), e.sub.porConciliar,
       ...COLS_CUOTA.map(() => ''), '']); niv.push(0);
     e.filas.forEach(x => {
       const notas = [x.usd ? (x.moneda === 'USD' ? '' : `TC ${x.tc ? `${x.tc.tc} ${x.moneda}/US$ · ${x.tc.fecha || 's/f'} · ${x.tc.fuente}` : ''}`) : 'SIN TC: fuera de los totales en US$',
@@ -139,21 +139,21 @@ export function bloquesPdfInforme(inf, { detalle = false, notas = [] } = {}) {
   if (inf.parcial) B.push({ tipo: 'aviso', texto: `* Cifras parciales: ${inf.motivosParcial.join('; ')}.` });
   const body = [], estilos = [];
   g.grupos.forEach(e => {
-    body.push([`${e.empresa}`, '', '', ...cols.map(([k]) => fmtUSD(e.sub[k]))]); estilos.push('empresa');
+    body.push([`${e.empresa}${e.sub.listados > e.sub.creditos ? ` (${e.sub.listados - e.sub.creditos} sin TC, fuera del subtotal)` : ''}`, '', '', ...cols.map(([k]) => fmtUSD(e.sub[k]))]); estilos.push('empresa');
     e.filas.forEach(x => { body.push([`   ${etiquetaCredito(x)}`, x.moneda, fechaCL(x.vencimientoFinal), ...cols.map(([k]) => (x.usd ? fmtUSD(x.usd[k]) : 'sin TC'))]); estilos.push('credito'); });
   });
   body.push(['TOTAL', '', '', ...cols.map(([k]) => fmtUSD(g.total[k]))]); estilos.push('total');
   B.push({ tipo: 'tabla', titulo: 'Deuda por empresa y crédito (US$)', head: ['Empresa / crédito', 'Mon.', 'Vence', ...cols.map(c => c[1])], body, estilos, derecha: cols.map((_, i) => i + 3) });
   const pcs = inf.filas.filter(x => x.porConciliar > 0);
   if (pcs.length) B.push({ tipo: 'tabla', titulo: 'Por conciliar: fuera del saldo confirmado', head: ['Empresa', 'Crédito / contrato', 'Moneda del crédito', 'US$'],
-    body: [...pcs.map(x => [x.empresa, etiquetaCredito(x), `${x.moneda} ${fmtUSD(x.porConciliar)}`, x.usd ? fmtUSD(x.usd.porConciliar) : 'sin TC']), ['TOTAL', '', '', fmtUSD(inf.total.porConciliar)]], derecha: [3] });
+    body: [...pcs.map(x => [x.empresa, etiquetaCredito(x), `${x.moneda} ${fmtMon(x.porConciliar, x.moneda)}`, x.usd ? fmtUSD(x.usd.porConciliar) : 'sin TC']), ['TOTAL', '', '', fmtUSD(inf.total.porConciliar)]], derecha: [3] });
   const gl = Object.values(inf.garantias);
   B.push({ tipo: 'tabla', titulo: 'Avales, hipotecas y garantías', head: ['Tipo', 'Cantidad', 'Montos declarados', 'Créditos'],
     body: gl.length ? gl.map(x => [x.tipo, String(x.cantidad), Object.entries(x.montos).map(([m, v]) => `${m} ${fmtUSD(v)}`).join(' · ') || '—', x.creditos.join('; ')])
       : [['—', '0', '—', `Sin garantías cargadas (${inf.sinGarantia} crédito(s) sin garantía registrada)`]] });
   if (detalle) g.grupos.forEach(e => e.filas.forEach(x => {
     B.push({ tipo: 'tabla', titulo: `${e.empresa} · ${etiquetaCredito(x)} — cuotas en ${x.moneda}`, head: COLS_CUOTA.map(c => c[1]),
-      body: x.cuotas.map(q => COLS_CUOTA.map(([k]) => { const v = celdaCuota(q, k); return k === 'fecha' ? fechaCL(v) : (typeof v === 'number' ? fmtUSD(v) : v); })),
+      body: x.cuotas.map(q => COLS_CUOTA.map(([k]) => { const v = celdaCuota(q, k); return k === 'fecha' ? fechaCL(v) : (typeof v === 'number' ? fmtMon(v, x.moneda) : v); })),
       derecha: [2, 3, 4, 5, 6, 7, 8, 9] });
     const extra = [textoAjusteCapital(x), ...x.cuotas.flatMap(q => q.devengo.filter(d => !d.vencido && d.transcurrido > 0).map(d => `${fechaCL(q.fecha)} · ${textoDevengo(d, x.moneda)}`)), ...x.avisos].filter(Boolean);
     if (extra.length) B.push({ tipo: 'texto', texto: extra.join(' · ') });

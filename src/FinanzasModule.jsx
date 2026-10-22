@@ -10866,9 +10866,9 @@ const NOTAS_INFORME = [
   "Devengo: el interés de cada cuota se reparte según el tiempo transcurrido de su período (desde el vencimiento anterior del crédito, o el desembolso si es la primera, hasta su vencimiento), con la base del contrato: 30/360 cuenta meses de 30 días; Actual/360 y Actual/365 cuentan días reales. Registros por vencimiento y créditos de socio: días reales. Una cuota vencida impaga está devengada completa. Lo ya pagado de una cuota se descuenta primero de lo devengado.",
   "Cuotas sin desglosar: registros antiguos que no separan capital de interés. No se suman al capital ni a los intereses (no se inventa la división); sí entran al total de pagos pendientes identificados. Se completan con «Desglosar cuota» en el detalle del crédito.",
   "Por conciliar: cuotas históricas sin pago registrado ni confirmación. Quedan fuera del saldo confirmado y de los totales; se informan aparte.",
-  "Montos redondeados al centavo (UF: 4 decimales) en cada cuota; el crédito es la suma de sus cuotas y los subtotales y el total son la suma de los créditos, así las cifras visibles cuadran. Valores en US$ al tipo de cambio de Maestros a la fecha de corte (si no hay, TC declarado en el crédito como hipótesis; sin TC el crédito queda fuera de los totales). Pagos con fecha posterior al corte no se descuentan.",
+  "Montos redondeados al centavo (UF: 4 decimales) en cada cuota. Los intereses, cargos y cuotas sin desglosar de un crédito son la suma de sus cuotas; el capital también, menos el interés que se capitalizará después del corte (se muestra el ajuste). Los subtotales y el total son la suma de los créditos, así las cifras visibles cuadran. Valores en US$ al tipo de cambio de Maestros a la fecha de corte (si no hay, TC declarado en el crédito como hipótesis; sin TC el crédito queda fuera de los totales). Pagos con fecha posterior al corte no se descuentan.",
 ];
-const ESTADO_COLOR = (e)=>({vencida:C.red,vencida_parcial:C.red,parcial:C.yellow,por_conciliar:C.muted,pagada:C.green,renovada:C.green,capitaliza:C.muted}[e]||C.text);
+const ESTADO_COLOR = (e)=>({vence_corte:C.yellow,vencida:C.red,vencida_parcial:C.red,parcial:C.yellow,por_conciliar:C.muted,pagada:C.green,renovada:C.green,capitaliza:C.muted}[e]||C.text);
 export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
   const [corte,setCorte]=useState(hoyISO());
   const [abiertos,setAbiertos]=useState(()=>new Set());
@@ -10937,6 +10937,7 @@ export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
           <button onClick={exportarExcel} style={{padding:"6px 14px",borderRadius:8,background:C.green,border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>📥 Excel</button>
           <button onClick={exportarPDF} style={{padding:"6px 14px",borderRadius:8,background:C.red,border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>📄 PDF para socios</button>
           <label style={{fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:4}}><input type="checkbox" checked={pdfDetalle} onChange={e=>setPdfDetalle(e.target.checked)}/> incluir cuotas en el PDF</label>
+          <div style={{fontSize:10,color:C.muted,flexBasis:"100%",textAlign:"right"}}>Excel y PDF incluyen siempre todos los créditos del informe (sin los filtros de la tabla).</div>
         </div>
       </Card>
 
@@ -11032,11 +11033,12 @@ export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
                                       {[...q.devengo.filter(d=>!d.vencido&&d.transcurrido>0).map(d=>textoDevengo(d,x.moneda)),...q.notas].join(" · ")}</td></tr>)}
                                 </React.Fragment>))}
                               <tr style={{fontWeight:700,borderTop:`2px solid ${C.border}`}}>
-                                <td style={CR_TD} colSpan={7}>Al corte, en {x.moneda}: capital {fmtN(x.capital,dec(x))} + intereses devengados {fmtN(x.devengado,dec(x))}{x.cargosVencidos?` + cargos vencidos ${fmtN(x.cargosVencidos,dec(x))}`:""} = saldo deuda {fmtN(x.saldoDeuda,dec(x))}</td>
-                                {tdN(fmtN(x.cuotas.reduce((a,q)=>a+q.pendiente,0),dec(x)))}{tdN(fmtN(x.devengado,dec(x)))}{tdN(fmtN(x.porDevengar,dec(x)))}
+                                <td style={CR_TD} colSpan={7}>Total en {x.moneda} (sin cuotas por conciliar) · saldo pendiente = total identificado del crédito</td>
+                                {tdN(fmtN(x.cuotas.filter(q=>q.estado!=="por_conciliar").reduce((a,q)=>a+q.pendiente,0),dec(x)))}{tdN(fmtN(x.devengado,dec(x)))}{tdN(fmtN(x.porDevengar,dec(x)))}
                               </tr>
                             </tbody>
                           </table>
+                          <div style={{fontSize:10.5,marginTop:6}}>Al corte, en {x.moneda}: capital {fmtN(x.capital,dec(x))} + intereses devengados {fmtN(x.devengado,dec(x))}{x.cargosVencidos?` + cargos vencidos ${fmtN(x.cargosVencidos,dec(x))}`:""} = <b>saldo deuda {fmtN(x.saldoDeuda,dec(x))}</b> · + por devengar {fmtN(x.porDevengar,dec(x))}{x.cargosFuturos?` + cargos por vencer ${fmtN(x.cargosFuturos,dec(x))}`:""}{x.sinDesglose?` + sin desglosar ${fmtN(x.sinDesglose,dec(x))}`:""} = total identificado {fmtN(x.totalIdentificado,dec(x))}</div>
                           {textoAjusteCapital(x)&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>{textoAjusteCapital(x)}</div>}
                           {x.porConciliar>0&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>Por conciliar (fuera del saldo): {$m(x.porConciliar,x.moneda)}.</div>}
                         </td></tr>)}

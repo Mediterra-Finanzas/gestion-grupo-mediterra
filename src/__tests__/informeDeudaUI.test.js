@@ -3,7 +3,7 @@ import { render, screen, fireEvent, within, cleanup } from '@testing-library/rea
 jest.mock('xlsx-js-style', () => { const a = jest.requireActual('xlsx-js-style'); return { ...a, writeFile: jest.fn() }; });
 import * as XLSX from 'xlsx-js-style';
 import { InformeDeudaCreditos, CamposComunesCredito } from '../FinanzasModule.jsx';
-import { informeDeuda, agruparInforme, fmtUSD } from '../informeDeuda.js';
+import { informeDeuda, agruparInforme, fmtUSD, etiquetaCredito } from '../informeDeuda.js';
 import { hojasExcelInforme, bloquesPdfInforme, columnasResumen } from '../informeDeudaExport.js';
 
 afterEach(() => { cleanup(); jest.clearAllMocks(); });
@@ -121,6 +121,25 @@ test('Excel y PDF: misma estructura y mismos totales que la pantalla', () => {
   const conCuotas = bloquesPdfInforme(inf, { detalle: true }).filter(b => /— cuotas en/.test(b.titulo || ''));
   expect(conCuotas).toHaveLength(inf.filas.length);
   expect(hojasExcelInforme(inf).length).toBe(6);
+  // Subtotales por empresa y filas de crédito: Excel y PDF = agrupación de la pantalla (US$).
+  const g = agruparInforme(inf);
+  const cTot = (k) => hdr.indexOf(`${columnasResumen(inf).find(c => c[0] === k)[1]} (US$)`);
+  g.grupos.forEach(e => {
+    const fx = det.find(r => String(r[1]).startsWith(`Subtotal ${e.empresa} `));
+    ['capital', 'devengado', 'saldoDeuda', 'totalPorPagar', 'sinDesglose', 'totalIdentificado'].forEach(k => expect(fx[cTot(k)]).toBe(e.sub[k]));
+    const fp = tabla.body.find(r => r[0].startsWith(e.empresa));
+    expect(fp[iT]).toBe(txt(e.sub.totalIdentificado));
+    e.filas.forEach(x => {
+      const fc = det.find(r => r[1] === etiquetaCredito(x) && r[0] === x.empresa);
+      expect(fc[cTot('totalIdentificado')]).toBe(x.usd ? x.usd.totalIdentificado : 'sin TC');
+      expect(fc[cTot('capital')]).toBe(x.usd ? x.usd.capital : 'sin TC');
+      const pc = tabla.body.find(r => r[0].trim() === etiquetaCredito(x) && r[1] === x.moneda);
+      expect(pc[iT]).toBe(x.usd ? txt(x.usd.totalIdentificado) : 'sin TC');
+    });
+  });
+  const resEmp = res.findIndex(r => r[0] === 'Por empresa');
+  g.grupos.forEach(e => expect(res.slice(resEmp).find(r => r[0] === e.empresa)[1 + 1 + columnasResumen(inf).findIndex(c => c[0] === 'totalIdentificado')]).toBe(e.sub.totalIdentificado));
+  expect(tabla.body.find(r => r[0].startsWith('Frisku Foods'))[0]).toMatch(/sin TC, fuera del subtotal/);
   // el PDF no lleva caracteres que la fuente estándar no tiene
   expect(JSON.stringify(bloquesPdfInforme(inf, { detalle: true, notas: ['a → b × c − d'] }))).not.toMatch(/[→×−≤≥]/);
 });
