@@ -86,3 +86,24 @@ test('abrir un archivo usa URL firmada; si falla, avisa', async () => {
   await abrirDocCredito({ path: 'creditos/a/b/1_c.pdf' });
   expect(alerta).toHaveBeenCalled();
 });
+
+test('nombre con ".." no genera un path que la guardia rechace', async () => {
+  uploadDocNomina.mockImplementation(async (f, path) => ({ ok: true, path, error: null }));
+  const { container } = render(<Envoltorio inicial={base} />);
+  fireEvent.change(input(container), { target: { files: [archivo('Contrato v1..pdf')] } });
+  await waitFor(() => expect(ultimo.documentos).toHaveLength(1));
+  expect(uploadDocNomina.mock.calls[0][1]).not.toContain('..');
+});
+
+test('el detalle del crédito muestra el archivo adjunto como botón que abre URL firmada', async () => {
+  const { CreditoDetalleModal } = require('../FinanzasModule.jsx');
+  const abrir = jest.spyOn(window, 'open').mockImplementation(() => null);
+  urlFirmadaNomina.mockResolvedValue('https://firmada/2');
+  const credito = { uid: 'a', n: 1, empresa: 'Osiris', acreedor: 'Banco Prueba', moneda: 'USD', monto: 100000, cuota: 105000,
+    f_venc: '2027-12-31', control_desde: '2026-01-01', desglose: { capital: 100000, interes: 5000, cargos: 0 },
+    documentos: [{ nombre: 'Tabla BCI', path: 'creditos/o/a/1_t.pdf' }, { nombre: 'Pagaré', url: 'https://sp/p' }] };
+  render(<CreditoDetalleModal credito={credito} onClose={() => {}} onSave={() => {}} canEdit usuario="Admin" />);
+  fireEvent.click(screen.getByRole('button', { name: /Tabla BCI/ }));
+  await waitFor(() => expect(abrir).toHaveBeenCalledWith('https://firmada/2', '_blank', 'noopener'));
+  expect(screen.getByRole('link', { name: 'Pagaré' }).getAttribute('href')).toBe('https://sp/p');
+});

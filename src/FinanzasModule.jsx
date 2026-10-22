@@ -8051,7 +8051,7 @@ function CampoCr({label,children,ayuda,span}){
 // Respaldo del crédito como ARCHIVO (además de un enlace): va al bucket PRIVADO
 // nominas-docs bajo creditos/…; en el crédito se guarda solo el path (nunca una URL
 // pública) y el documento se abre con una URL firmada de expiración corta.
-const slugDoc = (s) => String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Za-z0-9._-]+/g,"_").slice(0,80);
+const slugDoc = (s) => String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Za-z0-9._-]+/g,"_").replace(/\.{2,}/g,".").slice(0,80);
 export async function abrirDocCredito(d){
   if(d.path){ const url = await urlFirmadaNomina(d.path); if(url) window.open(url,"_blank","noopener"); else alert(`No se pudo abrir el documento.\n${urlFirmadaNomina.lastError||""}`); }
   else if(d.url) window.open(d.url,"_blank","noopener");
@@ -8358,7 +8358,7 @@ function PanelCreditosPendientes({creditosServidor, canEdit, onReintentar, usuar
 }
 
 // ── Detalle de un crédito: calendario, pagos, historial ──────────────
-function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
+export function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
   const hoy = hoyISO();
   const sinConfirmar = pagosSinConfirmar(useCreditosPendientes(usuario));
   const e = useMemo(()=>estadoCredito(credito, hoy),[credito, hoy]);
