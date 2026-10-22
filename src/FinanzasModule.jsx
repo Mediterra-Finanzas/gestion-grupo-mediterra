@@ -8048,9 +8048,31 @@ function CampoCr({label,children,ayuda,span}){
 }
 
 // ── Campos comunes a todo tipo de crédito ─────────────────────────────
-function CamposComunesCredito({form,setForm,sinMoneda=false}){
+// Respaldo del crédito como ARCHIVO (además de un enlace): va al bucket PRIVADO
+// nominas-docs bajo creditos/…; en el crédito se guarda solo el path (nunca una URL
+// pública) y el documento se abre con una URL firmada de expiración corta.
+const slugDoc = (s) => String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Za-z0-9._-]+/g,"_").slice(0,80);
+export async function abrirDocCredito(d){
+  if(d.path){ const url = await urlFirmadaNomina(d.path); if(url) window.open(url,"_blank","noopener"); else alert(`No se pudo abrir el documento.\n${urlFirmadaNomina.lastError||""}`); }
+  else if(d.url) window.open(d.url,"_blank","noopener");
+}
+export function CamposComunesCredito({form,setForm,sinMoneda=false}){
   const set=(k,v)=>setForm(p=>({...p,[k]:v}));
   const docs = Array.isArray(form.documentos)?form.documentos:[];
+  const [subiendo,setSubiendo]=useState(false);
+  const adjuntar = async (file)=>{
+    if(!file) return;
+    if(file.size > 20*1024*1024){ alert("El archivo supera 20 MB."); return; }
+    setSubiendo(true);
+    try{
+      const path = `creditos/${slugDoc(form.empresa)||"sin_empresa"}/${slugDoc(form.uid)||"sin_uid"}/${Date.now()}_${slugDoc(file.name)}`;
+      const r = await uploadDocNomina(file, path);
+      if(!r.ok){ alert(`No se pudo subir el archivo: ${r.error||"error"}. No se agregó nada.`); return; }
+      let hash=""; try{ hash = await hashArchivo(file); }catch(e){}
+      setForm(p=>({...p, documentos:[...(Array.isArray(p.documentos)?p.documentos:[]),
+        {nombre:file.name, path:r.path, mime:file.type||"", sizeKB:Math.round(file.size/1024), hash, fechaSubida:new Date().toISOString()}]}));
+    } finally { setSubiendo(false); }
+  };
   return (
     <div style={{padding:"4px 20px 12px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
       <CampoCr label="Tipo de acreedor">
@@ -8096,15 +8118,22 @@ function CamposComunesCredito({form,setForm,sinMoneda=false}){
       </CampoCr>
       <div style={{gridColumn:"span 3"}}>
         <div style={{fontSize:10,color:C.muted,marginBottom:3,fontWeight:600,display:"flex",alignItems:"center",gap:8}}>
-          Documentos de respaldo (nombre + enlace)
+          Documentos de respaldo (archivo o enlace)
           <button type="button" onClick={()=>set("documentos",[...docs,{nombre:"",url:""}])}
-            style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700}}>+ documento</button>
+            style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:C.blue,cursor:"pointer",fontSize:10,fontWeight:700}}>+ enlace</button>
+          <label data-adjuntar-doc-credito style={{padding:"2px 8px",borderRadius:6,border:`1px solid ${C.border}`,color:C.blue,cursor:subiendo?"wait":"pointer",fontSize:10,fontWeight:700}}>
+            {subiendo?"Subiendo…":"📎 Adjuntar archivo"}
+            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.docx,.doc" disabled={subiendo} style={{display:"none"}}
+              onChange={e=>{ const f=e.target.files&&e.target.files[0]; e.target.value=""; adjuntar(f); }}/>
+          </label>
         </div>
         {docs.map((d,i)=>(
           <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 2fr auto",gap:6,marginBottom:4}}>
             <input value={d.nombre||""} placeholder="Ej: Pagaré, Tabla de desarrollo" onChange={e=>set("documentos",docs.map((x,j)=>j===i?{...x,nombre:e.target.value}:x))} style={CR_INP}/>
-            <input value={d.url||""} placeholder="https://… (SharePoint, Drive)" onChange={e=>set("documentos",docs.map((x,j)=>j===i?{...x,url:e.target.value}:x))} style={CR_INP}/>
-            <button type="button" onClick={()=>set("documentos",docs.filter((_,j)=>j!==i))}
+            {d.path
+              ? <button type="button" onClick={()=>abrirDocCredito(d)} title={d.path} style={{...CR_INP,textAlign:"left",cursor:"pointer",color:C.blue}}>📎 Archivo adjunto{d.sizeKB?` · ${d.sizeKB} KB`:""} — ver</button>
+              : <input value={d.url||""} placeholder="https://… (SharePoint, Drive)" onChange={e=>set("documentos",docs.map((x,j)=>j===i?{...x,url:e.target.value}:x))} style={CR_INP}/>}
+            <button type="button" onClick={()=>{ if(d.path && !window.confirm(`¿Quitar "${d.nombre||"archivo"}" de este crédito? El archivo queda guardado en el almacenamiento, pero el crédito deja de mostrarlo.`)) return; set("documentos",docs.filter((_,j)=>j!==i)); }}
               style={{padding:"4px 8px",borderRadius:6,background:"#fee2e2",border:"none",color:"#991b1b",cursor:"pointer",fontSize:11}}>×</button>
           </div>
         ))}
@@ -8504,7 +8533,9 @@ function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}){
         {Array.isArray(credito.documentos)&&credito.documentos.length>0&&(
           <div style={{padding:"0 20px 8px",fontSize:11}}>
             <span style={{color:C.muted}}>Documentos: </span>
-            {credito.documentos.map((d,i)=>d.url?<a key={i} href={d.url} target="_blank" rel="noreferrer" style={{marginRight:10,color:C.blue}}>{d.nombre||d.url}</a>:<span key={i} style={{marginRight:10}}>{d.nombre}</span>)}
+            {credito.documentos.map((d,i)=>d.path
+              ? <button key={i} type="button" onClick={()=>abrirDocCredito(d)} style={{marginRight:10,color:C.blue,background:"none",border:"none",cursor:"pointer",padding:0,fontSize:11,textDecoration:"underline"}}>📎 {d.nombre||"archivo"}</button>
+              : d.url?<a key={i} href={d.url} target="_blank" rel="noreferrer" style={{marginRight:10,color:C.blue}}>{d.nombre||d.url}</a>:<span key={i} style={{marginRight:10}}>{d.nombre}</span>)}
           </div>
         )}
         <div style={{padding:"0 20px 10px",display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
