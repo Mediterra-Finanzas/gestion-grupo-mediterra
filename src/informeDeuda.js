@@ -60,9 +60,17 @@ export function clasificacionCredito(c) {
 }
 
 // ── Garantías (lista estructurada; el texto antiguo se conserva) ────
-export const TIPOS_GARANTIA = ['Aval', 'Hipoteca', 'Prenda', 'Fianza', 'Warrant', 'Otra'];
-export function garantiasCredito(c) {
-  return (c && Array.isArray(c.garantias_lista) ? c.garantias_lista : []).filter(g => g && !g.anulada && (g.tipo || g.otorgante || g.bien));
+// Los avales viven en la misma lista (`garantias_lista`, tipo 'Aval'): así los ya cargados
+// aparecen solos en «Avales» sin migrar datos. Un aval identifica al avalista (`otorgante`) y,
+// si se conoce, el monto (`monto` + `moneda`) o el porcentaje (`porcentaje`) que garantiza.
+export const TIPOS_GARANTIA = ['Hipoteca', 'Prenda', 'Fianza', 'Warrant', 'Otra'];
+const vigentesGL = (c) => (c && Array.isArray(c.garantias_lista) ? c.garantias_lista : []).filter(g => g && !g.anulada && (g.tipo || g.otorgante || g.bien));
+export function garantiasCredito(c) { return vigentesGL(c).filter(g => g.tipo !== 'Aval'); }
+export function avalesCredito(c) { return vigentesGL(c).filter(g => g.tipo === 'Aval'); }
+export function textoAval(a) {
+  const partes = [a.otorgante || 'Avalista sin nombre', num(a.monto) > 0 && `${a.moneda || 'USD'} ${num(a.monto).toLocaleString('es-CL')}`,
+    num(a.porcentaje) > 0 && `${num(a.porcentaje)}% de la deuda`, a.nota];
+  return partes.filter(Boolean).join(' · ');
 }
 export function textoGarantia(g) {
   const partes = [g.tipo || 'Garantía', g.otorgante && `otorga ${g.otorgante}`, g.bien, num(g.monto) > 0 && `${g.moneda || 'USD'} ${num(g.monto).toLocaleString('es-CL')}`];
@@ -175,7 +183,7 @@ export function informeDeuda(creditos, corte) {
         qs.push(q);
       } else capSocioParcial[x.fecha] = (capSocioParcial[x.fecha] || 0) - x.amortizacion;
     });
-    if (Object.keys(capSocioParcial).length) avisos.push('cuota de socio menor al interés: la parte no cubierta se capitaliza (el flujo de caja hoy proyecta el interés completo)');
+    if (Object.keys(capSocioParcial).length) avisos.push('Cuota de socio menor al interés: la diferencia se suma al capital.');
     // Detalle de la cuota parcial de socio: lo que la cuota no cubre no se cobra en esa fecha
     // (se capitaliza), así que no es saldo pendiente de la cuota ni la deja vencida.
     vencs.forEach(v => {
@@ -249,12 +257,12 @@ export function informeDeuda(creditos, corte) {
       devengado: S('devengado'), cargosVencidos: S('cargosVencidos'), porDevengar: S('porDevengar'), cargosFuturos: S('cargosFuturos'),
       sinDesglose: S('sdPend'), porConciliar: S('porConciliar') };
     const cuotasSD = qs.filter(q => q.sdPend > 0).length;
-    if (sinInicio) avisos.push('sin fecha de desembolso: intereses del primer período sin devengar');
-    if (t.variable) avisos.push('tasa variable: intereses proyectados con hipótesis');
-    if (f.sinDesglose > EPS) avisos.push(`${cuotasSD} cuota(s) sin desglosar: intereses no calculables`);
-    if (f.porConciliar > EPS) avisos.push('tiene cuotas por conciliar (fuera del saldo)');
-    if (pagosSinFecha) avisos.push(`${pagosSinFecha} pago(s) sin fecha: se cuentan como pagados antes del corte`);
-    if (c.pagado === true && !esContrato(c)) avisos.push('marcado "pagado" sin registro de fecha: a cualquier corte figura pagado');
+    if (sinInicio) avisos.push('Falta la fecha de desembolso: no se calcula el interés devengado del primer período.');
+    if (t.variable) avisos.push('Tasa variable: los intereses futuros son una estimación.');
+    if (f.sinDesglose > EPS) avisos.push(`${cuotasSD} cuota(s) sin desglosar.`);
+    if (f.porConciliar > EPS) avisos.push('Tiene cuotas por conciliar.');
+    if (pagosSinFecha) avisos.push(`${pagosSinFecha} pago(s) sin fecha: se consideran pagados.`);
+    if (c.pagado === true && !esContrato(c)) avisos.push('Marcado como pagado, sin fecha de pago.');
     const orig = cifras(f, rM);
     if (orig.totalIdentificado + orig.porConciliar <= EPS) return;  // crédito cerrado al corte
     const fx = factorVencimiento(c, corte);
@@ -272,7 +280,7 @@ export function informeDeuda(creditos, corte) {
       ...orig, usd, tc: c._tc || null, cuotas: qs, ajusteCapital,
       estadoCredito: est.has('vencida') || est.has('vencida_parcial') ? 'con_vencidas' : (est.has('parcial') || est.has('vence_corte_parcial') ? 'con_parciales' : 'al_dia'),
       tienePorConciliar: f.porConciliar > EPS,
-      garantias: garantiasCredito(c), garantiasTexto: String(c.garantias || '').trim(), avisos,
+      garantias: garantiasCredito(c), avales: avalesCredito(c), garantiasTexto: String(c.garantias || '').trim(), avisos,
     });
   });
   cuotasSinDesglose.forEach(q => { const fx = factorVencimiento(q._c, corte); q.usd = fx === null ? null : r2(q.monto * fx); delete q._c; });
@@ -302,19 +310,30 @@ export function informeDeuda(creditos, corte) {
     if (num(g.monto) > 0) o.montos[g.moneda || 'USD'] = r2((o.montos[g.moneda || 'USD'] || 0) + num(g.monto));
     o.creditos.push(`${x.empresa} · ${x.acreedor}`);
   }));
+  // Avales por avalista: cuántos créditos respalda y lo declarado. No se suma deuda (un crédito
+  // con varios avalistas se cuenta una sola vez en los totales).
+  const avales = {};
+  filas.forEach(x => x.avales.forEach(a => {
+    const k = (a.otorgante || 'Avalista sin nombre').trim();
+    const o = avales[k] || (avales[k] = { avalista: k, creditos: [], montos: {}, porcentajes: [] });
+    o.creditos.push(`${x.empresa} · ${x.acreedor}`);
+    if (num(a.monto) > 0) o.montos[a.moneda || 'USD'] = r2((o.montos[a.moneda || 'USD'] || 0) + num(a.monto));
+    if (num(a.porcentaje) > 0) o.porcentajes.push(`${num(a.porcentaje)}% (${x.acreedor})`);
+  }));
+  const sinAval = filas.filter(x => !x.avales.length).length;
   const sinGarantia = filas.filter(x => !x.garantias.length && !x.garantiasTexto).length;
   const soloTexto = filas.filter(x => !x.garantias.length && x.garantiasTexto).length;
 
   // Cifras parciales: capital, intereses y saldo NO son la deuda completa si hay cuotas sin
   // desglosar (su capital e interés no se conocen), por conciliar o créditos sin TC.
   const motivosParcial = [];
-  if (total.sinDesglose > 0) motivosParcial.push(`cuotas sin desglosar por US$ ${fmtUSD(total.sinDesglose)} (no se sabe cuánto es capital y cuánto interés)`);
-  if (total.porConciliar > 0) motivosParcial.push(`cuotas por conciliar por US$ ${fmtUSD(total.porConciliar)} (no confirmadas: fuera de las cifras)`);
+  if (total.sinDesglose > 0) motivosParcial.push(`US$ ${fmtUSD(total.sinDesglose)} en cuotas sin desglosar`);
+  if (total.porConciliar > 0) motivosParcial.push(`US$ ${fmtUSD(total.porConciliar)} en cuotas por conciliar`);
   const sinTCFin = sinTC.filter(z => z.naturaleza === 'financiera').length;
-  if (sinTCFin) motivosParcial.push(`${sinTCFin} crédito(s) de deuda financiera sin tipo de cambio al corte, fuera de los totales en US$`);
+  if (sinTCFin) motivosParcial.push(`${sinTCFin} crédito(s) sin tipo de cambio`);
   const conteo = { listados: filas.length, incluidos: filas.filter(x => x.usd).length, sinTC: sinTC.length, noDesembolsados: noDesembolsados.length,
     anticipos: filas.filter(x => x.naturaleza === 'anticipo_cliente').length };
-  return { corte, filas, total, anticipos, obligaciones, noDesembolsados, porClasificacion, porEmpresa, cuotasSinDesglose, sinTC, garantias, sinGarantia, soloTexto,
+  return { corte, filas, total, anticipos, obligaciones, noDesembolsados, porClasificacion, porEmpresa, cuotasSinDesglose, sinTC, garantias, sinGarantia, soloTexto, avales, sinAval,
     sinClasificar: filas.filter(x => !x.clasificacion).length, incompleto: sinTC.length > 0,
     parcial: motivosParcial.length > 0, motivosParcial, conteo };
 }
@@ -347,14 +366,14 @@ export function agruparInforme(inf, { empresa = '', acreedor = '', estado = '', 
 export function textoConteo(inf) {
   const c = inf.conteo;
   const sin = inf.sinTC.map(z => `${z.empresa} · ${z.acreedor} (${z.moneda})`).join('; ');
-  return `${c.listados} crédito(s) listado(s)${c.anticipos ? ` (${c.listados - c.anticipos} de deuda financiera y ${c.anticipos} anticipo(s) de cliente)` : ''} · ${c.incluidos} incluido(s) en los totales en US$` + (c.sinTC ? ` · ${c.sinTC} excluido(s) por falta de tipo de cambio al corte: ${sin}` : '');
+  return `${c.listados} créditos${c.anticipos ? ` (${c.listados - c.anticipos} de deuda financiera y ${c.anticipos} anticipos de clientes)` : ''}: ${c.incluidos} en los totales` + (c.sinTC ? `; ${c.sinTC} fuera por no tener tipo de cambio (${sin})` : '');
 }
 // Qué NO está en el «Total de pagos pendientes identificados».
 export function textosExcluidos(inf) {
   const out = [];
-  if (inf.obligaciones.porConciliar > 0) out.push(`Cuotas por conciliar: US$ ${fmtUSD(inf.obligaciones.porConciliar)} (históricas sin pago registrado ni confirmación).`);
-  inf.sinTC.forEach(z => out.push(`${z.empresa} · ${z.acreedor}: ${z.moneda} ${fmtMon(z.totalIdentificado, z.moneda)}${z.porConciliar ? ` + ${z.moneda} ${fmtMon(z.porConciliar, z.moneda)} por conciliar` : ''} sin tipo de cambio al corte.`));
-  inf.noDesembolsados.forEach(z => out.push(`${z.empresa} · ${z.acreedor}: aún no desembolsado (desembolso ${z.desembolso}).`));
-  out.push('Obligaciones que no están registradas en Créditos (proveedores, anticipos de clientes no registrados como crédito, garantías otorgadas).');
+  if (inf.obligaciones.porConciliar > 0) out.push(`Cuotas por conciliar: US$ ${fmtUSD(inf.obligaciones.porConciliar)}.`);
+  inf.sinTC.forEach(z => out.push(`${z.empresa} · ${z.acreedor}, sin tipo de cambio: ${z.moneda} ${fmtMon(z.totalIdentificado, z.moneda)}${z.porConciliar ? ` (más ${z.moneda} ${fmtMon(z.porConciliar, z.moneda)} por conciliar)` : ''}.`));
+  inf.noDesembolsados.forEach(z => out.push(`${z.empresa} · ${z.acreedor}, aún no desembolsado (${z.desembolso}).`));
+  out.push('Obligaciones no registradas en Créditos (proveedores, otros anticipos, garantías otorgadas).');
   return out;
 }

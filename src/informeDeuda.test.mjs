@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Tests del informe de deuda al corte — ejecutar: node src/informeDeuda.test.mjs
 // Cada caso deja escrito el cálculo aritmético esperado.
-import { informeDeuda, clasificacionCredito, clasificacionSugerida } from './informeDeuda.js';
+import { informeDeuda, clasificacionCredito, clasificacionSugerida, textoAval } from './informeDeuda.js';
 import { valorizarCreditos, fraccionAnio } from './creditos.js';
 
 let fallos = 0;
@@ -31,7 +31,13 @@ const porDevEsp = (204240.89 - devEsp) + 170443.06 + 133759.11 + 87348.73 + 3080
 check('Por devengar = resto del período + intereses futuros', aprox(f.porDevengar, porDevEsp, 0.02), `${f.porDevengar} vs ${porDevEsp.toFixed(2)}`);
 check('Total por pagar = capital + todos los intereses pendientes', aprox(f.totalPorPagar, 2391579.48 + 204240.89 + 170443.06 + 133759.11 + 87348.73 + 3080.73, 0.02));
 check('Leasing → Estructurado (sugerida)', f.clasificacion === 'Estructurado' && f.clasificacionOrigen === 'sugerida');
-check('Garantías estructuradas: aval y prenda', inf.garantias.Aval.cantidad === 1 && inf.garantias.Prenda.cantidad === 1 && inf.garantias.Aval.montos.USD === 3000000);
+check('Avales separados de las garantías: 1 aval y 1 prenda', !inf.garantias.Aval && inf.garantias.Prenda.cantidad === 1 && inf.avales['Mediterra Holding'].montos.USD === 3000000 && f.avales.length === 1 && f.garantias.length === 1);
+// Varios avalistas: cada uno queda registrado y la deuda no se duplica.
+const varios = { ...bci, garantias_lista: [{ tipo: 'Aval', otorgante: 'Mediterra Holding', porcentaje: 60 }, { tipo: 'Aval', otorgante: 'Socio A' },
+  { tipo: 'Aval', otorgante: 'Socio B', monto: 500000, moneda: 'USD' }, { tipo: 'Aval', otorgante: 'Anulado', anulada: true }, { tipo: 'Hipoteca', bien: 'Predio X' }] };
+const iv = informeDeuda([varios], '2026-10-22');
+check('Varios avalistas: 3 vigentes, la deuda una sola vez', iv.filas[0].avales.length === 3 && Object.keys(iv.avales).length === 3 && iv.total.saldoDeuda === informeDeuda([bci], '2026-10-22').total.saldoDeuda && iv.sinAval === 0);
+check('Aval sin monto ni %: solo el avalista', textoAval(iv.filas[0].avales[1]) === 'Socio A' && /60% de la deuda/.test(textoAval(iv.filas[0].avales[0])));
 
 // Pago posterior al corte NO reduce el saldo al corte.
 const inf2 = informeDeuda([{ ...bci, pagos: [...bci.pagos, { id: 'p3', vencKey: 'bci@2026-11-05', fecha: '2026-11-05', capital: 395759.11, interes: 204240.89 }] }], '2026-10-22');
