@@ -9817,7 +9817,7 @@ export function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCredito
   }
   async function eliminarCreditoAdmin(c){
     if(!esAdmin || !canEdit || !esPermitida(c.empresa)) return;
-    const motivo = window.prompt(`Eliminar el crédito ${c.acreedor} (${c.empresa}).\nDesaparecerá de Créditos y de sus proyecciones de cuotas, desembolsos y renovaciones.\nLos pagos y documentos se conservarán en el historial; el flujo real no cambia.\nMotivo (obligatorio):`);
+    const motivo = window.prompt(`Eliminar el crédito ${c.acreedor} (${c.empresa}).\nDesaparecerá de Créditos y de sus proyecciones de cuotas, desembolsos y renovaciones.\nLos pagos y documentos se conservarán en el historial; el flujo real no cambia.\nNo se puede deshacer desde la app.\nMotivo (obligatorio):`);
     if(!motivo?.trim()) return;
     if(!window.confirm(`¿Confirmas eliminar ${c.acreedor}? Esta acción retira sus importes del flujo proyectado.`)) return;
     try {
