@@ -171,8 +171,14 @@ Reglas que no hay que romper:
   No se borran ni editan: se anulan con motivo. El saldo de capital baja solo
   por capital pagado. Un pago "sin desglose" se imputa cargos → intereses →
   capital (art. 1595 CC). `pagado:true` antiguo = pagado sin registro.
-- **Créditos** no se borran: `anulado:true` con motivo; no se puede anular uno
-  con pagos vigentes. Cada crédito tiene `uid` (los `n` históricos se repetían).
+- **Créditos** no se borran físicamente: `anulado:true` con motivo; no se puede anular uno
+  con pagos vigentes. **Eliminar (solo administrador)** conserva el expediente con
+  `eliminado:true`, usuario, fecha y motivo, pero lo oculta de todas las vistas de
+  Créditos y excluye cuotas, desembolsos y renovaciones (también las antiguas) del
+  flujo automático. No modifica el flujo real. Los guardados posteriores conservan
+  los registros ocultos y no permiten a un editor eliminarlos ni recuperarlos.
+  Es una restricción de aplicación; no reemplaza el cierre de RLS pendiente.
+  Cada crédito tiene `uid` (los `n` históricos se repetían).
 - **Vencido impago confirmado** (fecha < hoy, saldo por pagar) se arrastra al
   **mes y semana en curso** del flujo con aviso y su fecha original.
 - **Por conciliar**: cuota vencida ANTES de `control_desde` (fecha desde la que

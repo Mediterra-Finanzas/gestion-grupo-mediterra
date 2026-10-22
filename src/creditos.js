@@ -125,7 +125,36 @@ export function asegurarUids(lista) {
 }
 export const esContrato = (c) => c && c.tipo_credito === 'contrato';
 export const esSocio = (c) => c && c.tipo_credito === 'socio';
-export const esAnulado = (c) => !!(c && c.anulado);
+export const esEliminado = (c) => !!(c && c.eliminado);
+export const esAnulado = (c) => !!(c && (c.anulado || c.eliminado));
+
+// Eliminación administrativa: se conserva el expediente, pero deja de operar.
+export function eliminarCredito(c, { administrador = false, usuario = '', motivo = '' } = {}) {
+  if (!administrador) throw new Error('Solo un administrador puede eliminar créditos.');
+  if (!c || esEliminado(c)) throw new Error('El crédito no existe o ya fue eliminado.');
+  const razon = String(motivo).trim();
+  if (!razon) throw new Error('Indica el motivo de eliminación.');
+  const ts = new Date().toISOString();
+  return { ...c, eliminado: true, anulado: true, eliminadoPor: usuario, eliminadoTs: ts,
+    motivoEliminacion: razon,
+    historial: [...(c.historial || []), { ts, usuario, accion: 'eliminación administrativa', detalle: razon }] };
+}
+
+// Defensa del guardado: ocultar un registro no permite perderlo en el siguiente
+// guardado del subset visible, ni a un editor ordinario eliminar o recuperarlo.
+export function prepararGuardadoCreditos(anterior, nueva, { administrador = false, empresasPermitidas = [] } = {}) {
+  const permitidas = new Set(empresasPermitidas);
+  const previos = new Map((anterior || []).map(c => [uidCredito(c), c]));
+  const entrantes = (Array.isArray(nueva) ? nueva : []).filter(c => permitidas.has(c?.empresa)).map(sinValorizacion);
+  for (const c of entrantes) {
+    const previo = previos.get(uidCredito(c));
+    if ((!administrador && esEliminado(c) !== esEliminado(previo)) ||
+        (esEliminado(previo) && JSON.stringify(sinValorizacion(previo)) !== JSON.stringify(c)))
+      return { ok: false, motivo: 'sin_permiso' };
+  }
+  const ids = new Set(entrantes.map(uidCredito));
+  return { ok: true, lista: [...(anterior || []).filter(c => !permitidas.has(c?.empresa) || !ids.has(uidCredito(c))), ...entrantes] };
+}
 
 // ── Tasa del crédito (con su origen, para declarar hipótesis) ───────
 export function tasaCredito(c) {
@@ -432,7 +461,7 @@ export function fechaIngresoAntigua(ren) {
   return m && /^\d{2}$/.test(yy) ? aISO(2000 + Number(yy), m, 1) : '';
 }
 export function ingresosRenovacionFlujo(c) {
-  if (!c) return [];
+  if (!c || esEliminado(c)) return [];
   const out = [];
   if (c.renovable) getRenovaciones(c).forEach((ren, ri) => {
     if (!renovacionAntigua(ren) || !ren.monto || !ren.mes_ingreso || !ren.anio_ingreso) return;
