@@ -217,8 +217,9 @@ export function informeDeuda(creditos, corte) {
       let x = o.pagoTotal ? Infinity : o.monto;
       o.origenes.forEach(k => {
         const v = vencs.find(z => z.key === k);
-        // Una cuota de otra renovación que todavía no rige no es saldo anterior: no se paga.
-        if (v && v.origen === 'renovacion' && vig[v.renovacion] && !efectiva(v.renovacion)) return;
+        // Una cuota con desembolso que todavía no rige no es saldo anterior: no se paga. Una
+        // extensión futura sí lo es (su capital es el trasladado del crédito vigente).
+        if (v && v.origen === 'renovacion' && vig[v.renovacion] && !efectiva(v.renovacion) && capitalNuevo(v.renovacion)) return;
         const usado = (reemplazo[k] && reemplazo[k].monto) || 0;
         const t = Math.min(x, Math.max(0, pendDe[k] - usado));
         // Pago y nuevo: la cuota posterior al ingreso deja de deberse entera (capital, interés y cargos).

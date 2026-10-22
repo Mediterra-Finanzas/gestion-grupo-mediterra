@@ -329,6 +329,16 @@ const xSI = F(pynSI, '2027-04-15');
 check('Pago y nuevo sobre extensión con cuotas de solo interés: capital 1.000.000 y sin esas cuotas', xSI.capital === 1000000 && xSI.cuotas.filter(q => q.key.startsWith('rv@R0@')).every(q => q.pendiente === 0), String(xSI.capital));
 const antDoce = { ...doce, renovaciones: [{ monto: 300000, mes_ingreso: 'Feb', anio_ingreso: 2027, tasa_anual: 9, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) }, doce.renovaciones[0]] };
 check('Antigua de 300.000 y luego pago y nuevo de 900.000: capital 900.000', F(antDoce, '2027-04-15').capital === 900000, String(F(antDoce, '2027-04-15').capital));
+// Pago y nuevo con una extensión FUTURA de una cuota del crédito anterior: la paga también.
+const extFut = { monto: 100000, tasa_anual: 9, modalidad: 'extension', confirmada: true, intereses: 'pagados', venc_origen_key: 'dz@2027-12-15', cuotas: cq([['Capital+Interés', 'Dic', 2028]]) };
+const pynExtFut = { ...doce, renovaciones: [extFut, doce.renovaciones[0]] };
+const xEF = F(pynExtFut, '2027-04-15');
+check('Pago y nuevo paga también la extensión futura del crédito anterior: capital 900.000, sin proyección de ella', xEF.capital === 900000 && xEF.cuotas.filter(q => q.key.startsWith('dz@R0@')).every(q => q.pendiente === 0 && q.proyInteres === 0 && q.proyCapital === 0), `${xEF.capital} / ${JSON.stringify(xEF.proyeccion)}`);
+check('Misma extensión futura sin pago y nuevo: su capital sigue en la deuda vigente', F({ ...doce, renovaciones: [extFut] }, '2027-04-15').capital === 1000000);
+// Una renovación con desembolso que todavía no rige no es saldo anterior: el pago y nuevo no la toca.
+const antFut = { monto: 200000, mes_ingreso: 'Jun', anio_ingreso: 2027, tasa_anual: 9, cuotas: cq([['Capital+Interés', 'Dic', 2028]]) };
+const xAF = F({ ...doce, renovaciones: [antFut, doce.renovaciones[0]] }, '2027-04-15');
+check('Pago y nuevo no consume una renovación con desembolso aún no vigente: sigue como proyección', xAF.capital === 900000 && xAF.proyeccion.capital === 200000, `${xAF.capital} / ${xAF.proyeccion.capital}`);
 // Cuota con capital prepagado: el interés que se retira se mide sobre el capital PENDIENTE.
 const pre = { ...doce, renovaciones: [{ monto: 500000, mes_ingreso: 'Mar', anio_ingreso: 2027, tasa_anual: 9, cuotas: cq([['Capital+Interés', 'Mar', 2029]]) }],
   pagos: [...doce.pagos, { id: 'pj', vencKey: 'dz@2027-04-15', fecha: '2027-03-01', capital: 60000 }] };
@@ -336,7 +346,7 @@ const qAbr = F(pre, '2027-03-31').cuotas.find(q => q.key === 'dz@2027-04-15');
 check('Cuota con capital prepagado y renovada: no queda interés de un capital que ya no se debe', qAbr.pendiente === 0, String(qAbr.pendiente));
 // Detalle: Σ saldo pendiente de las cuotas = total identificado también con renovaciones.
 const malosR = [];
-[[doce, '2027-04-15'], [doce, '2027-02-10'], [pynExt, '2028-04-15'], [pynExt, '2028-02-15'], [pynSI, '2027-04-15'], [antDoce, '2027-04-15'], [pre, '2027-03-31'], [dos, '2027-01-15'], [dosMen, '2027-01-15'], [hx, '2026-10-22'], [sinMes, '2027-01-15'], [men, '2027-01-15'], [{ ...rb, renovaciones: [rAnt] }, '2026-10-22'], [{ ...rb, renovaciones: [rAnt] }, '2027-01-15'], [{ ...rb, renovaciones: [rPyn] }, '2027-01-15'], [par, '2026-10-22'], [parPag, '2027-01-15'], [ch, '2027-03-31'], [chA, '2028-01-15']].forEach(([c, k]) => {
+[[doce, '2027-04-15'], [doce, '2027-02-10'], [pynExt, '2028-04-15'], [pynExtFut, '2027-04-15'], [pynExt, '2028-02-15'], [pynSI, '2027-04-15'], [antDoce, '2027-04-15'], [pre, '2027-03-31'], [dos, '2027-01-15'], [dosMen, '2027-01-15'], [hx, '2026-10-22'], [sinMes, '2027-01-15'], [men, '2027-01-15'], [{ ...rb, renovaciones: [rAnt] }, '2026-10-22'], [{ ...rb, renovaciones: [rAnt] }, '2027-01-15'], [{ ...rb, renovaciones: [rPyn] }, '2027-01-15'], [par, '2026-10-22'], [parPag, '2027-01-15'], [ch, '2027-03-31'], [chA, '2028-01-15']].forEach(([c, k]) => {
   const x = F(c, k); const pend = r2t(x.cuotas.filter(q => q.estado !== 'por_conciliar').reduce((a, q) => a + q.pendiente, 0));
   if (Math.abs(pend - x.totalIdentificado) > 0.001) malosR.push(`${k}: ${pend} vs ${x.totalIdentificado}`);
 });
