@@ -186,6 +186,9 @@ export function informeDeuda(creditos, corte) {
       const posteriores = vencs.filter(v => !cand.includes(v) && previo(v) && v.capital + v.sinDesglose > EPS && v.fecha > (cand.length ? cand[cand.length - 1].fecha : '')
         && (fuente === null ? v.origen !== 'renovacion' : (v.origen === 'renovacion' && v.renovacion === fuente)));
       o.origenes = [...cand.map(v => v.key).reverse(), ...posteriores.map(v => v.key)];
+      // «Pago y nuevo» paga entero lo anterior, venga del crédito original o de renovaciones
+      // previas (extensión o antigua): renueva TODAS sus cuotas, también las de solo interés.
+      if (o.pagoTotal) o.origenes = [...o.origenes, ...vencs.filter(v => previo(v) && !o.origenes.includes(v.key)).map(v => v.key)];
       o.origenKey = cand.length ? cand[cand.length - 1].key : null;
       const fo = cand.length ? cand[cand.length - 1].fecha : '';
       if (!o.fecha) { o.fecha = fo; o.sinMes = true; }
@@ -213,10 +216,17 @@ export function informeDeuda(creditos, corte) {
       if (o.traslada || !o.origenes || !efectiva(Number(ri))) return;
       let x = o.pagoTotal ? Infinity : o.monto;
       o.origenes.forEach(k => {
+        const v = vencs.find(z => z.key === k);
+        // Una cuota de otra renovación que todavía no rige no es saldo anterior: no se paga.
+        if (v && v.origen === 'renovacion' && vig[v.renovacion] && !efectiva(v.renovacion)) return;
         const usado = (reemplazo[k] && reemplazo[k].monto) || 0;
-        const t = Math.min(x, Math.max(0, pendDe[k] - usado)); if (!(t > EPS)) return;
-        const r = reemplazo[k] || (reemplazo[k] = { monto: 0, fechas: [] });
-        r.monto += t; r.fechas.push(o.fecha); x -= t;
+        const t = Math.min(x, Math.max(0, pendDe[k] - usado));
+        // Pago y nuevo: la cuota posterior al ingreso deja de deberse entera (capital, interés y cargos).
+        const todo = o.pagoTotal && v && v.fecha > o.fecha && v.pendienteTotal > EPS;
+        if (!(t > EPS) && !todo) return;
+        const r = reemplazo[k] || (reemplazo[k] = { monto: 0, fechas: [], todo: false });
+        if (t > EPS) { r.monto += t; x -= t; }
+        r.fechas.push(o.fecha); if (todo) r.todo = true;
       });
     });
     const esFutura = (v) => v.origen === 'renovacion' && !!vig[v.renovacion] && !efectiva(v.renovacion);
@@ -293,13 +303,15 @@ export function informeDeuda(creditos, corte) {
       // desglose) queda reemplazado por la renovación hasta el monto renovado.
       const rem = reemplazo[v.key];
       if (rem) {
+        const base0 = pend.capital + pend.sinDesglose;   // capital pendiente ANTES del reemplazo
         let x = rem.monto; const tc = Math.min(pend.capital, x); pend.capital -= tc; x -= tc;
         const ts = Math.min(pend.sinDesglose, x); pend.sinDesglose -= ts;
-        // Cuota posterior refinanciada: su interés futuro deja de deberse en la misma proporción.
-        let ti = 0;
+        // Cuota posterior refinanciada: su interés y cargos futuros dejan de deberse en la misma
+        // proporción que su capital pendiente (enteros si la renovación paga todo lo anterior).
         const desdeRen = rem.fechas.slice().sort()[0];
-        if (v.fecha > desdeRen && v.capital + v.sinDesglose > EPS && pend.interes > EPS) { ti = pend.interes * Math.min(1, (tc + ts) / (v.capital + v.sinDesglose)); pend.interes -= ti; }
-        const tcg = v.fecha > desdeRen && v.capital + v.sinDesglose > EPS ? pend.cargos * Math.min(1, (tc + ts) / (v.capital + v.sinDesglose)) : 0; pend.cargos -= tcg;
+        const prop = v.fecha <= desdeRen ? 0 : (rem.todo ? 1 : (base0 > EPS ? Math.min(1, (tc + ts) / base0) : 0));
+        const ti = pend.interes * prop; pend.interes -= ti;
+        const tcg = pend.cargos * prop; pend.cargos -= tcg;
         q.reemplazado = tc + ts + ti + tcg; q.pendiente = rM(Math.max(0, q.pendiente - q.reemplazado));
         q.notas.push(`renovado: ${fmtMon(tc + ts, c.moneda)} reemplazado por la renovación`);
         if (q.pendiente <= EPS) q.estado = 'renovada';

@@ -315,9 +315,28 @@ check('Dos renovaciones repartidas sobre cuotas mensuales: 400.000 (300.000 reno
 // Proyección encadenada: antigua seguida de antigua sin mes → proyección de capital 1.000.000, no 2.000.000.
 const chP = { ...rb, renovaciones: [{ ...rAnt, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) }, { ...rAnt, mes_ingreso: '', anio_ingreso: '', cuotas: cq([['Capital+Interés', 'Dic', 2029]]) }] };
 check('Proyección encadenada: capital nuevo 1.000.000, no 2.000.000', F(chP, '2026-10-22').proyeccion.capital === 1000000, String(F(chP, '2026-10-22').proyeccion.capital));
+// Pago y nuevo sobre un crédito ya renovado: paga entero lo anterior, también lo que vive en
+// la renovación previa (extensión o antigua) y sus cuotas de solo interés.
+const pagInt = [{ id: 'i', vencKey: 'rv@2026-12-27', fecha: '2026-12-27', interes: 45000 }];
+const ext0 = { monto: 1000000, tasa_anual: 9, modalidad: 'extension', confirmada: true, intereses: 'pagados', venc_origen_key: 'rv@2026-12-27', cuotas: cq([['Solo Interés', 'Jun', 2027], ['Capital+Interés', 'Dic', 2029]]) };
+const pyn28 = { monto: 1000000, tasa_anual: 9, modalidad: 'pago_y_nuevo', confirmada: true, mes_ingreso: 'Mar', anio_ingreso: 2028, cuotas: cq([['Capital+Interés', 'Dic', 2030]]) };
+const pynExt = { ...rb, pagos: pagInt, renovaciones: [ext0, pyn28] };
+check('Pago y nuevo sobre crédito extendido: capital 1.000.000, no 2.000.000', F(pynExt, '2028-04-15').capital === 1000000, String(F(pynExt, '2028-04-15').capital));
+check('Antes del pago y nuevo, el extendido sigue con 1.000.000 y el nuevo es proyección', F(pynExt, '2028-02-15').capital === 1000000 && F(pynExt, '2028-02-15').proyeccion.capital === 1000000);
+const ext1 = { ...ext0, cuotas: cq([['Solo Interés', 'Jun', 2027], ['Solo Interés', 'Dic', 2027], ['Capital+Interés', 'Dic', 2029]]) };
+const pynSI = { ...rb, pagos: pagInt, renovaciones: [ext1, { ...pyn28, anio_ingreso: 2027 }] };
+const xSI = F(pynSI, '2027-04-15');
+check('Pago y nuevo sobre extensión con cuotas de solo interés: capital 1.000.000 y sin esas cuotas', xSI.capital === 1000000 && xSI.cuotas.filter(q => q.key.startsWith('rv@R0@')).every(q => q.pendiente === 0), String(xSI.capital));
+const antDoce = { ...doce, renovaciones: [{ monto: 300000, mes_ingreso: 'Feb', anio_ingreso: 2027, tasa_anual: 9, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) }, doce.renovaciones[0]] };
+check('Antigua de 300.000 y luego pago y nuevo de 900.000: capital 900.000', F(antDoce, '2027-04-15').capital === 900000, String(F(antDoce, '2027-04-15').capital));
+// Cuota con capital prepagado: el interés que se retira se mide sobre el capital PENDIENTE.
+const pre = { ...doce, renovaciones: [{ monto: 500000, mes_ingreso: 'Mar', anio_ingreso: 2027, tasa_anual: 9, cuotas: cq([['Capital+Interés', 'Mar', 2029]]) }],
+  pagos: [...doce.pagos, { id: 'pj', vencKey: 'dz@2027-04-15', fecha: '2027-03-01', capital: 60000 }] };
+const qAbr = F(pre, '2027-03-31').cuotas.find(q => q.key === 'dz@2027-04-15');
+check('Cuota con capital prepagado y renovada: no queda interés de un capital que ya no se debe', qAbr.pendiente === 0, String(qAbr.pendiente));
 // Detalle: Σ saldo pendiente de las cuotas = total identificado también con renovaciones.
 const malosR = [];
-[[doce, '2027-04-15'], [doce, '2027-02-10'], [dos, '2027-01-15'], [dosMen, '2027-01-15'], [hx, '2026-10-22'], [sinMes, '2027-01-15'], [men, '2027-01-15'], [{ ...rb, renovaciones: [rAnt] }, '2026-10-22'], [{ ...rb, renovaciones: [rAnt] }, '2027-01-15'], [{ ...rb, renovaciones: [rPyn] }, '2027-01-15'], [par, '2026-10-22'], [parPag, '2027-01-15'], [ch, '2027-03-31'], [chA, '2028-01-15']].forEach(([c, k]) => {
+[[doce, '2027-04-15'], [doce, '2027-02-10'], [pynExt, '2028-04-15'], [pynExt, '2028-02-15'], [pynSI, '2027-04-15'], [antDoce, '2027-04-15'], [pre, '2027-03-31'], [dos, '2027-01-15'], [dosMen, '2027-01-15'], [hx, '2026-10-22'], [sinMes, '2027-01-15'], [men, '2027-01-15'], [{ ...rb, renovaciones: [rAnt] }, '2026-10-22'], [{ ...rb, renovaciones: [rAnt] }, '2027-01-15'], [{ ...rb, renovaciones: [rPyn] }, '2027-01-15'], [par, '2026-10-22'], [parPag, '2027-01-15'], [ch, '2027-03-31'], [chA, '2028-01-15']].forEach(([c, k]) => {
   const x = F(c, k); const pend = r2t(x.cuotas.filter(q => q.estado !== 'por_conciliar').reduce((a, q) => a + q.pendiente, 0));
   if (Math.abs(pend - x.totalIdentificado) > 0.001) malosR.push(`${k}: ${pend} vs ${x.totalIdentificado}`);
 });
