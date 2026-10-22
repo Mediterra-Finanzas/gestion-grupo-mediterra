@@ -276,9 +276,29 @@ check('Antiguas encadenadas: vencimiento vigente avanza solo al entrar en vigor'
 // Una renovación propuesta (sin confirmar) no se proyecta ni suma.
 const prop = F({ ...rb, renovaciones: [{ ...rExt('rv@2026-12-27'), confirmada: false }] }, '2026-10-22');
 check('Renovación propuesta: no suma ni se proyecta', prop.capital === 1000000 && prop.proyeccion.total === 0 && prop.vencimientoFinal === '2026-12-27');
+
+// Revisión independiente: extensión sobre una renovación con desembolso que aún no rige.
+const hx = { ...rb, renovaciones: [{ ...rAnt, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) }, rExt('rv@R0@0', 1000000, cq([['Capital+Interés', 'Dic', 2029]]))] };
+const h1 = F(hx, '2026-10-22');
+check('Extensión sobre renovación con desembolso futura: capital 1.000.000 y 1.000.000 en proyección', h1.capital === 1000000 && h1.proyeccion.capital === 1000000, `${h1.capital} / ${h1.proyeccion.capital}`);
+check('Extensión sobre renovación con desembolso ya vigente: capital 1.000.000', F(hx, '2027-03-31').capital === 1000000 && F(hx, '2028-01-15').capital === 1000000);
+// Antigua sin mes de ingreso: rige desde el vencimiento que renueva; no suma ambos.
+const sinMes = { ...rb, renovaciones: [{ ...rAnt, mes_ingreso: '', anio_ingreso: '' }] };
+check('Antigua sin mes: 1.000.000 antes y después, vence 27-12-2026 antes', F(sinMes, '2026-10-22').capital === 1000000 && F(sinMes, '2027-01-15').capital === 1000000 && F(sinMes, '2026-10-22').vencimientoFinal === '2026-12-27');
+// Extensión futura con intereses pendientes: los cargos del vencimiento vigente siguen en la deuda.
+const conCargos = { ...rb, cuota: 1050000, desglose: { capital: 1000000, interes: 45000, cargos: 5000 } };
+const ePend = F({ ...conCargos, renovaciones: [{ ...rExt('rv@2026-12-27'), intereses: 'pendientes' }] }, '2026-10-22');
+check('Extensión futura (pendientes) con cargos: total igual al crédito sin renovar (1.050.000)', ePend.totalIdentificado === F(conCargos, '2026-10-22').totalIdentificado && ePend.proyeccion.otros === 0, `${ePend.totalIdentificado}`);
+// Ingreso en el mismo mes del vencimiento: rige al vencer (corte 15-12 entre el 1 y el 27).
+check('Ingreso en el mes del vencimiento: al 15-12 aún rige el crédito anterior', F({ ...rb, renovaciones: [rAnt] }, '2026-12-15').proyeccion.capital === 1000000 && F({ ...rb, renovaciones: [rAnt] }, '2026-12-15').capital === 1000000);
+// Cuotas mensuales: la renovación reemplaza las cuotas pendientes hasta el mes de ingreso.
+const men = { uid: 'mm', empresa: 'Mediterra', acreedor: 'Naranjo', tipo_inst: 'Banco', tipo_cr: 'Cuotas Mensuales', monto: 300000, f_inicio: '2026-09-15', f_venc: '2026-12-15',
+  cuota: 100000, control_desde: '2026-09-15', renovable: true, desglose: { capital: 100000, interes: 0, cargos: 0 },
+  renovaciones: [{ monto: 300000, mes_ingreso: 'Dic', anio_ingreso: 2026, tasa_anual: 9, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) }] };
+check('Cuotas mensuales impagas renovadas en dic: capital 300.000, no 600.000', F(men, '2027-01-15').capital === 300000, String(F(men, '2027-01-15').capital));
 // Detalle: Σ saldo pendiente de las cuotas = total identificado también con renovaciones.
 const malosR = [];
-[[{ ...rb, renovaciones: [rAnt] }, '2026-10-22'], [{ ...rb, renovaciones: [rAnt] }, '2027-01-15'], [{ ...rb, renovaciones: [rPyn] }, '2027-01-15'], [par, '2026-10-22'], [parPag, '2027-01-15'], [ch, '2027-03-31'], [chA, '2028-01-15']].forEach(([c, k]) => {
+[[hx, '2026-10-22'], [sinMes, '2027-01-15'], [men, '2027-01-15'], [{ ...rb, renovaciones: [rAnt] }, '2026-10-22'], [{ ...rb, renovaciones: [rAnt] }, '2027-01-15'], [{ ...rb, renovaciones: [rPyn] }, '2027-01-15'], [par, '2026-10-22'], [parPag, '2027-01-15'], [ch, '2027-03-31'], [chA, '2028-01-15']].forEach(([c, k]) => {
   const x = F(c, k); const pend = r2t(x.cuotas.filter(q => q.estado !== 'por_conciliar').reduce((a, q) => a + q.pendiente, 0));
   if (Math.abs(pend - x.totalIdentificado) > 0.001) malosR.push(`${k}: ${pend} vs ${x.totalIdentificado}`);
 });

@@ -164,12 +164,23 @@ export function informeDeuda(creditos, corte) {
       const fecha = traslada ? pr.fecha : (renovacionAntigua(ren) ? fechaIngresoAntigua(ren) : ((ren.recibido && ren.recibido.fecha) || fechaIngresoRen(ren)));
       vig[ri] = { fecha, traslada, monto: num(ren.monto), origenKey: traslada ? pr.key : null };
     });
-    // Vencimiento que renueva una renovación con desembolso: el último del crédito (o de una
-    // renovación anterior) que vence hasta el fin del mes de ingreso.
+    // Renovación con desembolso (antigua o pago y nuevo): renueva los vencimientos del crédito
+    // (o de una renovación anterior) que vencen hasta el fin de su mes de ingreso. Sin mes de
+    // ingreso (antigua): los que vencen antes de su primera cuota. Si el vencimiento renovado
+    // cae en el mismo mes del ingreso y no hay fecha real de desembolso, rige desde ese
+    // vencimiento (el día de ingreso no se conoce; se asume que renueva al vencer).
+    const rens = c.renovable ? getRenovaciones(c) : [];
     Object.entries(vig).forEach(([ri, o]) => {
-      if (o.traslada || !o.fecha) return;
-      const cand = vencs.filter(v => v.fecha <= `${o.fecha.slice(0, 7)}-31` && (v.origen !== 'renovacion' || v.renovacion < Number(ri)) && v.capital + v.sinDesglose > EPS);
+      if (o.traslada) return;
+      const ren = rens[ri] || {};
+      const primera = vencs.filter(v => v.origen === 'renovacion' && v.renovacion === Number(ri)).map(v => v.fecha).sort()[0] || '';
+      const tope = o.fecha ? `${o.fecha.slice(0, 7)}-31` : primera;
+      const cand = vencs.filter(v => (o.fecha ? v.fecha <= tope : v.fecha < tope) && (v.origen !== 'renovacion' || v.renovacion < Number(ri)) && v.capital + v.sinDesglose > EPS);
+      o.origenes = cand.map(v => v.key).reverse();   // el más reciente primero
       o.origenKey = cand.length ? cand[cand.length - 1].key : null;
+      const fo = cand.length ? cand[cand.length - 1].fecha : '';
+      if (!o.fecha) { o.fecha = fo; o.sinMes = true; }
+      else if (!(ren.recibido && ren.recibido.fecha) && fo && fo.slice(0, 7) === o.fecha.slice(0, 7) && fo > o.fecha) o.fecha = fo;
     });
     const riDeKey = (key) => { const m = /@R(\d+)@/.exec(key || ''); return m ? Number(m[1]) : null; };
     const efectiva = (ri, d = 0) => {
@@ -177,14 +188,30 @@ export function informeDeuda(creditos, corte) {
       if (o.fecha > corte) return false;
       const p = riDeKey(o.origenKey); return p === null || d > 50 ? true : efectiva(p, d + 1);
     };
-    const reemplazo = {};   // key del vencimiento renovado → monto que reemplaza
+    // El capital de una cuota de renovación que aún no rige es NUEVO (proyección) si la
+    // renovación trae desembolso, o si extiende una renovación con desembolso que tampoco rige.
+    const capitalNuevo = (ri, d = 0) => {
+      const o = vig[ri]; if (!o) return false;
+      if (!o.traslada) return true;
+      const p = riDeKey(o.origenKey);
+      return p !== null && d < 50 && !efectiva(p) && capitalNuevo(p, d + 1);
+    };
+    // Reemplazo: el monto de la renovación vigente cubre los vencimientos renovados, del más
+    // reciente al más antiguo, hasta agotarse (nunca más que lo que esos vencimientos deben).
+    const reemplazo = {};   // key → { monto, fechas }
+    const pendDe = Object.fromEntries(vencs.map(v => [v.key, v.pendiente.capital + v.pendiente.sinDesglose]));
     Object.entries(vig).forEach(([ri, o]) => {
-      if (o.traslada || !o.origenKey || !efectiva(Number(ri))) return;
-      const r = reemplazo[o.origenKey] || (reemplazo[o.origenKey] = { monto: 0, fechas: [] });
-      r.monto += o.monto; r.fechas.push(o.fecha);
+      if (o.traslada || !o.origenes || !efectiva(Number(ri))) return;
+      let x = o.monto;
+      o.origenes.forEach(k => {
+        const usado = (reemplazo[k] && reemplazo[k].monto) || 0;
+        const t = Math.min(x, Math.max(0, pendDe[k] - usado)); if (!(t > EPS)) return;
+        const r = reemplazo[k] || (reemplazo[k] = { monto: 0, fechas: [] });
+        r.monto += t; r.fechas.push(o.fecha); x -= t;
+      });
     });
     const esFutura = (v) => v.origen === 'renovacion' && !!vig[v.renovacion] && !efectiva(v.renovacion);
-    if (Object.values(vig).some(o => !o.fecha)) avisos.push('Renovación antigua sin mes de ingreso: no se sabe desde cuándo rige; se considera vigente.');
+    if (Object.values(vig).some(o => o.sinMes)) avisos.push('Renovación antigua sin mes de ingreso: se considera vigente desde el vencimiento que renueva.');
     // Período de interés: empieza en el vencimiento anterior del crédito o, si no hay, en el
     // desembolso. Un vencimiento que solo trae cargos (cargo único: notaría, comisión) no corta
     // el período; las filas de socio que no generan vencimiento (cuota 0) sí lo cortan.
@@ -253,6 +280,7 @@ export function informeDeuda(creditos, corte) {
         q.reemplazado = tc + ts; q.pendiente = rM(Math.max(0, q.pendiente - tc - ts));
         q.notas.push(`renovado: ${fmtMon(tc + ts, c.moneda)} reemplazado por la renovación`);
         if (q.pendiente <= EPS) q.estado = 'renovada';
+        if (v.fecha <= corte && !(v.pagadoTotal > EPS)) q.notas.push('sin pago registrado del vencimiento renovado: se considera reemplazado por la renovación');
       }
       // Cuota de una renovación que aún no rige: proyección, fuera de la deuda vigente.
       if (esFutura(v)) {
@@ -260,12 +288,13 @@ export function informeDeuda(creditos, corte) {
         q.estado = 'renovacion_futura';
         const tr0 = v.interesesTrasladados ? (plan.porRen[v.renovacion] || null) : null;
         const extra0 = tr0 && tr0.extra ? Math.min(tr0.extra.interes, pend.interes) : 0;
-        q.proyInteres = pend.interes - extra0; q.proyOtros = pend.cargos;
-        if (!o.traslada) { q.proyCapital = pend.capital; q.proyOtros += pend.sinDesglose; q.proyInteres = pend.interes; q.pendiente = 0;
+        const extraC0 = tr0 && tr0.extra ? Math.min(tr0.extra.cargos || 0, pend.cargos) : 0;   // cargos del vencimiento vigente
+        q.proyInteres = pend.interes - extra0; q.proyOtros = pend.cargos - extraC0;
+        if (!o.traslada || capitalNuevo(v.renovacion)) { q.proyCapital = pend.capital; q.proyOtros += pend.sinDesglose; q.proyInteres = pend.interes; q.pendiente = 0;
           q.notas.push('renovación que aún no rige: proyección'); return; }
         q.notas.push('renovación que aún no rige: el capital es el del crédito vigente; los intereses nuevos son proyección');
         q.pendiente = rM(Math.max(0, q.pendiente - q.proyInteres - q.proyOtros));
-        pend.interes = extra0; pend.cargos = 0;
+        pend.interes = extra0; pend.cargos = extraC0;
       }
       // Cuota parcial de socio: lo capitalizado ya está en el capital, no es impacto por conciliar.
       if (v.porConciliar) { q.porConciliar += Math.max(0, pend.capital + pend.interes + pend.cargos + pend.sinDesglose - (capSocioParcial[v.fecha] || 0)); return; }
@@ -345,7 +374,7 @@ export function informeDeuda(creditos, corte) {
       desde: futuras.length ? Object.values(vig).filter(o => o.fecha > corte).map(o => o.fecha).sort()[0] || '' : '', hasta: futuras.length ? futuras[futuras.length - 1].fecha : '' };
     proyeccion.total = rM(proyeccion.capital + proyeccion.interes + proyeccion.otros);
     const dmy = (iso) => (iso ? `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}` : '');
-    if (proyeccion.total > EPS) avisos.push(`Renovación que rige desde el ${dmy(proyeccion.desde)}: ${proyeccion.capital > 0 ? `${c.moneda || 'USD'} ${fmtMon(proyeccion.capital, c.moneda)} de capital nuevo y ` : ''}${c.moneda || 'USD'} ${fmtMon(proyeccion.interes, c.moneda)} de intereses, solo como proyección (no suman a la deuda).`);
+    if (proyeccion.total > EPS) avisos.push(`Renovación que rige desde el ${dmy(proyeccion.desde)} hasta el ${dmy(proyeccion.hasta)}: ${[proyeccion.capital > 0 && `${fmtMon(proyeccion.capital, c.moneda)} de capital nuevo`, proyeccion.interes > 0 && `${fmtMon(proyeccion.interes, c.moneda)} de intereses`, proyeccion.otros > 0 && `${fmtMon(proyeccion.otros, c.moneda)} de otros cargos`].filter(Boolean).join(', ')} (${c.moneda || 'USD'}), solo como proyección: no suman a la deuda.`);
     const est = new Set(qs.map(q => q.estado));
     filas.push({
       uid: uidCredito(c), empresa: c.empresa || '', acreedor: c.acreedor || '', identificador: c.identificador || '',
@@ -453,7 +482,7 @@ export function textosExcluidos(inf) {
   if (inf.obligaciones.porConciliar > 0) out.push(`Cuotas por conciliar: US$ ${fmtUSD(inf.obligaciones.porConciliar)}.`);
   inf.sinTC.forEach(z => out.push(`${z.empresa} · ${z.acreedor}, sin tipo de cambio: ${z.moneda} ${fmtMon(z.totalIdentificado, z.moneda)}${z.porConciliar ? ` (más ${z.moneda} ${fmtMon(z.porConciliar, z.moneda)} por conciliar)` : ''}.`));
   inf.noDesembolsados.forEach(z => out.push(`${z.empresa} · ${z.acreedor}, aún no desembolsado (${z.desembolso}).`));
-  if (inf.proyeccionRenovaciones && inf.proyeccionRenovaciones.usd > 0) out.push(`Renovaciones que aún no rigen (proyección): US$ ${fmtUSD(inf.proyeccionRenovaciones.usd)} entre capital nuevo e intereses.`);
+  if (inf.proyeccionRenovaciones && inf.proyeccionRenovaciones.usd > 0) out.push(`Renovaciones que aún no rigen (proyección): US$ ${fmtUSD(inf.proyeccionRenovaciones.usd)} entre capital nuevo, intereses y cargos.`);
   out.push('Obligaciones no registradas en Créditos (proveedores, otros anticipos, garantías otorgadas).');
   return out;
 }
