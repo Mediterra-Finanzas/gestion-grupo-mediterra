@@ -8159,6 +8159,7 @@ export function CamposComunesCredito({form,setForm,sinMoneda=false}){
                 <InputNumero formato="tasa" value={g.porcentaje??""} onChange={n=>upd(i,"porcentaje",n)} style={CR_INP} placeholder="% (opcional)"/>
                 <input value={g.nota||""} placeholder="Nota (opcional)" onChange={e=>upd(i,"nota",e.target.value)} style={CR_INP}/>
                 {xBtn(g,i,"este aval","Anular aval (queda en el historial)")}
+                {(g.bien||g.fecha)&&<div style={{gridColumn:"1 / -1",fontSize:10,color:C.muted,marginTop:-2}}>Registrado antes: {[g.bien,g.fecha&&`desde ${fmtDate(g.fecha)}`].filter(Boolean).join(" · ")}</div>}
               </div>);})}
           </div>
           <div style={{gridColumn:"span 3"}} data-garantias-credito>
@@ -8168,7 +8169,7 @@ export function CamposComunesCredito({form,setForm,sinMoneda=false}){
             </div>
             {gars.map((g,i)=>{ if(!g||g.anulada||g.tipo==="Aval") return null; return (
               <div key={i} style={{display:"grid",gridTemplateColumns:"110px 1.2fr 1.6fr 80px 120px 130px auto",gap:6,marginBottom:4}}>
-                <select value={g.tipo||"Hipoteca"} onChange={e=>upd(i,"tipo",e.target.value)} style={CR_INP}>{TIPOS_GARANTIA.map(t=><option key={t}>{t}</option>)}</select>
+                <select value={g.tipo||""} onChange={e=>upd(i,"tipo",e.target.value)} style={CR_INP}>{!g.tipo&&<option value="">Sin tipo</option>}{TIPOS_GARANTIA.map(t=><option key={t}>{t}</option>)}</select>
                 <input value={g.otorgante||""} placeholder="Otorgante (ej. Allpa Farms)" onChange={e=>upd(i,"otorgante",e.target.value)} style={CR_INP}/>
                 <input value={g.bien||""} placeholder="Bien o descripción (ej. Predio X, rol 123)" onChange={e=>upd(i,"bien",e.target.value)} style={CR_INP}/>
                 <select value={g.moneda||"USD"} onChange={e=>upd(i,"moneda",e.target.value)} style={CR_INP}>{MONEDAS_CREDITO.map(m=><option key={m}>{m}</option>)}</select>
@@ -10990,7 +10991,7 @@ export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
           <label style={{fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:4}}><input type="checkbox" checked={pdfDetalle} onChange={e=>setPdfDetalle(e.target.checked)}/> incluir cuotas en el PDF</label>
           <div data-alcance-descarga style={{fontSize:10.5,color:C.muted,flexBasis:"100%",display:"flex",justifyContent:"flex-end",alignItems:"center",gap:6}}>
             Descargar:
-            <select aria-label="Alcance de la descarga" value={alcanceDesc} onChange={e=>setAlcanceDesc(e.target.value)} style={{...CR_INP,width:"auto",padding:"3px 6px",fontSize:10.5}}>
+            <select aria-label="Alcance de la descarga" value={filtro.empresa?alcanceDesc:"todas"} onChange={e=>setAlcanceDesc(e.target.value)} style={{...CR_INP,width:"auto",padding:"3px 6px",fontSize:10.5}}>
               <option value="todas">Todas las empresas</option>
               <option value="empresa" disabled={!filtro.empresa}>{filtro.empresa?`Solo ${filtro.empresa}`:"Una empresa (elígela en el filtro de la tabla)"}</option>
             </select>
@@ -11071,7 +11072,7 @@ export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
                       {ab&&(
                         <tr data-detalle-credito={x.uid}><td colSpan={ncol} style={{padding:"6px 14px 14px 32px",background:C.card2||"transparent",borderBottom:`1px solid ${C.border}`}}>
                           <div style={{fontSize:10.5,color:C.muted,marginBottom:6,display:"flex",flexWrap:"wrap",gap:"4px 14px"}}>
-                            <span>Cuotas en <b>{x.moneda}</b>{x.moneda!=="USD"&&(x.tc?` · tipo de cambio ${x.tc.tc} ${x.moneda}/US$ (${x.tc.fecha?fmtDate(x.tc.fecha):"s/f"})`:" · sin tipo de cambio")}</span>
+                            <span>Cuotas en <b>{x.moneda}</b>{x.moneda!=="USD"&&(x.tc?` · tipo de cambio ${x.tc.tc} ${x.moneda}/US$ (${x.tc.fecha?fmtDate(x.tc.fecha):"s/f"}, ${x.tc.estimado?"declarado en el crédito: estimación":x.tc.fuente})`:" · sin tipo de cambio")}</span>
                             <span>Tasa: {x.tasa==null?"sin dato":`${x.tasa}%${x.tasaVariable?" variable":""}`}</span><span>Base: {NOMBRE_BASE[x.base]||x.base}</span>
                             <span>{x.modalidad}</span><span>Clasificación: <b>{textoClasificacion(x)}</b></span>
                             {abrirDetalle&&<button onClick={()=>abrirDetalle(x.uid)} style={{border:"none",background:"none",color:C.blue,cursor:"pointer",fontSize:10.5,padding:0,textDecoration:"underline"}}>abrir crédito</button>}

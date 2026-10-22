@@ -15,7 +15,8 @@ export const NOTAS_METODO = [
   'Cuotas sin desglosar: registros antiguos que no separan capital de interés. No se reparten en capital e interés; se suman al total de pagos pendientes. Se completan con «Desglosar cuota» en el crédito.',
   'Por conciliar: cuotas antiguas sin pago registrado ni confirmación. No se incluyen en ningún total hasta conciliarlas.',
   'Anticipos de clientes: se marcan en cada crédito («Naturaleza de la obligación»). Se muestran aparte y suman al total de obligaciones.',
-  'Conversión a US$ con el tipo de cambio de Maestros a la fecha de corte; un crédito sin tipo de cambio queda fuera de los totales. Montos al centavo (UF, 4 decimales); los totales son la suma de las filas.',
+  'Conversión a US$ con el tipo de cambio de Maestros a la fecha de corte. Si Maestros no lo tiene, se usa el tipo de cambio declarado en el crédito, como estimación; sin ninguno, el crédito queda fuera de los totales. Montos al centavo (UF, 4 decimales); los totales son la suma de las filas.',
+  'Pagos con fecha posterior al corte no se descuentan. Lo ya pagado de una cuota se descuenta primero del interés devengado. El interés que se sumará al capital después del corte (gracia, renovaciones) se informa como interés.',
 ];
 export const avisoParcial = (inf) => (inf.parcial ? `Capital, intereses y saldo son parciales: no incluyen ${inf.motivosParcial.join(', ')}.` : '');
 
@@ -87,7 +88,7 @@ export const textoAvales = (x) => (x.avales.length ? x.avales.map(textoAval).joi
 export const textoGarantias = (x) => (x.garantias.length ? x.garantias.map(textoGarantia).join(' | ') : (x.garantiasTexto ? `Nota: ${x.garantiasTexto}` : 'Sin garantías'));
 // Título con el alcance del archivo: todas las empresas o una sola.
 export const tituloInforme = (inf, alcance = 'Todas las empresas') => `Informe de deuda · ${alcance} · al ${fechaCL(inf.corte)}`;
-const tcTexto = (x) => (x.moneda === 'USD' ? '' : (x.tc ? `Tipo de cambio ${x.tc.tc} ${x.moneda}/US$ (${fechaCL(x.tc.fecha) || 's/f'})` : 'Sin tipo de cambio: fuera de los totales'));
+const tcTexto = (x) => (x.moneda === 'USD' ? '' : (x.tc ? `Tipo de cambio ${x.tc.tc} ${x.moneda}/US$ (${fechaCL(x.tc.fecha) || 's/f'})${x.tc.estimado ? ', declarado en el crédito: estimación' : ''}.` : 'Sin tipo de cambio: fuera de los totales.'));
 
 // ── Excel ───────────────────────────────────────────────────────────
 // Devuelve [{ nombre, aoa, cols, niveles, encabezados, totales, colsEnteras }]:
@@ -115,7 +116,7 @@ export function hojasExcelInforme(inf, { notas = NOTAS_METODO, alcance = 'Todas 
   const head = ['Empresa', 'Crédito / contrato', 'Clasificación', 'Moneda', 'Vence', 'Estado', ...cols.map(c => `${c[1]} (US$)`), 'Por conciliar (US$)',
     ...COLS_CUOTA.map(c => `${c[1]} (moneda del crédito)`), 'Avales', 'Garantías', 'Observaciones'];
   const det = [tit, ['Montos de cada crédito en US$; montos de las cuotas en la moneda del crédito. Las cuotas se pueden contraer con los botones [–] del margen.'], head];
-  const niv = [0, 0, 0], encD = [2], totD = [];
+  const niv = [0, 0, 0], encD = [2], totD = [], ufD = [];
   const vacioRes = cols.length + 1;
   bloques.forEach(({ g, titulo, total }) => {
     det.push([titulo]); niv.push(0);
@@ -128,6 +129,7 @@ export function hojasExcelInforme(inf, { notas = NOTAS_METODO, alcance = 'Todas 
         det.push([x.empresa, etiquetaCredito(x), textoClasificacion(x), x.moneda, x.vencimientoFinal, ESTADOS_CREDITO[x.estadoCredito] || '',
           ...cols.map(([k]) => (x.usd ? x.usd[k] : 'sin TC')), x.usd ? x.usd.porConciliar : 'sin TC', ...COLS_CUOTA.map(() => ''), textoAvales(x), textoGarantias(x), obs]); niv.push(0);
         x.cuotas.forEach(q => {
+          if (x.moneda === 'UF') ufD.push(det.length);
           det.push(['', '', '', x.moneda, '', '', ...Array(vacioRes).fill(''), ...COLS_CUOTA.map(([k]) => { const v = celdaCuota(q, k); return typeof v === 'number' ? r(v) : v; }), '', '',
             [...q.devengo.filter(d => !d.vencido && d.transcurrido > 0).map(d => textoDevengo(d, x.moneda)), ...q.notas].join(' · ')]); niv.push(1);
         });
@@ -143,6 +145,7 @@ export function hojasExcelInforme(inf, { notas = NOTAS_METODO, alcance = 'Todas 
   // Por conciliar
   const pc = [tit, ['Cuotas antiguas sin pago registrado ni confirmación. No están incluidas en los totales.'], ['Empresa', 'Crédito / contrato', 'Moneda', 'Monto (moneda del crédito)', 'US$']];
   inf.filas.filter(x => x.porConciliar > 0).forEach(x => pc.push([x.empresa, etiquetaCredito(x), x.moneda, x.porConciliar, x.usd ? x.usd.porConciliar : 'sin TC']));
+  const ufPC = inf.filas.filter(x => x.porConciliar > 0).map((x, i) => (x.moneda === 'UF' ? 3 + i : -1)).filter(i => i >= 0);
   const totPC = [pc.length]; pc.push(['TOTAL', '', 'US$', '', inf.obligaciones.porConciliar]);
   // Avales y garantías: una fila por aval o garantía. No lleva montos de deuda, así un
   // crédito con varios avalistas no se cuenta dos veces.
@@ -150,7 +153,7 @@ export function hojasExcelInforme(inf, { notas = NOTAS_METODO, alcance = 'Todas 
     ['Empresa', 'Crédito / contrato', 'Clasificación', 'Tipo', 'Avalista u otorgante', 'Bien / descripción', 'Moneda', 'Monto declarado', '% de la deuda', 'Fecha', 'Nota']];
   const numOVacio = (v) => (v === '' || v == null || !(Number(v) > 0) ? '' : Number(v));
   inf.filas.forEach(x => {
-    x.avales.forEach(a => gar.push([x.empresa, etiquetaCredito(x), textoClasificacion(x), 'Aval', a.otorgante || 'Avalista sin nombre', '', numOVacio(a.monto) === '' ? '' : (a.moneda || 'USD'), numOVacio(a.monto), numOVacio(a.porcentaje), a.fecha || '', a.nota || '']));
+    x.avales.forEach(a => gar.push([x.empresa, etiquetaCredito(x), textoClasificacion(x), 'Aval', a.otorgante || 'Avalista sin nombre', a.bien || '', numOVacio(a.monto) === '' ? '' : (a.moneda || 'USD'), numOVacio(a.monto), numOVacio(a.porcentaje), a.fecha || '', a.nota || '']));
     x.garantias.forEach(gg => gar.push([x.empresa, etiquetaCredito(x), textoClasificacion(x), gg.tipo || '', gg.otorgante || '', gg.bien || '', numOVacio(gg.monto) === '' ? '' : (gg.moneda || 'USD'), numOVacio(gg.monto), '', gg.fecha || '', gg.nota || '']));
     if (!x.avales.length && !x.garantias.length) gar.push([x.empresa, etiquetaCredito(x), textoClasificacion(x), x.garantiasTexto ? 'Solo nota' : 'Sin avales ni garantías', '', x.garantiasTexto, '', '', '', '', '']);
   });
@@ -163,10 +166,10 @@ export function hojasExcelInforme(inf, { notas = NOTAS_METODO, alcance = 'Todas 
     x.moneda === 'USD' ? '' : (x.tc ? `${x.tc.tc} ${x.moneda}/US$ · ${x.tc.fecha || 's/f'} · ${x.tc.fuente}` : 'sin tipo de cambio'), x.avisos.join(' ')]));
   return [
     { nombre: 'Resumen', aoa: res, encabezados: encR, totales: totR, colsEnteras: [1], filasMonto: montosR, cols: [{ wch: 58 }, { wch: 16 }, ...cols.map(() => ({ wch: 16 })), { wch: 16 }] },
-    { nombre: 'Créditos y cuotas', aoa: det, ancha: true, niveles: niv, encabezados: encD, totales: totD, cols: [{ wch: 30 }, { wch: 38 }, { wch: 24 }, { wch: 8 }, { wch: 11 }, { wch: 20 }, ...Array(vacioRes).fill({ wch: 15 }), { wch: 11 }, { wch: 22 }, ...Array(COLS_CUOTA.length - 2).fill({ wch: 14 }), { wch: 40 }, { wch: 40 }, { wch: 60 }] },
-    { nombre: 'Por conciliar', aoa: pc, encabezados: [2], totales: totPC, cols: [{ wch: 16 }, { wch: 34 }, { wch: 8 }, { wch: 22 }, { wch: 16 }] },
+    { nombre: 'Créditos y cuotas', aoa: det, ancha: true, filasUF: ufD, niveles: niv, encabezados: encD, totales: totD, cols: [{ wch: 30 }, { wch: 38 }, { wch: 24 }, { wch: 8 }, { wch: 11 }, { wch: 20 }, ...Array(vacioRes).fill({ wch: 15 }), { wch: 11 }, { wch: 22 }, ...Array(COLS_CUOTA.length - 2).fill({ wch: 14 }), { wch: 40 }, { wch: 40 }, { wch: 60 }] },
+    { nombre: 'Por conciliar', aoa: pc, filasUF: ufPC, encabezados: [2], totales: totPC, cols: [{ wch: 16 }, { wch: 34 }, { wch: 8 }, { wch: 22 }, { wch: 16 }] },
     { nombre: 'Avales y garantías', aoa: gar, encabezados: [2], cols: [{ wch: 16 }, { wch: 34 }, { wch: 18 }, { wch: 10 }, { wch: 26 }, { wch: 30 }, { wch: 8 }, { wch: 15 }, { wch: 11 }, { wch: 11 }, { wch: 30 }] },
-    { nombre: 'Datos técnicos', aoa: tec, ancha: true, encabezados: [2], cols: [{ wch: 16 }, { wch: 34 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 8 }, { wch: 9 }, { wch: 12 }, { wch: 11 }, ...Array(10).fill({ wch: 14 }), { wch: 26 }, { wch: 40 }] },
+    { nombre: 'Datos técnicos', aoa: tec, ancha: true, filasUF: inf.filas.map((x, i) => (x.moneda === 'UF' ? 3 + i : -1)).filter(i => i >= 0), encabezados: [2], cols: [{ wch: 16 }, { wch: 34 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 8 }, { wch: 9 }, { wch: 12 }, { wch: 11 }, ...Array(10).fill({ wch: 14 }), { wch: 26 }, { wch: 40 }] },
     { nombre: 'Cómo se calcula', aoa: [tit, [], ...notas.map(n => [n])], cols: [{ wch: 130 }] },
   ];
 }

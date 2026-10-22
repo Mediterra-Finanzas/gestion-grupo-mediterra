@@ -270,3 +270,22 @@ test('varios avales: se listan todos, sin duplicar la deuda; descarga de una emp
   const suma = emps.reduce((a, e) => a + informeDeuda(conAvales.filter(c => c.empresa === e), CORTE).obligaciones.totalIdentificado, 0);
   expect(Math.round(suma * 100) / 100).toBe(inf.obligaciones.totalIdentificado);
 });
+
+test('UF con 4 decimales en Excel, TC declarado rotulado como estimación y avales antiguos con su descripción', () => {
+  const uf = { uid: 'uf', empresa: 'Mediterra', acreedor: 'Banco UF', tipo_acreedor: 'Banco', tipo_cr: 'Inversión', moneda: 'UF', monto: 1000.1234,
+    f_inicio: '2026-06-01', f_venc: '2027-06-01', cuota: 1050.5678, control_desde: '2026-06-01', desglose: { capital: 1000.1234, interes: 50.4444, cargos: 0 } };
+  const pe = { ...pen, uid: 'pe2', tc_flujo: 3.7, tc_flujo_fecha: '2026-10-01',
+    garantias_lista: [{ tipo: 'Aval', otorgante: 'Socio C', bien: 'aval personal hasta UF 5000', fecha: '2026-01-15' }] };
+  const { valorizarCreditos } = require('../creditos.js');
+  const inf = informeDeuda(valorizarCreditos([uf, pe], {}, CORTE), CORTE);
+  const H = hojasExcelInforme(inf);
+  const det = H.find(h => h.nombre === 'Créditos y cuotas'), tec = H.find(h => h.nombre === 'Datos técnicos');
+  expect(det.filasUF.length).toBe(inf.filas.find(x => x.uid === 'uf').cuotas.length);
+  expect(det.filasUF.every(i => det.aoa[i][3] === 'UF')).toBe(true);
+  expect(tec.filasUF.every(i => tec.aoa[i][5] === 'UF')).toBe(true);
+  const fPe = det.aoa.find(r => r[1] && /Banco Perú/.test(r[1]));
+  expect(fPe[fPe.length - 1]).toMatch(/declarado en el crédito: estimación/);
+  expect(fPe[det.aoa[2].indexOf('Avales')]).toMatch(/Socio C · aval personal hasta UF 5000 · desde 2026-01-15/);
+  const gar = H.find(h => h.nombre === 'Avales y garantías').aoa;
+  expect(gar.find(r => r[4] === 'Socio C')[5]).toBe('aval personal hasta UF 5000');
+});

@@ -69,7 +69,7 @@ export function garantiasCredito(c) { return vigentesGL(c).filter(g => g.tipo !=
 export function avalesCredito(c) { return vigentesGL(c).filter(g => g.tipo === 'Aval'); }
 export function textoAval(a) {
   const partes = [a.otorgante || 'Avalista sin nombre', num(a.monto) > 0 && `${a.moneda || 'USD'} ${num(a.monto).toLocaleString('es-CL')}`,
-    num(a.porcentaje) > 0 && `${num(a.porcentaje)}% de la deuda`, a.nota];
+    num(a.porcentaje) > 0 && `${num(a.porcentaje)}% de la deuda`, a.bien, a.fecha && `desde ${a.fecha}`, a.nota];
   return partes.filter(Boolean).join(' · ');
 }
 export function textoGarantia(g) {

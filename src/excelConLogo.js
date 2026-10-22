@@ -14,7 +14,9 @@ export function cargarExcelJS() {
   _exceljsP = new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
-    s.onload = () => resolve(window.ExcelJS); s.onerror = (e) => { _exceljsP = null; reject(e); };
+    // Si el CDN no responde en 15 s, se descarga sin logo (con aviso) en vez de quedar esperando.
+    const t = setTimeout(() => { _exceljsP = null; reject(new Error('timeout')); }, 15000);
+    s.onload = () => { clearTimeout(t); resolve(window.ExcelJS); }; s.onerror = (e) => { clearTimeout(t); _exceljsP = null; reject(e); };
     document.body.appendChild(s);
   });
   return _exceljsP;
