@@ -51,7 +51,8 @@ import {
   MODELO_VERSION, normalizarIdentidades,
 } from './programas.js';
 import ProgramasPanel, { ResumenLado } from './ProgramasComerciales.jsx';
-import { informeDeuda, CLASIFICACIONES, clasificacionSugerida, TIPOS_GARANTIA, textoGarantia } from './informeDeuda.js';
+import { informeDeuda, CLASIFICACIONES, clasificacionSugerida, TIPOS_GARANTIA, textoGarantia, agruparInforme, etiquetaCredito, textoConteo, textosExcluidos, ESTADOS_CREDITO, NOMBRE_BASE, fmtUSD } from './informeDeuda.js';
+import { hojasExcelInforme, bloquesPdfInforme, indicadoresInforme, formulaTotalIdentificado, columnasResumen, COLS_CUOTA, celdaCuota, textoDevengo, textoAjusteCapital } from './informeDeudaExport.js';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIEMPO: Mar-26 → Jun-31 (65 meses)
@@ -10855,195 +10856,238 @@ function SaldoDeudaPorMes({creditos=[], empresas={}, tcData}){
 }
 
 // ── Informe de deuda al corte ─────────────────────────────────────────
-// Cálculo en src/informeDeuda.js (puro, node src/informeDeuda.test.mjs).
-// Pantalla, Excel y PDF leen el MISMO objeto `inf`: no hay una segunda copia del cálculo.
+// Cálculo en src/informeDeuda.js; agrupación y contenido de Excel/PDF en
+// src/informeDeudaExport.js. Pantalla, Excel y PDF leen el MISMO objeto `inf` y la
+// MISMA agrupación: no hay una segunda copia del cálculo.
 const ORDEN_CLASIF = [...CLASIFICACIONES, "Sin clasificar"];
-const COLS_INFORME = [
-  ["capital","Capital"],["devengado","Intereses devengados"],["cargosVencidos","Cargos vencidos"],["saldoDeuda","Saldo deuda (capital + devengado)"],
-  ["porDevengar","Intereses por devengar"],["cargosFuturos","Cargos futuros"],["totalPorPagar","Total por pagar"],["sinDesglose","Cuotas sin desglosar (aparte)"],["porConciliar","Por conciliar (fuera de las cifras)"],
-];
 const NOTAS_INFORME = [
-  "Saldo deuda = capital pendiente + intereses devengados no pagados + cargos vencidos impagos, a la fecha de corte. El interés que se capitalizará después del corte (gracia total, renovación con intereses capitalizados) se informa como interés, no como capital.",
-  "Intereses por devengar = intereses de cuotas futuras que aún no se devengan al corte. Total por pagar = saldo deuda + por devengar + cargos futuros.",
-  "Devengo: el interés de cada cuota se reparte según el tiempo transcurrido de su período, con la base del contrato (30/360, Act/360, Act/365); registros por vencimiento y socios, por días reales. Una cuota vencida impaga está devengada completa.",
-  "Cuotas sin desglosar: registros antiguos que no separan capital de interés. No se suman al saldo ni a los intereses (no se inventa la división): se informan aparte. Se completan con «Desglosar cuota» en el detalle del crédito.",
-  "Por conciliar: cuotas históricas sin pago registrado ni confirmación. Quedan fuera de todas las cifras.",
-  "Pagos con fecha posterior al corte no se descuentan. Valores en US$ al tipo de cambio de Maestros a la fecha de corte (si no hay, TC declarado en el crédito como hipótesis; sin TC el crédito queda fuera de los totales).",
+  "Saldo deuda = capital pendiente + intereses devengados no pagados + otros cargos vencidos impagos, a la fecha de corte. El interés que se capitalizará después del corte (gracia total, renovación con intereses capitalizados) se informa como interés, no como capital.",
+  "Total por pagar = saldo deuda + intereses por devengar + otros cargos por vencer (cuotas con desglose). Total de pagos pendientes identificados = total por pagar + cuotas sin desglosar: cada cuota se cuenta una sola vez.",
+  "Devengo: el interés de cada cuota se reparte según el tiempo transcurrido de su período (desde el vencimiento anterior del crédito, o el desembolso si es la primera, hasta su vencimiento), con la base del contrato: 30/360 cuenta meses de 30 días; Actual/360 y Actual/365 cuentan días reales. Registros por vencimiento y créditos de socio: días reales. Una cuota vencida impaga está devengada completa. Lo ya pagado de una cuota se descuenta primero de lo devengado.",
+  "Cuotas sin desglosar: registros antiguos que no separan capital de interés. No se suman al capital ni a los intereses (no se inventa la división); sí entran al total de pagos pendientes identificados. Se completan con «Desglosar cuota» en el detalle del crédito.",
+  "Por conciliar: cuotas históricas sin pago registrado ni confirmación. Quedan fuera del saldo confirmado y de los totales; se informan aparte.",
+  "Montos redondeados al centavo (UF: 4 decimales) en cada cuota; el crédito es la suma de sus cuotas y los subtotales y el total son la suma de los créditos, así las cifras visibles cuadran. Valores en US$ al tipo de cambio de Maestros a la fecha de corte (si no hay, TC declarado en el crédito como hipótesis; sin TC el crédito queda fuera de los totales). Pagos con fecha posterior al corte no se descuentan.",
 ];
+const ESTADO_COLOR = (e)=>({vencida:C.red,vencida_parcial:C.red,parcial:C.yellow,por_conciliar:C.muted,pagada:C.green,renovada:C.green,capitaliza:C.muted}[e]||C.text);
 export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
   const [corte,setCorte]=useState(hoyISO());
+  const [abiertos,setAbiertos]=useState(()=>new Set());
+  const [filtro,setFiltro]=useState({empresa:"",acreedor:"",estado:""});
+  const [pdfDetalle,setPdfDetalle]=useState(false);
   const corteOk = /^\d{4}-\d{2}-\d{2}$/.test(corte);
   const inf = useMemo(()=>informeDeuda(valorizarCreditos((creditos||[]).map(sinValorizacion), tcData, corteOk?corte:hoyISO()), corteOk?corte:hoyISO()),[creditos,tcData,corte,corteOk]);
-  const $u = (n)=> n==null ? "—" : $c(n,"USD");
-  const clasifs = ORDEN_CLASIF.filter(k=>inf.porClasificacion[k]);
-  const filasOrden = [...inf.filas].sort((a,b)=>ORDEN_CLASIF.indexOf(a.clasificacion||"Sin clasificar")-ORDEN_CLASIF.indexOf(b.clasificacion||"Sin clasificar")
-    || a.empresa.localeCompare(b.empresa) || ((b.usd?.saldoDeuda||0)-(a.usd?.saldoDeuda||0)));
-  const garantiasTxt = (x)=> x.garantias.length ? x.garantias.map(textoGarantia).join(" | ") : (x.garantiasTexto ? `(texto) ${x.garantiasTexto}` : "—");
-  const tasaTxt = (x)=> x.tasa==null ? "—" : `${x.tasa}%${x.tasaVariable?" var.":""}`;
-  const r2u = (n)=> n==null ? "" : Math.round(n*100)/100;
-  const DET_COLS = ["capital","devengado","saldoDeuda","porDevengar","totalPorPagar","sinDesglose","porConciliar"];
+  const g = useMemo(()=>agruparInforme(inf, filtro),[inf,filtro]);
+  const cols = columnasResumen(inf);
+  const $u = (n)=> n==null ? "—" : `US$ ${fmtUSD(n)}`;
+  const $m = (n,mon)=> `${mon==="USD"?"US$":mon} ${fmtN(n, mon==="UF"?4:2)}`;
+  const dec = (x)=> x.moneda==="UF"?4:2;
+  const empresasOp = [...new Set(inf.filas.map(x=>x.empresa))].sort();
+  const acreedoresOp = [...new Set(inf.filas.filter(x=>!filtro.empresa||x.empresa===filtro.empresa).map(x=>x.acreedor))].sort();
+  const toggle = (uid)=>setAbiertos(p=>{ const n=new Set(p); n.has(uid)?n.delete(uid):n.add(uid); return n; });
+  const todosUids = g.grupos.flatMap(e=>e.filas.map(x=>x.uid));
 
   function exportarExcel(){
     const wb = XLSX.utils.book_new();
-    const tit = [`Informe de deuda al ${corte} · US$`];
-    const res = [tit, [], ["Clasificación","Créditos",...COLS_INFORME.map(c=>c[1])]];
-    clasifs.forEach(k=>{ const o=inf.porClasificacion[k]; res.push([k,o.creditos,...COLS_INFORME.map(([c])=>r2u(o[c]))]); });
-    res.push(["TOTAL",inf.total.creditos,...COLS_INFORME.map(([c])=>r2u(inf.total[c]))]);
-    res.push([],["Por empresa"],["Empresa","Créditos",...COLS_INFORME.map(c=>c[1])]);
-    Object.keys(inf.porEmpresa).sort().forEach(e=>{ const o=inf.porEmpresa[e]; res.push([e,o.creditos,...COLS_INFORME.map(([c])=>r2u(o[c]))]); });
-    if(inf.sinTC.length){ res.push([],["Fuera de los totales por falta de TC:"]); inf.sinTC.forEach(z=>res.push([`${z.empresa} · ${z.acreedor} · ${z.moneda}`])); }
-    if(inf.noDesembolsados.length){ res.push([],["Créditos aún no desembolsados al corte (no son deuda):"]); inf.noDesembolsados.forEach(z=>res.push([`${z.empresa} · ${z.acreedor} · desembolso ${z.desembolso}`])); }
-    const ws1=XLSX.utils.aoa_to_sheet(res); ws1["!cols"]=[{wch:22},{wch:9},...COLS_INFORME.map(()=>({wch:18}))];
-    XLSX.utils.book_append_sheet(wb, ws1, "Resumen");
-    const det=[tit,[],["Clasificación","Origen clasificación","Empresa","Acreedor","Identificador","Tipo de crédito","Modalidad","Moneda","Tasa","Vencimiento final",
-      ...COLS_INFORME.map(c=>`${c[1]} (moneda original)`),...COLS_INFORME.map(c=>`${c[1]} (US$)`),"TC usado","Garantías","Avisos"]];
-    filasOrden.forEach(x=>det.push([x.clasificacion||"Sin clasificar", x.clasificacionOrigen==="manual"?"elegida":(x.clasificacion?`sugerida (${x.clasificacionMotivo})`:x.clasificacionMotivo),
-      x.empresa,x.acreedor,x.identificador,x.tipoCredito,x.modalidad,x.moneda,tasaTxt(x),x.vencimientoFinal,
-      ...COLS_INFORME.map(([c])=>r2u(x[c])),...COLS_INFORME.map(([c])=>x.usd?r2u(x.usd[c]):"sin TC"),
-      x.moneda==="USD"?"":(x.tc?`${x.tc.tc} ${x.moneda}/US$ · ${x.tc.fecha||"s/f"} · ${x.tc.fuente}`:"sin TC"), garantiasTxt(x), x.avisos.join("; ")]));
-    const ws2=XLSX.utils.aoa_to_sheet(det); ws2["!cols"]=[{wch:16},{wch:26},{wch:16},{wch:22},{wch:14},{wch:16},{wch:22},{wch:7},{wch:8},{wch:11},...Array(COLS_INFORME.length*2).fill({wch:15}),{wch:26},{wch:40},{wch:40}];
-    XLSX.utils.book_append_sheet(wb, ws2, "Detalle");
-    const gar=[tit,[],["Empresa","Acreedor","Clasificación","Tipo de garantía","Otorgante","Bien / descripción","Moneda","Monto / valor","Fecha","Nota"]];
-    filasOrden.forEach(x=>{
-      x.garantias.forEach(g=>gar.push([x.empresa,x.acreedor,x.clasificacion||"Sin clasificar",g.tipo||"",g.otorgante||"",g.bien||"",g.moneda||"USD",g.monto===""||g.monto==null?"":Number(g.monto),g.fecha||"",g.nota||""]));
-      if(!x.garantias.length) gar.push([x.empresa,x.acreedor,x.clasificacion||"Sin clasificar",x.garantiasTexto?"(solo texto)":"(sin garantía registrada)","",x.garantiasTexto,"","","",""]);
+    hojasExcelInforme(inf, {notas:NOTAS_INFORME}).forEach(h=>{
+      const ws = XLSX.utils.aoa_to_sheet(h.aoa); ws["!cols"]=h.cols;
+      if(h.niveles) ws["!rows"]=h.niveles.map(l=>l?{level:l}:{});
+      XLSX.utils.book_append_sheet(wb, ws, h.nombre);
     });
-    const ws3=XLSX.utils.aoa_to_sheet(gar); ws3["!cols"]=[{wch:16},{wch:22},{wch:16},{wch:16},{wch:22},{wch:32},{wch:7},{wch:14},{wch:11},{wch:30}];
-    XLSX.utils.book_append_sheet(wb, ws3, "Garantías");
-    const sd=[tit,[],["Empresa","Acreedor","Identificador","Tipo de crédito","Vencimiento","Estado","Moneda","Monto sin desglosar","US$"]];
-    inf.cuotasSinDesglose.forEach(q=>sd.push([q.empresa,q.acreedor,q.identificador,q.tipo_cr,q.fecha,q.vencida?"vencida":"por vencer",q.moneda,q.monto,q.usd==null?"sin TC":q.usd]));
-    sd.push(["TOTAL","","","","","","","",r2u(inf.cuotasSinDesglose.reduce((s,q)=>s+(q.usd||0),0))]);
-    const ws4=XLSX.utils.aoa_to_sheet(sd); ws4["!cols"]=[{wch:16},{wch:22},{wch:14},{wch:16},{wch:11},{wch:11},{wch:7},{wch:16},{wch:14}];
-    XLSX.utils.book_append_sheet(wb, ws4, "Cuotas sin desglosar");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([tit,[],...NOTAS_INFORME.map(n=>[n])]), "Notas");
     XLSX.writeFile(wb, `Informe_Deuda_${corte}.xlsx`);
   }
-
   async function exportarPDF(){
     let jsPDF; try{ jsPDF = await reporte_loadJsPDF(); }catch(e){ alert("No se pudo cargar el generador de PDF."); return; }
     const doc = new jsPDF({orientation:"landscape", unit:"pt", format:"a4"});
-    const n0 = (v)=> v==null ? "sin TC" : Math.round(v).toLocaleString("es-CL");
-    const st = {fontSize:7, cellPadding:3}, hs = {fillColor:[31,41,85], textColor:255, fontSize:7};
-    doc.setFontSize(14); doc.text(`Informe de deuda al ${fmtDate(corte)}`, 30, 32);
-    doc.setFontSize(8); doc.text("Cifras en US$. Saldo deuda = capital + intereses devengados + cargos vencidos. Cuotas sin desglosar, aparte.", 30, 46);
-    doc.autoTable({startY:56, styles:st, headStyles:hs, head:[["Clasificación","Créd.",...COLS_INFORME.map(c=>c[1])]],
-      body:[...clasifs.map(k=>{ const o=inf.porClasificacion[k]; return [k,o.creditos,...COLS_INFORME.map(([c])=>n0(o[c]))]; }),
-        ["TOTAL",inf.total.creditos,...COLS_INFORME.map(([c])=>n0(inf.total[c]))]],
-      columnStyles:Object.fromEntries(COLS_INFORME.map((_,i)=>[i+2,{halign:"right"}]))});
-    doc.autoTable({startY:doc.lastAutoTable.finalY+14, styles:{...st,fontSize:6.5}, headStyles:{...hs,fontSize:6.5},
-      head:[["Clasif.","Empresa","Acreedor","Tipo","Mon.","Tasa","Venc. final","Capital","Devengado","Saldo deuda","Por devengar","Total por pagar","Sin desglosar","Por conciliar","Garantías"]],
-      body:filasOrden.map(x=>[x.clasificacion||"Sin clasif.",x.empresa,x.acreedor,x.tipoCredito,x.moneda,tasaTxt(x),x.vencimientoFinal,
-        ...DET_COLS.map(c=>n0(x.usd&&x.usd[c])),garantiasTxt(x)]),
-      columnStyles:{7:{halign:"right"},8:{halign:"right"},9:{halign:"right"},10:{halign:"right"},11:{halign:"right"},12:{halign:"right"},13:{halign:"right"},14:{cellWidth:140}}});
-    const gl = Object.values(inf.garantias);
-    if(gl.length) doc.autoTable({startY:doc.lastAutoTable.finalY+14, styles:st, headStyles:hs, head:[["Garantía","Cantidad","Montos declarados","Créditos"]],
-      body:gl.map(g=>[g.tipo,g.cantidad,Object.entries(g.montos).map(([m,v])=>`${m} ${Math.round(v).toLocaleString("es-CL")}`).join(" · ")||"—",g.creditos.join("; ")]),
-      columnStyles:{3:{cellWidth:380}}});
-    if(inf.cuotasSinDesglose.length) doc.autoTable({startY:doc.lastAutoTable.finalY+14, styles:st, headStyles:hs,
-      head:[["Cuotas sin desglosar: empresa","Acreedor","Vencimiento","Estado","Moneda","Monto","US$"]],
-      body:inf.cuotasSinDesglose.map(q=>[q.empresa,q.acreedor,q.fecha,q.vencida?"vencida":"por vencer",q.moneda,Math.round(q.monto).toLocaleString("es-CL"),n0(q.usd)]),
-      columnStyles:{5:{halign:"right"},6:{halign:"right"}}});
-    let y = doc.lastAutoTable.finalY+16; doc.setFontSize(7);
-    const avisos = [...(inf.sinTC.length?[`Fuera de los totales por falta de TC: ${inf.sinTC.map(z=>`${z.empresa} · ${z.acreedor} (${z.moneda})`).join("; ")}.`]:[]),
-      ...(inf.noDesembolsados.length?[`Aún no desembolsados al corte (no son deuda): ${inf.noDesembolsados.map(z=>`${z.empresa} · ${z.acreedor} (${z.desembolso})`).join("; ")}.`]:[]),
-      ...(inf.sinClasificar?[`${inf.sinClasificar} crédito(s) sin clasificar (falta el tipo de crédito).`]:[]), ...NOTAS_INFORME];
-    avisos.forEach(t=>{ const ls=doc.splitTextToSize(t, 780); if(y+ls.length*9>570){ doc.addPage(); y=30; } doc.text(ls,30,y); y+=ls.length*9+2; });
-    doc.save(`Informe_Deuda_${corte}.pdf`);
+    const hs = {fillColor:[31,41,85], textColor:255, fontSize:7.5};
+    let y = 32;
+    const texto = (t, size=8, color=[40,40,40])=>{ doc.setFontSize(size); doc.setTextColor(...color); const ls=doc.splitTextToSize(t, 780); if(y+ls.length*(size+2)>570){ doc.addPage(); y=32; } doc.text(ls,30,y); y+=ls.length*(size+2)+4; };
+    bloquesPdfInforme(inf,{detalle:pdfDetalle, notas:NOTAS_INFORME}).forEach(b=>{
+      if(b.tipo==="titulo"){ doc.setFontSize(15); doc.setTextColor(31,41,85); doc.text(b.texto,30,y); y+=18; }
+      else if(b.tipo==="texto") texto(b.texto);
+      else if(b.tipo==="aviso") texto(b.texto, 8, [160,90,0]);
+      else if(b.tipo==="notas"){ y+=4; texto("Notas y método", 9, [31,41,85]); b.textos.forEach(t=>texto(`· ${t}`, 7, [90,90,90])); }
+      else if(b.tipo==="tabla"){
+        if(b.titulo){ if(y>530){ doc.addPage(); y=32; } texto(b.titulo, 9.5, [31,41,85]); }
+        doc.autoTable({startY:y, head:[b.head], body:b.body, styles:{fontSize:7.5, cellPadding:3}, headStyles:hs, margin:{left:30,right:30},
+          columnStyles:Object.fromEntries((b.derecha||[]).map(i=>[i,{halign:"right"}])),
+          didParseCell:(d)=>{ if(d.section!=="body") return; const e=b.estilos&&b.estilos[d.row.index];
+            if(e==="empresa"){ d.cell.styles.fontStyle="bold"; d.cell.styles.fillColor=[232,236,246]; }
+            if(e==="total"){ d.cell.styles.fontStyle="bold"; d.cell.styles.fillColor=[214,221,240]; }
+            if(b.destacar&&b.destacar.includes(d.row.index)) d.cell.styles.fontStyle="bold"; }});
+        y = doc.lastAutoTable.finalY + 12;
+      }
+    });
+    doc.save(`Informe_Deuda_${corte}${pdfDetalle?"_con_cuotas":""}.pdf`);
   }
 
-  const kpis = [["Capital",inf.total.capital,C.red],["Intereses devengados",inf.total.devengado,C.yellow],["Saldo deuda",inf.total.saldoDeuda,C.red],
-    ["Intereses por devengar",inf.total.porDevengar,C.muted],["Total por pagar",inf.total.totalPorPagar,C.blue],["Cuotas sin desglosar",inf.total.sinDesglose,C.yellow],["Por conciliar (fuera)",inf.total.porConciliar,C.muted]];
-  const th = (t,al="right")=><th style={{...CR_TH,textAlign:al}}>{t}</th>;
-  const td = (v,extra={})=><td style={{...CR_TD,textAlign:"right",fontVariantNumeric:"tabular-nums",...extra}}>{v}</td>;
+  const th = (t,al="right",extra={})=><th style={{...CR_TH,textAlign:al,...extra}}>{t}</th>;
+  const tdN = (v,extra={})=><td style={{...CR_TD,textAlign:"right",fontVariantNumeric:"tabular-nums",...extra}}>{v}</td>;
+  const ncol = 3 + cols.length;
+  const sel = {...CR_INP, width:"auto", minWidth:150, padding:"5px 8px"};
   return (
     <div data-informe-deuda style={{display:"flex",flexDirection:"column",gap:12,minWidth:0}}>
       <Card>
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          <div style={{flex:1,minWidth:200}}>
-            <SectionTitle>Informe de deuda al corte</SectionTitle>
-            <div style={{fontSize:10,color:C.muted}}>Saldo deuda = capital + intereses devengados no pagados (+ cargos vencidos). Los intereses por devengar van aparte. Cifras en US$.</div>
+          <div style={{flex:1,minWidth:220}}>
+            <SectionTitle>Informe de deuda al {corteOk?fmtDate(corte):"—"}</SectionTitle>
+            <div style={{fontSize:11,color:C.muted}}>{textoConteo(inf)}.</div>
           </div>
           <label style={{fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:6}}>Fecha de corte
             <input type="date" value={corte} onChange={e=>setCorte(e.target.value)} style={{...CR_INP,width:150}}/></label>
           <button onClick={exportarExcel} style={{padding:"6px 14px",borderRadius:8,background:C.green,border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>📥 Excel</button>
-          <button onClick={exportarPDF} style={{padding:"6px 14px",borderRadius:8,background:C.red,border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>📄 PDF</button>
+          <button onClick={exportarPDF} style={{padding:"6px 14px",borderRadius:8,background:C.red,border:"none",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700}}>📄 PDF para socios</button>
+          <label style={{fontSize:11,color:C.muted,display:"flex",alignItems:"center",gap:4}}><input type="checkbox" checked={pdfDetalle} onChange={e=>setPdfDetalle(e.target.checked)}/> incluir cuotas en el PDF</label>
         </div>
       </Card>
-      {(inf.incompleto||inf.sinClasificar>0||inf.noDesembolsados.length>0)&&(
-        <div style={{fontSize:11,background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"6px 12px",display:"flex",flexDirection:"column",gap:3}}>
-          {inf.incompleto&&<div>⚠ Totales incompletos: sin tipo de cambio al corte, quedan fuera {inf.sinTC.map(z=>`${z.empresa} · ${z.acreedor} (${z.moneda})`).join("; ")}.</div>}
-          {inf.noDesembolsados.length>0&&<div>ℹ Aún no desembolsados al {fmtDate(corte)} (no son deuda a esa fecha): {inf.noDesembolsados.map(z=>`${z.empresa} · ${z.acreedor} (${fmtDate(z.desembolso)})`).join("; ")}.</div>}
-          {inf.sinClasificar>0&&<div>⚠ {inf.sinClasificar} crédito(s) sin clasificar: falta el «Tipo de crédito». Edítalos y elige el tipo o la clasificación.</div>}
+
+      {(inf.parcial||inf.noDesembolsados.length>0||inf.sinClasificar>0)&&(
+        <div data-avisos-totales style={{fontSize:11,background:C.warningBg,border:`1px solid ${C.warning}66`,borderRadius:8,padding:"8px 12px",display:"flex",flexDirection:"column",gap:3}}>
+          {inf.parcial&&<div><b>* Cifras parciales.</b> Capital, intereses devengados y saldo deuda no son la deuda completa porque hay: {inf.motivosParcial.join("; ")}.</div>}
+          {inf.noDesembolsados.length>0&&<div>Aún no desembolsados al {fmtDate(corte)} (no son deuda a esa fecha): {inf.noDesembolsados.map(z=>`${z.empresa} · ${z.acreedor} (${fmtDate(z.desembolso)})`).join("; ")}.</div>}
+          {inf.sinClasificar>0&&<div>{inf.sinClasificar} crédito(s) sin clasificar: falta el «Tipo de crédito».</div>}
         </div>)}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10}}>
-        {kpis.map(([l,v,col])=><KPI key={l} label={l} value={$u(v)} color={col}/>)}
-      </div>
-      <Card style={{padding:0,overflow:"hidden"}}>
-        <div style={{padding:"10px 16px"}}><SectionTitle>Por clasificación</SectionTitle></div>
-        <div style={{overflowX:"auto"}}>
-          <table style={{borderCollapse:"collapse",width:"100%",whiteSpace:"nowrap"}}>
-            <thead><tr style={{background:C.primary}}>{th("Clasificación","left")}{th("Créditos")}{COLS_INFORME.map(([k,l])=><React.Fragment key={k}>{th(l)}</React.Fragment>)}</tr></thead>
-            <tbody>
-              {clasifs.map(k=>{ const o=inf.porClasificacion[k]; return (
-                <tr key={k}><td style={{...CR_TD,fontWeight:700}}>{k}</td>{td(o.creditos)}{COLS_INFORME.map(([c])=><React.Fragment key={c}>{td($u(o[c]),c==="sinDesglose"&&o[c]?{color:C.yellow}:{})}</React.Fragment>)}</tr>);})}
-              <tr style={{background:`${C.blue}10`}}><td style={{...CR_TD,fontWeight:800}}>TOTAL</td>{td(inf.total.creditos)}{COLS_INFORME.map(([c])=><React.Fragment key={c}>{td($u(inf.total[c]),{fontWeight:800})}</React.Fragment>)}</tr>
-            </tbody>
-          </table>
-        </div>
-      </Card>
-      <Card style={{padding:0,overflow:"hidden"}}>
-        <div style={{padding:"10px 16px"}}><SectionTitle>Detalle por crédito (US$)</SectionTitle></div>
-        <div style={{overflowX:"auto",maxWidth:"calc(100vw - 80px)"}}>
-          <table style={{borderCollapse:"collapse",width:"100%",whiteSpace:"nowrap"}}>
-            <thead><tr style={{background:C.primary}}>{th("Clasificación","left")}{th("Empresa","left")}{th("Acreedor","left")}{th("Tipo","left")}{th("Mon.","left")}{th("Tasa")}{th("Venc. final")}
-              {th("Capital")}{th("Devengado")}{th("Saldo deuda")}{th("Por devengar")}{th("Total por pagar")}{th("Sin desglosar")}{th("Por conciliar")}{th("Garantías","left")}</tr></thead>
-            <tbody>
-              {filasOrden.map(x=>(
-                <tr key={x.uid} onClick={abrirDetalle?()=>abrirDetalle(x.uid):undefined} style={{cursor:abrirDetalle?"pointer":"default"}} title={x.avisos.join(" · ")}>
-                  <td style={CR_TD}>{x.clasificacion||<span style={{color:C.yellow}}>sin clasificar</span>}{x.clasificacionOrigen==="sugerida"&&<span style={{fontSize:9,color:C.muted}}> (sug.)</span>}</td>
-                  <td style={CR_TD}>{x.empresa}</td><td style={CR_TD}>{x.acreedor}</td><td style={CR_TD}>{x.tipoCredito||"—"}</td><td style={CR_TD}>{x.moneda}</td>
-                  {td(tasaTxt(x))}{td(fmtDate(x.vencimientoFinal))}
-                  {["capital","devengado","saldoDeuda","porDevengar","totalPorPagar"].map(c=><React.Fragment key={c}>{td(x.usd?$u(x.usd[c]):"sin TC",c==="saldoDeuda"?{fontWeight:700}:{})}</React.Fragment>)}
-                  {td(x.usd?(x.usd.sinDesglose?$u(x.usd.sinDesglose):"—"):"sin TC",x.sinDesglose?{color:C.yellow}:{color:C.muted2})}
-                  {td(x.usd?(x.usd.porConciliar?$u(x.usd.porConciliar):"—"):"sin TC",{color:C.muted2})}
-                  <td style={{...CR_TD,whiteSpace:"normal",minWidth:220,fontSize:10}}>{garantiasTxt(x)}{x.avisos.length>0&&<div style={{color:C.yellow,fontSize:9}}>⚠ {x.avisos.join(" · ")}</div>}</td>
-                </tr>))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+
       <Card>
-        <SectionTitle>Avales, hipotecas y otras garantías</SectionTitle>
-        {Object.values(inf.garantias).length===0
-          ? <div style={{fontSize:11,color:C.muted}}>Ningún crédito tiene garantías cargadas en la lista. Edita cada crédito y usa «+ garantía».</div>
-          : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10}}>
-              {Object.values(inf.garantias).map(g=>(
-                <div key={g.tipo} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
-                  <div style={{fontWeight:800}}>{g.tipo} · {g.cantidad}</div>
-                  <div style={{color:C.muted}}>{Object.entries(g.montos).map(([m,v])=>`${m} ${fmtN(v,0)}`).join(" · ")||"sin monto declarado"}</div>
-                  <div style={{fontSize:10,marginTop:4}}>{g.creditos.join("; ")}</div>
-                </div>))}
-            </div>}
-        <div style={{fontSize:10,color:C.muted,marginTop:8}}>{inf.sinGarantia} crédito(s) sin garantía registrada · {inf.soloTexto} con garantía solo en texto (sin tipo ni monto).</div>
+        <SectionTitle>Resumen (US$)</SectionTitle>
+        <table data-indicadores style={{borderCollapse:"collapse",width:"100%",maxWidth:720,fontSize:12}}>
+          <tbody>
+            {indicadoresInforme(inf).map(i=>{
+              const fuerte = i.k==="saldoDeuda"||i.k==="totalIdentificado";
+              const aparte = i.k==="porConciliar";
+              return (
+                <tr key={i.k} data-indicador={i.k} style={{borderTop:i.k==="totalIdentificado"||aparte?`2px solid ${C.border}`:`1px solid ${C.border}44`,background:i.k==="totalIdentificado"?`${C.blue}10`:"transparent"}}>
+                  <td style={{padding:"6px 10px",fontWeight:fuerte?800:500,color:aparte?C.muted:C.text}}>{i.label}</td>
+                  <td style={{padding:"6px 10px",textAlign:"right",fontVariantNumeric:"tabular-nums",fontWeight:fuerte?800:600,color:aparte?C.muted:C.text}}>{$u(i.usd)}</td>
+                </tr>);})}
+          </tbody>
+        </table>
+        <div style={{fontSize:10.5,color:C.muted,marginTop:8}}>{formulaTotalIdentificado(inf)}</div>
+        <div style={{fontSize:10.5,color:C.muted,marginTop:4}}><b>Excluido del total identificado:</b> {textosExcluidos(inf).join(" ")}</div>
       </Card>
+
       <Card style={{padding:0,overflow:"hidden"}}>
-        <div style={{padding:"10px 16px"}}><SectionTitle>Cuotas sin desglosar ({inf.cuotasSinDesglose.length})</SectionTitle>
-          <div style={{fontSize:10,color:C.muted}}>No separan capital de interés: no entran al saldo deuda ni a los intereses. Haz clic en una fila para abrir el crédito y usar «Desglosar cuota».</div></div>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+          <div style={{flex:1,minWidth:200}}><SectionTitle>Deuda por empresa y crédito (US$)</SectionTitle></div>
+          <select aria-label="Empresa" value={filtro.empresa} onChange={e=>setFiltro(f=>({...f,empresa:e.target.value,acreedor:""}))} style={sel}>
+            <option value="">Todas las empresas</option>{empresasOp.map(e=><option key={e}>{e}</option>)}</select>
+          <select aria-label="Acreedor" value={filtro.acreedor} onChange={e=>setFiltro(f=>({...f,acreedor:e.target.value}))} style={sel}>
+            <option value="">Todos los acreedores</option>{acreedoresOp.map(a=><option key={a}>{a}</option>)}</select>
+          <select aria-label="Estado" value={filtro.estado} onChange={e=>setFiltro(f=>({...f,estado:e.target.value}))} style={sel}>
+            <option value="">Todos los estados</option>{Object.entries(ESTADOS_CREDITO).map(([k,l])=><option key={k} value={k}>{l}</option>)}</select>
+          <button onClick={()=>setAbiertos(new Set(todosUids))} style={{...sel,minWidth:0,cursor:"pointer",color:C.blue,fontWeight:700}}>Expandir todos</button>
+          <button onClick={()=>setAbiertos(new Set())} style={{...sel,minWidth:0,cursor:"pointer",color:C.blue,fontWeight:700}}>Contraer todos</button>
+        </div>
+        {g.filtrado&&<div style={{fontSize:10.5,color:C.muted,padding:"6px 14px"}}>Filtro activo: los subtotales y el total de esta tabla son solo de los créditos mostrados ({g.n}). El resumen de arriba es del informe completo.</div>}
         <div style={{overflowX:"auto"}}>
-          <table style={{borderCollapse:"collapse",width:"100%",whiteSpace:"nowrap"}}>
-            <thead><tr style={{background:C.primary}}>{th("Empresa","left")}{th("Acreedor","left")}{th("Tipo","left")}{th("Vencimiento")}{th("Estado")}{th("Monto (moneda original)")}{th("US$")}</tr></thead>
+          <table data-tabla-deuda style={{borderCollapse:"collapse",width:"100%"}}>
+            <thead><tr style={{background:C.primary}}>
+              {th("Empresa / crédito o contrato","left")}{th("Moneda","left")}{th("Vence")}
+              {cols.map(([k,l])=><React.Fragment key={k}>{th(l)}</React.Fragment>)}
+            </tr></thead>
             <tbody>
-              {inf.cuotasSinDesglose.map((q,i)=>(
-                <tr key={`${q.uid}-${q.fecha}-${i}`} data-cuota-sin-desglose onClick={abrirDetalle?()=>abrirDetalle(q.uid):undefined} style={{cursor:abrirDetalle?"pointer":"default"}}>
-                  <td style={CR_TD}>{q.empresa}</td><td style={CR_TD}>{q.acreedor}</td><td style={CR_TD}>{q.tipo_cr||"—"}</td>
-                  {td(fmtDate(q.fecha))}{td(q.vencida?"vencida":"por vencer",q.vencida?{color:C.red}:{})}{td($c(q.monto,q.moneda))}{td(q.usd==null?"sin TC":$u(q.usd))}
-                </tr>))}
-              {inf.cuotasSinDesglose.length===0&&<tr><td colSpan={7} style={{...CR_TD,color:C.muted}}>No hay cuotas sin desglosar.</td></tr>}
+              {g.grupos.map(e=>(
+                <React.Fragment key={e.empresa}>
+                  <tr data-fila-empresa={e.empresa} style={{background:`${C.blue}0d`}}>
+                    <td style={{...CR_TD,fontWeight:800}}>{e.empresa} <span style={{fontWeight:400,color:C.muted,fontSize:10}}>· {e.sub.listados} crédito(s){e.sub.listados>e.sub.creditos?` · ${e.sub.listados-e.sub.creditos} sin TC, fuera del subtotal`:""}</span></td>
+                    <td style={CR_TD}>US$</td><td style={CR_TD}></td>
+                    {cols.map(([k])=><React.Fragment key={k}>{tdN(fmtUSD(e.sub[k]),{fontWeight:800})}</React.Fragment>)}
+                  </tr>
+                  {e.filas.map(x=>{ const ab=abiertos.has(x.uid); return (
+                    <React.Fragment key={x.uid}>
+                      <tr data-fila-credito={x.uid} onClick={()=>toggle(x.uid)} style={{cursor:"pointer"}} aria-expanded={ab}>
+                        <td style={{...CR_TD,paddingLeft:18}}>
+                          <span style={{display:"inline-block",width:14,color:C.blue}}>{ab?"▾":"▸"}</span>
+                          <b>{x.acreedor}</b> <span style={{color:C.muted}}>· {x.tipoCredito||x.modalidad}{x.identificador?` · N° ${x.identificador}`:""}</span>
+                          {x.estadoCredito==="con_vencidas"&&<span style={{marginLeft:6,fontSize:9.5,color:C.red,fontWeight:700}}>vencidas</span>}
+                          {x.estadoCredito==="con_parciales"&&<span style={{marginLeft:6,fontSize:9.5,color:C.yellow,fontWeight:700}}>pago parcial</span>}
+                          {x.tienePorConciliar&&<span style={{marginLeft:6,fontSize:9.5,color:C.muted,fontWeight:700}}>por conciliar</span>}
+                          {!x.usd&&<span style={{marginLeft:6,fontSize:9.5,color:C.red,fontWeight:700}}>sin TC: fuera del total</span>}
+                        </td>
+                        <td style={CR_TD}>{x.moneda}</td>{tdN(fmtDate(x.vencimientoFinal))}
+                        {cols.map(([k])=><React.Fragment key={k}>{tdN(x.usd?fmtUSD(x.usd[k]):"sin TC",k==="sinDesglose"&&x.sinDesglose?{color:C.yellow}:{})}</React.Fragment>)}
+                      </tr>
+                      {ab&&(
+                        <tr data-detalle-credito={x.uid}><td colSpan={ncol} style={{padding:"6px 14px 14px 32px",background:C.card2||"transparent",borderBottom:`1px solid ${C.border}`}}>
+                          <div style={{fontSize:10.5,color:C.muted,marginBottom:6,display:"flex",flexWrap:"wrap",gap:"4px 14px"}}>
+                            <span>Montos de las cuotas en <b>{x.moneda}</b>{x.moneda!=="USD"&&(x.tc?` · TC ${x.tc.tc} ${x.moneda}/US$ (${x.tc.fecha?fmtDate(x.tc.fecha):"s/f"}, ${x.tc.fuente})`:" · sin TC al corte")}</span>
+                            <span>Tasa: {x.tasa==null?"sin dato":`${x.tasa}%${x.tasaVariable?" variable":""}`}</span><span>Base: {NOMBRE_BASE[x.base]||x.base}</span>
+                            <span>{x.modalidad}</span><span>Clasificación: {x.clasificacion||"sin clasificar"}{x.clasificacionOrigen==="sugerida"?" (sugerida)":""}</span>
+                            <span>Garantías: {x.garantias.length?x.garantias.map(textoGarantia).join(" | "):(x.garantiasTexto||"—")}</span>
+                            {abrirDetalle&&<button onClick={()=>abrirDetalle(x.uid)} style={{border:"none",background:"none",color:C.blue,cursor:"pointer",fontSize:10.5,padding:0,textDecoration:"underline"}}>abrir crédito</button>}
+                          </div>
+                          {x.avisos.length>0&&<div style={{fontSize:10.5,color:C.yellow,marginBottom:6}}>⚠ {x.avisos.join(" · ")}</div>}
+                          <table style={{borderCollapse:"collapse",width:"100%"}}>
+                            <thead><tr style={{background:`${C.primary}cc`}}>{COLS_CUOTA.map(([k,l],i)=><React.Fragment key={k}>{th(l,i<2?"left":"right",{fontSize:9})}</React.Fragment>)}</tr></thead>
+                            <tbody>
+                              {x.cuotas.map(q=>(
+                                <React.Fragment key={q.key}>
+                                  <tr data-cuota={q.estado}>
+                                    {COLS_CUOTA.map(([k],i)=>{ const v=celdaCuota(q,k);
+                                      if(k==="fecha") return <td key={k} style={CR_TD}>{fmtDate(v)}</td>;
+                                      if(k==="estado") return <td key={k} style={{...CR_TD,color:ESTADO_COLOR(q.estado),fontWeight:700}}>{v}</td>;
+                                      return <React.Fragment key={k}>{tdN(typeof v==="number"?fmtN(v,x.moneda==="UF"?4:2):v, typeof v==="number"?{}:{color:C.yellow,fontStyle:"italic"})}</React.Fragment>; })}
+                                  </tr>
+                                  {(q.devengo.some(d=>!d.vencido&&d.transcurrido>0)||q.notas.length>0)&&(
+                                    <tr><td colSpan={COLS_CUOTA.length} style={{fontSize:9.5,color:C.muted,padding:"0 10px 5px 24px"}}>
+                                      {[...q.devengo.filter(d=>!d.vencido&&d.transcurrido>0).map(d=>textoDevengo(d,x.moneda)),...q.notas].join(" · ")}</td></tr>)}
+                                </React.Fragment>))}
+                              <tr style={{fontWeight:700,borderTop:`2px solid ${C.border}`}}>
+                                <td style={CR_TD} colSpan={7}>Al corte, en {x.moneda}: capital {fmtN(x.capital,dec(x))} + intereses devengados {fmtN(x.devengado,dec(x))}{x.cargosVencidos?` + cargos vencidos ${fmtN(x.cargosVencidos,dec(x))}`:""} = saldo deuda {fmtN(x.saldoDeuda,dec(x))}</td>
+                                {tdN(fmtN(x.cuotas.reduce((a,q)=>a+q.pendiente,0),dec(x)))}{tdN(fmtN(x.devengado,dec(x)))}{tdN(fmtN(x.porDevengar,dec(x)))}
+                              </tr>
+                            </tbody>
+                          </table>
+                          {textoAjusteCapital(x)&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>{textoAjusteCapital(x)}</div>}
+                          {x.porConciliar>0&&<div style={{fontSize:10,color:C.muted,marginTop:4}}>Por conciliar (fuera del saldo): {$m(x.porConciliar,x.moneda)}.</div>}
+                        </td></tr>)}
+                    </React.Fragment>);})}
+                </React.Fragment>))}
+              <tr data-fila-total style={{background:`${C.blue}1a`}}>
+                <td style={{...CR_TD,fontWeight:800}}>{g.filtrado?"TOTAL DEL FILTRO":"TOTAL"} <span style={{fontWeight:400,color:C.muted,fontSize:10}}>· {g.total.creditos} crédito(s) en US$</span></td>
+                <td style={CR_TD}>US$</td><td style={CR_TD}></td>
+                {cols.map(([k])=><React.Fragment key={k}>{tdN(fmtUSD(g.total[k]),{fontWeight:800})}</React.Fragment>)}
+              </tr>
             </tbody>
           </table>
         </div>
       </Card>
-      <div style={{fontSize:10,color:C.muted,display:"flex",flexDirection:"column",gap:2}}>{NOTAS_INFORME.map((n,i)=><div key={i}>· {n}</div>)}</div>
+
+      {inf.total.porConciliar>0&&(
+        <Card>
+          <SectionTitle>Por conciliar: fuera del saldo confirmado (US$ {fmtUSD(inf.total.porConciliar)})</SectionTitle>
+          <div style={{fontSize:10.5,color:C.muted,marginBottom:6}}>Cuotas históricas sin pago registrado ni confirmación. Si se confirman impagas, pasan a la deuda; si se registra su pago, desaparecen.</div>
+          <table style={{borderCollapse:"collapse",width:"100%",maxWidth:820}}><tbody>
+            {inf.filas.filter(x=>x.porConciliar>0).map(x=>(
+              <tr key={x.uid}><td style={CR_TD}>{x.empresa}</td><td style={CR_TD}>{etiquetaCredito(x)}</td>{tdN($m(x.porConciliar,x.moneda))}{tdN(x.usd?$u(x.usd.porConciliar):"sin TC")}</tr>))}
+          </tbody></table>
+        </Card>)}
+
+      <details><summary style={{cursor:"pointer",fontSize:11,fontWeight:700,color:C.muted}}>Por clasificación (estructurado, no estructurado, socios, otros)</summary>
+        <Card style={{padding:0,overflow:"hidden",marginTop:6}}><div style={{overflowX:"auto"}}>
+          <table style={{borderCollapse:"collapse",width:"100%"}}>
+            <thead><tr style={{background:C.primary}}>{th("Clasificación","left")}{th("Créditos")}{cols.map(([k,l])=><React.Fragment key={k}>{th(l)}</React.Fragment>)}</tr></thead>
+            <tbody>{ORDEN_CLASIF.filter(k=>inf.porClasificacion[k]).map(k=>{ const o=inf.porClasificacion[k]; return (
+              <tr key={k}><td style={{...CR_TD,fontWeight:700}}>{k}</td>{tdN(o.creditos)}{cols.map(([c])=><React.Fragment key={c}>{tdN(fmtUSD(o[c]))}</React.Fragment>)}</tr>);})}</tbody>
+          </table></div></Card>
+      </details>
+      <details><summary style={{cursor:"pointer",fontSize:11,fontWeight:700,color:C.muted}}>Avales, hipotecas y otras garantías</summary>
+        <Card style={{marginTop:6}}>
+          {Object.values(inf.garantias).length===0
+            ? <div style={{fontSize:11,color:C.muted}}>Ningún crédito tiene garantías cargadas en la lista. Edita cada crédito y usa «+ garantía».</div>
+            : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10}}>
+                {Object.values(inf.garantias).map(x=>(
+                  <div key={x.tipo} style={{border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
+                    <div style={{fontWeight:800}}>{x.tipo} · {x.cantidad}</div>
+                    <div style={{color:C.muted}}>{Object.entries(x.montos).map(([m,v])=>`${m} ${fmtN(v,2)}`).join(" · ")||"sin monto declarado"}</div>
+                    <div style={{fontSize:10,marginTop:4}}>{x.creditos.join("; ")}</div>
+                  </div>))}
+              </div>}
+          <div style={{fontSize:10,color:C.muted,marginTop:8}}>{inf.sinGarantia} crédito(s) sin garantía registrada · {inf.soloTexto} con garantía solo en texto (sin tipo ni monto).</div>
+        </Card>
+      </details>
+      <details><summary style={{cursor:"pointer",fontSize:11,fontWeight:700,color:C.muted}}>Notas y método de cálculo</summary>
+        <div style={{fontSize:10.5,color:C.muted,display:"flex",flexDirection:"column",gap:3,marginTop:6}}>{NOTAS_INFORME.map((n,i)=><div key={i}>· {n}</div>)}</div>
+      </details>
     </div>
   );
 }

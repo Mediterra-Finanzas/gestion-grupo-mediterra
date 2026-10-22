@@ -2,7 +2,7 @@
 // Tests del informe de deuda al corte — ejecutar: node src/informeDeuda.test.mjs
 // Cada caso deja escrito el cálculo aritmético esperado.
 import { informeDeuda, clasificacionCredito, clasificacionSugerida } from './informeDeuda.js';
-import { valorizarCreditos } from './creditos.js';
+import { valorizarCreditos, fraccionAnio } from './creditos.js';
 
 let fallos = 0;
 const aprox = (a, b, tol = 0.011) => Math.abs(a - b) <= tol;
@@ -157,5 +157,48 @@ check('Socio cuota parcial pagada, corte 15-08-2026: capital 103.839,81 y sin in
 
 const sPc = informeDeuda([{ ...soc(1000), control_desde: '2026-09-01' }], '2026-10-15').filas[0];
 check('Socio cuota parcial por conciliar: por conciliar = 1.000 (no el interés completo)', aprox(sPc.porConciliar, 1000), String(sPc.porConciliar));
+// ═══ CASO 7 — Cuadre, período de devengo y total identificado ════════
+// BCI 30/360: período 05-11-2025 → 05-11-2026. Al 22-10-2026:
+//   transcurrido = (2026−2025)×360 + (10−11)×30 + (22−5) = 360 − 30 + 17 = 347 · período = 360.
+const qBci = f.cuotas.find(q => q.fecha === '2026-11-05');
+const dv = qBci.devengo[0];
+check('BCI: período 05-11-2025 → 05-11-2026, 347 de 360 días (30/360)', dv.inicio === '2025-11-05' && dv.fin === '2026-11-05' && dv.transcurrido === 347 && dv.periodo === 360 && dv.base === '30360', JSON.stringify(dv));
+check('BCI: estados pagada / por vencer', f.cuotas[0].estado === 'pagada' && f.cuotas[1].estado === 'pagada' && qBci.estado === 'por_vencer');
+// Act/365: 05-11-2025 → 22-10-2026 = 351 días reales de 365.
+const dv365 = informeDeuda([{ ...bci, base: 'act365' }], '2026-10-22').filas[0].cuotas.find(q => q.fecha === '2026-11-05').devengo[0];
+check('Act/365: 351 de 365 días reales', dv365.transcurrido === 351 && dv365.periodo === 365, JSON.stringify(dv365));
+// Act/360: días reales sobre 360: 351 de 365 días reales → se muestra en días reales (351/365) con fracción 351/365.
+const dv360 = informeDeuda([{ ...bci, base: 'act360' }], '2026-10-22').filas[0].cuotas.find(q => q.fecha === '2026-11-05').devengo[0];
+check('Act/360: fracción = días reales / días reales del período', aprox(dv360.frac, 351 / 365, 1e-9) && dv360.transcurrido === 351 && dv360.periodo === 365, JSON.stringify(dv360));
+// 30/360 con fin de mes: 31-01 → 28-02 (d1 = 30, d2 = 28) = 28 días; corte 15-02 → 15 días.
+check('30/360 fin de mes: 31-01 → 15-02 = 15 días, 31-01 → 28-02 = 28 días',
+  Math.round(fraccionAnio('30360', '2027-01-31', '2027-02-15') * 360) === 15 && Math.round(fraccionAnio('30360', '2027-01-31', '2027-02-28') * 360) === 28);
+
+// Cuadre: Σ cuotas = crédito; saldo = capital + devengado + cargos vencidos; total identificado = total por pagar + sin desglosar.
+const todos = valorizarCreditos([bci, leg, legD, clp, { ...soc(1000), uid: 'sx' }, { ...renBase, uid: 'rx', renovaciones: [ren('pendientes')] }], tcData, '2026-10-22');
+const I = informeDeuda(todos, '2026-10-22');
+const r2t = (x) => Math.round(x * 100) / 100;
+let okC = true, okU = true;
+I.filas.forEach(x => {
+  const S = (k) => r2t(x.cuotas.reduce((a, q) => a + q[k], 0));
+  if (S('devengado') !== x.devengado || S('porDevengar') !== x.porDevengar || S('sdPend') !== x.sinDesglose
+    || r2t(x.ajusteCapital.cuotas - x.ajusteCapital.interesRenovacion - x.ajusteCapital.interesACapitalizar) !== x.capital) okC = false;
+  [x, x.usd].filter(Boolean).forEach(o => {
+    if (r2t(o.capital + o.devengado + o.cargosVencidos) !== o.saldoDeuda || r2t(o.saldoDeuda + o.porDevengar + o.cargosFuturos) !== o.totalPorPagar
+      || r2t(o.totalPorPagar + o.sinDesglose) !== o.totalIdentificado) okU = false;
+  });
+});
+check('Cada crédito = suma de sus cuotas (moneda original)', okC);
+check('Identidades exactas al centavo en moneda original y US$', okU);
+const sumE = (k) => r2t(Object.values(I.porEmpresa).reduce((a, o) => a + o[k], 0));
+const sumF = (k) => r2t(I.filas.filter(x => x.usd).reduce((a, x) => a + x.usd[k], 0));
+check('Total = Σ empresas = Σ créditos (todas las columnas)', ['capital', 'devengado', 'saldoDeuda', 'porDevengar', 'totalPorPagar', 'sinDesglose', 'totalIdentificado', 'porConciliar']
+  .every(k => sumE(k) === I.total[k] && sumF(k) === I.total[k]));
+check('Total identificado = total por pagar + sin desglosar', I.total.totalIdentificado === r2t(I.total.totalPorPagar + I.total.sinDesglose));
+check('Rótulo parcial con motivos (sin desglose)', I.parcial && I.motivosParcial.some(m => /sin desglosar/.test(m)));
+const I2 = informeDeuda([legD, clp], '2026-10-22');
+check('Conteo: 2 listados, 1 incluido, 1 sin TC', I2.conteo.listados === 2 && I2.conteo.incluidos === 1 && I2.conteo.sinTC === 1 && I2.parcial);
+check('Sin desglose, por conciliar ni TC faltante → no parcial', !informeDeuda([bci], '2026-10-22').parcial);
+
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

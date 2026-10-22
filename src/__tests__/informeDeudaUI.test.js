@@ -3,68 +3,126 @@ import { render, screen, fireEvent, within, cleanup } from '@testing-library/rea
 jest.mock('xlsx-js-style', () => { const a = jest.requireActual('xlsx-js-style'); return { ...a, writeFile: jest.fn() }; });
 import * as XLSX from 'xlsx-js-style';
 import { InformeDeudaCreditos, CamposComunesCredito } from '../FinanzasModule.jsx';
-import { informeDeuda } from '../informeDeuda.js';
+import { informeDeuda, agruparInforme, fmtUSD } from '../informeDeuda.js';
+import { hojasExcelInforme, bloquesPdfInforme, columnasResumen } from '../informeDeudaExport.js';
 
 afterEach(() => { cleanup(); jest.clearAllMocks(); });
+// Caso de referencia (datos simulados): leasing BCI de Allegria Service, calendario del banco.
 const cal = [['2024-11-05', 243800, 256200], ['2025-11-05', 364620.52, 235379.48], ['2026-11-05', 395759.11, 204240.89],
   ['2027-11-05', 429556.94, 170443.06], ['2028-11-05', 543446.89, 133759.11], ['2029-11-05', 589857.27, 87348.73], ['2029-12-05', 432959.27, 3080.73]];
-const bci = { uid: 'bci', tipo_credito: 'contrato', modalidad: 'manual', empresa: 'Allegria Service', acreedor: 'BCI', moneda: 'USD',
+const bci = { uid: 'bci', tipo_credito: 'contrato', modalidad: 'manual', empresa: 'Allegria Service', acreedor: 'BCI', identificador: '215414', moneda: 'USD',
   monto: 3000000, fecha_desembolso: '2023-11-05', tasa_anual: 8.54, base: '30360', tipo_cr: 'Leasing', control_desde: '2024-01-01',
   calendario_manual: cal.map(([fecha, capital, interes]) => ({ fecha, capital, interes, cargos: 0 })),
   pagos: [{ id: 'p1', vencKey: 'bci@2024-11-05', fecha: '2024-11-05', capital: 243800, interes: 256200 },
           { id: 'p2', vencKey: 'bci@2025-11-05', fecha: '2025-11-05', capital: 364620.52, interes: 235379.48 }],
   garantias_lista: [{ tipo: 'Aval', otorgante: 'Mediterra Holding', monto: 3000000, moneda: 'USD' }] };
+// Otro contrato del MISMO banco y empresa: debe ir en su propia fila.
+const bci2 = { uid: 'bci2', tipo_credito: 'contrato', modalidad: 'bullet_int', empresa: 'Allegria Service', acreedor: 'BCI', identificador: 'CT-77', tipo_cr: 'Capital de trabajo',
+  moneda: 'USD', monto: 500000, fecha_desembolso: '2026-06-01', primer_venc: '2026-07-01', vencimiento_final: '2027-06-01', periodicidad: 1, tasa_tipo: 'fija', tasa_anual: 9, base: 'act360', control_desde: '2026-06-01' };
 const zelun = { uid: 'z', empresa: 'Allegria Foods', acreedor: 'Zelun', tipo_inst: 'Privado', monto: 120000, f_venc: '2030-11-30', tipo_cr: 'Bullet', cuota: 120000, control_desde: '2026-01-01' };
+const viejo = { uid: 'v', empresa: 'Allegria Foods', acreedor: 'Banco Antiguo', tipo_inst: 'Banco', tipo_cr: 'PAE', monto: 40000, f_inicio: '2025-01-01', f_venc: '2025-06-30',
+  cuota: 43828, control_desde: '2026-01-01' };   // vencida antes de control_desde, sin pago → por conciliar
 const clp = { uid: 'clp', empresa: 'Osiris', acreedor: 'Banco CLP', tipo_acreedor: 'Banco', tipo_cr: 'Capital de trabajo', moneda: 'CLP', tc_flujo: 950,
   monto: 95000000, f_inicio: '2026-06-01', f_venc: '2027-06-01', cuota: 100000000, control_desde: '2026-06-01', desglose: { capital: 95000000, interes: 5000000, cargos: 0 } };
-const creditos = [bci, zelun, clp];
+const pen = { uid: 'pen', empresa: 'Frisku Foods', acreedor: 'Banco Perú', tipo_acreedor: 'Banco', tipo_cr: 'Capital de trabajo', moneda: 'PEN',
+  monto: 100000, f_inicio: '2026-06-01', f_venc: '2027-06-01', cuota: 110000, control_desde: '2026-06-01', desglose: { capital: 100000, interes: 10000, cargos: 0 } };
+const creditos = [bci, bci2, zelun, viejo, clp, pen];
 const CORTE = '2026-12-15';   // distinto de hoy: la pantalla tiene que usar la fecha elegida
-function poneCorte(c) { fireEvent.change(c.querySelector('input[type=date]'), { target: { value: CORTE } }); }
+const poneCorte = (c) => fireEvent.change(c.querySelector('input[type=date]'), { target: { value: CORTE } });
+const txt = (n) => fmtUSD(n);
 
-test('pantalla y Excel muestran las mismas cifras del modelo, al corte elegido', () => {
-  const abrir = jest.fn();
-  const { container } = render(<InformeDeudaCreditos creditos={creditos} tcData={{}} abrirDetalle={abrir} />);
+test('resumen: parciales, total identificado, por conciliar aparte y conteo', () => {
+  const { container } = render(<InformeDeudaCreditos creditos={creditos} tcData={{}} />);
   poneCorte(container);
   const inf = informeDeuda(creditos, CORTE);
-  const infHoy = informeDeuda(creditos, '2026-10-22');
-  expect(inf.total.saldoDeuda).not.toBe(infHoy.total.saldoDeuda);
-  const fmt = (n) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  expect(screen.getAllByText(fmt(inf.total.saldoDeuda)).length).toBeGreaterThan(0);
-  expect(screen.getAllByText(fmt(inf.total.sinDesglose)).length).toBeGreaterThan(0);
-  // cuota sin desglosar listada y abre el crédito
-  const filasSD = container.querySelectorAll('[data-cuota-sin-desglose]');
-  expect(filasSD).toHaveLength(1);
-  expect(within(filasSD[0]).getByText('Zelun')).toBeTruthy();
-  fireEvent.click(filasSD[0]);
-  expect(abrir).toHaveBeenCalledWith('z');
-  // garantía estructurada visible
-  expect(screen.getAllByText(/Aval · otorga Mediterra Holding/).length).toBeGreaterThan(0);
-  // Excel
+  expect(inf.total.porConciliar).toBe(43828);
+  expect(inf.conteo).toMatchObject({ listados: 6, incluidos: 5, sinTC: 1 });
+  const ind = (k) => container.querySelector(`[data-indicador="${k}"]`).textContent;
+  expect(ind('capital')).toMatch(/Capital \(parcial\*\)/);
+  expect(ind('devengado')).toMatch(/parcial\*/);
+  expect(ind('saldoDeuda')).toMatch(/parcial\*/);
+  expect(ind('totalIdentificado')).toContain(`US$ ${txt(inf.total.totalPorPagar + inf.total.sinDesglose)}`);
+  expect(ind('porConciliar')).toContain('US$ 43,828.00');
+  expect(container.textContent).toContain('6 crédito(s) listado(s) · 5 incluido(s) en los totales en US$ · 1 excluido(s) por falta de tipo de cambio al corte: Frisku Foods · Banco Perú (PEN)');
+  expect(container.textContent).toMatch(/Excluido del total identificado:.*Cuotas por conciliar: US\$ 43,828.00/);
+  expect(container.querySelector('[data-avisos-totales]').textContent).toMatch(/Cifras parciales/);
+});
+
+test('agrupa empresa → crédito; dos contratos del mismo banco van separados; totales idénticos al agrupar y desplegar', () => {
+  const { container } = render(<InformeDeudaCreditos creditos={creditos} tcData={{}} />);
+  poneCorte(container);
+  const inf = informeDeuda(creditos, CORTE);
+  const g = agruparInforme(inf);
+  // dos filas BCI en Allegria Service
+  expect(container.querySelectorAll('[data-fila-credito="bci"],[data-fila-credito="bci2"]')).toHaveLength(2);
+  const cols = columnasResumen(inf);
+  const iTot = cols.findIndex(c => c[0] === 'totalIdentificado');
+  const celdas = (el) => [...el.querySelectorAll('td')].map(td => td.textContent);
+  // fila empresa = Σ créditos; total = Σ empresas = inf.total
+  const filaAS = container.querySelector('[data-fila-empresa="Allegria Service"]');
+  const asSub = g.grupos.find(e => e.empresa === 'Allegria Service').sub;
+  expect(celdas(filaAS)[3 + iTot]).toBe(txt(asSub.totalIdentificado));
+  const sumBci = Math.round((inf.filas.find(x => x.uid === 'bci').usd.totalIdentificado + inf.filas.find(x => x.uid === 'bci2').usd.totalIdentificado) * 100) / 100;
+  expect(asSub.totalIdentificado).toBe(sumBci);
+  const tot = celdas(container.querySelector('[data-fila-total]'));
+  cols.forEach(([k], i) => expect(tot[3 + i]).toBe(txt(inf.total[k])));
+  // desplegar el leasing: cuotas con estados y devengo 347/360; total no cambia
+  fireEvent.click(container.querySelector('[data-fila-credito="bci"]'));
+  const det = container.querySelector('[data-detalle-credito="bci"]');
+  expect(det.querySelectorAll('[data-cuota="pagada"]')).toHaveLength(2);
+  expect(det.querySelectorAll('[data-cuota="vencida"]')).toHaveLength(1);    // 05-11-2026 impaga al 15-12-2026
+  expect(det.textContent).toMatch(/período 05-11-2026 → 05-11-2027, base 30\/360: 40 de 360 días/);
+  expect(celdas(container.querySelector('[data-fila-total]'))[3 + iTot]).toBe(txt(inf.total.totalIdentificado));
+  // contraer / expandir todos
+  fireEvent.click(screen.getByRole('button', { name: 'Contraer todos' }));
+  expect(container.querySelector('[data-detalle-credito]')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Expandir todos' }));
+  expect(container.querySelectorAll('[data-detalle-credito]')).toHaveLength(6);
+  // cuota sin desglose: capital e interés "sin desglose", no un número inventado
+  const detZ = container.querySelector('[data-detalle-credito="z"]');
+  expect(within(detZ).getAllByText('sin desglose')).toHaveLength(2);
+  // filtro por acreedor: total del filtro = Σ de los créditos filtrados
+  fireEvent.change(screen.getByLabelText('Acreedor'), { target: { value: 'BCI' } });
+  expect(container.querySelector('[data-fila-total]').textContent).toMatch(/TOTAL DEL FILTRO/);
+  expect(celdas(container.querySelector('[data-fila-total]'))[3 + iTot]).toBe(txt(sumBci));
+  fireEvent.change(screen.getByLabelText('Acreedor'), { target: { value: '' } });
+  fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'por_conciliar' } });
+  expect(container.querySelectorAll('[data-fila-credito]')).toHaveLength(1);
+});
+
+test('Excel y PDF: misma estructura y mismos totales que la pantalla', () => {
+  const { container } = render(<InformeDeudaCreditos creditos={creditos} tcData={{}} />);
+  poneCorte(container);
+  const inf = informeDeuda(creditos, CORTE);
   fireEvent.click(screen.getByRole('button', { name: /Excel/ }));
-  expect(XLSX.writeFile).toHaveBeenCalledTimes(1);
   const [wb, nombre] = XLSX.writeFile.mock.calls[0];
   expect(nombre).toBe(`Informe_Deuda_${CORTE}.xlsx`);
-  expect(wb.SheetNames).toEqual(['Resumen', 'Detalle', 'Garantías', 'Cuotas sin desglosar', 'Notas']);
+  expect(wb.SheetNames).toEqual(['Resumen', 'Créditos y cuotas', 'Por conciliar', 'Garantías', 'Datos técnicos', 'Notas']);
   const res = XLSX.utils.sheet_to_json(wb.Sheets.Resumen, { header: 1 });
-  const total = res.find(r => r[0] === 'TOTAL');
-  // Excel = pantalla: el saldo deuda del Excel es el que está escrito en la pantalla.
-  expect(screen.getAllByText(fmt(total[5])).length).toBeGreaterThan(0);
-  // Crédito en CLP: moneda original y US$ por separado en el Detalle.
-  const det = XLSX.utils.sheet_to_json(wb.Sheets.Detalle, { header: 1 });
-  const hdr = det[2]; const filaClp = det.find(r => r[3] === 'Banco CLP');
-  const fClp = inf.filas.find(x => x.uid === 'clp');
-  expect(filaClp[hdr.indexOf('Capital (moneda original)')]).toBe(fClp.capital);
-  expect(filaClp[hdr.indexOf('Capital (US$)')]).toBe(fClp.usd.capital);
-  expect(fClp.usd.capital).toBeCloseTo(95000000 / 950, 2);
-  // columnas: Clasificación, Créditos, Capital, Devengado, Cargos venc., Saldo deuda, Por devengar, Cargos fut., Total por pagar, Sin desglosar
-  expect(total[2]).toBe(inf.total.capital);
-  expect(total[3]).toBe(inf.total.devengado);
-  expect(total[5]).toBe(inf.total.saldoDeuda);
-  expect(total[8]).toBe(inf.total.totalPorPagar);
-  expect(total[9]).toBe(120000);
-  expect(res[2][10]).toBe('Por conciliar (fuera de las cifras)');
-  const sd = XLSX.utils.sheet_to_json(wb.Sheets['Cuotas sin desglosar'], { header: 1 });
-  expect(sd.some(r => r[1] === 'Zelun' && r[7] === 120000)).toBe(true);
+  const fila = (re) => res.find(r => re.test(String(r[0])));
+  expect(fila(/^Total de pagos pendientes identificados$/)[1]).toBe(inf.total.totalIdentificado);
+  expect(fila(/^Saldo deuda \(parcial\*\)/)[1]).toBe(inf.total.saldoDeuda);
+  expect(fila(/^Por conciliar/)[1]).toBe(43828);
+  const det = XLSX.utils.sheet_to_json(wb.Sheets['Créditos y cuotas'], { header: 1, defval: '' });
+  const hdr = det[2]; const cTI = hdr.indexOf('Total identificado (US$)');
+  expect(det.find(r => r[0] === 'TOTAL')[cTI]).toBe(inf.total.totalIdentificado);
+  // estructura: subtotal de empresa, luego cada crédito y sus cuotas (nivel 1)
+  const iEmp = det.findIndex(r => String(r[1]).startsWith('Subtotal Allegria Service'));
+  expect(det[iEmp + 1][1]).toMatch(/^BCI · (Leasing|Capital de trabajo)/);
+  expect(wb.Sheets['Créditos y cuotas']['!rows'].filter(x => x.level === 1).length).toBe(inf.filas.reduce((a, x) => a + x.cuotas.length, 0));
+  // PDF (contenido): mismo total por empresa y total general; con detalle, una tabla de cuotas por crédito
+  const B = bloquesPdfInforme(inf, {});
+  const tabla = B.find(b => b.titulo === 'Deuda por empresa y crédito (US$)');
+  const iT = tabla.head.indexOf('Total identificado');
+  expect(tabla.body[tabla.body.length - 1][iT]).toBe(txt(inf.total.totalIdentificado));
+  expect(B.some(b => b.titulo === 'Por conciliar: fuera del saldo confirmado')).toBe(true);
+  const indic = B.find(b => b.head && b.head[0] === 'Indicador');
+  expect(indic.body.find(r => r[0] === 'Total de pagos pendientes identificados')[1]).toBe(txt(inf.total.totalIdentificado));
+  const conCuotas = bloquesPdfInforme(inf, { detalle: true }).filter(b => /— cuotas en/.test(b.titulo || ''));
+  expect(conCuotas).toHaveLength(inf.filas.length);
+  expect(hojasExcelInforme(inf).length).toBe(6);
+  // el PDF no lleva caracteres que la fuente estándar no tiene
+  expect(JSON.stringify(bloquesPdfInforme(inf, { detalle: true, notas: ['a → b × c − d'] }))).not.toMatch(/[→×−≤≥]/);
 });
 
 test('el formulario sugiere la clasificación según el tipo de crédito y agrega garantías', () => {
@@ -89,9 +147,8 @@ test('anular una garantía cargada pide motivo y la conserva marcada', () => {
   const pr = jest.spyOn(window, 'prompt').mockReturnValueOnce('').mockReturnValueOnce('Alzamiento de hipoteca');
   const btn = () => screen.getByTitle('Anular garantía (queda en el historial)');
   fireEvent.click(btn());
-  expect(ultimo.garantias_lista[0].anulada).toBeUndefined();   // sin motivo no se anula
+  expect(ultimo.garantias_lista[0].anulada).toBeUndefined();
   fireEvent.click(btn());
-  expect(ultimo.garantias_lista).toHaveLength(1);
   expect(ultimo.garantias_lista[0]).toMatchObject({ ...g0, anulada: true, motivoAnulacion: 'Alzamiento de hipoteca' });
   expect(screen.queryByTitle('Anular garantía (queda en el historial)')).toBeNull();
   pr.mockRestore();
