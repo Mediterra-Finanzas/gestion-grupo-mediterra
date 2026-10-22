@@ -155,5 +155,7 @@ check('Socio cuota parcial, corte 01-03-2026: capital 100.000', aprox(s1a.capita
 const s1b = informeDeuda([{ ...soc(1000), pagos: [{ id: 'q', vencKey: 's@2026-07-15', fecha: '2026-07-15', capital: 0, interes: 1000 }] }], '2026-08-15').filas[0];
 check('Socio cuota parcial pagada, corte 15-08-2026: capital 103.839,81 y sin interés vencido', aprox(s1b.capital, 100000 + int1 - 1000, 0.02) && s1b.devengado < int2, `${s1b.capital} / ${s1b.devengado}`);
 
+const sPc = informeDeuda([{ ...soc(1000), control_desde: '2026-09-01' }], '2026-10-15').filas[0];
+check('Socio cuota parcial por conciliar: por conciliar = 1.000 (no el interés completo)', aprox(sPc.porConciliar, 1000), String(sPc.porConciliar));
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

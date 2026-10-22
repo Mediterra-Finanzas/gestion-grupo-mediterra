@@ -132,7 +132,8 @@ export function informeDeuda(creditos, corte) {
     if (Object.keys(capSocioParcial).length) avisos.push('cuota de socio menor al interés: la parte no cubierta se capitaliza (el flujo de caja hoy proyecta el interés completo)');
     vencs.forEach(v => {
       if (!(v.pendienteTotal > 0)) return;
-      if (v.porConciliar) { f.porConciliar += v.pendienteTotal; return; }
+      // Cuota parcial de socio: lo capitalizado ya está en el capital, no es impacto por conciliar.
+      if (v.porConciliar) { f.porConciliar += Math.max(0, v.pendienteTotal - (capSocioParcial[v.fecha] || 0)); return; }
       // Interés capitalizado en una renovación: antes de la fecha de origen sigue siendo
       // interés de ESE período (no del período de la renovación).
       const noVig = capitalizadoNoVigenteAl(v, corte);
