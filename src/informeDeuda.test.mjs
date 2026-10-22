@@ -233,5 +233,56 @@ const IP = informeDeuda([{ ...bciPP }], '2026-11-05').filas[0];
 check('Pago parcial que vence el día del corte: crédito "con pagos parciales"', IP.estadoCredito === 'con_parciales', IP.estadoCredito);
 const IC = informeDeuda([bci, { ...viejoPC, naturaleza: 'anticipo_cliente' }], '2026-10-22');
 check('Por conciliar de un anticipo no rotula como parcial la deuda financiera', !IC.parcial && IC.obligaciones.porConciliar === 43828, JSON.stringify(IC.motivosParcial));
+// ═══ CASO 9 — Renovaciones: solo cuenta la deuda vigente al corte ═════════════════
+// Crédito 1.000.000 (capital) + 45.000 (interés), vence 27-12-2026; tasa de renovación 9%.
+const rb = { uid: 'rv', empresa: 'Osiris', acreedor: 'BCI', tipo_inst: 'Banco', tipo_cr: 'Bullet', monto: 1000000, f_inicio: '2026-06-27', f_venc: '2026-12-27',
+  cuota: 1045000, control_desde: '2026-06-27', renovable: true, desglose: { capital: 1000000, interes: 45000, cargos: 0 } };
+const cq = (pares) => pares.map(([tipo, mes, anio]) => ({ tipo, mes, anio }));
+const rAnt = { monto: 1000000, mes_ingreso: 'Dic', anio_ingreso: 2026, tasa_anual: 9, cuotas: cq([['Solo Interés', 'Jun', 2027], ['Capital+Interés', 'Dic', 2029]]) };
+const rExt = (key, monto = 1000000, cuotas = cq([['Solo Interés', 'Jun', 2027], ['Capital+Interés', 'Dic', 2029]])) => ({ monto, tasa_anual: 9, modalidad: 'extension', confirmada: true, intereses: 'pagados', venc_origen_key: key, cuotas });
+const rPyn = { monto: 1200000, tasa_anual: 9, modalidad: 'pago_y_nuevo', confirmada: true, mes_ingreso: 'Dic', anio_ingreso: 2026, cuotas: cq([['Solo Interés', 'Jun', 2027], ['Capital+Interés', 'Dic', 2029]]) };
+const F = (c, corte) => informeDeuda([c], corte).filas[0];
+// Futura: no suma capital, no adelanta el vencimiento, su interés va como proyección.
+for (const [nom, ren, capNuevo] of [['antigua', rAnt, 1000000], ['pago y nuevo', rPyn, 1200000]]) {
+  const a = F({ ...rb, renovaciones: [ren] }, '2026-10-22');
+  check(`Renovación ${nom} futura: capital 1.000.000 (sin sumar la renovación)`, a.capital === 1000000, String(a.capital));
+  check(`Renovación ${nom} futura: vence 27-12-2026, no en 2029`, a.vencimientoFinal === '2026-12-27' && a.vencimientoRenovacion > '2029', a.vencimientoFinal);
+  check(`Renovación ${nom} futura: devengado solo del crédito vigente (45.000 × 117/183)`, aprox(a.devengado, 45000 * 117 / 183), String(a.devengado));
+  check(`Renovación ${nom} futura: proyección aparte con su capital nuevo`, a.proyeccion.capital === capNuevo && a.proyeccion.interes > 0 && a.totalPorPagar === 1045000, JSON.stringify(a.proyeccion));
+  const b = F({ ...rb, renovaciones: [ren] }, '2027-01-15');
+  check(`Renovación ${nom} efectiva: reemplaza el capital anterior (${capNuevo}), no suma ambos`, b.capital === capNuevo && b.proyeccion.total === 0, String(b.capital));
+}
+const e1 = F({ ...rb, renovaciones: [rExt('rv@2026-12-27')] }, '2026-10-22');
+check('Extensión futura: capital 1.000.000, vence 27-12-2026, intereses nuevos como proyección', e1.capital === 1000000 && e1.vencimientoFinal === '2026-12-27' && e1.proyeccion.capital === 0 && e1.proyeccion.interes === 270000 && e1.porDevengar === r2t(45000 - e1.devengado), JSON.stringify(e1.proyeccion));
+const e2 = F({ ...rb, renovaciones: [rExt('rv@2026-12-27')] }, '2027-01-15');
+check('Extensión efectiva: capital 1.000.000, vence 2029', e2.capital === 1000000 && e2.vencimientoFinal > '2029' && e2.proyeccion.total === 0);
+// Parcial: renueva 600.000; el remanente 400.000 se paga al vencimiento.
+const par = { ...rb, renovaciones: [{ ...rExt('rv@2026-12-27', 600000), modalidad: 'parcial' }] };
+check('Parcial futura: capital 1.000.000 (remanente 400.000 + renovado 600.000, sin duplicar)', F(par, '2026-10-22').capital === 1000000);
+const parPag = { ...par, pagos: [{ id: 'pp', vencKey: 'rv@2026-12-27', fecha: '2026-12-27', capital: 400000, interes: 45000 }] };
+check('Parcial efectiva con remanente pagado: capital 600.000', F(parPag, '2027-01-15').capital === 600000, String(F(parPag, '2027-01-15').capital));
+check('Parcial efectiva sin pagar el remanente: 400.000 vencidos + 600.000 renovados', F(par, '2027-01-15').capital === 1000000);
+// Encadenadas: extensión a Dic-27 y luego extensión de esa a Dic-29.
+const ch = { ...rb, renovaciones: [rExt('rv@2026-12-27', 1000000, cq([['Capital+Interés', 'Dic', 2027]])), rExt('rv@R0@0', 1000000, cq([['Capital+Interés', 'Dic', 2029]]))] };
+const c1 = F(ch, '2026-10-22'), c2 = F(ch, '2027-03-31'), c3 = F(ch, '2028-01-15');
+check('Encadenadas, antes de la 1ª: 1.000.000, vence 27-12-2026', c1.capital === 1000000 && c1.vencimientoFinal === '2026-12-27', c1.vencimientoFinal);
+check('Encadenadas, entre la 1ª y la 2ª: 1.000.000, vence Dic-2027 (la 2ª es proyección)', c2.capital === 1000000 && c2.vencimientoFinal.startsWith('2027-12') && c2.proyeccion.interes > 0, c2.vencimientoFinal);
+check('Encadenadas, después de ambas: 1.000.000, vence Dic-2029', c3.capital === 1000000 && c3.vencimientoFinal.startsWith('2029-12') && c3.proyeccion.total === 0, c3.vencimientoFinal);
+// Encadenadas antiguas: cada una reemplaza a la anterior al entrar en vigor.
+const chA = { ...rb, renovaciones: [{ ...rAnt, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) }, { ...rAnt, mes_ingreso: 'Dic', anio_ingreso: 2027, cuotas: cq([['Capital+Interés', 'Dic', 2029]]) }] };
+const a1 = F(chA, '2026-10-22'), a2 = F(chA, '2027-03-31'), a3 = F(chA, '2028-01-15');
+check('Antiguas encadenadas: 1.000.000 en cada corte, nunca 2.000.000 ni 3.000.000', a1.capital === 1000000 && a2.capital === 1000000 && a3.capital === 1000000, `${a1.capital} ${a2.capital} ${a3.capital}`);
+check('Antiguas encadenadas: vencimiento vigente avanza solo al entrar en vigor', a1.vencimientoFinal === '2026-12-27' && a2.vencimientoFinal.startsWith('2027-12') && a3.vencimientoFinal.startsWith('2029-12'), `${a1.vencimientoFinal} ${a2.vencimientoFinal} ${a3.vencimientoFinal}`);
+// Una renovación propuesta (sin confirmar) no se proyecta ni suma.
+const prop = F({ ...rb, renovaciones: [{ ...rExt('rv@2026-12-27'), confirmada: false }] }, '2026-10-22');
+check('Renovación propuesta: no suma ni se proyecta', prop.capital === 1000000 && prop.proyeccion.total === 0 && prop.vencimientoFinal === '2026-12-27');
+// Detalle: Σ saldo pendiente de las cuotas = total identificado también con renovaciones.
+const malosR = [];
+[[{ ...rb, renovaciones: [rAnt] }, '2026-10-22'], [{ ...rb, renovaciones: [rAnt] }, '2027-01-15'], [{ ...rb, renovaciones: [rPyn] }, '2027-01-15'], [par, '2026-10-22'], [parPag, '2027-01-15'], [ch, '2027-03-31'], [chA, '2028-01-15']].forEach(([c, k]) => {
+  const x = F(c, k); const pend = r2t(x.cuotas.filter(q => q.estado !== 'por_conciliar').reduce((a, q) => a + q.pendiente, 0));
+  if (Math.abs(pend - x.totalIdentificado) > 0.001) malosR.push(`${k}: ${pend} vs ${x.totalIdentificado}`);
+});
+check('Renovaciones: Σ saldo pendiente de cuotas = total identificado', malosR.length === 0, malosR.join(' | '));
+
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

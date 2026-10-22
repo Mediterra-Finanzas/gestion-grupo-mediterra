@@ -291,3 +291,29 @@ test('UF con 4 decimales en Excel, TC declarado rotulado como estimación y aval
   const avPdf = bloquesPdfInforme(inf, {}).find(b => b.titulo === 'Avales').body.find(r => r[2] === 'Socio C');
   expect(avPdf[5]).toBe('aval personal hasta UF 5000 · desde 15-01-2026');
 });
+
+test('renovación que aún no rige: pantalla, Excel y PDF muestran solo la deuda vigente y la renovación como proyección', () => {
+  const osb = { uid: 'osb', empresa: 'Osiris', acreedor: 'BCI', tipo_inst: 'Banco', tipo_cr: 'Bullet', monto: 1000000, f_inicio: '2026-06-27', f_venc: '2026-12-27',
+    cuota: 1045000, control_desde: '2026-06-27', renovable: true, desglose: { capital: 1000000, interes: 45000, cargos: 0 },
+    renovaciones: [{ monto: 1000000, mes_ingreso: 'Dic', anio_ingreso: 2026, tasa_anual: 9,
+      cuotas: [{ tipo: 'Solo Interés', mes: 'Jun', anio: 2027 }, { tipo: 'Capital+Interés', mes: 'Dic', anio: 2029 }] }] };
+  const corte = '2026-12-15';   // antes del vencimiento (27-12) y después del mes de ingreso (01-12): ya rige
+  const corteAntes = '2026-11-20';
+  const { container } = render(<InformeDeudaCreditos creditos={[osb]} tcData={{}} />);
+  fireEvent.change(container.querySelector('input[type=date]'), { target: { value: corteAntes } });
+  const inf = informeDeuda([osb], corteAntes);
+  expect(inf.total.capital).toBe(1000000);
+  expect(container.querySelector('[data-indicador="capital"]').textContent).toContain('US$ 1,000,000.00');
+  expect(container.querySelector('[data-indicador="renovacionesFuturas"]').textContent).toContain(`US$ ${fmtUSD(inf.proyeccionRenovaciones.usd)}`);
+  expect(container.querySelector('[data-fila-credito="osb"]').textContent).toMatch(/27\/12\/2026.*renovación hasta/);
+  fireEvent.click(container.querySelector('[data-fila-credito="osb"]'));
+  expect(container.querySelectorAll('[data-detalle-credito="osb"] [data-cuota="renovacion_futura"]')).toHaveLength(2);
+  fireEvent.click(screen.getByRole('button', { name: /Excel/ }));
+  const res = hojaDe(descargarExcelConLogo.mock.calls[0], 'Resumen');
+  expect(res.find(r => /^Capital/.test(String(r[0])))[1]).toBe(1000000);
+  expect(res.find(r => /^Renovaciones que aún no rigen/.test(String(r[0])))[1]).toBe(inf.proyeccionRenovaciones.usd);
+  const B = bloquesPdfInforme(inf, {});
+  expect(B.find(b => b.titulo === 'Resumen').body.find(r => /^Capital/.test(r[0]))[1]).toBe('1,000,000.00');
+  // ya vigente: reemplaza, no suma
+  expect(informeDeuda([osb], corte).total.capital).toBe(1000000);
+});

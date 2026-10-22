@@ -10895,7 +10895,7 @@ function SaldoDeudaPorMes({creditos=[], empresas={}, tcData}){
 // MISMA agrupación: no hay una segunda copia del cálculo.
 const ORDEN_CLASIF = [...CLASIFICACIONES, "Sin clasificar"];
 const NOTAS_INFORME = NOTAS_METODO;   // «Cómo se calcula»: mismos textos en pantalla, Excel y PDF
-const ESTADO_COLOR = (e)=>({vence_corte:C.yellow,vence_corte_parcial:C.yellow,vencida:C.red,vencida_parcial:C.red,parcial:C.yellow,por_conciliar:C.muted,pagada:C.green,renovada:C.green,capitaliza:C.muted}[e]||C.text);
+const ESTADO_COLOR = (e)=>({renovacion_futura:C.muted,vence_corte:C.yellow,vence_corte_parcial:C.yellow,vencida:C.red,vencida_parcial:C.red,parcial:C.yellow,por_conciliar:C.muted,pagada:C.green,renovada:C.green,capitaliza:C.muted}[e]||C.text);
 export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
   const [corte,setCorte]=useState(hoyISO());
   const [abiertos,setAbiertos]=useState(()=>new Set());
@@ -11013,7 +11013,7 @@ export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
           <tbody>
             {indicadoresInforme(inf).map(i=>{
               const fuerte = i.k==="saldoDeuda"||i.k==="totalIdentificado"||i.k==="obligaciones";
-              const aparte = i.k==="porConciliar";
+              const aparte = i.k==="porConciliar"||i.k==="renovacionesFuturas";
               return (
                 <tr key={i.k} data-indicador={i.k} style={{borderTop:i.k==="totalIdentificado"||i.k==="anticipos"||aparte?`2px solid ${C.border}`:`1px solid ${C.border}44`,background:i.k==="obligaciones"?`${C.blue}18`:(i.k==="totalIdentificado"?`${C.blue}0a`:"transparent")}}>
                   <td style={{padding:"6px 10px",fontWeight:fuerte?800:500,color:aparte?C.muted:C.text}}>{i.label}</td>
@@ -11066,7 +11066,7 @@ export function InformeDeudaCreditos({creditos=[], tcData, abrirDetalle}){
                           {!x.usd&&<span style={{marginLeft:6,fontSize:9.5,color:C.red,fontWeight:700}}>sin TC: fuera del total</span>}
                         </td>
                         <td data-clasif style={{...CR_TD,whiteSpace:"nowrap"}}>{x.clasificacion||<span style={{color:C.yellow}}>Sin clasificar</span>}{x.clasificacionOrigen==="sugerida"&&<span style={{color:C.muted,fontSize:9}}> (sug.)</span>}</td>
-                        <td style={CR_TD}>{x.moneda}</td>{tdN(fmtDate(x.vencimientoFinal))}
+                        <td style={CR_TD}>{x.moneda}</td>{tdN(<>{fmtDate(x.vencimientoFinal)}{x.vencimientoRenovacion&&<div style={{fontSize:9,color:C.muted}}>renovación hasta {fmtDate(x.vencimientoRenovacion)}</div>}</>)}
                         {cols.map(([k])=><React.Fragment key={k}>{tdN(x.usd?fmtUSD(x.usd[k]):"sin TC",k==="sinDesglose"&&x.sinDesglose?{color:C.yellow}:{})}</React.Fragment>)}
                       </tr>
                       {ab&&(

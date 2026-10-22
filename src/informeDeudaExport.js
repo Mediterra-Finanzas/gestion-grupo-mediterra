@@ -16,6 +16,7 @@ export const NOTAS_METODO = [
   'Por conciliar: cuotas antiguas sin pago registrado ni confirmación. No se incluyen en ningún total hasta conciliarlas.',
   'Anticipos de clientes: se marcan en cada crédito («Naturaleza de la obligación»). Se muestran aparte y suman al total de obligaciones.',
   'Conversión a US$ con el tipo de cambio de Maestros a la fecha de corte. Si Maestros no lo tiene, se usa el tipo de cambio declarado en el crédito, como estimación; sin ninguno, el crédito queda fuera de los totales. Montos al centavo (UF, 4 decimales); los totales son la suma de las filas.',
+  'Renovaciones: solo cuenta la deuda vigente al corte. Una renovación que aún no rige se muestra como proyección (capital nuevo e intereses) y no cambia el vencimiento vigente; cuando rige, reemplaza el capital que renueva, sin sumar ambos.',
   'Pagos con fecha posterior al corte no se descuentan. Lo ya pagado de una cuota se descuenta primero del interés devengado. El interés que se sumará al capital después del corte (gracia, renovaciones) se informa como interés.',
 ];
 export const avisoParcial = (inf) => (inf.parcial ? `Capital, intereses y saldo son parciales: no incluyen ${inf.motivosParcial.join(', ')}.` : '');
@@ -38,7 +39,8 @@ export function indicadoresInforme(inf) {
   return [...out.map(([k, l]) => ({ k, label: l, usd: t[k] })),
     { k: 'anticipos', label: `Anticipos de clientes${inf.conteo.anticipos ? '' : ' (ninguno marcado)'}`, usd: inf.anticipos.totalIdentificado },
     { k: 'obligaciones', label: 'Total de obligaciones identificadas', usd: inf.obligaciones.totalIdentificado },
-    { k: 'porConciliar', label: 'Por conciliar (no incluido)', usd: inf.obligaciones.porConciliar }];
+    { k: 'porConciliar', label: 'Por conciliar (no incluido)', usd: inf.obligaciones.porConciliar },
+    ...(inf.proyeccionRenovaciones && inf.proyeccionRenovaciones.usd > 0 ? [{ k: 'renovacionesFuturas', label: 'Renovaciones que aún no rigen (proyección, no incluida)', usd: inf.proyeccionRenovaciones.usd }] : [])];
 }
 export const formulaTotalIdentificado = (inf) =>
   `Total de obligaciones identificadas: deuda financiera US$ ${fmtUSD(inf.total.totalIdentificado)} + anticipos de clientes US$ ${fmtUSD(inf.anticipos.totalIdentificado)} = US$ ${fmtUSD(inf.obligaciones.totalIdentificado)}.`;
