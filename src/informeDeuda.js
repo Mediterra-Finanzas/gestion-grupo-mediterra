@@ -95,7 +95,12 @@ export function informeDeuda(creditos, corte) {
     const base = esContrato(c) && ['30360', 'act360', 'act365'].includes(c.base) ? c.base : 'act365';
     // Fracción devengada al corte del período que termina en `fin` (empieza en el
     // vencimiento anterior del crédito o, si no hay, en el desembolso). null = sin inicio.
-    const fechas = [...new Set(vencs.map(v => v.fecha))].sort();
+    // Un vencimiento que solo trae cargos (cargo único: notaría, comisión) no corta el período
+    // de interés. Las filas de socio que no generan vencimiento (cuota 0) sí lo cortan.
+    const filasSocio = esSocio(c) ? calcularAmortizacionSocio(c.monto, c.tasa_efectiva_anual, c.fecha_desembolso, c.cuotas_socio).filas.filter(x => isoValida(x.fecha)) : [];
+    const fechas = [...new Set([
+      ...vencs.filter(v => v.capital + v.interes + v.sinDesglose > EPS || v.capitalizado > EPS).map(v => v.fecha),
+      ...filasSocio.map(x => x.fecha)])].sort();
     const fracHasta = (fin) => {
       if (fin <= corte) return 1;
       const ant = fechas.filter(x => x < fin).pop();
@@ -114,10 +119,17 @@ export function informeDeuda(creditos, corte) {
     // todavía es interés del período en que se genera.
     let capFuturo = 0;
     vencs.forEach(v => { if (v.fecha > corte && v.capitalizado > EPS) { capFuturo += v.capitalizado; devengar(v.capitalizado, fracHasta(v.fecha)); } });
-    if (esSocio(c)) {
-      const { filas: fs } = calcularAmortizacionSocio(c.monto, c.tasa_efectiva_anual, c.fecha_desembolso, c.cuotas_socio);
-      fs.forEach(x => { if (!(x.cuota_total > 0) && x.amortizacion < 0 && isoValida(x.fecha) && x.fecha > corte) { capFuturo += -x.amortizacion; devengar(-x.amortizacion, fracHasta(x.fecha)); } });
-    }
+    // Socio con cuota menor al interés: lo que la cuota no cubre se capitaliza. Si la cuota
+    // es 0 no hay vencimiento y el interés se devenga acá. Si es parcial, el vencimiento
+    // trae el interés COMPLETO (así lo arma vencimientosCredito): la parte capitalizada se
+    // saca del capital futuro (antes del corte) o del interés vencido (después).
+    const capSocioParcial = {};
+    filasSocio.forEach(x => {
+      if (!(x.amortizacion < 0)) return;
+      if (!(x.cuota_total > 0)) { if (x.fecha > corte) { capFuturo += -x.amortizacion; devengar(-x.amortizacion, fracHasta(x.fecha)); } }
+      else capSocioParcial[x.fecha] = (capSocioParcial[x.fecha] || 0) - x.amortizacion;
+    });
+    if (Object.keys(capSocioParcial).length) avisos.push('cuota de socio menor al interés: la parte no cubierta se capitaliza (el flujo de caja hoy proyecta el interés completo)');
     vencs.forEach(v => {
       if (!(v.pendienteTotal > 0)) return;
       if (v.porConciliar) { f.porConciliar += v.pendienteTotal; return; }
@@ -130,8 +142,10 @@ export function informeDeuda(creditos, corte) {
         const tot = ks.filter(k => corte < k.desde).reduce((a, k) => a + k.monto, 0) || 1;
         ks.filter(k => corte < k.desde).forEach(k => devengar(noVig * k.monto / tot, fracHasta(k.desde)));
       }
+      const capParcial = capSocioParcial[v.fecha] || 0;
+      if (capParcial > EPS && v.fecha > corte) capFuturo += capParcial;
       if (v.fecha <= corte) {
-        f.devengado += v.pendiente.interes; f.cargosVencidos += v.pendiente.cargos;
+        f.devengado += Math.max(0, v.pendiente.interes - capParcial); f.cargosVencidos += v.pendiente.cargos;
       } else {
         f.cargosFuturos += v.pendiente.cargos;
         const pagInt = v.pagado ? v.pagado.interes : 0;

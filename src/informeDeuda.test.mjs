@@ -128,5 +128,32 @@ check('Pago parcial de interés: devengado = 204.240,89 × 347/360 − 100.000',
 const uf = { ...legD, uid: 'uf', moneda: 'UF', monto: 1000.12345, desglose: { capital: 1000.1234, interes: 20.5678, cargos: 0 }, cuota: 1020.6912 };
 check('UF con 4 decimales', informeDeuda([uf], '2026-10-22').filas[0].capital === 1000.1234);
 
+// ═══ CASO 6 — Re-revisión: cargo único y socios con cuota menor al interés ═══
+// Bullet con intereses mensuales 1.000.000 al 12% Act/360, control desde 01-10-2026, corte 22-10-2026.
+// Cuota 01-10 vencida impaga: 1.000.000 × 12% × 30/360 = 10.000. Cuota 01-11: 10.333,33 × 21/31 = 7.000.
+const bu = { uid: 'bu', tipo_credito: 'contrato', modalidad: 'bullet_int', empresa: 'Osiris', acreedor: 'Banco Cargo', moneda: 'USD', monto: 1000000,
+  fecha_desembolso: '2026-01-01', primer_venc: '2026-02-01', vencimiento_final: '2027-01-01', periodicidad: 1, tasa_tipo: 'fija', tasa_anual: 12, base: 'act360', control_desde: '2026-10-01' };
+const sinCargo = informeDeuda([bu], '2026-10-22').filas[0];
+const conCargo = informeDeuda([{ ...bu, cargos_unicos: [{ fecha: '2026-10-20', monto: 500, concepto: 'Notaría' }] }], '2026-10-22').filas[0];
+check('Bullet: devengado = 10.000 + 10.333,33 × 21/31 = 17.000', aprox(sinCargo.devengado, 17000), String(sinCargo.devengado));
+check('Un cargo único no corta el período de interés', aprox(conCargo.devengado, 17000) && aprox(conCargo.cargosVencidos, 500), `${conCargo.devengado} / ${conCargo.cargosVencidos}`);
+// Socio 100.000 al 10% efectivo, desembolso 15-01-2026. Fila 1 (15-07-2026, 181 días): interés
+// 100.000 × (1,1^(181/365) − 1) = 4.839,81. Fila 2 (15-01-2027, 184 días) amortiza todo el saldo.
+const int1 = 100000 * (Math.pow(1.1, 181 / 365) - 1);
+const soc = (cuota1) => ({ uid: 's', tipo_credito: 'socio', empresa: 'Osiris', acreedor: 'Socio', moneda: 'USD', monto: 100000, tasa_efectiva_anual: 10,
+  fecha_desembolso: '2026-01-15', control_desde: '2026-01-15',
+  cuotas_socio: [{ fecha_vencimiento: '2026-07-15', modo: 'cuota', cuota_total: cuota1 },
+    { fecha_vencimiento: '2027-01-15', modo: 'amortizacion', amortizacion: Math.round((100000 + int1 - cuota1) * 100) / 100 }] });
+const s0a = informeDeuda([soc(0)], '2026-03-01').filas[0];
+check('Socio cuota 0, corte 01-03-2026: capital 100.000, devengado 4.839,81 × 45/181', aprox(s0a.capital, 100000) && aprox(s0a.devengado, int1 * 45 / 181, 0.02), `${s0a.capital} / ${s0a.devengado}`);
+const s0b = informeDeuda([soc(0)], '2026-10-15').filas[0];
+const int2 = (100000 + int1) * (Math.pow(1.1, 184 / 365) - 1);
+check('Socio cuota 0, corte 15-10-2026: capital 104.839,81, devengado = interés fila 2 × 92/184', aprox(s0b.capital, 100000 + int1, 0.02) && aprox(s0b.devengado, int2 * 92 / 184, 0.05), `${s0b.capital} / ${s0b.devengado} vs ${(int2 * 92 / 184).toFixed(2)}`);
+// Cuota parcial de 1.000: capitalizan 3.839,81 (sin contarlos dos veces).
+const s1a = informeDeuda([soc(1000)], '2026-03-01').filas[0];
+check('Socio cuota parcial, corte 01-03-2026: capital 100.000', aprox(s1a.capital, 100000), String(s1a.capital));
+const s1b = informeDeuda([{ ...soc(1000), pagos: [{ id: 'q', vencKey: 's@2026-07-15', fecha: '2026-07-15', capital: 0, interes: 1000 }] }], '2026-08-15').filas[0];
+check('Socio cuota parcial pagada, corte 15-08-2026: capital 103.839,81 y sin interés vencido', aprox(s1b.capital, 100000 + int1 - 1000, 0.02) && s1b.devengado < int2, `${s1b.capital} / ${s1b.devengado}`);
+
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);
