@@ -91,7 +91,7 @@ const renBase = { uid: 'r', empresa: 'Osiris', acreedor: 'Banco Ren', moneda: 'U
 const ren = (intereses) => ({ monto: 900000, tasa_anual: 10, modalidad: 'extension', confirmada: true, intereses, venc_origen_key: 'r@2026-12-31',
   cuotas: [{ tipo: 'Capital+Interés', mes: 'Jun', anio: 2027 }] });
 // Pagos: con fecha posterior al corte no reducen el capital, aunque toquen la renovación.
-const rPag = { ...renBase, renovaciones: [ren('pagados')], pagos: [{ id: 'x', vencKey: 'r@2026-12-31', fecha: '2026-12-31', capital: 0, interes: 100000 }] };
+const rPag = { ...renBase, renovaciones: [ren('pagados')], pagos: [{ id: 'x', vencKey: 'r@2026-12-31', fecha: '2026-12-31', capital: 300000, interes: 100000 }] };
 check('Renovación: capital al 31-10-2026 = 900.000 aunque haya pagos posteriores', aprox(informeDeuda([rPag], '2026-10-31').filas[0].capital, 900000), String(informeDeuda([rPag], '2026-10-31').filas[0].capital));
 // Intereses "pagados": el interés de origen se devenga en su período: 100.000 × 123/184 = 66.847,83
 const iPag = informeDeuda([{ ...renBase, renovaciones: [ren('pagados')] }], '2026-10-31').filas[0];
