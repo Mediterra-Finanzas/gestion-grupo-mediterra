@@ -8543,7 +8543,7 @@ export function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}
       <div style={{background:C.bg2,border:`1px solid ${C.blue}55`,borderRadius:16,width:1100,maxWidth:"96vw",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(16,24,40,0.4)"}}>
         <div style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
           <span style={{fontSize:13,fontWeight:800,color:C.text}}>📅 {credito.acreedor} · {credito.empresa}</span>
-          <Pill def={ESTADO_CRED[e.estado]||ESTADO_CRED.vigente}/>
+          <Pill def={ESTADO_CRED[ev.estado]||ESTADO_CRED.vigente}/>
           <button onClick={onClose} style={{marginLeft:"auto",background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:20}}>×</button>
         </div>
         <div style={{padding:"12px 20px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"6px 16px",fontSize:11}}>

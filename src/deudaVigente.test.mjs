@@ -111,7 +111,29 @@ check('saldoCapitalAl (misma regla): nov-26 = 1.000.000', saldoCapitalAl([cA], '
 const hoy2 = '2027-02-20';
 const sFeb = saldosAlCorte([doce], '2027-02-28', hoy2).total, sMar = saldosAlCorte([doce], '2027-03-31', hoy2).total;
 check('Saldo por Mes con pago y nuevo, cierre feb-27: mar-dic (1.000.000) y el nuevo (900.000) aparte', sFeb.capital === 1000000 && sFeb.proyeccion === 900000, JSON.stringify(sFeb));
-check('Saldo por Mes con pago y nuevo, cierre mar-27: 900.000 nuevo + 100.000 no cubierto = 1.000.000', sMar.capital === 1000000 && sMar.proyeccion === 0, JSON.stringify(sMar));
+// Visto el 20-02, la cuota de mar-27 se supone pagada al cierre de marzo (igual que el flujo), así
+// que no hay capital no cubierto: 900.000 refinancian abr-dic. Si la cuota de marzo no se paga, el
+// KPI de ese día la mostrará (ver el caso 'Pago y nuevo 900.000 sobre 1.000.000 pendiente').
+check('Saldo por Mes con pago y nuevo, cierre mar-27 (visto el 20-02): 900.000 nuevo (la cuota de marzo se supone pagada); no se cuenta dos veces', sMar.capital === 900000 && sMar.proyeccion === 0, JSON.stringify(sMar));
+const sMeses = ['2027-04-30', '2027-06-30', '2027-11-30', '2027-12-31'].map(k => saldosAlCorte([doce], k, hoy2).total.capital);
+check('Saldo por Mes con pago y nuevo, abr-dic 27: 900.000 en cada cierre (sin la cuota duplicada)', sMeses.every(x => x === 900000), sMeses.join(' / '));
+
+// ── 7) Hallazgos de la revisión independiente ──
+// Pago registrado con fecha futura: a hoy cuenta (como el flujo); sin renovaciones, igual que antes.
+const fut = { uid: 'fu', empresa: 'Osiris', acreedor: 'X', tipo_inst: 'Banco', tipo_cr: 'Bullet', moneda: 'USD', monto: 120000, f_inicio: '2026-06-01', f_venc: '2026-12-15', cuota: 125000, control_desde: '2026-06-01',
+  desglose: { capital: 120000, interes: 5000, cargos: 0 }, pagos: [{ id: 'pf', vencKey: 'fu@2026-12-15', fecha: '2026-11-05', capital: 5000 }] };
+check('Pago fechado en el futuro: KPI, Análisis y Saldo por Mes (hoy y nov-26) lo descuentan (115.000)',
+  estadoCreditoAlCorte(fut, '2026-10-23').saldoCapital === 115000 && analisisCartera([fut], '2026-10-23').porEmpresa.Osiris.saldoCapital === 115000
+  && saldosAlCorte([fut], '2026-10-23', '2026-10-23').total.capital === 115000 && saldosAlCorte([fut], '2026-11-30', '2026-10-23').total.capital === 115000);
+// Dos pago y nuevo: el aviso de no cubierto se retira si la segunda lo cubre.
+const dosP = { ...rb, renovaciones: [pyn({ monto: 600000 }), pyn({ monto: 1200000, mes_ingreso: 'Jun', anio_ingreso: 2027, cuotas: cq([['Capital+Interés', 'Dic', 2029]]) })] };
+const eDos = estadoCreditoAlCorte(dosP, '2027-07-15');
+check('Dos pago y nuevo: 1.200.000 vigente y sin aviso de «no cubre» (la 2ª cubrió los 400.000)', eDos.saldoCapital === 1200000 && !eDos.avisosVigencia.some(a => /no cubre/.test(a)), `${eDos.saldoCapital} | ${eDos.avisosVigencia.join(' | ')}`);
+check('Dos pago y nuevo, entre ambas: 600.000 + 400.000 no cubierto, con aviso', estadoCreditoAlCorte(dosP, '2027-01-15').saldoCapital === 1000000 && estadoCreditoAlCorte(dosP, '2027-01-15').avisosVigencia.some(a => /quedan 400000/.test(a)));
+// UF: el capital reemplazado = capital de las cuotas de la renovación (redondeado), sin diferencia.
+const uf = { ...rb, uid: 'uf', moneda: 'UF', monto: 10000, cuota: 10450, desglose: { capital: 10000, interes: 450, cargos: 0 }, renovaciones: [pyn({ monto: 7000.1234 })] };
+const eUF = estadoCreditoAlCorte(uf, '2027-01-15');
+check('UF: pago y nuevo de 7.000,1234 sobre 10.000 → 10.000 exacto (sin diferencia de redondeo)', Math.abs(eUF.saldoCapital - 10000) < 0.00005, String(eUF.saldoCapital));
 
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

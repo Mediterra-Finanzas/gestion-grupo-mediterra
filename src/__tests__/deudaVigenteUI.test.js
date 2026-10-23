@@ -66,3 +66,15 @@ test('Detalle del crédito: indicadores vigentes y la renovación como proyecci�
   expect(container.querySelector('[data-detalle-renovaciones]').textContent).toContain('Renovación que aún no rige');
   expect(container.textContent).toContain('renovación aún no vigente hasta');
 });
+
+test('Detalle: la etiqueta de estado usa la deuda vigente (pago y nuevo vigente: no «Con vencidos»)', () => {
+  jest.setSystemTime(new Date('2027-01-15T12:00:00'));
+  try {
+    const c = { ...bci, pagos: [{ id: 'i', vencKey: 'osb@2026-12-27', fecha: '2026-12-27', interes: 45000 }],
+      renovaciones: [{ monto: 1200000, tasa_anual: 9, modalidad: 'pago_y_nuevo', confirmada: true, mes_ingreso: 'Dic', anio_ingreso: 2026, cuotas: cq([['Capital+Interés', 'Dic', 2029]]) }] };
+    const { container } = render(<CreditoDetalleModal credito={c} onClose={() => {}} onSave={() => {}} canEdit={false} usuario="Admin" />);
+    expect(kpi('Vencido impago')).toBe('$0.00');
+    expect(container.textContent).not.toContain('Con vencidos');
+    expect(container.textContent).toContain('Vigente');
+  } finally { jest.setSystemTime(new Date('2026-10-22T12:00:00')); }
+});
