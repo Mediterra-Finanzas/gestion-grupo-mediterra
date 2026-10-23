@@ -16,7 +16,9 @@ export const NOTAS_METODO = [
   'Por conciliar: cuotas antiguas sin pago registrado ni confirmación. No se incluyen en ningún total hasta conciliarlas.',
   'Anticipos de clientes: se marcan en cada crédito («Naturaleza de la obligación»). Se muestran aparte y suman al total de obligaciones.',
   'Conversión a US$ con el tipo de cambio de Maestros a la fecha de corte. Si Maestros no lo tiene, se usa el tipo de cambio declarado en el crédito, como estimación; sin ninguno, el crédito queda fuera de los totales. Montos al centavo (UF, 4 decimales); los totales son la suma de las filas.',
-  'Renovaciones: solo cuenta la deuda vigente al corte. Una renovación que aún no rige se muestra como proyección (capital nuevo e intereses) y no cambia el vencimiento vigente; cuando rige, reemplaza el capital que renueva, sin sumar ambos.',
+  'Renovaciones: solo cuenta la deuda vigente al corte. Una renovación que aún no rige se muestra como proyección (capital nuevo e intereses) y no cambia el vencimiento vigente. Cuando rige, reemplaza solo el capital que refinancia, hasta su monto, sin sumar ambos; lo que no cubre sigue como deuda. Los intereses ya devengados siguen como deuda salvo pago registrado; deja de deberse solo el interés futuro del capital refinanciado.',
+  'Fecha en que rige una renovación: extensión, el vencimiento que extiende; pago y nuevo, la fecha del desembolso recibido o, si no está registrada, el fin del mes de ingreso (se avisa). Una renovación antigua sin modalidad se señala para revisión; sin mes de ingreso no se considera vigente y queda aparte, «por revisar».',
+  'Mismo cálculo en el informe, los indicadores de Créditos, Análisis CFO y Saldo por Mes (cada mes con la regla a la fecha de su cierre).',
   'Pagos con fecha posterior al corte no se descuentan. Lo ya pagado de una cuota se descuenta primero del interés devengado. El interés que se sumará al capital después del corte (gracia, renovaciones) se informa como interés.',
 ];
 export const avisoParcial = (inf) => (inf.parcial ? `Capital, intereses y saldo son parciales: no incluyen ${inf.motivosParcial.join(', ')}.` : '');
@@ -40,7 +42,8 @@ export function indicadoresInforme(inf) {
     { k: 'anticipos', label: `Anticipos de clientes${inf.conteo.anticipos ? '' : ' (ninguno marcado)'}`, usd: inf.anticipos.totalIdentificado },
     { k: 'obligaciones', label: 'Total de obligaciones identificadas', usd: inf.obligaciones.totalIdentificado },
     { k: 'porConciliar', label: 'Por conciliar (no incluido)', usd: inf.obligaciones.porConciliar },
-    ...(inf.proyeccionRenovaciones && inf.proyeccionRenovaciones.usd > 0 ? [{ k: 'renovacionesFuturas', label: 'Renovaciones que aún no rigen (proyección, no incluida)', usd: inf.proyeccionRenovaciones.usd }] : [])];
+    ...(inf.proyeccionRenovaciones && inf.proyeccionRenovaciones.usd > 0 ? [{ k: 'renovacionesFuturas', label: 'Renovaciones que aún no rigen (proyección, no incluida)', usd: inf.proyeccionRenovaciones.usd }] : []),
+    ...(inf.renovacionesPorRevisar && inf.renovacionesPorRevisar.usd > 0 ? [{ k: 'renovacionesPorRevisar', label: 'Renovaciones por revisar (no incluidas)', usd: inf.renovacionesPorRevisar.usd }] : [])];
 }
 export const formulaTotalIdentificado = (inf) =>
   `Total de obligaciones identificadas: deuda financiera US$ ${fmtUSD(inf.total.totalIdentificado)} + anticipos de clientes US$ ${fmtUSD(inf.anticipos.totalIdentificado)} = US$ ${fmtUSD(inf.obligaciones.totalIdentificado)}.`;
