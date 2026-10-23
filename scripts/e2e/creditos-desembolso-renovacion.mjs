@@ -343,10 +343,10 @@ console.log('\n── 2. Renovaciones (Osiris) ──');
 const leerOsiris = async () => {
   const f = await leerFlujo('Osiris');
   const g = (L, m) => v(f, L, m) ?? 0;
-  return { f, pago: g('Pago Préstamos - Total', 'Dec-26'), ing: g('Ingreso Renovación', 'Dec-26'), ingTot: totalLinea(f, 'Ingreso Renovación'),
+  return { f, pago: g('Pago Préstamos - Total', 'Dec-26'), pagoOct: g('Pago Préstamos - Total', 'Oct-26'), ing: g('Ingreso Renovación', 'Dec-26'), ingTot: totalLinea(f, 'Ingreso Renovación'),
     jun: g('Renovaciones', 'Jun-27'), dic: g('Renovaciones', 'Dec-27'), jun28: g('Renovaciones', 'Jun-28'), dic28: g('Renovaciones', 'Dec-28'), renTot: totalLinea(f, 'Renovaciones') };
 };
-const fmt = (o) => `Pago Dec-26 ${o.pago} · Ingreso Ren. Dec-26 ${o.ing} (total ${o.ingTot}) · Renov. Jun-27 ${o.jun} / Dec-27 ${o.dic} / Jun-28 ${o.jun28} / Dec-28 ${o.dic28} (total ${o.renTot})`;
+const fmt = (o) => `Pago Oct-26 ${o.pagoOct} · Pago Dec-26 ${o.pago} · Ingreso Ren. Dec-26 ${o.ing} (total ${o.ingTot}) · Renov. Jun-27 ${o.jun} / Dec-27 ${o.dic} / Jun-28 ${o.jun28} / Dec-28 ${o.dic28} (total ${o.renTot})`;
 const avisoFlujo = async () => (await page.locator('[data-aviso-creditos-desembolso-renovacion]').count()) ? page.locator('[data-aviso-creditos-desembolso-renovacion]').innerText() : '';
 const renN = (i) => credStore('e2e-renov').renovaciones[i];
 const ultimoHist = () => { const h = credStore('e2e-renov').historial || []; return h[h.length - 1] || {}; };
@@ -548,7 +548,12 @@ await boxRen(ri).scrollIntoViewIfNeeded();
 await foto(page, '09-form-renovacion-pago-y-nuevo-recibidos');
 al = await guardarForm();
 check('2y Store/historial: recibido 2026-10-15', renN(ri).recibido && renN(ri).recibido.fecha === '2026-10-15' && /fondos recibidos 2026-10-15/.test(ultimoHist().detalle || '') && al.length === 0, `${ultimoHist().detalle} ${al.join(' | ')}`);
-o = await caso('pago-y-nuevo-recibidos', { pago: 1050000, ingTot: 0, jun: 50000, dic: 1050000 });
+// Fondos recibidos el 15-10 (= hoy en la prueba) sin pago registrado del crédito anterior: el pago
+// del anterior NO se da por hecho; sale en la fecha del refinanciamiento (oct-26, mes en curso,
+// «sin registrar») con su interés (sin fecha de inicio: completo), no en el vencimiento de dic-26.
+o = await caso('pago-y-nuevo-recibidos', { pago: 0, pagoOct: 1050000, ingTot: 0, jun: 50000, dic: 1050000 });
+av = await avisoFlujo();
+check('2y′ Aviso del flujo: pago con el refinanciamiento sin registrar', /sin registrar/.test(av) && /Banco Renov E2E/.test(av), av.slice(0, 200));
 
 // ── R5: PARCIAL 600.000 + pagados
 await abrirEdicion();

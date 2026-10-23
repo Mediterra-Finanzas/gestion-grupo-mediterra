@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Tests del informe de deuda al corte — ejecutar: node src/informeDeuda.test.mjs
 // Cada caso deja escrito el cálculo aritmético esperado.
-import { informeDeuda, clasificacionCredito, clasificacionSugerida } from './informeDeuda.js';
+import { informeDeuda, clasificacionCredito, clasificacionSugerida, textoAval } from './informeDeuda.js';
 import { valorizarCreditos, fraccionAnio } from './creditos.js';
 
 let fallos = 0;
@@ -31,7 +31,13 @@ const porDevEsp = (204240.89 - devEsp) + 170443.06 + 133759.11 + 87348.73 + 3080
 check('Por devengar = resto del período + intereses futuros', aprox(f.porDevengar, porDevEsp, 0.02), `${f.porDevengar} vs ${porDevEsp.toFixed(2)}`);
 check('Total por pagar = capital + todos los intereses pendientes', aprox(f.totalPorPagar, 2391579.48 + 204240.89 + 170443.06 + 133759.11 + 87348.73 + 3080.73, 0.02));
 check('Leasing → Estructurado (sugerida)', f.clasificacion === 'Estructurado' && f.clasificacionOrigen === 'sugerida');
-check('Garantías estructuradas: aval y prenda', inf.garantias.Aval.cantidad === 1 && inf.garantias.Prenda.cantidad === 1 && inf.garantias.Aval.montos.USD === 3000000);
+check('Avales separados de las garantías: 1 aval y 1 prenda', !inf.garantias.Aval && inf.garantias.Prenda.cantidad === 1 && inf.avales['Mediterra Holding'].montos.USD === 3000000 && f.avales.length === 1 && f.garantias.length === 1);
+// Varios avalistas: cada uno queda registrado y la deuda no se duplica.
+const varios = { ...bci, garantias_lista: [{ tipo: 'Aval', otorgante: 'Mediterra Holding', porcentaje: 60 }, { tipo: 'Aval', otorgante: 'Socio A' },
+  { tipo: 'Aval', otorgante: 'Socio B', monto: 500000, moneda: 'USD' }, { tipo: 'Aval', otorgante: 'Anulado', anulada: true }, { tipo: 'Hipoteca', bien: 'Predio X' }] };
+const iv = informeDeuda([varios], '2026-10-22');
+check('Varios avalistas: 3 vigentes, la deuda una sola vez', iv.filas[0].avales.length === 3 && Object.keys(iv.avales).length === 3 && iv.total.saldoDeuda === informeDeuda([bci], '2026-10-22').total.saldoDeuda && iv.sinAval === 0);
+check('Aval sin monto ni %: solo el avalista', textoAval(iv.filas[0].avales[1]) === 'Socio A' && /60% de la deuda/.test(textoAval(iv.filas[0].avales[0])));
 
 // Pago posterior al corte NO reduce el saldo al corte.
 const inf2 = informeDeuda([{ ...bci, pagos: [...bci.pagos, { id: 'p3', vencKey: 'bci@2026-11-05', fecha: '2026-11-05', capital: 395759.11, interes: 204240.89 }] }], '2026-10-22');
@@ -227,5 +233,173 @@ const IP = informeDeuda([{ ...bciPP }], '2026-11-05').filas[0];
 check('Pago parcial que vence el día del corte: crédito "con pagos parciales"', IP.estadoCredito === 'con_parciales', IP.estadoCredito);
 const IC = informeDeuda([bci, { ...viejoPC, naturaleza: 'anticipo_cliente' }], '2026-10-22');
 check('Por conciliar de un anticipo no rotula como parcial la deuda financiera', !IC.parcial && IC.obligaciones.porConciliar === 43828, JSON.stringify(IC.motivosParcial));
+// ═══ CASO 9 — Renovaciones: solo cuenta la deuda vigente al corte ═════════════════
+// Reglas del CFO (23-10-2026): una renovación rige desde su fecha efectiva CONFIRMADA (extensión:
+// el vencimiento que extiende; pago y nuevo: el desembolso recibido). Sin información suficiente
+// (antigua sin modalidad, o pago y nuevo cuyo mes llegó sin fecha de desembolso) queda POR
+// REVISAR: fuera del saldo, sin reemplazar nada; la deuda anterior sigue pendiente. Nunca se
+// supone una fecha (ni el fin de mes).
+// Crédito 1.000.000 (capital) + 45.000 (interés), vence 27-12-2026; tasa de renovación 9%.
+const rb = { uid: 'rv', empresa: 'Osiris', acreedor: 'BCI', tipo_inst: 'Banco', tipo_cr: 'Bullet', monto: 1000000, f_inicio: '2026-06-27', f_venc: '2026-12-27',
+  cuota: 1045000, control_desde: '2026-06-27', renovable: true, desglose: { capital: 1000000, interes: 45000, cargos: 0 } };
+const cq = (pares) => pares.map(([tipo, mes, anio]) => ({ tipo, mes, anio }));
+const C2 = cq([['Solo Interés', 'Jun', 2027], ['Capital+Interés', 'Dic', 2029]]);
+const rAnt = { monto: 1000000, mes_ingreso: 'Dic', anio_ingreso: 2026, tasa_anual: 9, cuotas: C2 };
+const rExt = (key, monto = 1000000, cuotas = C2) => ({ monto, tasa_anual: 9, modalidad: 'extension', confirmada: true, intereses: 'pagados', venc_origen_key: key, cuotas });
+const pynD = (x = {}) => ({ monto: 1200000, tasa_anual: 9, modalidad: 'pago_y_nuevo', confirmada: true, mes_ingreso: 'Dic', anio_ingreso: 2026, cuotas: C2, ...x });
+const rPyn = pynD();                                         // sin fecha de desembolso registrada
+const rPynR = pynD({ recibido: { fecha: '2026-12-27' } });   // desembolso recibido el 27-12-2026
+const F = (c, corte) => informeDeuda([c], corte).filas[0];
+
+// Pago y nuevo: futuro, con fecha real y sin ella.
+const p1 = F({ ...rb, renovaciones: [rPyn] }, '2026-10-22');
+check('Pago y nuevo antes de su mes: capital 1.000.000 (sin sumar la renovación)', p1.capital === 1000000, String(p1.capital));
+check('Pago y nuevo antes de su mes: vence 27-12-2026, no en 2029', p1.vencimientoFinal === '2026-12-27' && p1.vencimientoRenovacion > '2029', p1.vencimientoFinal);
+check('Pago y nuevo antes de su mes: devengado solo del crédito vigente (45.000 × 117/183)', aprox(p1.devengado, 45000 * 117 / 183), String(p1.devengado));
+check('Pago y nuevo antes de su mes: proyección aparte (1.200.000 de capital nuevo)', p1.proyeccion.capital === 1200000 && p1.proyeccion.interes > 0 && p1.totalPorPagar === 1045000, JSON.stringify(p1.proyeccion));
+const p2 = F({ ...rb, renovaciones: [rPynR] }, '2027-01-15');
+check('Pago y nuevo con desembolso el 27-12: reemplaza el capital anterior (1.200.000), no suma ambos', p2.capital === 1200000 && p2.proyeccion.total === 0, String(p2.capital));
+const q2 = p2.cuotas.find(q => q.key === 'rv@2026-12-27');
+check('Pago y nuevo vigente sin pago registrado del vencimiento: su capital se refinancia y su interés (45.000) sigue como deuda vencida', q2.pendiente === 45000 && q2.estado === 'vencida', `${q2.pendiente} ${q2.estado}`);
+check('Pago y nuevo con desembolso el 27-12, corte 20-12: aún no rige (1.000.000)', F({ ...rb, renovaciones: [rPynR] }, '2026-12-20').capital === 1000000);
+const p3 = F({ ...rb, renovaciones: [rPyn] }, '2026-12-15');
+check('Pago y nuevo sin fecha de desembolso, ya en su mes: por revisar, no se supone fin de mes (1.000.000 vigente; 1.200.000 aparte)', p3.capital === 1000000 && p3.porRevisar.capital === 1200000 && p3.proyeccion.total === 0, `${p3.capital} / ${p3.porRevisar.capital}`);
+check('Pago y nuevo sin fecha de desembolso: aviso por revisar', p3.avisos.some(a => /sin fecha de desembolso registrada: por revisar/.test(a)));
+const p4 = F({ ...rb, renovaciones: [rPyn] }, '2027-01-15');
+check('Pago y nuevo sin fecha, pasado su vencimiento: la deuda anterior sigue vencida (1.045.000), la renovación aparte', p4.capital === 1000000 && p4.cuotas.find(q => q.key === 'rv@2026-12-27').pendiente === 1045000 && p4.estadoCredito === 'con_vencidas');
+
+// Antigua (sin modalidad): siempre por revisar.
+const a1 = F({ ...rb, renovaciones: [rAnt] }, '2026-10-22'), a2 = F({ ...rb, renovaciones: [rAnt] }, '2027-01-15');
+check('Antigua: por revisar antes y después de su mes; capital 1.000.000; la renovación (1.000.000) aparte, no como proyección', a1.capital === 1000000 && a2.capital === 1000000 && a1.porRevisar.capital === 1000000 && a1.proyeccion.total === 0, `${a1.capital} ${a2.capital} ${a1.porRevisar.capital}`);
+check('Antigua: el vencimiento anterior no se da por renovado (vence 27-12-2026; al 15-01 sigue vencido)', a1.vencimientoFinal === '2026-12-27' && a2.cuotas.find(q => q.key === 'rv@2026-12-27').estado === 'vencida');
+check('Antigua: aviso por revisar sin modalidad', a1.avisos.some(a => /sin modalidad .*por revisar/.test(a)));
+
+// Extensión: el vencimiento contractual que extiende es una fecha suficiente.
+const e1 = F({ ...rb, renovaciones: [rExt('rv@2026-12-27')] }, '2026-10-22');
+check('Extensión futura: capital 1.000.000, vence 27-12-2026, intereses nuevos como proyección', e1.capital === 1000000 && e1.vencimientoFinal === '2026-12-27' && e1.proyeccion.capital === 0 && e1.proyeccion.interes === 270000 && e1.porDevengar === r2t(45000 - e1.devengado), JSON.stringify(e1.proyeccion));
+const e2 = F({ ...rb, renovaciones: [rExt('rv@2026-12-27')] }, '2027-01-15');
+check('Extensión efectiva: capital 1.000.000, vence 2029', e2.capital === 1000000 && e2.vencimientoFinal > '2029' && e2.proyeccion.total === 0);
+// Parcial: renueva 600.000; el remanente 400.000 se paga al vencimiento.
+const par = { ...rb, renovaciones: [{ ...rExt('rv@2026-12-27', 600000), modalidad: 'parcial' }] };
+check('Parcial futura: capital 1.000.000 (remanente 400.000 + renovado 600.000, sin duplicar)', F(par, '2026-10-22').capital === 1000000);
+const parPag = { ...par, pagos: [{ id: 'pp', vencKey: 'rv@2026-12-27', fecha: '2026-12-27', capital: 400000, interes: 45000 }] };
+check('Parcial efectiva con remanente pagado: capital 600.000', F(parPag, '2027-01-15').capital === 600000, String(F(parPag, '2027-01-15').capital));
+check('Parcial efectiva sin pagar el remanente: 400.000 vencidos + 600.000 renovados', F(par, '2027-01-15').capital === 1000000);
+// Encadenadas: extensión a Dic-27 y luego extensión de esa a Dic-29.
+const ch = { ...rb, renovaciones: [rExt('rv@2026-12-27', 1000000, cq([['Capital+Interés', 'Dic', 2027]])), rExt('rv@R0@0', 1000000, cq([['Capital+Interés', 'Dic', 2029]]))] };
+const c1 = F(ch, '2026-10-22'), c2 = F(ch, '2027-03-31'), c3 = F(ch, '2028-01-15');
+check('Encadenadas, antes de la 1ª: 1.000.000, vence 27-12-2026', c1.capital === 1000000 && c1.vencimientoFinal === '2026-12-27', c1.vencimientoFinal);
+check('Encadenadas, entre la 1ª y la 2ª: 1.000.000, vence Dic-2027 (la 2ª es proyección)', c2.capital === 1000000 && c2.vencimientoFinal.startsWith('2027-12') && c2.proyeccion.interes > 0, c2.vencimientoFinal);
+check('Encadenadas, después de ambas: 1.000.000, vence Dic-2029', c3.capital === 1000000 && c3.vencimientoFinal.startsWith('2029-12') && c3.proyeccion.total === 0, c3.vencimientoFinal);
+// Encadenadas con desembolso real: cada una reemplaza a la anterior al recibirse.
+const chP2 = { ...rb, renovaciones: [pynD({ monto: 1000000, recibido: { fecha: '2026-12-27' }, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) }),
+  pynD({ monto: 1000000, anio_ingreso: 2027, recibido: { fecha: '2027-12-28' }, cuotas: cq([['Capital+Interés', 'Dic', 2029]]) })] };
+const g1 = F(chP2, '2026-10-22'), g2 = F(chP2, '2027-03-31'), g3 = F(chP2, '2028-01-15');
+check('Pago y nuevo encadenados: 1.000.000 en cada corte, nunca 2.000.000 ni 3.000.000', g1.capital === 1000000 && g2.capital === 1000000 && g3.capital === 1000000, `${g1.capital} ${g2.capital} ${g3.capital}`);
+check('Pago y nuevo encadenados: el vencimiento vigente avanza solo al recibirse cada desembolso', g1.vencimientoFinal === '2026-12-27' && g2.vencimientoFinal.startsWith('2027-12') && g3.vencimientoFinal.startsWith('2029-12'), `${g1.vencimientoFinal} ${g2.vencimientoFinal} ${g3.vencimientoFinal}`);
+// Antiguas encadenadas: ambas por revisar; la deuda anterior sigue; nada se suma.
+const chA = { ...rb, renovaciones: [{ ...rAnt, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) }, { ...rAnt, mes_ingreso: 'Dic', anio_ingreso: 2027, cuotas: cq([['Capital+Interés', 'Dic', 2029]]) }] };
+check('Antiguas encadenadas: 1.000.000 vigente en todo corte (la anterior pendiente), las dos aparte por revisar', [F(chA, '2026-10-22'), F(chA, '2027-03-31'), F(chA, '2028-01-15')].every(x => x.capital === 1000000 && x.porRevisar.capital === 2000000));
+// Una renovación propuesta (sin confirmar) no se proyecta ni suma.
+const prop = F({ ...rb, renovaciones: [{ ...rExt('rv@2026-12-27'), confirmada: false }] }, '2026-10-22');
+check('Renovación propuesta: no suma ni se proyecta', prop.capital === 1000000 && prop.proyeccion.total === 0 && prop.vencimientoFinal === '2026-12-27');
+// Extensión sobre una renovación con desembolso por revisar: queda por revisar también.
+const hx = { ...rb, renovaciones: [{ ...rAnt, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) }, rExt('rv@R0@0', 1000000, cq([['Capital+Interés', 'Dic', 2029]]))] };
+const h1 = F(hx, '2026-10-22'), h2 = F(hx, '2028-01-15');
+check('Extensión sobre una antigua por revisar: capital 1.000.000 (el anterior) y la extensión aparte por revisar', h1.capital === 1000000 && h1.porRevisar.capital === 1000000 && h2.capital === 1000000 && h1.proyeccion.capital === 0, `${h1.capital} / ${h1.porRevisar.capital}`);
+// Extensión sobre un pago y nuevo futuro (con fecha): su capital es proyección.
+const hxP = { ...rb, renovaciones: [pynD({ monto: 1000000, recibido: { fecha: '2026-12-27' }, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) }), rExt('rv@R0@0', 1000000, cq([['Capital+Interés', 'Dic', 2029]]))] };
+check('Extensión sobre un pago y nuevo que aún no rige: capital 1.000.000 y 1.000.000 en proyección', F(hxP, '2026-10-22').capital === 1000000 && F(hxP, '2026-10-22').proyeccion.capital === 1000000);
+check('Extensión sobre un pago y nuevo ya vigente: capital 1.000.000', F(hxP, '2027-03-31').capital === 1000000 && F(hxP, '2028-01-15').capital === 1000000);
+// Antigua sin mes de ingreso: por revisar; no suma ambos.
+const sinMes = { ...rb, renovaciones: [{ ...rAnt, mes_ingreso: '', anio_ingreso: '' }] };
+check('Antigua sin mes: 1.000.000 antes y después, vence 27-12-2026, renovación aparte por revisar', F(sinMes, '2026-10-22').capital === 1000000 && F(sinMes, '2027-01-15').capital === 1000000 && F(sinMes, '2026-10-22').vencimientoFinal === '2026-12-27' && F(sinMes, '2027-01-15').porRevisar.capital === 1000000);
+// Extensión futura con intereses pendientes: los cargos del vencimiento vigente siguen en la deuda.
+const conCargos = { ...rb, cuota: 1050000, desglose: { capital: 1000000, interes: 45000, cargos: 5000 } };
+const ePend = F({ ...conCargos, renovaciones: [{ ...rExt('rv@2026-12-27'), intereses: 'pendientes' }] }, '2026-10-22');
+check('Extensión futura (pendientes) con cargos: total igual al crédito sin renovar (1.050.000)', ePend.totalIdentificado === F(conCargos, '2026-10-22').totalIdentificado && ePend.proyeccion.otros === 0, `${ePend.totalIdentificado}`);
+// Cuotas mensuales impagas con una antigua de 300.000: por revisar; el capital vencido sigue.
+const men = { uid: 'mm', empresa: 'Mediterra', acreedor: 'Naranjo', tipo_inst: 'Banco', tipo_cr: 'Cuotas Mensuales', monto: 300000, f_inicio: '2026-09-15', f_venc: '2026-12-15',
+  cuota: 100000, control_desde: '2026-09-15', renovable: true, desglose: { capital: 100000, interes: 0, cargos: 0 },
+  renovaciones: [{ monto: 300000, mes_ingreso: 'Dic', anio_ingreso: 2026, tasa_anual: 9, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) }] };
+check('Cuotas mensuales impagas con antigua por revisar: capital 300.000 (vencido), no 600.000', F(men, '2027-01-15').capital === 300000 && F(men, '2027-01-15').porRevisar.capital === 300000, String(F(men, '2027-01-15').capital));
+
+// Pago y nuevo sobre un crédito de 12 cuotas: refinancia el capital HASTA SU MONTO, de lo
+// vencido al desembolso hacia las cuotas posteriores; lo que no cubre sigue.
+const doceSin = { uid: 'dz', tipo_credito: 'contrato', modalidad: 'manual', empresa: 'Mediterra', acreedor: 'Naranjo', moneda: 'USD', monto: 1200000, fecha_desembolso: '2026-12-01',
+  tasa_anual: 12, base: 'act360', control_desde: '2026-12-01', renovable: true,
+  calendario_manual: Array.from({ length: 12 }, (_, i) => ({ fecha: `2027-${String(i + 1).padStart(2, '0')}-15`, capital: 100000, interes: 10000, cargos: 0 })),
+  pagos: [{ id: 'e', vencKey: 'dz@2027-01-15', fecha: '2027-01-15', capital: 100000, interes: 10000 }, { id: 'f', vencKey: 'dz@2027-02-15', fecha: '2027-02-15', capital: 100000, interes: 10000 }],
+  renovaciones: [{ monto: 900000, tasa_anual: 9, modalidad: 'pago_y_nuevo', confirmada: true, mes_ingreso: 'Mar', anio_ingreso: 2027, cuotas: cq([['Capital+Interés', 'Mar', 2029]]) }] };
+const doce = { ...doceSin, renovaciones: [{ ...doceSin.renovaciones[0], recibido: { fecha: '2027-03-31' } }] };   // desembolso recibido el 31-03-2027
+const dz = F(doce, '2027-04-15');
+check('Pago y nuevo de 900.000 sobre 1.000.000 pendiente: capital 1.000.000 (900.000 nuevo + 100.000 no cubierto), no 1.900.000', dz.capital === 1000000, String(dz.capital));
+check('Pago y nuevo que no cubre todo: se avisa el capital anterior que sigue (100.000)', dz.avisos.some(a => /no cubre todo el capital anterior: quedan 100000 /.test(a)), dz.avisos.join(' | '));
+const qD = (k) => dz.cuotas.find(q => q.key === k);
+check('Cuota posterior refinanciada: se mantiene el interés devengado hasta el desembolso (10.000 × 16/31 = 5.161,29)', qD('dz@2027-04-15').pendiente === 5161.29, String(qD('dz@2027-04-15').pendiente));
+check('Cuotas refinanciadas sin interés devengado al desembolso: nada pendiente (may-nov)', dz.cuotas.filter(q => q.fecha > '2027-04-30' && q.fecha < '2027-12-01').every(q => q.pendiente === 0));
+check('Cuota no cubierta (dic): sigue entera, 100.000 + 10.000', qD('dz@2027-12-15').pendiente === 110000, String(qD('dz@2027-12-15').pendiente));
+check('Cuota vencida antes del desembolso (mar), sin pago: capital refinanciado, el interés 10.000 sigue', qD('dz@2027-03-15').pendiente === 10000 && qD('dz@2027-03-15').estado === 'vencida', `${qD('dz@2027-03-15').pendiente} ${qD('dz@2027-03-15').estado}`);
+check('Antes del mes de ingreso (corte 10-02): el crédito anterior completo, la renovación como proyección', F(doce, '2027-02-10').capital === 1100000 && F(doce, '2027-02-10').proyeccion.capital === 900000);
+const dzS = F(doceSin, '2027-04-15');
+check('Mismo pago y nuevo SIN fecha de desembolso: por revisar; mar-dic (1.000.000) sigue pendiente y no se refinancia nada', dzS.capital === 1000000 && dzS.porRevisar.capital === 900000 && dzS.cuotas.find(q => q.key === 'dz@2027-04-15').pendiente === 110000);
+// Dos pago y nuevo sobre los mismos vencimientos: cada uno toma lo que el otro no tomó.
+const dos = { ...rb, renovaciones: [pynD({ monto: 600000, recibido: { fecha: '2026-12-27' } }), pynD({ monto: 600000, recibido: { fecha: '2026-12-27' } })] };
+check('Dos pago y nuevo de 600.000 sobre un vencimiento de 1.000.000: capital 1.200.000 (sin duplicar)', F(dos, '2027-01-15').capital === 1200000, String(F(dos, '2027-01-15').capital));
+const pynMen = (m) => ({ monto: m, tasa_anual: 9, modalidad: 'pago_y_nuevo', confirmada: true, mes_ingreso: 'Dic', anio_ingreso: 2026, recibido: { fecha: '2026-12-31' }, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) });
+const dosMen = { ...men, renovaciones: [pynMen(200000), pynMen(200000)] };
+check('Dos pago y nuevo repartidos sobre cuotas mensuales: 400.000 (300.000 refinanciados, nada duplicado)', F(dosMen, '2027-01-15').capital === 400000, String(F(dosMen, '2027-01-15').capital));
+// Antigua seguida de antigua sin mes: ambas por revisar, ninguna es proyección ni deuda.
+const chP = { ...rb, renovaciones: [{ ...rAnt, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) }, { ...rAnt, mes_ingreso: '', anio_ingreso: '', cuotas: cq([['Capital+Interés', 'Dic', 2029]]) }] };
+check('Antigua seguida de antigua sin mes: ambas por revisar (2.000.000 aparte), capital 1.000.000, sin proyección', F(chP, '2026-10-22').proyeccion.capital === 0 && F(chP, '2026-10-22').porRevisar.capital === 2000000 && F(chP, '2026-10-22').capital === 1000000, `${F(chP, '2026-10-22').proyeccion.capital} / ${F(chP, '2026-10-22').porRevisar.capital}`);
+// Pago y nuevo sobre un crédito ya extendido: refinancia también el capital que vive en la
+// extensión. Las cuotas de solo interés conservan el interés devengado hasta el desembolso.
+const pagInt = [{ id: 'i', vencKey: 'rv@2026-12-27', fecha: '2026-12-27', interes: 45000 }];
+const ext0 = { monto: 1000000, tasa_anual: 9, modalidad: 'extension', confirmada: true, intereses: 'pagados', venc_origen_key: 'rv@2026-12-27', cuotas: cq([['Solo Interés', 'Jun', 2027], ['Capital+Interés', 'Dic', 2029]]) };
+const pyn28 = { monto: 1000000, tasa_anual: 9, modalidad: 'pago_y_nuevo', confirmada: true, mes_ingreso: 'Mar', anio_ingreso: 2028, recibido: { fecha: '2028-03-31' }, cuotas: cq([['Capital+Interés', 'Dic', 2030]]) };
+const pynExt = { ...rb, pagos: pagInt, renovaciones: [ext0, pyn28] };
+check('Pago y nuevo sobre crédito extendido: capital 1.000.000, no 2.000.000', F(pynExt, '2028-04-15').capital === 1000000, String(F(pynExt, '2028-04-15').capital));
+check('Antes del pago y nuevo, el extendido sigue con 1.000.000 y el nuevo es proyección', F(pynExt, '2028-02-15').capital === 1000000 && F(pynExt, '2028-02-15').proyeccion.capital === 1000000);
+const ext1 = { ...ext0, cuotas: cq([['Solo Interés', 'Jun', 2027], ['Solo Interés', 'Dic', 2027], ['Capital+Interés', 'Dic', 2029]]) };
+const pynSI = { ...rb, pagos: pagInt, renovaciones: [ext1, { ...pyn28, anio_ingreso: 2027, recibido: { fecha: '2027-03-31' } }] };
+const xSI = F(pynSI, '2027-04-15');
+const qSI = (k) => xSI.cuotas.find(q => q.key === k);
+check('Pago y nuevo sobre extensión con cuotas de solo interés: capital 1.000.000', xSI.capital === 1000000, String(xSI.capital));
+check('Cuota de solo interés en curso (jun-27): queda el interés devengado al 31-03 (94/183)', aprox(qSI('rv@R0@0').pendiente, r2t(qSI('rv@R0@0').interes * 94 / 183)), `${qSI('rv@R0@0').pendiente} de ${qSI('rv@R0@0').interes}`);
+check('Cuotas de solo interés y capital posteriores (dic-27, dic-29): nada pendiente', qSI('rv@R0@1').pendiente === 0 && qSI('rv@R0@2').pendiente === 0);
+const antDoce = { ...doce, renovaciones: [{ monto: 300000, mes_ingreso: 'Feb', anio_ingreso: 2027, tasa_anual: 9, cuotas: cq([['Capital+Interés', 'Dic', 2027]]) }, doce.renovaciones[0]] };
+const xAD = F(antDoce, '2027-04-15');
+check('Antigua de 300.000 (por revisar) y pago y nuevo de 900.000 sobre 1.000.000: 1.000.000 (100.000 sin cubrir) y 300.000 aparte', xAD.capital === 1000000 && xAD.porRevisar.capital === 300000, `${xAD.capital} / ${xAD.porRevisar.capital}`);
+check('Antigua sin modalidad: queda señalada para revisión', xAD.avisos.some(a => /sin modalidad .*por revisar/.test(a)));
+// Pago y nuevo con una extensión FUTURA de una cuota del crédito anterior: es capital vigente y
+// puede refinanciarse; aquí el monto se agota antes (de la cuota más próxima a la más lejana).
+const extFut = { monto: 100000, tasa_anual: 9, modalidad: 'extension', confirmada: true, intereses: 'pagados', venc_origen_key: 'dz@2027-12-15', cuotas: cq([['Capital+Interés', 'Dic', 2028]]) };
+const pynExtFut = { ...doce, renovaciones: [extFut, doce.renovaciones[0]] };
+const xEF = F(pynExtFut, '2027-04-15');
+check('Pago y nuevo con extensión futura no cubierta: 1.000.000 (sin duplicar) y la extensión sigue como proyección de interés', xEF.capital === 1000000 && xEF.proyeccion.interes === 9000, `${xEF.capital} / ${JSON.stringify(xEF.proyeccion)}`);
+const xEF2 = F({ ...pynExtFut, renovaciones: [extFut, { ...doce.renovaciones[0], monto: 1000000 }] }, '2027-04-15');
+check('Pago y nuevo de 1.000.000 que alcanza la extensión futura: 1.000.000, sin proyección de ella', xEF2.capital === 1000000 && xEF2.proyeccion.total === 0 && xEF2.cuotas.filter(q => q.key.startsWith('dz@R0@')).every(q => q.pendiente === 0), `${xEF2.capital} / ${JSON.stringify(xEF2.proyeccion)}`);
+check('Misma extensión futura sin pago y nuevo: su capital sigue en la deuda vigente', F({ ...doce, renovaciones: [extFut] }, '2027-04-15').capital === 1000000);
+// Una renovación sin información suficiente no es saldo anterior ni dinero nuevo.
+const antFut = { monto: 200000, mes_ingreso: 'Jun', anio_ingreso: 2027, tasa_anual: 9, cuotas: cq([['Capital+Interés', 'Dic', 2028]]) };
+const xAF = F({ ...doce, renovaciones: [antFut, doce.renovaciones[0]] }, '2027-04-15');
+check('Pago y nuevo no consume una antigua por revisar; la antigua queda aparte (200.000), sin proyectarse', xAF.capital === 1000000 && xAF.porRevisar.capital === 200000 && xAF.proyeccion.capital === 0, `${xAF.capital} / ${xAF.porRevisar.capital}`);
+// Cuota con capital prepagado y refinanciada: el capital pendiente (40.000) se refinancia; el
+// interés devengado hasta el desembolso (31-03) se sigue debiendo y el resto no.
+const pre = { ...doce, renovaciones: [{ ...doce.renovaciones[0], monto: 500000, cuotas: cq([['Capital+Interés', 'Mar', 2029]]) }],
+  pagos: [...doce.pagos, { id: 'pj', vencKey: 'dz@2027-04-15', fecha: '2027-03-01', capital: 60000 }] };
+const qAbr = F(pre, '2027-03-31').cuotas.find(q => q.key === 'dz@2027-04-15');
+check('Cuota con capital prepagado y refinanciada: queda solo el interés devengado al 31-03 (5.161,29)', qAbr.pendiente === 5161.29, String(qAbr.pendiente));
+// Pagos con fecha posterior al corte: no descuentan y se avisa.
+const pPost = F({ ...rb, pagos: [{ id: 'fx', vencKey: 'rv@2026-12-27', fecha: '2026-11-30', capital: 100000 }] }, '2026-10-22');
+check('Pago con fecha posterior al corte: no descuenta (1.000.000) y se avisa', pPost.capital === 1000000 && pPost.avisos.some(a => /posterior al corte: no se descuentan/.test(a)));
+// Detalle: Σ saldo pendiente de las cuotas = total identificado también con renovaciones.
+const malosR = [];
+[[doce, '2027-04-15'], [doce, '2027-02-10'], [doceSin, '2027-04-15'], [pynExt, '2028-04-15'], [pynExtFut, '2027-04-15'], [pynExt, '2028-02-15'], [pynSI, '2027-04-15'], [antDoce, '2027-04-15'], [pre, '2027-03-31'], [dos, '2027-01-15'], [dosMen, '2027-01-15'], [hx, '2026-10-22'], [hxP, '2026-10-22'], [sinMes, '2027-01-15'], [men, '2027-01-15'], [{ ...rb, renovaciones: [rAnt] }, '2026-10-22'], [{ ...rb, renovaciones: [rAnt] }, '2027-01-15'], [{ ...rb, renovaciones: [rPynR] }, '2027-01-15'], [{ ...rb, renovaciones: [rPyn] }, '2027-01-15'], [par, '2026-10-22'], [parPag, '2027-01-15'], [ch, '2027-03-31'], [chA, '2028-01-15'], [chP2, '2027-03-31']].forEach(([c, k]) => {
+  const x = F(c, k); const pend = r2t(x.cuotas.filter(q => q.estado !== 'por_conciliar').reduce((a, q) => a + q.pendiente, 0));
+  if (Math.abs(pend - x.totalIdentificado) > 0.001) malosR.push(`${k}: ${pend} vs ${x.totalIdentificado}`);
+});
+check('Renovaciones: Σ saldo pendiente de cuotas = total identificado', malosR.length === 0, malosR.join(' | '));
+
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

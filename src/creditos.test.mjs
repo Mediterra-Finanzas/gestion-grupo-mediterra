@@ -169,7 +169,11 @@ check('C6c detalle: calendario original posterior = 10-jul, 10-oct, 10-ene-27; e
   s6c.original.map(v => v.fecha).join(',') === '2026-07-10,2026-10-10,2027-01-10' && s6c.escenario.length === 0);
 const c6cap = aplicarPrepago(c6, s6c, 'test');
 const e6c = estadoCredito(c6cap, HOY);
-check('C6c aplicado: crédito cerrado, sin nada en el flujo', e6c.estado === 'cerrado' && suma(flujoCreditosEmpresa('Osiris', [c6cap], { hoy: HOY, ubicar }).prestamos.total) === 0);
+// Prepago con fecha posterior a hoy: el calendario ya no tiene cuotas, y la CAJA del prepago
+// (305.000 = capital + devengado + comisión) sale en su fecha como pago programado (antes no
+// aparecía en ninguna fecha). Regla del CFO 23-10-2026.
+const f6c = flujoCreditosEmpresa('Osiris', [c6cap], { hoy: HOY, ubicar });
+check('C6c aplicado: crédito cerrado; en el flujo solo la caja del prepago en su fecha (305.000)', e6c.estado === 'cerrado' && aprox(suma(f6c.prestamos.total), 305000) && f6c.pagosProgramados.length === 1 && f6c.pagosProgramados[0].fecha === '2026-05-25', String(suma(f6c.prestamos.total)));
 
 // Faltan condiciones → estimación explícita, no se inventa
 const c7 = { ...c2, uid: 'c7', prepago_comision_tipo: '', prepago_comision_valor: '' };
