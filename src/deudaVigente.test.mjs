@@ -140,6 +140,10 @@ for (const [nom, r1] of [['pago y nuevo', pyn({ monto: 1000000 })], ['antigua', 
   const eAB = estadoCreditoAlCorte(cAB, '2027-03-15'), avAB = eAB.avisosVigencia.filter(a => /no cubre/.test(a));
   check(`Pago y nuevo de 600.000 sobre la deuda de una ${nom} de 1.000.000: saldo 1.000.000 y aviso «quedan 400000»`, eAB.saldoCapital === 1000000 && avAB.length === 1 && /quedan 400000 /.test(avAB[0]), `${eAB.saldoCapital} | ${avAB.join(' | ')}`);
 }
+// Caso C: la deuda de la renovación anterior está en dos cuotas y el pago y nuevo cubre una entera.
+const cC = { ...rb, renovaciones: [pyn({ monto: 1000000, cuotas: cq([['Capital+Interés', 'Jun', 2027], ['Capital+Interés', 'Dic', 2027]]) }), pyn({ monto: 500000, mes_ingreso: 'Feb', anio_ingreso: 2027, cuotas: cq([['Capital+Interés', 'Dic', 2028]]) })] };
+const eC = estadoCreditoAlCorte(cC, '2027-03-15'), avC = eC.avisosVigencia.filter(a => /no cubre/.test(a));
+check('Pago y nuevo de 500.000 sobre una renovación de 1.000.000 en dos cuotas: saldo 1.000.000 y aviso «quedan 500000»', eC.saldoCapital === 1000000 && avC.length === 1 && /quedan 500000 /.test(avC[0]), `${eC.saldoCapital} | ${avC.join(' | ')}`);
 // UF: el capital reemplazado = capital de las cuotas de la renovación (redondeado), sin diferencia.
 const uf = { ...rb, uid: 'uf', moneda: 'UF', monto: 10000, cuota: 10450, desglose: { capital: 10000, interes: 450, cargos: 0 }, renovaciones: [pyn({ monto: 7000.1234 })] };
 const eUF = estadoCreditoAlCorte(uf, '2027-01-15');

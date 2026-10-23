@@ -958,8 +958,11 @@ export function deudaVigenteAlCorte(c, vencs, corte, { supuestoPagadoHasta = '' 
   const pyns = Object.entries(vig).filter(([ri, o]) => o.pagoYNuevo && o.origenes && estadoRen(Number(ri)) === 'vigente');
   if (pyns.length) {
     const nueva = (k) => { const v = vencs.find(z => z.key === k); return v && v.origen === 'renovacion' && vig[v.renovacion] && !vig[v.renovacion].traslada; };
-    // Deuda nueva de otra renovación: solo cuenta si una renovación vigente la refinancia (en parte).
-    const claves = [...new Set(pyns.flatMap(([, o]) => o.origenes))].filter(k => !nueva(k) || ((reemplazo[k] || {}).monto || 0) > EPS);
+    // Deuda nueva de otra renovación: cuenta (todas sus cuotas) solo si una renovación vigente
+    // refinancia alguna parte de ella; si nadie la toca, es deuda nueva, no capital no cubierto.
+    const renDe = (k) => { const v = vencs.find(z => z.key === k); return v ? v.renovacion : null; };
+    const tocadas = new Set(Object.keys(reemplazo).filter(k => nueva(k) && reemplazo[k].monto > EPS).map(renDe));
+    const claves = [...new Set(pyns.flatMap(([, o]) => o.origenes))].filter(k => !nueva(k) || tocadas.has(renDe(k)));
     const resto = r2m(claves.reduce((a, k) => a + Math.max(0, pendDe[k] - ((reemplazo[k] || {}).monto || 0)), 0));
     if (resto > EPS) avisos.push(`El pago y nuevo no cubre todo el capital anterior: quedan ${resto} (${c.moneda || 'USD'}) como deuda vigente. Si se pagó, registra el pago.`);
   }
