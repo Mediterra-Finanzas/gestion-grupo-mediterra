@@ -286,6 +286,11 @@ check('Pago sin desglose mayor al total pendiente (1.100.000 > 1.045.000): se re
 msj = ''; try { registrarPagoIdempotente(ok1.credito, { vencKey: 'rv@2026-12-27', fecha: '2026-12-28', interes: 1, origen: { clave: 'k4' } }, 'x'); } catch (e) { msj = e.message; }
 check('Cuota ya pagada: un pago adicional se rechaza', /supera lo que debe la cuota/.test(msj), msj);
 check('Pago parcial (500.000 de capital): se registra', registrarPagoIdempotente(rb, { vencKey: 'rv@2026-12-27', fecha: '2026-12-27', capital: 500000, origen: { clave: 'k5' } }, 'x').credito.pagos.length === 1);
+// Un negativo achicaría el total validado (registrarPago lo guarda como 0): casos del revisor.
+msj = ''; try { registrarPagoIdempotente(rb, { vencKey: 'rv@2026-12-27', fecha: '2026-12-27', capital: 1000000, interes: 45000, sinDesglose: 50000, cargos: -50000, origen: { clave: 'k6' } }, 'x'); } catch (e) { msj = e.message; }
+check('Cargos −50.000 + sin desglose 50.000 (total aparente 1.045.000): se rechaza por monto negativo', /no admite montos negativos \(otros cargos\)/.test(msj), msj);
+msj = ''; try { registrarPagoIdempotente(rb, { vencKey: 'rv@2026-12-27', fecha: '2026-12-27', capital: 1000000, interes: -5000, sinDesglose: 50000, origen: { clave: 'k7' } }, 'x'); } catch (e) { msj = e.message; }
+check('Interés −5.000 + sin desglose 50.000: se rechaza por monto negativo', /no admite montos negativos \(interés\)/.test(msj), msj);
 // Un exceso YA guardado no se modifica ni se borra: el crédito se lee igual que antes.
 const hist = { ...rb, pagos: [{ id: 'h', vencKey: 'rv@2026-12-27', fecha: '2026-12-27', capital: 1200000, interes: 45000 }] };
 const eH = estadoCreditoAlCorte(hist, '2027-01-15');

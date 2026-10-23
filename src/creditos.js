@@ -1266,6 +1266,9 @@ export function excesoPagoCuota(c, pago) {
   if (!v) return null;
   const r2m = rMon(c && c.moneda), tol = c && c.moneda === 'UF' ? 0.00005 : EPS, mon = c.moneda || 'USD';
   const nom = { capital: 'capital', interes: 'interés', cargos: 'otros cargos', sinDesglose: 'monto sin desglose' };
+  // Un componente negativo achicaría el total validado (registrarPago lo guarda como 0): se rechaza.
+  const neg = COMP.filter(k => num(pago[k]) < 0);
+  if (neg.length) return `El pago no admite montos negativos (${neg.map(k => nom[k]).join(', ')}). Para corregir un pago, anúlalo con motivo y registra el correcto.`;
   const sobre = ['capital', 'interes', 'cargos'].filter(k => num(pago[k]) - v.pendiente[k] > tol)
     .map(k => `${nom[k]} ${r2m(num(pago[k]))} > pendiente ${r2m(v.pendiente[k])}`);
   const tot = COMP.reduce((a, k) => a + num(pago[k]), 0);
