@@ -134,6 +134,12 @@ check('Dos pago y nuevo, entre ambas: 600.000 + 400.000 no cubierto, con aviso',
 const dosB = { ...rb, renovaciones: [pyn({ monto: 600000 }), pyn({ monto: 200000, mes_ingreso: 'Feb', anio_ingreso: 2027, cuotas: cq([['Capital+Interés', 'Dic', 2028]]) })] };
 const eB = estadoCreditoAlCorte(dosB, '2027-03-15'), avB = eB.avisosVigencia.filter(a => /no cubre/.test(a));
 check('Dos pago y nuevo (600.000 y 200.000) sobre 1.000.000: saldo 1.000.000 y un solo aviso «quedan 200000»', eB.saldoCapital === 1000000 && avB.length === 1 && /quedan 200000 /.test(avB[0]), `${eB.saldoCapital} | ${avB.join(' | ')}`);
+// Pago y nuevo que refinancia EN PARTE la deuda de una renovación anterior con desembolso: se avisa el remanente.
+for (const [nom, r1] of [['pago y nuevo', pyn({ monto: 1000000 })], ['antigua', ant({ cuotas: cq([['Capital+Interés', 'Dic', 2029]]) })]]) {
+  const cAB = { ...rb, renovaciones: [r1, pyn({ monto: 600000, mes_ingreso: 'Feb', anio_ingreso: 2027, cuotas: cq([['Capital+Interés', 'Dic', 2028]]) })] };
+  const eAB = estadoCreditoAlCorte(cAB, '2027-03-15'), avAB = eAB.avisosVigencia.filter(a => /no cubre/.test(a));
+  check(`Pago y nuevo de 600.000 sobre la deuda de una ${nom} de 1.000.000: saldo 1.000.000 y aviso «quedan 400000»`, eAB.saldoCapital === 1000000 && avAB.length === 1 && /quedan 400000 /.test(avAB[0]), `${eAB.saldoCapital} | ${avAB.join(' | ')}`);
+}
 // UF: el capital reemplazado = capital de las cuotas de la renovación (redondeado), sin diferencia.
 const uf = { ...rb, uid: 'uf', moneda: 'UF', monto: 10000, cuota: 10450, desglose: { capital: 10000, interes: 450, cargos: 0 }, renovaciones: [pyn({ monto: 7000.1234 })] };
 const eUF = estadoCreditoAlCorte(uf, '2027-01-15');
