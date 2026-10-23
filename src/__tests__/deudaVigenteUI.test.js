@@ -128,3 +128,15 @@ test('Flujo: los avisos dicen dónde quedan el pago programado y el refinanciami
   expect(src).toMatch(/pagosProgramados:avisoCreditos\.pagosProgramados\|\|\[\], refinanciamientos:avisoCreditos\.refinanciamientos\|\|\[\]/);
   expect(src).toMatch(/pagosProgramados: fc\.pagosProgramados \|\| \[\], refinanciamientos: fc\.refinanciamientos \|\| \[\]/);
 });
+
+test('Pagos de cuota: las dos pantallas registran por la función que rechaza el exceso (sitio de llamada real)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'FinanzasModule.jsx'), 'utf8');
+  // Formulario manual del detalle y pago desde Nómina: ambos pasan por registrarPagoIdempotente.
+  expect((src.match(/registrarPagoIdempotente\(credito, \{ \.\.\.datos/g) || []).length).toBe(1);
+  expect((src.match(/registrarPagoIdempotente\(c, d\.pago/g) || []).length).toBe(1);
+  // Ninguna pantalla llama registrarPago directo (se saltaría la validación).
+  expect(src).not.toMatch(/[^A-Za-z]registrarPago\(/);
+  // Nómina ya no ofrece «registrar igual» un pago que supera lo pendiente.
+  expect(src).not.toMatch(/¿Registrar igual\?/);
+  expect(src).toMatch(/const exceso = excesoPagoCuota\(cred, \{vencKey:vin\.vencKey[^\n]*\n\s*if\(exceso\)\{ alert\(exceso\); return; \}/);
+});

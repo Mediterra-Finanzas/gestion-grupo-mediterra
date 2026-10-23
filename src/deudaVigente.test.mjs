@@ -17,7 +17,8 @@
 //    del crédito anterior y lo proyecta en su mes, sin inventar pagos efectivos.
 import { informeDeuda } from './informeDeuda.js';
 import { estadoCreditoAlCorte, analisisCartera, saldosAlCorte, posicionAlCorte, movimientosCapitalAlCorte, saldoCapitalAl,
-  servicioDeudaPorMes, flujoCreditosEmpresa, ingresosRenovacionFlujo, movimientosFlujoCredito, simularPrepago, aplicarPrepago } from './creditos.js';
+  servicioDeudaPorMes, flujoCreditosEmpresa, ingresosRenovacionFlujo, movimientosFlujoCredito, simularPrepago, aplicarPrepago,
+  excesoPagoCuota, registrarPagoIdempotente } from './creditos.js';
 
 let fallos = 0;
 function check(nombre, cond, extra = '') { console.log(`${cond ? '✓' : '✗ FALLA'}  ${nombre}${extra ? '  — ' + extra : ''}`); if (!cond) fallos++; }
@@ -273,6 +274,23 @@ check('Pago sin desglose del anterior el día del refinanciamiento: capital 900.
 const uf = { ...rb, uid: 'uf', moneda: 'UF', monto: 10000, cuota: 10450, desglose: { capital: 10000, interes: 450, cargos: 0 }, renovaciones: [pyn({ monto: 7000.1234, ...R('2026-12-27') })] };
 const eUF = estadoCreditoAlCorte(uf, '2027-01-15');
 check('UF: pago y nuevo de 7.000,1234 sobre 10.000 → 10.000 exacto (sin diferencia de redondeo)', Math.abs(eUF.saldoCapital - 10000) < 0.00005, String(eUF.saldoCapital));
+
+// ── 9) Un pago no puede superar lo que debe la cuota (se rechaza al registrar) ──
+const ok1 = registrarPagoIdempotente(rb, { vencKey: 'rv@2026-12-27', fecha: '2026-12-27', capital: 1000000, interes: 45000, origen: { clave: 'k1' } }, 'x');
+check('Pago exacto de la cuota (1.000.000 + 45.000): se registra', ok1.credito.pagos.length === 1);
+let msj = '';
+try { registrarPagoIdempotente(rb, { vencKey: 'rv@2026-12-27', fecha: '2026-12-27', capital: 1200000, origen: { clave: 'k2' } }, 'x'); } catch (e) { msj = e.message; }
+check('Pago de capital mayor al de la cuota (1.200.000 > 1.000.000): se rechaza con el motivo', /supera lo que debe la cuota/.test(msj) && /capital 1200000 > pendiente 1000000/.test(msj), msj);
+msj = ''; try { registrarPagoIdempotente(rb, { vencKey: 'rv@2026-12-27', fecha: '2026-12-27', sinDesglose: 1100000, origen: { clave: 'k3' } }, 'x'); } catch (e) { msj = e.message; }
+check('Pago sin desglose mayor al total pendiente (1.100.000 > 1.045.000): se rechaza', /total 1100000 > pendiente 1045000/.test(msj), msj);
+msj = ''; try { registrarPagoIdempotente(ok1.credito, { vencKey: 'rv@2026-12-27', fecha: '2026-12-28', interes: 1, origen: { clave: 'k4' } }, 'x'); } catch (e) { msj = e.message; }
+check('Cuota ya pagada: un pago adicional se rechaza', /supera lo que debe la cuota/.test(msj), msj);
+check('Pago parcial (500.000 de capital): se registra', registrarPagoIdempotente(rb, { vencKey: 'rv@2026-12-27', fecha: '2026-12-27', capital: 500000, origen: { clave: 'k5' } }, 'x').credito.pagos.length === 1);
+// Un exceso YA guardado no se modifica ni se borra: el crédito se lee igual que antes.
+const hist = { ...rb, pagos: [{ id: 'h', vencKey: 'rv@2026-12-27', fecha: '2026-12-27', capital: 1200000, interes: 45000 }] };
+const eH = estadoCreditoAlCorte(hist, '2027-01-15');
+check('Pago histórico con exceso: no se modifica (sigue 1.200.000 de capital registrado) y el crédito se lee igual', hist.pagos[0].capital === 1200000 && eH.saldoCapital === 0 && eH.pagadoCapital === 1200000);
+check('Un exceso ya guardado no impide registrar en otra cuota (validación por cuota)', excesoPagoCuota(hist, { vencKey: 'otra', capital: 1 }) === null);
 
 console.log(fallos ? `\n${fallos} FALLA(S)` : '\nTodo OK');
 process.exit(fallos ? 1 : 0);

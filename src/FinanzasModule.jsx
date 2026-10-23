@@ -14,7 +14,7 @@ import {
   ingresosRenovacion, ingresosRenovacionFlujo, avisosRenovacion, desembolsadoRegistro, MODALIDADES_RENOVACION, renovacionAntigua, vencOrigenRenovacion,
   TRATAMIENTOS_INTERES, trasladoRenovacion, renovacionAmortiza, planRenovaciones,
   estadoDesembolso, registrarDesembolsoRecibido, anularDesembolsoRecibido, registrosDesembolso, desembolsoRecibido,
-  asegurarUids, uidCredito, estadoCredito, estadoCreditoAlCorte, vencimientosCredito, aplicarPagos, registrarPago, anularPago,
+  asegurarUids, uidCredito, estadoCredito, estadoCreditoAlCorte, excesoPagoCuota, vencimientosCredito, aplicarPagos, registrarPago, anularPago,
   puedeAnularCredito, eliminarCredito, esEliminado, prepararGuardadoCreditos, analisisCartera, servicioDeudaPorMes, saldoCapitalAl, simularPrepago, aplicarPrepago,
   calendarioContrato, datosFaltantesContrato, tasaCredito, factorUSD, totalPago, pagosVigentes,
   confirmarImpaga, anularConciliacion, conciliacionesVigentes, porConciliarCartera, registrarPagoIdempotente, pagoPorOrigen,
@@ -17151,7 +17151,9 @@ function CeldaCreditoNomina({it, creditosData, empresa, nominaId, nombreNomina, 
   async function confirmarPago(){
     const tot = ["capital","interes","cargos","sinDesglose"].reduce((a,k)=>a+(Number(f[k])||0),0);
     if(!(tot>0)){ alert("Indica el monto pagado."); return; }
-    if(tot - venc.pendienteTotal > 0.005 && !window.confirm(`El pago (${$c(tot,cred.moneda)}) supera lo pendiente del vencimiento (${$c(venc.pendienteTotal,cred.moneda)}). ¿Registrar igual? El exceso quedará informado.`)) return;
+    // Un pago mayor a lo que debe la cuota no se registra (lo rechaza también Créditos).
+    const exceso = excesoPagoCuota(cred, {vencKey:vin.vencKey, capital:f.capital, interes:f.interes, cargos:f.cargos, sinDesglose:f.sinDesglose});
+    if(exceso){ alert(exceso); return; }
     setEnviando(true);
     const r = await onPagoCredito("registrar", {uid:vin.uid, pago:{vencKey:vin.vencKey, fecha:f.fecha, capital:f.capital, interes:f.interes, cargos:f.cargos, sinDesglose:f.sinDesglose,
       nota:f.nota, origen:{tipo:"nomina", clave, nominaId, itemId:it.id, nombreNomina}}});

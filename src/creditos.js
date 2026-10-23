@@ -1257,6 +1257,21 @@ export function registrarPago(c, pago, usuario = '') {
   return { ...c, pagos: [...(c.pagos || []), nuevo],
     historial: [...(c.historial || []), { ts, usuario, accion: nuevo.tipo === 'prepago' ? 'prepago' : 'pago', detalle: `${nuevo.fecha} · ${r2(tot)} ${c.moneda || 'USD'}${pago.vencKey ? ' · ' + pago.vencKey : ''}` }] };
 }
+// Un pago de cuota no puede superar lo que esa cuota todavía debe (por componente y en total):
+// el exceso distorsionaría el saldo de capital, el reparto de una renovación y el flujo. Se
+// rechaza al REGISTRAR; los pagos ya guardados no se tocan. Devuelve el motivo o null.
+export function excesoPagoCuota(c, pago) {
+  if (!pago || !pago.vencKey) return null;
+  const v = aplicarPagos(c, vencimientosCredito(c)).vencimientos.find(x => x.key === pago.vencKey);
+  if (!v) return null;
+  const r2m = rMon(c && c.moneda), tol = c && c.moneda === 'UF' ? 0.00005 : EPS, mon = c.moneda || 'USD';
+  const nom = { capital: 'capital', interes: 'interés', cargos: 'otros cargos', sinDesglose: 'monto sin desglose' };
+  const sobre = ['capital', 'interes', 'cargos'].filter(k => num(pago[k]) - v.pendiente[k] > tol)
+    .map(k => `${nom[k]} ${r2m(num(pago[k]))} > pendiente ${r2m(v.pendiente[k])}`);
+  const tot = COMP.reduce((a, k) => a + num(pago[k]), 0);
+  if (tot - v.pendienteTotal > tol) sobre.push(`total ${r2m(tot)} > pendiente ${r2m(v.pendienteTotal)}`);
+  return sobre.length ? `El pago supera lo que debe la cuota del ${v.fecha} (${mon}): ${sobre.join('; ')}. Registra solo lo que corresponde a esta cuota; un prepago se registra con «Simular prepago».` : null;
+}
 // Pago con origen externo (p. ej. una línea de nómina): la clave del origen
 // hace que reintentar NO duplique. Si ya hay un pago vigente con esa clave,
 // se devuelve ese mismo (duplicado:true) sin tocar el crédito.
@@ -1269,6 +1284,8 @@ export function registrarPagoIdempotente(c, pago, usuario = '') {
   const ex = pagoPorOrigen(c, clave);
   if (ex) return { credito: c, pagoId: ex.id, duplicado: true };
   if (pago.vencKey && !vencimientosCredito(c).some(v => v.key === pago.vencKey)) throw new Error('El vencimiento vinculado ya no existe en el calendario del crédito.');
+  const exceso = excesoPagoCuota(c, pago);
+  if (exceso) throw new Error(exceso);
   const nuevo = registrarPago(c, pago, usuario);
   return { credito: nuevo, pagoId: nuevo.pagos[nuevo.pagos.length - 1].id, duplicado: false };
 }
