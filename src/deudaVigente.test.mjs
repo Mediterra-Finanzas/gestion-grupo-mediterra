@@ -250,6 +250,17 @@ check('Pago y nuevo de 600.000 con oct-dic pagadas a su vencimiento: 600.000 vig
 const f600 = flujoCreditosEmpresa('Mediterra', [d600], { hoy: '2027-04-15', ubicar: ubicarT });
 const egr600 = r2(SUM(f600.prestamos.total) + SUM(f600.renovaciones.total));
 check('Mismo caso en el flujo (visto el 15-04-27): egresos 1.639.612,90 (sin inventar el interés de jul-sep)', Math.abs(egr600 - 1639612.90) < 0.01, String(egr600));
+// El pago del anterior registrado como pagos de capital de abr-sep el 20-03 (con el nuevo desembolso):
+// su interés futuro tampoco se debe. Interés pendiente al 15-04 = 108.000 (renovación) + 30.000 (oct-dic)
+// + 1.612,90 (abr devengado al 20-03) = 139.612,90; flujo visto el 15-04 = 1.039.612,90.
+const pAS = [...doceSin.pagos, { id: 'm', vencKey: 'dz@2027-03-15', fecha: '2027-03-15', capital: 100000, interes: 10000 },
+  ...['04', '05', '06', '07', '08', '09'].map(mm => ({ id: 'r' + mm, vencKey: `dz@2027-${mm}-15`, fecha: '2027-03-20', capital: 100000 }))];
+const d6 = { ...doceSin, pagos: pAS, renovaciones: [{ ...doceSin.renovaciones[0], monto: 600000, ...R('2027-03-20') }] };
+const e6 = estadoCreditoAlCorte(d6, '2027-04-15');
+check('Pago del anterior registrado como capital el día del refinanciamiento: capital 900.000 e interés pendiente 139.612,90 (sin el interés futuro de abr-sep)',
+  e6.saldoCapital === 900000 && Math.abs(e6.interesPend - 139612.90) < 0.01, `${e6.saldoCapital} / ${e6.interesPend}`);
+const f6 = flujoCreditosEmpresa('Mediterra', [d6], { hoy: '2027-04-15', ubicar: ubicarT });
+check('Mismo caso en el flujo: 1.039.612,90 (no inventa 58.387,10 de interés)', Math.abs(r2(SUM(f6.prestamos.total) + SUM(f6.renovaciones.total)) - 1039612.90) < 0.01, String(r2(SUM(f6.prestamos.total) + SUM(f6.renovaciones.total))));
 // UF: el capital reemplazado = capital de las cuotas de la renovación (redondeado), sin diferencia.
 const uf = { ...rb, uid: 'uf', moneda: 'UF', monto: 10000, cuota: 10450, desglose: { capital: 10000, interes: 450, cargos: 0 }, renovaciones: [pyn({ monto: 7000.1234, ...R('2026-12-27') })] };
 const eUF = estadoCreditoAlCorte(uf, '2027-01-15');

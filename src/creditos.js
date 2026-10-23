@@ -967,6 +967,7 @@ export function deudaVigenteAlCorte(c, vencs, corte, { supuestoPagadoDesde = '',
       x -= t; r.asignado += t;
       const pagadoPost = Math.max(0, o.bruto[k] - pendDe[k]);
       r.monto = Math.min(pendDe[k], Math.max(r.monto, r.asignado - pagadoPost));
+      r.bruto = Math.max(r.bruto || 0, o.bruto[k]);
       if (o.fecha < r.desde) r.desde = o.fecha; reemplazo[k] = r;
     });
     // Cuotas de solo interés posteriores de un crédito o renovación refinanciado: su interés
@@ -1031,7 +1032,9 @@ export function deudaVigenteAlCorte(c, vencs, corte, { supuestoPagadoDesde = '',
       const tc = Math.min(pend.capital, rem.monto), ts = Math.min(pend.sinDesglose, rem.monto - tc);
       pend.capital -= tc; pend.sinDesglose -= ts;
       aj.reemplazado.capital = tc; aj.reemplazado.sinDesglose = ts;
-      const p = base0 > EPS ? Math.min(1, (tc + ts) / base0) : (rem.pInteres || 0);
+      // Proporción refinanciada = lo asignado sobre el saldo AL REFINANCIAR: incluye la parte que
+      // ya se pagó con el nuevo desembolso (su interés futuro tampoco se debe).
+      const p = rem.bruto > EPS ? Math.min(1, (rem.asignado || 0) / rem.bruto) : (base0 > EPS ? Math.min(1, (tc + ts) / base0) : (rem.pInteres || 0));
       if (v.fecha > rem.desde && p > EPS && rem.planificada) {
         // Proyección con solo el MES del refinanciamiento: no se inventa un día para prorratear.
         // La cuota cuyo período está en curso ese mes conserva su interés completo (se paga al
