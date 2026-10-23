@@ -17,7 +17,7 @@
 //    del crédito anterior y lo proyecta en su mes, sin inventar pagos efectivos.
 import { informeDeuda } from './informeDeuda.js';
 import { estadoCreditoAlCorte, analisisCartera, saldosAlCorte, posicionAlCorte, movimientosCapitalAlCorte, saldoCapitalAl,
-  servicioDeudaPorMes, flujoCreditosEmpresa, ingresosRenovacionFlujo, movimientosFlujoCredito } from './creditos.js';
+  servicioDeudaPorMes, flujoCreditosEmpresa, ingresosRenovacionFlujo, movimientosFlujoCredito, simularPrepago, aplicarPrepago } from './creditos.js';
 
 let fallos = 0;
 function check(nombre, cond, extra = '') { console.log(`${cond ? '✓' : '✗ FALLA'}  ${nombre}${extra ? '  — ' + extra : ''}`); if (!cond) fallos++; }
@@ -161,13 +161,18 @@ check('Pago y nuevo previsto: abr-dic del crédito anterior ya no salen en sus m
 check('Pago y nuevo previsto: el nuevo desembolso (900.000) entra en marzo como ingreso de renovación', ingresosRenovacionFlujo(doceSin).some(x => x.fecha.startsWith('2027-03') && x.monto === 900000));
 const fP = flujoCreditosEmpresa('Mediterra', [doceSin], { hoy: hoy2 });
 check('Pago y nuevo previsto: el pago con el refinanciamiento se identifica como proyección (no es un pago efectivo)', fP.refinanciamientos.some(x => x.tipo === 'pago_refinanciamiento' && x.fecha === '2027-03-01') && (doceSin.pagos || []).length === 2);
-// Pago y nuevo ya recibido (31-03), visto el 15-04: abr-nov refinanciadas no salen; queda el interés
-// vencido de mar (10.000) y el devengado de abr al 31-03 (5.161,29), arrastrados al mes en curso;
-// dic (no cubierto) sigue en dic. No se proyecta ningún pago del crédito anterior (ya ocurrió).
+// Pago y nuevo ya recibido (31-03), visto el 15-04, SIN pago registrado del crédito anterior: el
+// desembolso ya entró a la caja, pero el pago del anterior no consta, así que NO se da por hecho:
+// sale pendiente en el mes en curso (900.000, rotulado), junto con el interés vencido de mar (10.000)
+// y el devengado de abr al 31-03 (5.161,29). abr-nov ya no salen en sus meses; dic (no cubierto) sigue.
 const sV = serv(doce, '2027-04-15');
-check('Pago y nuevo recibido: abril = 10.000 (interés vencido de mar) + 5.161,29 (devengado de abr al desembolso)', r2(m(sV, '2027-04').total) === 15161.29, JSON.stringify(m(sV, '2027-04')));
-check('Pago y nuevo recibido: may-nov sin pagos del crédito anterior; dic con 110.000 no cubiertos', ['05', '08', '11'].every(x => !(m(sV, `2027-${x}`).total > 0.005)) && r2(m(sV, '2027-12').total) === 110000);
-check('Pago y nuevo recibido: no se proyecta un pago del crédito anterior', !flujoCreditosEmpresa('Mediterra', [doce], { hoy: '2027-04-15' }).refinanciamientos.some(x => x.tipo === 'pago_refinanciamiento'));
+check('Pago y nuevo recibido sin pago registrado del anterior: abril = 900.000 pendientes + 10.000 + 5.161,29', r2(m(sV, '2027-04').total) === 915161.29, JSON.stringify(m(sV, '2027-04')));
+check('Pago y nuevo recibido: may-nov sin cuotas del crédito anterior; dic con 110.000 no cubiertos', ['05', '08', '11'].every(x => !(m(sV, `2027-${x}`).total > 0.005)) && r2(m(sV, '2027-12').total) === 110000);
+check('Pago y nuevo recibido: el pago del crédito anterior queda «sin registrar», no se da por hecho', flujoCreditosEmpresa('Mediterra', [doce], { hoy: '2027-04-15' }).refinanciamientos.some(x => x.tipo === 'pago_refinanciamiento_sin_registrar' && x.fechaRefinanciamiento === '2027-03-31'));
+// Con el pago del crédito anterior registrado (31-03), no queda nada pendiente de él (no se duplica).
+const doceP = { ...doce, pagos: [...doce.pagos, ...['03', '04', '05', '06', '07', '08', '09', '10', '11'].map(mm => ({ id: 'q' + mm, vencKey: `dz@2027-${mm}-15`, fecha: '2027-03-31', capital: 100000 }))] };
+const sVP = serv(doceP, '2027-04-15');
+check('Pago y nuevo recibido con el pago del anterior registrado: abril sin pago pendiente del anterior', !flujoCreditosEmpresa('Mediterra', [doceP], { hoy: '2027-04-15' }).refinanciamientos.some(x => /pago_refinanciamiento/.test(x.tipo)) && r2(m(sVP, '2027-04').total) < 100000, JSON.stringify(m(sVP, '2027-04')));
 // Bullet con pago y nuevo previsto en el mes del vencimiento: el vencimiento se paga en su fecha y el
 // desembolso entra ese mes (sin suponer un día para prorratear intereses).
 const sB = serv(cPF, hoy);
@@ -199,6 +204,40 @@ const eC = estadoCreditoAlCorte(cC, '2027-03-15'), avC = eC.avisosVigencia.filte
 check('Pago y nuevo de 500.000 sobre una renovación de 1.000.000 en dos cuotas: saldo 1.000.000 y aviso «quedan 500000»', eC.saldoCapital === 1000000 && avC.length === 1 && /quedan 500000 /.test(avC[0]), `${eC.saldoCapital} | ${avC.join(' | ')}`);
 const dosMismoDia = { ...rb, renovaciones: [pyn({ monto: 600000, ...R('2026-12-27') }), pyn({ monto: 600000, ...R('2026-12-27') })] };
 check('Dos pago y nuevo el mismo día (600.000 + 600.000): 1.200.000; el 2º no refinancia la deuda que nace ese día', estadoCreditoAlCorte(dosMismoDia, '2027-01-15').saldoCapital === 1200000);
+// Sin fecha de inicio del período no se sabe cuánto estaba devengado al refinanciar: se conserva todo.
+const sinIni = { ...rb, f_inicio: '', renovaciones: [pyn({ monto: 1000000, ...R('2026-10-15') })] };
+const qSI = estadoCreditoAlCorte(sinIni, '2026-10-20').vencimientos.find(v => v.key === 'rv@2026-12-27');
+check('Refinanciado sin fecha de inicio del período: el interés (45.000) se conserva completo, no se da por no devengado', qSI.pendiente.capital === 0 && qSI.pendiente.interes === 45000, JSON.stringify(qSI.pendiente));
+// ── 8) Prepagos con fecha futura (hallazgos de la revisión) ──
+const ubicarT = (iso) => { const [y, mm, d] = iso.split('-').map(Number); const idx = (y - 2026) * 12 + (mm - 4); return { idx: idx >= 0 && idx < 63 ? idx : -1, semIdx: Math.min(3, Math.floor((d - 1) / 7)) }; };
+const SUM = (a) => a.reduce((x, y) => x + y, 0);
+// Registro por vencimiento: prepago total el 10-12-2026 visto el 23-10. Sus «extinciones» no son caja.
+const legM = { uid: 'lm', empresa: 'Allpa Farms', acreedor: 'Banco L', moneda: 'USD', monto: 120000, tipo_cr: 'Cuotas Mensuales', f_inicio: '2026-10-01', f_venc: '2027-10-01', cuota: 11000,
+  desglose: { capital: 10000, interes: 1000, cargos: '' }, tasa: 10, base: 'act360', control_desde: '2026-10-01' };
+const simL = simularPrepago(legM, { fecha: '2026-12-10', modo: 'plazo', total: true, esTotal: true, comisionTipo: 'ninguna' }, H);
+const legP = aplicarPrepago(legM, simL, 'x');
+const cajaL = r2(simL.capital + simL.devengado + simL.comision);
+const fL = flujoCreditosEmpresa('Allpa Farms', [legP], { hoy: H, ubicar: ubicarT });
+check(`Prepago futuro (registro por vencimiento): el flujo saca SU caja (${cajaL}) en dic-26, no las cuotas extinguidas con su interés futuro`,
+  fL.pagosProgramados.length === 1 && fL.pagosProgramados[0].prepago && r2(fL.pagosProgramados[0].usd) === cajaL && Math.abs(fL.prestamos.total[8] - (11000 + cajaL)) < 0.01, `dic ${fL.prestamos.total[8]} · ${fL.pagosProgramados.map(x => x.usd).join(',')}`);
+check('Prepago futuro: las extinciones no cuentan como pagos futuros', estadoCreditoAlCorte(legP, H).pagosFuturos.n === 1 && estadoCreditoAlCorte(legP, H).pagosFuturos.total === cajaL);
+// Contrato: prepago de capital de 100.000 el 01-12-2026, visto el 23-10: no reduce el saldo de hoy.
+const c2 = { uid: 'c2', tipo_credito: 'contrato', empresa: 'Osiris', acreedor: 'Banco B', moneda: 'USD', monto: 400000, fecha_desembolso: '2026-07-10', primer_venc: '2026-10-10', vencimiento_final: '2027-07-10',
+  periodicidad: 3, modalidad: 'lineal', tasa_tipo: 'fija', tasa_anual: 8, base: 'act360', control_desde: '2026-07-10', prepago_comision_tipo: 'ninguna',
+  pagos: [{ id: 'q', vencKey: 'c2@2026-10-10', fecha: '2026-10-10', capital: 100000, interes: 8000 }] };
+const simC = simularPrepago(c2, { fecha: '2026-12-01', capital: 100000, modo: 'plazo' }, H);
+const c2p = aplicarPrepago(c2, simC, 'x');
+check('Prepago futuro (contrato): KPI e informe de hoy no lo descuentan (300.000) y lo informan aparte',
+  estadoCreditoAlCorte(c2p, H).saldoCapital === 300000 && informeDeuda([c2p], H).filas[0].capital === 300000 && estadoCreditoAlCorte(c2p, H).pagosFuturos.n === 1, String(estadoCreditoAlCorte(c2p, H).saldoCapital));
+check('Prepago futuro (contrato): Saldo por Mes nov-26 300.000; dic-26 lo descuenta (200.000) y lo identifica',
+  saldosAlCorte([c2p], '2026-11-30', H).total.capital === 300000 && saldosAlCorte([c2p], '2026-12-31', H).total.capital === 200000 && saldosAlCorte([c2p], '2026-12-31', H).total.pagosProgramados === 100000,
+  `${saldosAlCorte([c2p], '2026-11-30', H).total.capital} / ${saldosAlCorte([c2p], '2026-12-31', H).total.capital}`);
+const fC = flujoCreditosEmpresa('Osiris', [c2p], { hoy: H, ubicar: ubicarT });
+const cajaC = r2(simC.capital + simC.devengado + simC.comision);
+check(`Prepago futuro (contrato): su caja (${cajaC}) sale el 01-12 en el flujo`, fC.pagosProgramados.some(x => x.prepago && x.fecha === '2026-12-01' && r2(x.usd) === cajaC));
+// «Descuenta X de pagos programados» solo cuando el pago cambia el saldo de ESE cierre.
+const sNovP = saldosAlCorte([fut], '2026-11-30', H).total, sDicP = saldosAlCorte([fut], '2026-12-31', H).total;
+check('Pago programado de una cuota que el cierre ya da por pagada: no se informa como descuento (dic-26: 0)', sNovP.pagosProgramados === 5000 && sDicP.pagosProgramados === 0, `${sNovP.pagosProgramados} / ${sDicP.pagosProgramados}`);
 // UF: el capital reemplazado = capital de las cuotas de la renovación (redondeado), sin diferencia.
 const uf = { ...rb, uid: 'uf', moneda: 'UF', monto: 10000, cuota: 10450, desglose: { capital: 10000, interes: 450, cargos: 0 }, renovaciones: [pyn({ monto: 7000.1234, ...R('2026-12-27') })] };
 const eUF = estadoCreditoAlCorte(uf, '2027-01-15');

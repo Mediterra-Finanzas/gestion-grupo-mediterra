@@ -947,12 +947,17 @@ export function deudaVigenteAlCorte(c, vencs, corte, { supuestoPagadoDesde = '',
     const fuente = cand.length ? fuenteDe(cand[cand.length - 1]) : (post.length ? fuenteDe(post[0]) : null);
     const mismo = (v) => o.pagoYNuevo || fuenteDe(v) === fuente;
     o.origenes = [...cand.filter(mismo).reverse(), ...post.filter(mismo)].map(v => v.key);
+    // Pagos de capital del crédito anterior registrados desde la fecha del refinanciamiento: son el
+    // pago hecho con el nuevo desembolso, así que consumen su monto (no se refinancia dos veces).
+    const candPago = (v) => deudaPrevia(v) && !noVigenteNuevo(v) && (!o.planificada || v.fecha > o.limite) && mismo(v);
+    o.pagadoConRenovacion = o.fecha ? vencs.filter(candPago).reduce((a, v) => a + (v.pagos || []).filter(p => p && p.fecha && p.fecha >= o.fecha)
+      .reduce((b, p) => b + num(p.capital) + num(p.sinDesglose), 0), 0) : 0;
   });
   // Reemplazo: el monto de la renovación vigente cubre lo que refinancia hasta agotarse.
   const reemplazo = {};   // key → { monto, desde }
   Object.entries(vig).forEach(([ri, o]) => {
     if (o.traslada || !o.origenes || estadoRen(Number(ri)) !== 'vigente') return;
-    let x = o.monto;
+    let x = Math.max(0, o.monto - (o.pagadoConRenovacion || 0));
     o.origenes.forEach(k => {
       const r = reemplazo[k] || { monto: 0, desde: o.fecha, planificada: o.planificada, limite: o.limite };
       const t = Math.min(x, Math.max(0, pendDe[k] - r.monto)); if (!(t > EPS)) return;
@@ -1036,13 +1041,15 @@ export function deudaVigenteAlCorte(c, vencs, corte, { supuestoPagadoDesde = '',
         // debiendo; el interés futuro del capital refinanciado deja de deberse.
         const fd = fracAl(v.fecha, rem.desde);
         const I = v.interes, pagI = v.pagado ? v.pagado.interes : 0;
-        const dev = I * (fd === null ? 0 : fd);
+        // Sin fecha de inicio del período no se sabe cuánto estaba devengado: se conserva TODO el
+        // interés (lo conservador), nunca se da por no devengado.
+        const dev = I * (fd === null ? 1 : fd);
         const futuro = (I - dev) * (1 - p);
         const nuevo = Math.min(pend.interes, Math.max(0, dev - pagI) + Math.max(0, futuro - Math.max(0, pagI - dev)));
         aj.reemplazado.interes = pend.interes - nuevo; pend.interes = nuevo;
         aj.reemplazado.cargos = pend.cargos * p; pend.cargos -= aj.reemplazado.cargos;
         aj.interesHasta = { fecha: rem.desde, fd: fd === null ? 0 : fd, devengado: Math.min(nuevo, Math.max(0, dev - pagI)), sinInicio: fd === null };
-        if (fd === null) aj.notas.push('sin fecha de inicio del período: no se conoce el interés devengado hasta la renovación');
+        if (fd === null) aj.notas.push('sin fecha de inicio del período: no se conoce el interés devengado hasta la renovación; se conserva completo');
       }
       const rr = r2m(tc + ts);
       if (rr > EPS) aj.notas.push(`renovado: ${rr} de capital reemplazado por la renovación`);
@@ -1100,10 +1107,14 @@ export function deudaVigenteAlCorte(c, vencs, corte, { supuestoPagadoDesde = '',
 export function estadoCreditoAlCorte(c, corte = hoyISO(), hoy = corte) {
   const r2m = rMon(c && c.moneda);
   const ref = corte > hoy ? hoy : corte;
-  const pagosC = ((c && c.pagos) || []).filter(p => p && !p.anulado);
-  const cc = { ...c, _pagosPlan: (c && (c._pagosPlan || c.pagos)) || [], pagos: ((c && c.pagos) || []).filter(p => p && (!p.fecha || p.fecha <= corte)) };
-  const ap = aplicarPagos(cc, vencimientosCredito(c), ref);
-  const dv = deudaVigenteAlCorte(c, ap.vencimientos, corte, corte > hoy ? { supuestoPagadoDesde: hoy, supuestoPagadoHasta: corte, proyeccionDesde: hoy } : {});
+  // Las extinciones de un prepago no son caja: no cuentan como pagos futuros ni programados.
+  const pagosC = ((c && c.pagos) || []).filter(p => p && !p.anulado && p.tipo !== 'extincion');
+  // Un prepago de contrato con fecha posterior al corte todavía no ocurrió: el calendario al
+  // corte no lo aplica (igual que el informe de deuda).
+  const cP = c && Array.isArray(c.prepagos) && c.prepagos.some(p => p && p.fecha > corte) ? { ...c, prepagos: c.prepagos.filter(p => !(p && p.fecha > corte)) } : c;
+  const cc = { ...cP, _pagosPlan: (c && (c._pagosPlan || c.pagos)) || [], pagos: ((c && c.pagos) || []).filter(p => p && (!p.fecha || p.fecha <= corte)) };
+  const ap = aplicarPagos(cc, vencimientosCredito(cP), ref);
+  const dv = deudaVigenteAlCorte(cP, ap.vencimientos, corte, corte > hoy ? { supuestoPagadoDesde: hoy, supuestoPagadoHasta: corte, proyeccionDesde: hoy } : {});
   const resumenPagos = (ps) => ({ n: ps.length, total: r2m(ps.reduce((a, p) => a + totalPago(p), 0)), capital: r2m(ps.reduce((a, p) => a + num(p.capital), 0)), fechas: ps.map(p => p.fecha).sort() });
   const pagosFuturos = resumenPagos(pagosC.filter(p => p.fecha && p.fecha > corte));
   const pagosProgramados = resumenPagos(corte > hoy ? pagosC.filter(p => p.fecha && p.fecha > hoy && p.fecha <= corte) : []);
@@ -1152,7 +1163,8 @@ export function estadoCreditoAlCorte(c, corte = hoyISO(), hoy = corte) {
 //    capital que refinancia sale de las cuotas del crédito anterior. Si es futuro, se proyecta
 //    como «pago del crédito anterior con el refinanciamiento» en su mes previsto, junto con el
 //    interés devengado hasta esa fecha; el desembolso va en «Ingreso Renovación». Si ya
-//    ocurrió, no se proyecta caja (se refinanció) y el interés devengado pendiente se arrastra.
+//    ocurrió y el pago del crédito anterior no está registrado, ese pago NO se da por hecho:
+//    sigue pendiente, arrastrado al mes en curso y rotulado «sin registrar».
 //  · Renovación POR REVISAR (antigua sin modalidad, o pago y nuevo cuyo mes llegó sin fecha
 //    de desembolso): el flujo no la interpreta; queda como estaba y se avisa.
 // Devuelve { vencimientos (pendiente ajustado), extras: [{ tipo, fecha, comp, origen, key }] }.
@@ -1162,7 +1174,13 @@ export function movimientosFlujoCredito(c, hoy = hoyISO()) {
   const todos = aplicarPagos(c, vencs, hoy).vencimientos;   // con los pagos programados aplicados
   const extras = [];
   // 1) Pagos programados: lo que cubren sale en su fecha.
-  const prog = pagosVigentes(c).filter(p => p.vencKey && isoValida(p.fecha) && p.fecha > hoy).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  // Solo pagos de cuota (las extinciones de un prepago no mueven caja).
+  const prog = pagosVigentes(c).filter(p => p.vencKey && (p.tipo || 'pago') === 'pago' && isoValida(p.fecha) && p.fecha > hoy).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  // Prepago con fecha futura: su caja (capital + devengado + comisión) sale en su fecha; el
+  // calendario ya lo aplica (contrato) o lo extingue (registro por vencimiento).
+  pagosVigentes(c).filter(p => p.tipo === 'prepago' && !p.vencKey && isoValida(p.fecha) && p.fecha > hoy).forEach(p => {
+    extras.push({ tipo: 'pago_programado', fecha: p.fecha, comp: { capital: r2m(num(p.capital)), interes: r2m(num(p.interes)), cargos: r2m(num(p.cargos)), sinDesglose: r2m(num(p.sinDesglose)) }, origen: 'cuota', key: null, pagoId: p.id, prepago: true });
+  });
   if (prog.length) {
     const cc = { ...c, _pagosPlan: c.pagos || [], pagos: (c.pagos || []).filter(p => p && (!p.fecha || p.fecha <= hoy)) };
     const aHoy = Object.fromEntries(aplicarPagos(cc, vencs, hoy).vencimientos.map(v => [v.key, v]));
@@ -1189,7 +1207,11 @@ export function movimientosFlujoCredito(c, hoy = hoyISO()) {
       const di = Math.min(pend.interes, ih.devengado); pend.interes -= di;
       extras.push({ tipo: 'interes_refinanciamiento', fecha: desde > hoy ? desde : hoy, comp: { capital: 0, interes: r2m(di), cargos: 0, sinDesglose: 0 }, origen: v.origen, key: v.key });
     }
-    if (desde > hoy && r.capital + r.sinDesglose > EPS) extras.push({ tipo: 'pago_refinanciamiento', fecha: desde, comp: { capital: r2m(r.capital), interes: 0, cargos: 0, sinDesglose: r2m(r.sinDesglose) }, origen: v.origen, key: v.key });
+    // El pago del crédito anterior con el refinanciamiento sale en la fecha del refinanciamiento.
+    // Si esa fecha ya pasó y el pago no está registrado, NO se da por hecho: sigue pendiente y se
+    // arrastra al mes en curso, rotulado (registrar el pago lo retira).
+    if (r.capital + r.sinDesglose > EPS) extras.push({ tipo: desde > hoy ? 'pago_refinanciamiento' : 'pago_refinanciamiento_sin_registrar', fecha: desde > hoy ? desde : hoy,
+      fechaRefinanciamiento: desde, comp: { capital: r2m(r.capital), interes: 0, cargos: 0, sinDesglose: r2m(r.sinDesglose) }, origen: v.origen, key: v.key });
     COMP.forEach(k => { pend[k] = r2m(pend[k]); });
     const tot = r2m(COMP.reduce((s, k) => s + pend[k], 0));
     return { ...v, pendiente: pend, pendienteTotal: tot, vencida: v.vencida && tot > EPS, porConciliar: v.porConciliar && tot > EPS, refinanciada: true };
@@ -1623,7 +1645,8 @@ export function flujoCreditosEmpresa(empresa, creditos, opts = {}) {
     });
     mf.avisos.filter(t => /Pago y nuevo con ingreso previsto en .* por revisar/.test(t)).forEach(t => out.renovacionesPorRevisar.push({ acreedor: c.acreedor, texto: t }));
     // Pagos programados y refinanciamiento: en su fecha, identificados (no son pagos efectivos).
-    const ETQ = { pago_programado: 'pago programado', pago_refinanciamiento: 'pago con el refinanciamiento (proyectado)', interes_refinanciamiento: 'interés devengado al refinanciar' };
+    const ETQ = { pago_programado: 'pago programado', pago_refinanciamiento: 'pago con el refinanciamiento (proyectado)',
+      pago_refinanciamiento_sin_registrar: 'pago con el refinanciamiento sin registrar (arrastrado)', interes_refinanciamiento: 'interés devengado al refinanciar' };
     mf.extras.forEach(x => {
       const f = factorVencimiento(c, x.fecha < hoy ? hoy : x.fecha);
       const usd = r2(COMP.reduce((a, k) => a + x.comp[k], 0) * f);
@@ -1932,7 +1955,15 @@ export function saldosAlCorte(creditos, corte, hoy = hoyISO()) {
     // vencido a hoy sin pago confirmado SIGUE pendiente (vencidoPendiente).
     const supuesto = (v) => corte > hoy && v.fecha >= hoy && v.fecha <= corte;
     const ec = estadoCreditoAlCorte(c, corte, hoy);
-    if (fBase !== null && ec.pagosProgramados.capital > EPS) e.pagosProgramados += ec.pagosProgramados.capital * fBase;
+    // Efecto REAL de los pagos programados en este cierre: capital proyectado sin ellos − con
+    // ellos (un pago de una cuota que el cierre ya da por pagada no cambia nada).
+    const capitalDe = (ex) => ex.vencimientos.reduce((a, v) => (!(v.pendienteTotal > 0) || v.porConciliar || supuesto(v)) ? a
+      : a + (v.pendiente.capital - capitalizadoNoVigenteAl(v, corte)) * factorVencimiento(c, v.fecha < hoy ? hoy : v.fecha), 0);
+    if (fBase !== null && corte > hoy && ec.pagosProgramados.n > 0) {
+      const c0 = { ...c, _pagosPlan: c.pagos || [], pagos: (c.pagos || []).filter(p => p && (!p.fecha || p.fecha <= hoy)),
+        ...(Array.isArray(c.prepagos) ? { prepagos: c.prepagos.filter(p => !(p && p.fecha > hoy)) } : {}) };
+      e.pagosProgramados += Math.max(0, capitalDe(estadoCreditoAlCorte(c0, corte, hoy)) - capitalDe(ec));
+    }
     ec.vencimientos.forEach(v => {
       if (fBase !== null && (v.proyeccion || v.porRevisar) && !supuesto(v)) {
         const fv = factorVencimiento(c, v.fecha < hoy ? hoy : v.fecha);
