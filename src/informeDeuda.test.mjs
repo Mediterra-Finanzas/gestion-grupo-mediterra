@@ -306,7 +306,7 @@ const doce = { uid: 'dz', tipo_credito: 'contrato', modalidad: 'manual', empresa
   renovaciones: [{ monto: 900000, tasa_anual: 9, modalidad: 'pago_y_nuevo', confirmada: true, mes_ingreso: 'Mar', anio_ingreso: 2027, cuotas: cq([['Capital+Interés', 'Mar', 2029]]) }] };
 const dz = F(doce, '2027-04-15');
 check('Pago y nuevo de 900.000 sobre 1.000.000 pendiente: capital 1.000.000 (900.000 nuevo + 100.000 no cubierto), no 1.900.000', dz.capital === 1000000, String(dz.capital));
-check('Pago y nuevo que no cubre todo: se avisa el capital anterior que sigue (100.000)', dz.avisos.some(a => /no cubre todo el capital anterior: quedan 100000/.test(a)), dz.avisos.join(' | '));
+check('Pago y nuevo que no cubre todo: se avisa el capital anterior que sigue (100.000)', dz.avisos.some(a => /no cubre todo el capital anterior: quedan 100000 /.test(a)), dz.avisos.join(' | '));
 const qD = (k) => dz.cuotas.find(q => q.key === k);
 check('Cuota posterior refinanciada: se mantiene el interés devengado hasta la renovación (10.000 × 16/31 = 5.161,29)', qD('dz@2027-04-15').pendiente === 5161.29, String(qD('dz@2027-04-15').pendiente));
 check('Cuotas refinanciadas sin interés devengado a la renovación: nada pendiente (may-nov)', dz.cuotas.filter(q => q.fecha > '2027-04-30' && q.fecha < '2027-12-01').every(q => q.pendiente === 0));

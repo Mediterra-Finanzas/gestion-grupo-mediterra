@@ -952,13 +952,16 @@ export function deudaVigenteAlCorte(c, vencs, corte, { supuestoPagadoHasta = '' 
       reemplazo[v.key] = { monto: 0, desde: o.fecha, pInteres: Math.min(1, z.ref / z.cap) };
     });
   });
-  // Pago y nuevo que no cubre todo: lo que sigue sin refinanciar DESPUÉS de todas las
-  // renovaciones vigentes (si una posterior lo cubre, no se avisa).
-  Object.entries(vig).forEach(([ri, o]) => {
-    if (!o.pagoYNuevo || !o.origenes || estadoRen(Number(ri)) !== 'vigente') return;
-    const resto = r2m(o.origenes.reduce((a, k) => a + Math.max(0, pendDe[k] - ((reemplazo[k] || {}).monto || 0)), 0));
-    if (resto > EPS) avisos.push(`El pago y nuevo de ${r2m(o.monto)} (${c.moneda || 'USD'}) no cubre todo el capital anterior: quedan ${resto} como deuda vigente. Si se pagó, registra el pago.`);
-  });
+  // Pago y nuevo que no cubre todo: capital ANTERIOR (del crédito o de extensiones, no la
+  // deuda nueva de otra renovación con desembolso) que sigue sin refinanciar DESPUÉS de todas
+  // las renovaciones vigentes. Un solo aviso por crédito, así no se suma dos veces.
+  const pyns = Object.entries(vig).filter(([ri, o]) => o.pagoYNuevo && o.origenes && estadoRen(Number(ri)) === 'vigente');
+  if (pyns.length) {
+    const nueva = (k) => { const v = vencs.find(z => z.key === k); return v && v.origen === 'renovacion' && vig[v.renovacion] && !vig[v.renovacion].traslada; };
+    const claves = [...new Set(pyns.flatMap(([, o]) => o.origenes))].filter(k => !nueva(k));
+    const resto = r2m(claves.reduce((a, k) => a + Math.max(0, pendDe[k] - ((reemplazo[k] || {}).monto || 0)), 0));
+    if (resto > EPS) avisos.push(`El pago y nuevo no cubre todo el capital anterior: quedan ${resto} (${c.moneda || 'USD'}) como deuda vigente. Si se pagó, registra el pago.`);
+  }
   // Proyección encadenada: una renovación que no rige y renueva capital nuevo de otra que
   // tampoco rige lo reemplaza en la proyección (no se proyectan ambos).
   const reemplazoProy = {};

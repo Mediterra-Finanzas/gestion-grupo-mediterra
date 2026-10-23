@@ -130,6 +130,10 @@ const dosP = { ...rb, renovaciones: [pyn({ monto: 600000 }), pyn({ monto: 120000
 const eDos = estadoCreditoAlCorte(dosP, '2027-07-15');
 check('Dos pago y nuevo: 1.200.000 vigente y sin aviso de «no cubre» (la 2ª cubrió los 400.000)', eDos.saldoCapital === 1200000 && !eDos.avisosVigencia.some(a => /no cubre/.test(a)), `${eDos.saldoCapital} | ${eDos.avisosVigencia.join(' | ')}`);
 check('Dos pago y nuevo, entre ambas: 600.000 + 400.000 no cubierto, con aviso', estadoCreditoAlCorte(dosP, '2027-01-15').saldoCapital === 1000000 && estadoCreditoAlCorte(dosP, '2027-01-15').avisosVigencia.some(a => /quedan 400000/.test(a)));
+// Dos pago y nuevo que no cubren todo: UN aviso con el capital anterior que sigue (200.000), no 200.000 + 800.000.
+const dosB = { ...rb, renovaciones: [pyn({ monto: 600000 }), pyn({ monto: 200000, mes_ingreso: 'Feb', anio_ingreso: 2027, cuotas: cq([['Capital+Interés', 'Dic', 2028]]) })] };
+const eB = estadoCreditoAlCorte(dosB, '2027-03-15'), avB = eB.avisosVigencia.filter(a => /no cubre/.test(a));
+check('Dos pago y nuevo (600.000 y 200.000) sobre 1.000.000: saldo 1.000.000 y un solo aviso «quedan 200000»', eB.saldoCapital === 1000000 && avB.length === 1 && /quedan 200000 /.test(avB[0]), `${eB.saldoCapital} | ${avB.join(' | ')}`);
 // UF: el capital reemplazado = capital de las cuotas de la renovación (redondeado), sin diferencia.
 const uf = { ...rb, uid: 'uf', moneda: 'UF', monto: 10000, cuota: 10450, desglose: { capital: 10000, interes: 450, cargos: 0 }, renovaciones: [pyn({ monto: 7000.1234 })] };
 const eUF = estadoCreditoAlCorte(uf, '2027-01-15');
