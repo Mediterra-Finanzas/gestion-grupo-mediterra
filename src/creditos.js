@@ -942,8 +942,22 @@ export function deudaVigenteAlCorte(c, vencs, corte, { supuestoPagadoDesde = '',
       return v.renovacion < n && (!o2 || o2.traslada || !o.fecha || !o2.fecha || o2.fecha < o.fecha); };
     // Saldo de la cuota AL REFINANCIAR: lo pendiente hoy + lo pagado desde la fecha del
     // refinanciamiento (ese pago puede ser el pago del anterior hecho con el nuevo desembolso).
-    const pagadoDesde = (v) => (o.fecha && !supuestoPagada(v) ? (v.pagos || []).filter(p => p && p.fecha && p.fecha >= o.fecha && (p.tipo || 'pago') === 'pago')
-      .reduce((a, p) => a + num(p.capital) + num(p.sinDesglose), 0) : 0);
+    // Capital efectivamente imputado (misma imputación que aplicarPagos: un pago sin desglose va
+    // a sin desglose → cargos → interés → capital): lo imputado por todos los pagos menos lo
+    // imputado por los anteriores a la fecha.
+    const imputadoCapital = (v, ps) => {
+      const due = {}; COMP.forEach(k => { due[k] = (v.pendiente[k] || 0) + ((v.pagado || {})[k] || 0); });
+      const pag = { capital: 0, interes: 0, cargos: 0, sinDesglose: 0 }; let sd = 0;
+      ps.forEach(p => { pag.capital += num(p.capital); pag.interes += num(p.interes); pag.cargos += num(p.cargos); sd += num(p.sinDesglose); });
+      ['sinDesglose', 'cargos', 'interes', 'capital'].forEach(k => { if (sd <= EPS) return; const q = Math.min(Math.max(0, due[k] - pag[k]), sd); pag[k] += q; sd -= q; });
+      return Math.min(pag.capital, due.capital) + Math.min(pag.sinDesglose, due.sinDesglose);
+    };
+    const pagadoDesde = (v) => {
+      if (!o.fecha || supuestoPagada(v)) return 0;
+      const ps = (v.pagos || []).filter(p => p && (p.tipo || 'pago') === 'pago');
+      if (!ps.some(p => p.fecha && p.fecha >= o.fecha)) return 0;
+      return Math.max(0, imputadoCapital(v, ps) - imputadoCapital(v, ps.filter(p => !(p.fecha && p.fecha >= o.fecha))));
+    };
     o.bruto = Object.fromEntries(vencs.map(v => [v.key, pendDe[v.key] + pagadoDesde(v)]));
     const previo = (v) => deudaPrevia(v) && !noVigenteNuevo(v) && o.bruto[v.key] > EPS && (!o.planificada || v.fecha > o.limite);
     const hasta = (v) => (o.fecha ? v.fecha <= o.fecha : v.fecha < primera);

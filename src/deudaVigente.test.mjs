@@ -261,6 +261,14 @@ check('Pago del anterior registrado como capital el día del refinanciamiento: c
   e6.saldoCapital === 900000 && Math.abs(e6.interesPend - 139612.90) < 0.01, `${e6.saldoCapital} / ${e6.interesPend}`);
 const f6 = flujoCreditosEmpresa('Mediterra', [d6], { hoy: '2027-04-15', ubicar: ubicarT });
 check('Mismo caso en el flujo: 1.039.612,90 (no inventa 58.387,10 de interés)', Math.abs(r2(SUM(f6.prestamos.total) + SUM(f6.renovaciones.total)) - 1039612.90) < 0.01, String(r2(SUM(f6.prestamos.total) + SUM(f6.renovaciones.total))));
+// Pago del anterior SIN DESGLOSE el día del refinanciamiento: se imputa primero a interés (10.000)
+// y luego a capital (90.000); los 10.000 de capital que quedan en cada cuota se refinancian.
+const pSD = [...doceSin.pagos, { id: 'm', vencKey: 'dz@2027-03-15', fecha: '2027-03-15', capital: 100000, interes: 10000 },
+  ...['04', '05', '06', '07', '08', '09'].map(mm => ({ id: 's' + mm, vencKey: `dz@2027-${mm}-15`, fecha: '2027-03-20', sinDesglose: 100000 }))];
+const dSD = { ...doceSin, pagos: pSD, renovaciones: [{ ...doceSin.renovaciones[0], monto: 600000, ...R('2027-03-20') }] };
+const eSD = estadoCreditoAlCorte(dSD, '2027-04-25');
+check('Pago sin desglose del anterior el día del refinanciamiento: capital 900.000 (no 910.000) y aviso «quedan 300000»',
+  eSD.saldoCapital === 900000 && eSD.avisosVigencia.some(a => /quedan 300000 /.test(a)), `${eSD.saldoCapital} | ${eSD.avisosVigencia.join(' | ')}`);
 // UF: el capital reemplazado = capital de las cuotas de la renovación (redondeado), sin diferencia.
 const uf = { ...rb, uid: 'uf', moneda: 'UF', monto: 10000, cuota: 10450, desglose: { capital: 10000, interes: 450, cargos: 0 }, renovaciones: [pyn({ monto: 7000.1234, ...R('2026-12-27') })] };
 const eUF = estadoCreditoAlCorte(uf, '2027-01-15');
