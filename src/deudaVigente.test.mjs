@@ -238,6 +238,18 @@ check(`Prepago futuro (contrato): su caja (${cajaC}) sale el 01-12 en el flujo`,
 // «Descuenta X de pagos programados» solo cuando el pago cambia el saldo de ESE cierre.
 const sNovP = saldosAlCorte([fut], '2026-11-30', H).total, sDicP = saldosAlCorte([fut], '2026-12-31', H).total;
 check('Pago programado de una cuota que el cierre ya da por pagada: no se informa como descuento (dic-26: 0)', sNovP.pagosProgramados === 5000 && sDicP.pagosProgramados === 0, `${sNovP.pagosProgramados} / ${sDicP.pagosProgramados}`);
+// Pago y nuevo de 600.000 (recibido 20-03) sobre 12 cuotas; ene-mar pagadas a tiempo y oct-dic
+// (las que el refinanciamiento no alcanza) pagadas a su vencimiento: abr-sep quedan refinanciadas.
+const pagosOD = [...doceSin.pagos, { id: 'm', vencKey: 'dz@2027-03-15', fecha: '2027-03-15', capital: 100000, interes: 10000 },
+  ...['10', '11', '12'].map(mm => ({ id: 'p' + mm, vencKey: `dz@2027-${mm}-15`, fecha: `2027-${mm}-15`, capital: 100000, interes: 10000 }))];
+const d600 = { ...doceSin, pagos: pagosOD, renovaciones: [{ ...doceSin.renovaciones[0], monto: 600000, ...R('2027-03-20') }] };
+const e600 = estadoCreditoAlCorte(d600, '2028-01-15');
+// Lo único vencido es el interés de abr devengado hasta el desembolso (10.000 × 5/31 = 1.612,90), sin pago registrado.
+check('Pago y nuevo de 600.000 con oct-dic pagadas a su vencimiento: 600.000 vigente, sin aviso; vencido solo el interés devengado al desembolso (1.612,90), no jul-sep',
+  e600.saldoCapital === 600000 && e600.vencidoTotal === 1612.9 && !e600.avisosVigencia.some(a => /no cubre/.test(a)), `${e600.saldoCapital} · vencido ${e600.vencidoTotal} · ${e600.avisosVigencia.join(' | ')}`);
+const f600 = flujoCreditosEmpresa('Mediterra', [d600], { hoy: '2027-04-15', ubicar: ubicarT });
+const egr600 = r2(SUM(f600.prestamos.total) + SUM(f600.renovaciones.total));
+check('Mismo caso en el flujo (visto el 15-04-27): egresos 1.639.612,90 (sin inventar el interés de jul-sep)', Math.abs(egr600 - 1639612.90) < 0.01, String(egr600));
 // UF: el capital reemplazado = capital de las cuotas de la renovación (redondeado), sin diferencia.
 const uf = { ...rb, uid: 'uf', moneda: 'UF', monto: 10000, cuota: 10450, desglose: { capital: 10000, interes: 450, cargos: 0 }, renovaciones: [pyn({ monto: 7000.1234, ...R('2026-12-27') })] };
 const eUF = estadoCreditoAlCorte(uf, '2027-01-15');

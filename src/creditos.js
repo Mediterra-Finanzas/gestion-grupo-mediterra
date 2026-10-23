@@ -940,34 +940,40 @@ export function deudaVigenteAlCorte(c, vencs, corte, { supuestoPagadoDesde = '',
     // ANTES de esta (no se refinancia, en el mismo acto, la deuda que nace ese mismo día).
     const deudaPrevia = (v) => { if (v.origen !== 'renovacion') return true; const o2 = vig[v.renovacion];
       return v.renovacion < n && (!o2 || o2.traslada || !o.fecha || !o2.fecha || o2.fecha < o.fecha); };
-    const previo = (v) => deudaPrevia(v) && !noVigenteNuevo(v) && pendDe[v.key] > EPS && (!o.planificada || v.fecha > o.limite);
+    // Saldo de la cuota AL REFINANCIAR: lo pendiente hoy + lo pagado desde la fecha del
+    // refinanciamiento (ese pago puede ser el pago del anterior hecho con el nuevo desembolso).
+    const pagadoDesde = (v) => (o.fecha && !supuestoPagada(v) ? (v.pagos || []).filter(p => p && p.fecha && p.fecha >= o.fecha && (p.tipo || 'pago') === 'pago')
+      .reduce((a, p) => a + num(p.capital) + num(p.sinDesglose), 0) : 0);
+    o.bruto = Object.fromEntries(vencs.map(v => [v.key, pendDe[v.key] + pagadoDesde(v)]));
+    const previo = (v) => deudaPrevia(v) && !noVigenteNuevo(v) && o.bruto[v.key] > EPS && (!o.planificada || v.fecha > o.limite);
     const hasta = (v) => (o.fecha ? v.fecha <= o.fecha : v.fecha < primera);
     const cand = vencs.filter(v => previo(v) && hasta(v));
     const post = vencs.filter(v => previo(v) && !hasta(v));
     const fuente = cand.length ? fuenteDe(cand[cand.length - 1]) : (post.length ? fuenteDe(post[0]) : null);
     const mismo = (v) => o.pagoYNuevo || fuenteDe(v) === fuente;
     o.origenes = [...cand.filter(mismo).reverse(), ...post.filter(mismo)].map(v => v.key);
-    // Pagos de capital del crédito anterior registrados desde la fecha del refinanciamiento: son el
-    // pago hecho con el nuevo desembolso, así que consumen su monto (no se refinancia dos veces).
-    const candPago = (v) => deudaPrevia(v) && !noVigenteNuevo(v) && (!o.planificada || v.fecha > o.limite) && mismo(v);
-    o.pagadoConRenovacion = o.fecha ? vencs.filter(candPago).reduce((a, v) => a + (v.pagos || []).filter(p => p && p.fecha && p.fecha >= o.fecha)
-      .reduce((b, p) => b + num(p.capital) + num(p.sinDesglose), 0), 0) : 0;
   });
   // Reemplazo: el monto de la renovación vigente cubre lo que refinancia hasta agotarse.
   const reemplazo = {};   // key → { monto, desde }
   Object.entries(vig).forEach(([ri, o]) => {
     if (o.traslada || !o.origenes || estadoRen(Number(ri)) !== 'vigente') return;
-    let x = Math.max(0, o.monto - (o.pagadoConRenovacion || 0));
+    // El monto se reparte sobre el saldo de cada cuota AL REFINANCIAR (`bruto`). Lo que de esa
+    // parte ya se pagó después (con el nuevo desembolso) no se vuelve a refinanciar; un pago de una
+    // cuota que el refinanciamiento no alcanza no achica el monto.
+    let x = o.monto;
     o.origenes.forEach(k => {
-      const r = reemplazo[k] || { monto: 0, desde: o.fecha, planificada: o.planificada, limite: o.limite };
-      const t = Math.min(x, Math.max(0, pendDe[k] - r.monto)); if (!(t > EPS)) return;
-      r.monto += t; if (o.fecha < r.desde) r.desde = o.fecha; reemplazo[k] = r; x -= t;
+      const r = reemplazo[k] || { monto: 0, asignado: 0, desde: o.fecha, planificada: o.planificada, limite: o.limite };
+      const t = Math.min(x, Math.max(0, o.bruto[k] - r.asignado)); if (!(t > EPS)) return;
+      x -= t; r.asignado += t;
+      const pagadoPost = Math.max(0, o.bruto[k] - pendDe[k]);
+      r.monto = Math.min(pendDe[k], Math.max(r.monto, r.asignado - pagadoPost));
+      if (o.fecha < r.desde) r.desde = o.fecha; reemplazo[k] = r;
     });
     // Cuotas de solo interés posteriores de un crédito o renovación refinanciado: su interés
     // futuro deja de deberse en la proporción del capital refinanciado de esa fuente.
     const fuentes = {};
     o.origenes.forEach(k => { const v = vencs.find(z => z.key === k); const f = String(fuenteDe(v)); const z = fuentes[f] || (fuentes[f] = { cap: 0, ref: 0 });
-      z.cap += pendDe[k]; z.ref += Math.min(pendDe[k], (reemplazo[k] || {}).monto || 0); });
+      z.cap += o.bruto[k]; z.ref += Math.min(o.bruto[k], (reemplazo[k] || {}).asignado || 0); });
     vencs.forEach(v => {
       const z = fuentes[String(fuenteDe(v))];
       if (!z || !(z.ref > EPS) || reemplazo[v.key] || pendDe[v.key] > EPS || !(v.pendiente.interes > EPS) || v.fecha <= o.fecha || noVigenteNuevo(v)) return;
