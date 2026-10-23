@@ -292,6 +292,8 @@ export function informeDeuda(creditos, corte) {
     if (f.sinDesglose > EPS) avisos.push(`${cuotasSD} cuota(s) sin desglosar.`);
     if (f.porConciliar > EPS) avisos.push('Tiene cuotas por conciliar.');
     if (pagosSinFecha) avisos.push(`${pagosSinFecha} pago(s) sin fecha: se consideran pagados.`);
+    const pagosPost = (c.pagos || []).filter(p => p && !p.anulado && p.fecha && p.fecha > corte).length;
+    if (pagosPost) avisos.push(`${pagosPost} pago(s) con fecha posterior al corte: no se descuentan.`);
     if (c.pagado === true && !esContrato(c)) avisos.push('Marcado como pagado, sin fecha de pago.');
     const orig = cifras(f, rM);
     // Crédito cerrado al corte (sin deuda, sin renovación proyectada ni por revisar).

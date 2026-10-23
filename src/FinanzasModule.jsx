@@ -851,7 +851,8 @@ export function avisosCreditosEmpresa(emp, empNombre, creditos, proyOverrides, r
   });
   return { arrastrados: fc.arrastrados, porConciliar: fc.porConciliar, sinTC: fc.sinTC, ovIgnorados, tcAvisos,
     estimados: fc.estimados || [], fueraHorizonte: fc.fueraHorizonte || [],
-    desembolsosPendientesVencidos: fc.desembolsosPendientesVencidos || [], renovaciones: ren };
+    desembolsosPendientesVencidos: fc.desembolsosPendientesVencidos || [], renovaciones: ren,
+    pagosProgramados: fc.pagosProgramados || [], refinanciamientos: fc.refinanciamientos || [], renovacionesPorRevisar: fc.renovacionesPorRevisar || [] };
 }
 // Los mismos avisos en texto, para el subtítulo y el pie del Excel.
 export function textosAvisosCreditos(av) {
@@ -871,7 +872,11 @@ export function textosAvisosCreditos(av) {
   const dpv = av.desembolsosPendientesVencidos || [];
   if (dpv.length) out.push(`ℹ Créditos: ${dpv.length} desembolso(s) con fecha pasada sin registrar como recibido(s) siguen proyectados en su mes original por ${$$(suma(dpv))}: ${lista(dpv)}. Si los fondos ya llegaron, regístralo en el crédito ("Fondos recibidos"); no se da por recibido solo.`);
   const rn = av.renovaciones || { antiguas: [], propuestas: [], incompletas: [] };
-  if (rn.antiguas.length) out.push(`ℹ Créditos: ${rn.antiguas.length} renovación(es) registrada(s) sin modalidad se proyectan como antes (ingreso + cuotas, sin descontar el vencimiento original): ${rn.antiguas.map(r => `${r.acreedor} ${$$(r.monto)}`).join(" · ")}. Define su modalidad y confírmala.`);
+  if (rn.antiguas.length) out.push(`ℹ Créditos: ${rn.antiguas.length} renovación(es) registrada(s) sin modalidad se proyectan como antes (ingreso + cuotas, sin descontar el vencimiento original): ${rn.antiguas.map(r => `${r.acreedor} ${$$(r.monto)}`).join(" · ")}. En los saldos de Créditos quedan POR REVISAR (la deuda anterior sigue pendiente). Define su modalidad y confírmala.`);
+  if ((av.renovacionesPorRevisar || []).length) out.push(`⚠ Créditos: ${av.renovacionesPorRevisar.map(r => `${r.acreedor}: ${r.texto}`).join(" · ")} El flujo la deja como estaba (cuotas del crédito anterior + nuevo desembolso y sus cuotas) hasta registrar la fecha.`);
+  const pp = av.pagosProgramados || [], rf = av.refinanciamientos || [];
+  if (pp.length) out.push(`ℹ Créditos: ${pp.length} pago(s) registrado(s) con fecha futura se proyectan en SU fecha, como pagos programados (no reducen el saldo actual): ${pp.map(x => `${x.acreedor} ${fmtDate(x.fecha)} ${$$(x.usd)}`).join(" · ")}.`);
+  if (rf.length) out.push(`ℹ Créditos: refinanciamiento con pago y nuevo: el capital refinanciado del crédito anterior sale en la fecha del refinanciamiento, no en sus cuotas originales (proyección, no es un pago efectivo): ${rf.map(x => `${x.acreedor} ${fmtDate(x.fecha)} ${x.etiqueta} ${$$(x.usd)}`).join(" · ")}.`);
   if (rn.propuestas.length) out.push(`ℹ Créditos: ${rn.propuestas.length} renovación(es) propuesta(s) NO se proyectan hasta confirmarlas: ${rn.propuestas.map(r => `${r.acreedor} ${$$(r.monto)}`).join(" · ")}.`);
   if (rn.incompletas.length) out.push(`⚠ Créditos: ${rn.incompletas.length} renovación(es) confirmada(s) NO se proyectan por datos faltantes: ${rn.incompletas.map(r => `${r.acreedor} (falta ${r.falta})`).join(" · ")}.`);
   const ivN = (rn.ingresosVencidos || []).filter(r => !r.antigua), ivA = (rn.ingresosVencidos || []).filter(r => r.antigua);
@@ -7721,10 +7726,11 @@ function FlujoEmpresa({empNombre,empresas,realData,onSaveReal,canEdit,saldosBanc
       )}
 
       {/* ── Créditos: desembolsos pendientes con fecha pasada y renovaciones sin definir ── */}
-      {((avisoCreditos.desembolsosPendientesVencidos||[]).length>0||(avisoCreditos.renovaciones?.antiguas||[]).length>0||(avisoCreditos.renovaciones?.propuestas||[]).length>0||(avisoCreditos.renovaciones?.incompletas||[]).length>0||(avisoCreditos.renovaciones?.excesos||[]).length>0||(avisoCreditos.renovaciones?.ingresosVencidos||[]).length>0||(avisoCreditos.renovaciones?.anuladoConIngreso||[]).length>0)&&(
+      {((avisoCreditos.desembolsosPendientesVencidos||[]).length>0||(avisoCreditos.pagosProgramados||[]).length>0||(avisoCreditos.refinanciamientos||[]).length>0||(avisoCreditos.renovacionesPorRevisar||[]).length>0||(avisoCreditos.renovaciones?.antiguas||[]).length>0||(avisoCreditos.renovaciones?.propuestas||[]).length>0||(avisoCreditos.renovaciones?.incompletas||[]).length>0||(avisoCreditos.renovaciones?.excesos||[]).length>0||(avisoCreditos.renovaciones?.ingresosVencidos||[]).length>0||(avisoCreditos.renovaciones?.anuladoConIngreso||[]).length>0)&&(
         <div data-aviso-creditos-desembolso-renovacion style={{background:C.infoBg||C.cardAlt,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",fontSize:11,color:C.text,lineHeight:1.6}}>
           {textosAvisosCreditos({arrastrados:[],estimados:[],fueraHorizonte:[],porConciliar:[],sinTC:[],tcAvisos:[],ovIgnorados:[],
-            desembolsosPendientesVencidos:avisoCreditos.desembolsosPendientesVencidos||[], renovaciones:avisoCreditos.renovaciones}).map((t,i)=><div key={i}>{t}</div>)}
+            desembolsosPendientesVencidos:avisoCreditos.desembolsosPendientesVencidos||[], renovaciones:avisoCreditos.renovaciones,
+            pagosProgramados:avisoCreditos.pagosProgramados||[], refinanciamientos:avisoCreditos.refinanciamientos||[], renovacionesPorRevisar:avisoCreditos.renovacionesPorRevisar||[]}).map((t,i)=><div key={i}>{t}</div>)}
         </div>
       )}
 
@@ -8615,9 +8621,10 @@ export function CreditoDetalleModal({credito, onClose, onSave, canEdit, usuario}
           <KPI label="Sin desglose" value={$c(ev.sinDesglosePend,mon)} color={ev.sinDesglosePend>0?C.yellow:C.muted}/>
           <KPI label="Vencido impago" value={$c(ev.vencidoTotal,mon)} color={ev.vencidoTotal>0?C.red:C.green}/>
         </div>
-        {(ev.proyeccion.total>0||ev.porRevisar.total>0||ev.avisosVigencia.length>0)&&<div data-detalle-renovaciones style={{margin:"0 20px 10px",background:`${C.blue}0d`,border:`1px solid ${C.blue}44`,borderRadius:8,padding:"8px 12px",fontSize:11,lineHeight:1.5}}>
+        {(ev.proyeccion.total>0||ev.porRevisar.total>0||ev.avisosVigencia.length>0||ev.pagosFuturos.n>0)&&<div data-detalle-renovaciones style={{margin:"0 20px 10px",background:`${C.blue}0d`,border:`1px solid ${C.blue}44`,borderRadius:8,padding:"8px 12px",fontSize:11,lineHeight:1.5}}>
           {ev.proyeccion.total>0&&<div>Renovación que aún no rige: {$c(ev.proyeccion.capital,mon)} de capital nuevo y {$c(ev.proyeccion.interes+ev.proyeccion.cargos+ev.proyeccion.sinDesglose,mon)} de intereses y cargos, solo como proyección (no suman a los indicadores de arriba).</div>}
-          {ev.porRevisar.total>0&&<div style={{color:C.orange}}>Renovación por revisar: {$c(ev.porRevisar.total,mon)} aparte, no suma a los indicadores.</div>}
+          {ev.porRevisar.total>0&&<div style={{color:C.orange}}>Renovación por revisar: {$c(ev.porRevisar.total,mon)} aparte, no suma a los indicadores ni reemplaza la deuda anterior.</div>}
+          {ev.pagosFuturos.n>0&&<div>Pagos registrados con fecha futura ({ev.pagosFuturos.fechas.map(fmtDate).join(", ")}): {$c(ev.pagosFuturos.total,mon)}. No descuentan de los indicadores de hoy.</div>}
           {ev.avisosVigencia.map((a,i)=><div key={i} style={{color:C.muted}}>{a}</div>)}
         </div>}
         {e.porConciliarTotal>0&&<div style={{margin:"0 20px 10px",background:"#ede9fe",border:"1px solid #c4b5fd",borderRadius:8,padding:"8px 12px",fontSize:11}}>
@@ -8827,7 +8834,7 @@ function AnalisisCreditos({creditos, empresas}){
         🔎 {$$(tot.pc)} en cuotas históricas por conciliar quedan fuera de todas las cifras de esta vista (ver pestaña Conciliación).
       </div>}
       <AvisosValorizacion s={sHoy}/>
-      <AvisoRenovacionesAlCorte proyeccion={an.proyeccionRenovaciones} porRevisar={an.renovacionesPorRevisar} avisos={an.avisosVigencia}/>
+      <AvisoRenovacionesAlCorte proyeccion={an.proyeccionRenovaciones} porRevisar={an.renovacionesPorRevisar} avisos={an.avisosVigencia} pagosFuturos={an.pagosFuturos}/>
 
       <Card>
         <SectionTitle>Saldos en moneda original y valorización a USD</SectionTitle>
@@ -10032,6 +10039,7 @@ export function Creditos({empresas, creditosData=CREDITOS_DEFAULT, onSaveCredito
       </div>
       <AvisosValorizacion s={sHoyCred}/>
       <AvisoRenovacionesAlCorte proyeccion={sHoyCred.total.proyeccion} porRevisar={sHoyCred.total.porRevisar}
+        pagosFuturos={creditosVisibles.filter(c=>!c.anulado).reduce((a,c)=>{ const f=factorUSD(c); return a+(f===null?0:estadoDe(c).pagosFuturos.total*f); },0)}
         avisos={creditosVisibles.filter(c=>!c.anulado).flatMap(c=>(estadoDe(c).avisosVigencia||[]).map(a=>`${c.empresa} · ${c.acreedor}: ${a}`))}/>
       {kpi.pc>0&&<div style={{fontSize:10.5,color:C.text,background:"#ede9fe",border:"1px solid #c4b5fd",borderRadius:8,padding:"6px 12px"}}>
         {$$(kpi.pc)} en cuotas históricas vencidas sin pago registrado: no se incluyen como deuda confirmada ni en el flujo hasta conciliarlas (pestaña 🔎 Conciliación).
@@ -10791,13 +10799,14 @@ function AvisosValorizacion({s}){
 
 // Renovaciones al corte, compartido por Créditos, Análisis CFO y Saldo por Mes: lo que aún no
 // rige (proyección) y lo por revisar van aparte del saldo; los avisos dicen por qué.
-function AvisoRenovacionesAlCorte({proyeccion=0, porRevisar=0, avisos=[]}){
+function AvisoRenovacionesAlCorte({proyeccion=0, porRevisar=0, avisos=[], pagosFuturos=0}){
   const [ver,setVer]=useState(false);
-  if(!(proyeccion>0.005) && !(porRevisar>0.005) && !avisos.length) return null;
+  if(!(proyeccion>0.005) && !(porRevisar>0.005) && !(pagosFuturos>0.005) && !avisos.length) return null;
   return (
     <div data-aviso-renovaciones style={{fontSize:10.5,color:C.text,background:`${C.blue}0d`,border:`1px solid ${C.blue}44`,borderRadius:8,padding:"6px 12px",lineHeight:1.5}}>
       {proyeccion>0.005&&<div>Renovaciones que aún no rigen: <strong>{$$(proyeccion)}</strong> de capital nuevo, solo como proyección. No suman al saldo vigente ni cambian su vencimiento.</div>}
-      {porRevisar>0.005&&<div style={{color:C.orange}}>Renovaciones por revisar (sin modalidad ni mes de ingreso): <strong>{$$(porRevisar)}</strong> de capital, aparte. El capital anterior sigue como deuda hasta revisarlas.</div>}
+      {porRevisar>0.005&&<div style={{color:C.orange}}>Renovaciones por revisar (sin modalidad o sin fecha confirmada): <strong>{$$(porRevisar)}</strong> de capital, aparte. No se suman ni reemplazan nada: el capital anterior sigue como deuda hasta revisarlas.</div>}
+      {pagosFuturos>0.005&&<div data-pagos-futuros>Pagos registrados con fecha futura: <strong>{$$(pagosFuturos)}</strong>. No descuentan del saldo actual; cuentan desde su fecha en la proyección (flujo y Saldo por Mes).</div>}
       {avisos.length>0&&<div><button onClick={()=>setVer(v=>!v)} style={{background:"none",border:"none",color:C.blue,cursor:"pointer",fontSize:10.5,padding:0,fontWeight:700}}>{ver?"▾":"▸"} {avisos.length} aviso(s) de renovaciones</button>
         {ver&&<ul style={{margin:"4px 0 0 16px",padding:0}}>{avisos.map((a,i)=><li key={i}>{a}</li>)}</ul>}</div>}
     </div>
@@ -10841,12 +10850,13 @@ function SaldoDeudaPorMes({creditos=[], empresas={}, tcData}){
   function exportarExcel(){
     if(factor==null){ alert("No hay TC USD-CLP en Maestros; no se puede exportar en CLP."); return; }
     const head=["Corte"]; emps.forEach(e=>{ head.push(`${e} · capital`, `${e} · sin clasificar`); });
-    head.push("Total capital identificado","Total sin clasificar","Por conciliar (fuera)","Renovaciones que aún no rigen · capital (fuera)","Renovaciones por revisar · capital (fuera)","Incompleto (sin TC)","Estimado","TC desactualizado","UF hipótesis");
+    head.push("Total capital identificado","Tipo de saldo","De ello vencido sin pago (sigue pendiente)","Pagos programados descontados","Total sin clasificar","Por conciliar (fuera)","Renovaciones que aún no rigen · capital (fuera)","Renovaciones por revisar · capital (fuera)","Incompleto (sin TC)","Estimado","TC desactualizado","UF hipótesis");
     const aoa=[[`Saldo de deuda al corte · ${moneda}${moneda==="CLP"?` · TC ${tcCLP.tc} CLP/US$ del ${tcCLP.fecha} (${tcCLP.fuente})`:""}`],head];
     cortes.forEach((k,i)=>{
       const x=saldos[i]; const row=[k.endISO];
       emps.forEach(e=>{ const p=x.porEmpresa[e]||{capital:0,sinClasificar:0}; row.push(Math.round(p.capital*factor*100)/100, Math.round(p.sinClasificar*factor*100)/100); });
-      row.push(Math.round(x.total.capital*factor*100)/100, Math.round(x.total.sinClasificar*factor*100)/100, k.hoy?Math.round(x.total.porConciliar*factor*100)/100:"",
+      row.push(Math.round(x.total.capital*factor*100)/100, k.hoy?"real al corte":"proyectado (supone pagado lo que vence hasta el cierre)", Math.round(x.total.vencidoPendiente*factor*100)/100, Math.round(x.total.pagosProgramados*factor*100)/100,
+        Math.round(x.total.sinClasificar*factor*100)/100, k.hoy?Math.round(x.total.porConciliar*factor*100)/100:"",
         Math.round(x.total.proyeccion*factor*100)/100, Math.round(x.total.porRevisar*factor*100)/100,
         x.incompleto?x.sinTC.map(z=>`${z.acreedor} ${z.moneda} ${z.capital+z.sinClasificar}`).join("; "):"", x.estimado?"sí":"", x.desactualizado?"sí":"", x.ufHipotesis?"sí":"");
       aoa.push(row);
@@ -10864,7 +10874,8 @@ function SaldoDeudaPorMes({creditos=[], empresas={}, tcData}){
         <div style={{flex:1,minWidth:160}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}><img src={LOGO_MEDITERRA} alt="Grupo Mediterra" style={{height:24,width:"auto",objectFit:"contain"}}/><SectionTitle>Saldo de Deuda por Mes</SectionTitle></div>
           <div style={{fontSize:10,color:C.muted}}>Capital identificado y cuotas sin clasificar por separado · valores en miles ({moneda}).
-            La fila "Hoy" es la misma cifra del Análisis CFO; las siguientes suponen pagado lo que vence hasta cada cierre (igual que el flujo).
+            La fila "Hoy" es el saldo REAL al corte (la misma cifra del Análisis CFO). Las siguientes son PROYECTADAS: suponen pagado a su vencimiento lo que vence entre hoy y cada cierre;
+            lo vencido sin pago confirmado sigue pendiente (no desaparece por haber vencido) y los pagos registrados con fecha futura cuentan desde su fecha.
             "Por conciliar" se informa solo en "Hoy": son cuotas históricas no confirmadas, fuera de todas las cifras.</div>
         </div>
         <div style={{display:"flex",gap:4}}>
@@ -10890,7 +10901,8 @@ function SaldoDeudaPorMes({creditos=[], empresas={}, tcData}){
               {emps.map(emp=>{ const e=empresas[emp]||{emoji:"🏢"}; return (
                 <th key={emp} style={{...CR_TH,textAlign:"right"}}>{e.emoji} {emp}<div style={{fontSize:8,fontWeight:400}}>capital · sin clasif.</div></th>
               );})}
-              <th style={{...CR_TH,textAlign:"right"}}>Total capital</th>
+              <th style={{...CR_TH,textAlign:"right"}}>Total capital<div style={{fontSize:8,fontWeight:400}}>real hoy · proyectado</div></th>
+              <th style={{...CR_TH,textAlign:"right"}}>De ello vencido sin pago<div style={{fontSize:8,fontWeight:400}}>sigue pendiente</div></th>
               <th style={{...CR_TH,textAlign:"right"}}>Total sin clasificar</th>
               <th style={{...CR_TH,textAlign:"right"}}>Por conciliar (fuera)</th>
               <th style={{...CR_TH,textAlign:"right"}}>Renovación aún no vigente<div style={{fontSize:8,fontWeight:400}}>capital · fuera del saldo</div></th>
@@ -10900,7 +10912,7 @@ function SaldoDeudaPorMes({creditos=[], empresas={}, tcData}){
           <tbody>
             {cortes.map((k,i)=>{ const x=saldos[i]; return (
               <tr key={k.endISO} style={{borderBottom:`1px solid ${C.border}22`,background:k.hoy?`${C.yellow}10`:"transparent"}}>
-                <td style={{padding:"7px 14px",fontWeight:700,color:C.text,position:"sticky",left:0,background:C.card,zIndex:1}}>{k.label}</td>
+                <td style={{padding:"7px 14px",fontWeight:700,color:C.text,position:"sticky",left:0,background:C.card,zIndex:1}}>{k.label}<div data-tipo-saldo style={{fontSize:8,fontWeight:400,color:C.muted}}>{k.hoy?"real al corte":"proyectado"}</div></td>
                 {emps.map(emp=>{ const p=x.porEmpresa[emp]||{capital:0,sinClasificar:0};
                   const prev = i>0 ? (saldos[i-1].porEmpresa[emp]?.capital||0) : null;
                   const sube = prev!=null && p.capital>prev+0.005;
@@ -10910,7 +10922,8 @@ function SaldoDeudaPorMes({creditos=[], empresas={}, tcData}){
                       {p.sinClasificar>0.005&&<div style={{fontSize:9,color:C.yellow}}>+ {fmtK(p.sinClasificar)} sin clasif.</div>}
                     </td>);
                 })}
-                <td style={{padding:"7px 14px",textAlign:"right",fontWeight:800,color:x.total.capital?C.red:C.green}}>{x.total.capital?fmtK(x.total.capital):"✓"}</td>
+                <td style={{padding:"7px 14px",textAlign:"right",fontWeight:800,color:x.total.capital?C.red:C.green}}>{x.total.capital?fmtK(x.total.capital):"✓"}{x.total.pagosProgramados>0.005&&<div style={{fontSize:9,fontWeight:400,color:C.muted}}>descuenta {fmtK(x.total.pagosProgramados)} de pagos programados</div>}</td>
+                <td data-vencido-mes style={{padding:"7px 14px",textAlign:"right",color:x.total.vencidoPendiente>0.005?C.red:C.muted2}}>{x.total.vencidoPendiente>0.005?fmtK(x.total.vencidoPendiente):"—"}</td>
                 <td style={{padding:"7px 14px",textAlign:"right",color:x.total.sinClasificar?C.yellow:C.muted2}}>{x.total.sinClasificar?fmtK(x.total.sinClasificar):"—"}</td>
                 <td style={{padding:"7px 14px",textAlign:"right",color:k.hoy&&x.total.porConciliar?"#5b21b6":C.muted2}}>{k.hoy&&x.total.porConciliar?fmtK(x.total.porConciliar):"—"}</td>
                 <td data-proy-mes style={{padding:"7px 14px",textAlign:"right",color:C.muted}}>{x.total.proyeccion>0.005?fmtK(x.total.proyeccion):"—"}{x.total.porRevisar>0.005&&<div style={{fontSize:9,color:C.orange}}>{fmtK(x.total.porRevisar)} por revisar</div>}</td>

@@ -323,6 +323,24 @@ Reglas que no hay que romper:
 - **Anular nómina/línea con pago vigente** → `ResolverPagosVinculados`: conservar
   (`anotarPago`) o anular el pago, con motivo; si Créditos no confirma, no se anula.
 - Revisión previa al merge y verificación del prepago: `docs/creditos-revision-pre-merge.md`.
+- **Deuda vigente al corte = una sola fuente** (`deudaVigenteAlCorte` / `estadoCreditoAlCorte` en
+  `creditos.js`): informe de deuda, KPI/lista/detalle de Créditos, Análisis CFO, Saldo por Mes y
+  conciliación con el acreedor (reglas del CFO, 23-10-2026; prueba `node src/deudaVigente.test.mjs`):
+  - Una renovación rige desde su fecha CONFIRMADA: extensión/parcial, el vencimiento que extiende;
+    pago y nuevo, el desembolso recibido (`recibido.fecha`). Antes de su mes es proyección.
+  - **Por revisar** (fuera del saldo, sin reemplazar nada; la deuda anterior sigue pendiente):
+    toda antigua sin modalidad, y el pago y nuevo cuyo mes llegó sin fecha de desembolso. Nunca se
+    supone una fecha (ni el fin de mes).
+  - Vigente: reemplaza solo el capital que refinancia, hasta su monto (= capital de sus cuotas); lo
+    no cubierto sigue (un aviso por crédito). Interés devengado sigue como deuda; deja de deberse
+    solo el futuro del capital refinanciado. No se refinancia deuda de una renovación del mismo día.
+  - Pagos con fecha posterior al corte no reducen el saldo al corte (`pagosFuturos`, avisado).
+  - Saldo por Mes: fila «Hoy» = saldo REAL; cierres futuros = PROYECTADO (supone pagado lo que vence
+    entre hoy y el cierre; lo vencido sin pago sigue pendiente, `vencidoPendiente`; pagos
+    programados desde su fecha).
+  - Flujo y servicio de deuda: `movimientosFlujoCredito` (pago programado en su fecha; pago y nuevo
+    con fecha o previsto saca el capital refinanciado de las cuotas anteriores y, si es futuro, lo
+    proyecta en su mes, sin prorratear con un día supuesto; por revisar: sin cambios y avisado).
 
 #### Anticipos con realizaciones — Allegria Foods (sep-2026)
 

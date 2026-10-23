@@ -295,9 +295,9 @@ test('UF con 4 decimales en Excel, TC declarado rotulado como estimación y aval
 test('renovación que aún no rige: pantalla, Excel y PDF muestran solo la deuda vigente y la renovación como proyección', () => {
   const osb = { uid: 'osb', empresa: 'Osiris', acreedor: 'BCI', tipo_inst: 'Banco', tipo_cr: 'Bullet', monto: 1000000, f_inicio: '2026-06-27', f_venc: '2026-12-27',
     cuota: 1045000, control_desde: '2026-06-27', renovable: true, desglose: { capital: 1000000, interes: 45000, cargos: 0 },
-    renovaciones: [{ monto: 1000000, mes_ingreso: 'Dic', anio_ingreso: 2026, tasa_anual: 9,
+    renovaciones: [{ monto: 1000000, tasa_anual: 9, modalidad: 'pago_y_nuevo', confirmada: true, mes_ingreso: 'Dic', anio_ingreso: 2026,
       cuotas: [{ tipo: 'Solo Interés', mes: 'Jun', anio: 2027 }, { tipo: 'Capital+Interés', mes: 'Dic', anio: 2029 }] }] };
-  const corte = '2026-12-15';   // antes del vencimiento (27-12) y después del mes de ingreso (01-12): ya rige
+  const corte = '2026-12-15';   // en su mes de ingreso, sin fecha de desembolso: por revisar
   const corteAntes = '2026-11-20';
   const { container } = render(<InformeDeudaCreditos creditos={[osb]} tcData={{}} />);
   fireEvent.change(container.querySelector('input[type=date]'), { target: { value: corteAntes } });
@@ -314,6 +314,32 @@ test('renovación que aún no rige: pantalla, Excel y PDF muestran solo la deuda
   expect(res.find(r => /^Renovaciones que aún no rigen/.test(String(r[0])))[1]).toBe(inf.proyeccionRenovaciones.usd);
   const B = bloquesPdfInforme(inf, {});
   expect(B.find(b => b.titulo === 'Resumen').body.find(r => /^Capital/.test(r[0]))[1]).toBe('1,000,000.00');
-  // ya vigente: reemplaza, no suma
+  // en su mes sin fecha de desembolso: por revisar, no se supone el fin de mes; con fecha real: reemplaza, no suma
   expect(informeDeuda([osb], corte).total.capital).toBe(1000000);
+  expect(informeDeuda([osb], corte).renovacionesPorRevisar.usd).toBeGreaterThan(1000000);
+  const osbR = { ...osb, renovaciones: [{ ...osb.renovaciones[0], recibido: { fecha: '2026-12-10' } }] };
+  expect(informeDeuda([osbR], corte).total.capital).toBe(1000000);
+  expect(informeDeuda([osbR], corte).renovacionesPorRevisar.usd).toBe(0);
+});
+
+test('renovación antigua (sin modalidad): por revisar en pantalla, Excel y PDF; la deuda anterior sigue', () => {
+  const osbA = { uid: 'osa', empresa: 'Osiris', acreedor: 'BCI', tipo_inst: 'Banco', tipo_cr: 'Bullet', monto: 1000000, f_inicio: '2026-06-27', f_venc: '2026-12-27',
+    cuota: 1045000, control_desde: '2026-06-27', renovable: true, desglose: { capital: 1000000, interes: 45000, cargos: 0 },
+    renovaciones: [{ monto: 1000000, mes_ingreso: 'Dic', anio_ingreso: 2026, tasa_anual: 9,
+      cuotas: [{ tipo: 'Solo Interés', mes: 'Jun', anio: 2027 }, { tipo: 'Capital+Interés', mes: 'Dic', anio: 2029 }] }] };
+  const corteA = '2027-01-15';
+  const { container } = render(<InformeDeudaCreditos creditos={[osbA]} tcData={{}} />);
+  fireEvent.change(container.querySelector('input[type=date]'), { target: { value: corteA } });
+  const inf = informeDeuda([osbA], corteA);
+  expect(inf.total.capital).toBe(1000000);
+  expect(container.querySelector('[data-indicador="renovacionesPorRevisar"]').textContent).toContain(`US$ ${fmtUSD(inf.renovacionesPorRevisar.usd)}`);
+  expect(container.querySelector('[data-indicador="renovacionesFuturas"]')).toBeNull();
+  fireEvent.click(container.querySelector('[data-fila-credito="osa"]'));
+  expect(container.querySelectorAll('[data-detalle-credito="osa"] [data-cuota="renovacion_por_revisar"]')).toHaveLength(2);
+  expect(container.querySelector('[data-detalle-credito="osa"] [data-cuota="vencida"]')).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /Excel/ }));
+  const res = hojaDe(descargarExcelConLogo.mock.calls[0], 'Resumen');
+  expect(res.find(r => /^Renovaciones por revisar/.test(String(r[0])))[1]).toBe(inf.renovacionesPorRevisar.usd);
+  const B = bloquesPdfInforme(inf, {});
+  expect(B.find(b => b.titulo === 'Resumen').body.some(r => /^Renovaciones por revisar/.test(r[0]))).toBe(true);
 });
